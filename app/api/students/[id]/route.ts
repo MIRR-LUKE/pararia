@@ -35,10 +35,11 @@ export async function PUT(
   { params }: { params: { id: string } }
 ) {
   const body = await request.json();
-  const { name, grade, course, guardianNames, enrollmentDate, birthdate } = body ?? {};
+  const { name, nameKana, grade, course, guardianNames, enrollmentDate, birthdate } = body ?? {};
 
   const data: Record<string, unknown> = {};
   if (name !== undefined) data.name = name;
+  if (nameKana !== undefined) data.nameKana = nameKana;
   if (grade !== undefined) data.grade = grade;
   if (course !== undefined) data.course = course;
   if (guardianNames !== undefined) data.guardianNames = guardianNames;

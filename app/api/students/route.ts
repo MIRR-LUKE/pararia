@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
+import { ensureOrganizationId } from "@/lib/server/organization";
 
 export async function GET() {
   const students = await prisma.student.findMany({
@@ -23,19 +24,20 @@ export async function GET() {
 
 export async function POST(request: Request) {
   const body = await request.json();
-  const { organizationId, name, grade, course, enrollmentDate, birthdate, guardianNames } =
-    body ?? {};
-  if (!organizationId || !name) {
+  const { organizationId, name, nameKana, grade, course, enrollmentDate, birthdate, guardianNames } = body ?? {};
+  if (!name) {
     return NextResponse.json(
-      { error: "organizationId and name are required" },
+      { error: "name is required" },
       { status: 400 }
     );
   }
+  const resolvedOrgId = await ensureOrganizationId(organizationId);
 
   const student = await prisma.student.create({
     data: {
-      organizationId,
+      organizationId: resolvedOrgId,
       name,
+      nameKana,
       grade,
       course,
       enrollmentDate: enrollmentDate ? new Date(enrollmentDate) : undefined,

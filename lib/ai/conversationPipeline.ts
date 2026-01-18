@@ -476,13 +476,15 @@ async function repairMergeOutput(params: {
   issues: string[];
   studentName?: string;
   teacherName?: string;
+  summaryMemos: ChunkSummaryMemo[];
+  extractMemos: ChunkExtractMemo[];
   minSummaryChars: number;
 }): Promise<MergeResult> {
   const { system, user } = buildMergePrompt({
     studentName: params.studentName,
     teacherName: params.teacherName,
-    summaryMemos: [],
-    extractMemos: [],
+    summaryMemos: params.summaryMemos,
+    extractMemos: params.extractMemos,
     minSummaryChars: params.minSummaryChars,
   });
 
@@ -550,6 +552,8 @@ export async function mergeConversationArtifacts(input: {
       issues,
       studentName: input.studentName,
       teacherName: input.teacherName,
+      summaryMemos: input.summaryMemos,
+      extractMemos: input.extractMemos,
       minSummaryChars: input.minSummaryChars,
     });
     result = {

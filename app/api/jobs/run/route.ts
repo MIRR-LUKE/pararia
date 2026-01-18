@@ -5,7 +5,14 @@ export async function POST(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
     const limit = Number(searchParams.get("limit") ?? 3);
-    const result = await processQueuedJobs(Number.isFinite(limit) ? limit : 1);
+    const concurrencyParam = Number(searchParams.get("concurrency"));
+    const envConcurrency = Number(process.env.JOB_CONCURRENCY ?? 3);
+    const concurrency = Number.isFinite(concurrencyParam)
+      ? concurrencyParam
+      : Number.isFinite(envConcurrency)
+        ? envConcurrency
+        : 1;
+    const result = await processQueuedJobs(Number.isFinite(limit) ? limit : 1, concurrency);
     return NextResponse.json(result);
   } catch (e: any) {
     console.error("[POST /api/jobs/run] Error:", {

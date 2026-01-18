@@ -6,6 +6,7 @@ import { prisma } from "@/lib/db";
 import { enqueueConversationJobs } from "@/lib/jobs/conversationJobs";
 import type { ConversationQualityMeta } from "@/lib/types/conversation";
 import { getPromptVersion } from "@/lib/ai/conversationPipeline";
+import { ensureOrganizationId } from "@/lib/server/organization";
 
 export async function POST(request: Request) {
   try {
@@ -13,8 +14,7 @@ export async function POST(request: Request) {
     const formData = await request.formData();
     const file = formData.get("file") as File | null;
     const studentId = formData.get("studentId") as string | null;
-    const organizationId =
-      (formData.get("organizationId") as string | null) ?? "org-demo";
+    const organizationId = await ensureOrganizationId(formData.get("organizationId") as string | null);
     const userId = (formData.get("userId") as string | null) ?? undefined;
 
     if (!file || !studentId) {

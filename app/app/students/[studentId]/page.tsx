@@ -27,6 +27,7 @@ const STATUS_LABEL: Record<string, string> = {
 type StudentData = {
   id: string;
   name: string;
+  nameKana?: string | null;
   grade?: string | null;
   course?: string | null;
   guardianNames?: string | null;
@@ -62,6 +63,7 @@ export default function StudentDetailPage({ params }: { params: { studentId: str
   const [editingBasic, setEditingBasic] = useState(false);
   const [basicDraft, setBasicDraft] = useState({
     name: "",
+    nameKana: "",
     grade: "",
     course: "",
     guardianNames: "",
@@ -95,6 +97,7 @@ export default function StudentDetailPage({ params }: { params: { studentId: str
       setProfile(profileData);
       setBasicDraft({
         name: fetched.name ?? "",
+        nameKana: fetched.nameKana ?? "",
         grade: fetched.grade ?? "",
         course: fetched.course ?? "",
         guardianNames: fetched.guardianNames ?? "",
@@ -158,6 +161,7 @@ export default function StudentDetailPage({ params }: { params: { studentId: str
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name: basicDraft.name,
+          nameKana: basicDraft.nameKana,
           grade: basicDraft.grade,
           course: basicDraft.course,
           guardianNames: basicDraft.guardianNames,
@@ -181,6 +185,7 @@ export default function StudentDetailPage({ params }: { params: { studentId: str
     }
     try {
       setReportLoading(true);
+      setReportPdf(null);
       const res = await fetch("/api/ai/generate-report", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -197,6 +202,9 @@ export default function StudentDetailPage({ params }: { params: { studentId: str
       const data = await res.json();
       setReportMarkdown(data.report.reportMarkdown ?? "");
       setReportPdf(data.pdfBase64 ?? null);
+      if (data.pdfError) {
+        alert(`レポート本文は生成できましたが、PDF生成に失敗しました: ${data.pdfError}`);
+      }
       await fetchStudent();
     } catch (e: any) {
       alert(e?.message ?? "生成に失敗しました");
@@ -284,7 +292,7 @@ export default function StudentDetailPage({ params }: { params: { studentId: str
                     <Card
                       title="生徒基本情報（運営入力）"
                       subtitle="氏名・学年・保護者は手動編集できます"
-                    action={
+                      action={
                         <Button size="small" variant="secondary" onClick={() => setEditingBasic((v) => !v)}>
                           {editingBasic ? "閉じる" : "編集"}
                         </Button>
@@ -297,6 +305,12 @@ export default function StudentDetailPage({ params }: { params: { studentId: str
                             className={styles.input}
                             value={basicDraft.name}
                             onChange={(e) => setBasicDraft((p) => ({ ...p, name: e.target.value }))}
+                          />
+                          <label className={styles.fieldLabel}>フリガナ</label>
+                          <input
+                            className={styles.input}
+                            value={basicDraft.nameKana}
+                            onChange={(e) => setBasicDraft((p) => ({ ...p, nameKana: e.target.value }))}
                           />
                           <label className={styles.fieldLabel}>学年</label>
                           <input
@@ -344,6 +358,10 @@ export default function StudentDetailPage({ params }: { params: { studentId: str
                           <div className={styles.fieldRow}>
                             <div className={styles.fieldKey}>氏名</div>
                             <div className={styles.fieldValue}>{student.name}</div>
+                          </div>
+                          <div className={styles.fieldRow}>
+                            <div className={styles.fieldKey}>フリガナ</div>
+                            <div className={styles.fieldValue}>{student.nameKana ?? "未設定"}</div>
                           </div>
                           <div className={styles.fieldRow}>
                             <div className={styles.fieldKey}>学年</div>

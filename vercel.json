@@ -1,7 +1,11 @@
 {
   "crons": [
     {
-      "path": "/api/maintenance/cleanup?cron_secret=CHANGE_ME",
+      "path": "/api/jobs/run?limit=6&concurrency=3&cron_secret=1f390fcbc78c7c2e6733ebedc386dd68",
+      "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/maintenance/cleanup?cron_secret=1f390fcbc78c7c2e6733ebedc386dd68",
       "schedule": "0 2 * * *"
     }
   ]

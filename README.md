@@ -19,6 +19,7 @@
 - Step2: **4oで統合**し、Summary / Timeline / ToDo / ProfileDelta を確定稿で生成。
 - Step3: **formattedTranscript** を整形（ルール整形 + 4o-mini補正 + 4o最終整合）。
 - 生成完了で **status=DONE**。`rawTextCleaned` は即削除、rawはTTLで削除。
+- Jobsは **並列実行**（同時進行数は `JOB_CONCURRENCY` で調整）。
 
 3) **会話ログ詳細（編集・再生成・削除）**
 - `/app/logs/[logId]` で **Summary / Timeline / ToDo / 全文** を表示。
@@ -58,7 +59,8 @@
 
 - `POST /api/audio` : 音声→STT→会話ログ作成→Jobs投入
 - `POST /api/jobs/run?limit=N` : キュー実行（手動/デバッグ用）
-- `POST /api/jobs/conversation-logs/process` : 旧互換（1件処理）
+- `POST /api/jobs/run?limit=N&concurrency=M` : 並列実行対応
+- `POST /api/jobs/conversation-logs/process` : 旧互換（limit/concurrency可）
 - `POST /api/maintenance/cleanup` : TTL削除（rawText* を掃除）
 - `GET /api/conversations?studentId=...` : 会話ログ一覧
 - `POST /api/conversations` : 手入力ログ作成（Jobs投入）
@@ -79,6 +81,7 @@
 - **STT**: OpenAI Whisper API（`verbose_json`）
 - **チャンク**: 2,000〜3,200 tokens相当、話題境界 + 段落 + 最大長
 - **Step1（メモ）**: 4o-mini（30分以上 or 20,000文字超は4o）
+- **並列実行**: `JOB_CONCURRENCY` を超えない範囲で同時にジョブ実行
 - **Step2（統合）**: 4oで最終稿（Summary/Timeline/ToDo/ProfileDelta）
 - **Step3（整形）**: ルール整形 + 4o-mini補正 + 4o整合
 - **TTL**: rawTextOriginal/rawTextCleaned/rawSegments は 30日。成果物は永続保持。
@@ -100,6 +103,7 @@
 ## 認証 / Cron
 
 - **Basic Auth**: `middleware.ts` で `/app` `/api` を保護
+- **Jobs Cron**: `vercel.json` から `/api/jobs/run?limit=6&concurrency=3&cron_secret=...` を毎分実行
 - **Cleanup Cron**: `vercel.json` から `/api/maintenance/cleanup` を定期実行
 
 ---
@@ -113,6 +117,7 @@ LLM_API_KEY="sk-..."     # 省略時はOPENAI_API_KEYを使用
 BASIC_AUTH_USER="demo"
 BASIC_AUTH_PASS="demo"
 CRON_SECRET="change-me"
+JOB_CONCURRENCY="3"
 ```
 
 ---

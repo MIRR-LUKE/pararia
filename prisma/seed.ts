@@ -1,5 +1,11 @@
-import { PrismaClient } from "@prisma/client";
+import { PrismaClient, ConversationSourceType, ConversationStatus } from "@prisma/client";
 import bcrypt from "bcryptjs";
+import { students as mockStudents, conversationLogs } from "../lib/mockData";
+import {
+  DEFAULT_ORGANIZATION_ID,
+  DEFAULT_ORGANIZATION_NAME,
+  DEFAULT_TEACHER_FULL_NAME,
+} from "../lib/constants";
 
 const prisma = new PrismaClient();
 
@@ -7,7 +13,7 @@ async function main() {
   console.log("🌱 Seeding database...");
 
   // 1. 組織を作成（既に存在する場合はスキップ）
-  const orgId = "org-demo";
+  const orgId = DEFAULT_ORGANIZATION_ID;
   let org = await prisma.organization.findUnique({
     where: { id: orgId },
   });
@@ -16,7 +22,7 @@ async function main() {
     org = await prisma.organization.create({
       data: {
         id: orgId,
-        name: "デモ塾",
+        name: DEFAULT_ORGANIZATION_NAME,
       },
     });
     console.log("✅ Created organization:", org.name);
@@ -46,38 +52,143 @@ async function main() {
     console.log("ℹ️  Admin user already exists:", admin.email);
   }
 
-  // 3. デモ生徒を作成（モックデータと同じIDを使用）
-  const studentId = "s-1";
-  const studentName = "宮本 徹生";
-  let student = await prisma.student.findUnique({
-    where: { id: studentId },
+  // 3. デモ講師ユーザー
+  const teacherEmail = "teacher@demo.com";
+  let teacher = await prisma.user.findUnique({
+    where: { email: teacherEmail },
   });
-
-  if (!student) {
-    student = await prisma.student.create({
+  if (!teacher) {
+    const passwordHash = await bcrypt.hash("demo123", 10);
+    teacher = await prisma.user.create({
       data: {
-        id: studentId, // モックデータと同じIDを明示的に指定
+        email: teacherEmail,
+        passwordHash,
+        name: DEFAULT_TEACHER_FULL_NAME,
+        role: "TEACHER",
         organizationId: orgId,
-        name: studentName,
-        grade: "高校1年",
-        course: "進学コース",
-        enrollmentDate: new Date("2024-04-01"),
-        birthdate: new Date("2009-06-18"),
-        guardianNames: "父: 宮本 健司 / 母: 宮本 明日香",
       },
     });
-    console.log("✅ Created demo student:", student.name, `(ID: ${student.id})`);
-  } else {
-    // 既存の生徒を更新（組織IDが一致することを確認）
-    if (student.organizationId !== orgId) {
-      student = await prisma.student.update({
-        where: { id: studentId },
-        data: { organizationId: orgId },
-      });
-      console.log("✅ Updated demo student organization:", student.name);
-    } else {
-      console.log("ℹ️  Demo student already exists:", student.name, `(ID: ${student.id})`);
-    }
+    console.log("✅ Created teacher user:", teacher.email);
+  }
+
+  const toDeltaItems = (
+    record?: Record<string, { value: string; detail?: string; confidence?: number }>
+  ) =>
+    Object.entries(record ?? {}).map(([field, value]) => ({
+      field,
+      value: value.value,
+      confidence: value.confidence ?? 70,
+      evidence_quotes: [],
+    }));
+
+  // 4. 生徒 + プロフィール
+  for (const student of mockStudents) {
+    const created = await prisma.student.upsert({
+      where: { id: student.id },
+      update: {
+        organizationId: orgId,
+        name: student.name,
+        nameKana: student.nameKana ?? null,
+        grade: student.grade,
+        course: student.course,
+        enrollmentDate: student.enrollmentDate ? new Date(student.enrollmentDate) : null,
+        birthdate: student.birthdate ? new Date(student.birthdate) : null,
+        guardianNames: student.guardianNames ?? null,
+      },
+      create: {
+        id: student.id,
+        organizationId: orgId,
+        name: student.name,
+        nameKana: student.nameKana ?? null,
+        grade: student.grade,
+        course: student.course,
+        enrollmentDate: student.enrollmentDate ? new Date(student.enrollmentDate) : null,
+        birthdate: student.birthdate ? new Date(student.birthdate) : null,
+        guardianNames: student.guardianNames ?? null,
+      },
+    });
+
+    const personalItems = toDeltaItems(student.profile?.personal as any);
+    const basicItems = toDeltaItems(student.profile?.basics as any);
+    const latestLog = conversationLogs
+      .filter((log) => log.studentId === student.id)
+      .sort((a, b) => (a.date < b.date ? 1 : -1))[0];
+
+    await prisma.studentProfile.deleteMany({ where: { studentId: created.id } });
+    await prisma.studentProfile.create({
+      data: {
+        studentId: created.id,
+        summary: student.profile?.summary ?? null,
+        personality: student.profile?.personal?.personality?.value ?? null,
+        motivationSource: student.profile?.personal?.motivationSource?.value ?? null,
+        ngApproach: student.profile?.personal?.ngApproach?.value ?? null,
+        profileData: {
+          basic: basicItems,
+          personal: personalItems,
+          lastUpdatedFromLogId: latestLog?.id,
+        },
+        basicData: { basic: basicItems },
+      },
+    });
+  }
+
+  // 5. 会話ログ
+  for (const log of conversationLogs) {
+    const timeline = (log.keyTopics ?? []).map((topic) => ({
+      title: topic,
+      what_happened: log.summary,
+      coach_point: "",
+      student_state: "",
+      evidence_quotes: (log.keyQuotes ?? []).slice(0, 2),
+    }));
+    const nextActions = (log.nextActions ?? []).map((action) => ({
+      owner: "STUDENT",
+      action,
+      due: "次回面談まで",
+      metric: "",
+      why: "",
+    }));
+    const profileDelta = {
+      basic: toDeltaItems(log.structuredDelta?.basics as any),
+      personal: toDeltaItems(log.structuredDelta?.personal as any),
+    };
+
+    await prisma.conversationLog.upsert({
+      where: { id: log.id },
+      update: {
+        organizationId: orgId,
+        studentId: log.studentId,
+        userId: teacher?.id ?? admin.id,
+        sourceType:
+          log.sourceType === "AUDIO" ? ConversationSourceType.AUDIO : ConversationSourceType.MANUAL,
+        status: ConversationStatus.DONE,
+        summaryMarkdown: log.summary,
+        timelineJson: timeline as any,
+        nextActionsJson: nextActions as any,
+        profileDeltaJson: profileDelta as any,
+        formattedTranscript:
+          log.notes ??
+          [log.summary, ...(log.keyQuotes ?? []).map((q) => `・${q}`)].join("\n"),
+        createdAt: new Date(log.date),
+      },
+      create: {
+        id: log.id,
+        organizationId: orgId,
+        studentId: log.studentId,
+        userId: teacher?.id ?? admin.id,
+        sourceType:
+          log.sourceType === "AUDIO" ? ConversationSourceType.AUDIO : ConversationSourceType.MANUAL,
+        status: ConversationStatus.DONE,
+        summaryMarkdown: log.summary,
+        timelineJson: timeline as any,
+        nextActionsJson: nextActions as any,
+        profileDeltaJson: profileDelta as any,
+        formattedTranscript:
+          log.notes ??
+          [log.summary, ...(log.keyQuotes ?? []).map((q) => `・${q}`)].join("\n"),
+        createdAt: new Date(log.date),
+      },
+    });
   }
 
   console.log("🎉 Seeding completed!");
@@ -85,7 +196,7 @@ async function main() {
   console.log(`   Organization ID: ${orgId}`);
   console.log(`   Admin Email: ${adminEmail}`);
   console.log(`   Admin Password: demo123`);
-  console.log(`   Student ID: ${student.id} (matches mock data: s-1)`);
+  console.log(`   Demo students: ${mockStudents.length}`);
 }
 
 main()
@@ -96,4 +207,3 @@ main()
   .finally(async () => {
     await prisma.$disconnect();
   });
-

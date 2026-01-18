@@ -9,42 +9,46 @@ datasource db {
 }
 
 model Organization {
-  id            String            @id @default(cuid())
-  name          String
-  createdAt     DateTime          @default(now())
-  updatedAt     DateTime          @updatedAt
+  id        String   @id @default(cuid())
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users         User[]
+  students      Student[]
   conversations ConversationLog[]
   reports       Report[]
-  students      Student[]
-  users         User[]
 }
 
 model User {
-  id             String            @id @default(cuid())
+  id             String   @id @default(cuid())
   organizationId String
-  email          String            @unique
+  email          String   @unique
   passwordHash   String
   name           String
-  role           UserRole          @default(TEACHER)
-  conversations  ConversationLog[]
-  organization   Organization      @relation(fields: [organizationId], references: [id])
+  role           UserRole @default(TEACHER)
+
+  organization  Organization   @relation(fields: [organizationId], references: [id])
+  conversations ConversationLog[]
 }
 
 model Student {
-  id             String            @id @default(cuid())
+  id             String   @id @default(cuid())
   organizationId String
   name           String
+  nameKana       String?
   grade          String?
   course         String?
   enrollmentDate DateTime?
   birthdate      DateTime?
   guardianNames  String?
-  createdAt      DateTime          @default(now())
-  updatedAt      DateTime          @updatedAt
-  conversations  ConversationLog[]
-  reports        Report[]
-  organization   Organization      @relation(fields: [organizationId], references: [id])
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization  Organization   @relation(fields: [organizationId], references: [id])
+  conversations ConversationLog[]
   profiles       StudentProfile[]
+  reports        Report[]
 }
 
 model StudentProfile {
@@ -59,70 +63,79 @@ model StudentProfile {
   basicData        Json?
   updatedAt        DateTime @updatedAt
   createdAt        DateTime @default(now())
-  student          Student  @relation(fields: [studentId], references: [id])
+
+  student Student @relation(fields: [studentId], references: [id])
 }
 
 model ConversationLog {
-  id                  String                 @id @default(cuid())
-  organizationId      String
-  studentId           String
-  userId              String?
-  sourceType          ConversationSourceType
-  summary             String                 @default("")
-  keyQuotes           Json?
-  keyTopics           Json?
-  nextActions         Json?
-  structuredDelta     Json?
-  createdAt           DateTime               @default(now())
-  timeSections        Json?
-  extractError        String?
-  extractStatus       JobStatus              @default(PENDING)
-  extractUpdatedAt    DateTime?
-  rawSegments         Json?
-  rawTextCleaned      String                 @default("")
-  rawTextOriginal     String                 @default("")
-  summaryError        String?
-  summaryStatus       JobStatus              @default(PENDING)
-  summaryUpdatedAt    DateTime?
+  id              String             @id @default(cuid())
+  organizationId  String
+  studentId       String
+  userId          String?
+  sourceType      ConversationSourceType
+  status          ConversationStatus @default(PROCESSING)
+
+  // --- Raw transcript storage (TTL) ---
+  rawTextOriginal  String?
+  rawTextCleaned   String?
+  rawSegments      Json?
+  rawTextExpiresAt DateTime?
+
+  // --- LLM outputs (final artifacts) ---
+  summaryMarkdown     String?
+  timelineJson        Json?
+  nextActionsJson     Json?
+  profileDeltaJson    Json?
   formattedTranscript String?
-  timeline            Json?
-  title               String?
-  jobs                ConversationJob[]
-  organization        Organization           @relation(fields: [organizationId], references: [id])
-  student             Student                @relation(fields: [studentId], references: [id])
-  user                User?                  @relation(fields: [userId], references: [id])
+  qualityMetaJson     Json?
+
+  createdAt DateTime @default(now())
+
+  organization Organization   @relation(fields: [organizationId], references: [id])
+  student      Student        @relation(fields: [studentId], references: [id])
+  user         User?          @relation(fields: [userId], references: [id])
+  jobs         ConversationJob[]
 }
 
 model ConversationJob {
   id             String              @id @default(cuid())
   conversationId String
   type           ConversationJobType
-  status         JobStatus           @default(PENDING)
+  status         JobStatus           @default(QUEUED)
+  model          String?
   attempts       Int                 @default(0)
   lastError      String?
+  outputJson     Json?
+  costMetaJson   Json?
   startedAt      DateTime?
   finishedAt     DateTime?
   createdAt      DateTime            @default(now())
   updatedAt      DateTime            @updatedAt
-  conversation   ConversationLog     @relation(fields: [conversationId], references: [id])
+
+  conversation ConversationLog @relation(fields: [conversationId], references: [id])
 
   @@unique([conversationId, type])
   @@index([status, type])
 }
 
 model Report {
-  id             String       @id @default(cuid())
-  studentId      String
-  organizationId String
-  markdown       String
-  json           Json?
-  pdfBase64      String?
-  periodFrom     DateTime?
-  periodTo       DateTime?
-  sourceLogIds   Json?
-  createdAt      DateTime     @default(now())
-  organization   Organization @relation(fields: [organizationId], references: [id])
-  student        Student      @relation(fields: [studentId], references: [id])
+  id               String   @id @default(cuid())
+  studentId        String
+  organizationId   String
+  reportMarkdown   String
+  reportJson       Json?
+  reportPdfBase64  String?
+  periodFrom       DateTime?
+  periodTo         DateTime?
+  sourceLogIds     Json?
+  previousReportId String?
+  createdAt        DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  student      Student      @relation(fields: [studentId], references: [id])
+
+  previousReport Report?  @relation("ReportPrevious", fields: [previousReportId], references: [id])
+  nextReports    Report[] @relation("ReportPrevious")
 }
 
 model AuditLog {
@@ -145,11 +158,21 @@ enum ConversationSourceType {
 enum ConversationJobType {
   SUMMARY
   EXTRACT
+  MERGE
+  FORMAT
+  REPORT
 }
 
 enum JobStatus {
-  PENDING
   RUNNING
-  SUCCESS
-  FAILED
+  QUEUED
+  DONE
+  ERROR
+}
+
+enum ConversationStatus {
+  PROCESSING
+  PARTIAL
+  DONE
+  ERROR
 }

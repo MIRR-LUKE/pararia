@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import { ConversationSourceType, ConversationStatus } from "@prisma/client";
 import { preprocessTranscript } from "@/lib/transcript/preprocess";
 import { enqueueConversationJobs } from "@/lib/jobs/conversationJobs";
+import { ensureOrganizationId } from "@/lib/server/organization";
 
 export async function GET(request: Request) {
   try {
@@ -56,17 +57,11 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   const body = await request.json();
-  const {
-    organizationId,
-    studentId,
-    userId,
-    transcript,
-    sourceType,
-  } = body ?? {};
+  const { organizationId, studentId, userId, transcript, sourceType } = body ?? {};
 
-  if (!organizationId || !studentId) {
+  if (!studentId) {
     return NextResponse.json(
-      { error: "organizationId and studentId are required" },
+      { error: "studentId is required" },
       { status: 400 }
     );
   }
@@ -81,9 +76,10 @@ export async function POST(request: Request) {
   const pre = preprocessTranscript(transcript);
   const expiresAt = new Date();
   expiresAt.setDate(expiresAt.getDate() + 30);
+  const resolvedOrgId = await ensureOrganizationId(organizationId);
   const conversation = await prisma.conversationLog.create({
     data: {
-      organizationId,
+      organizationId: resolvedOrgId,
       studentId,
       userId,
       sourceType:

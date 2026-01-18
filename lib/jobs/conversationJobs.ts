@@ -428,46 +428,77 @@ async function executeJob(job: JobPayload) {
   throw new Error(`unsupported job type: ${job.type}`);
 }
 
-export async function processQueuedJobs(limit = 1): Promise<{ processed: number; errors: string[] }> {
+export async function processQueuedJobs(
+  limit = 1,
+  concurrency = 1
+): Promise<{ processed: number; errors: string[] }> {
   const errors: string[] = [];
   let processed = 0;
+  const maxLimit = Math.max(1, Math.floor(limit));
+  const maxConcurrency = Math.max(1, Math.floor(concurrency));
+  const workerCount = Math.min(maxLimit, maxConcurrency);
+  let remaining = maxLimit;
 
-  for (let i = 0; i < limit; i += 1) {
-    const job = await claimNextJob();
-    if (!job) break;
+  const reserveSlot = () => {
+    if (remaining <= 0) return false;
+    remaining -= 1;
+    return true;
+  };
 
-    try {
-      await executeJob(job);
-      processed += 1;
-    } catch (e: any) {
-      const msg = e?.message ?? "unknown error";
-      errors.push(msg);
-      await prisma.conversationJob.update({
-        where: { id: job.id },
-        data: { status: JobStatus.ERROR, lastError: msg, finishedAt: new Date() },
-      });
-      const existing = await prisma.conversationLog.findUnique({
-        where: { id: job.conversationId },
-        select: { qualityMetaJson: true },
-      });
-      const prev = (existing?.qualityMetaJson as ConversationQualityMeta) ?? {};
-      await prisma.conversationLog.update({
-        where: { id: job.conversationId },
-        data: {
-          qualityMetaJson: {
-            ...prev,
-            errors: [...(prev.errors ?? []), msg],
-          } as any,
-        },
-      });
-      await updateConversationStatus(job.conversationId, ConversationStatus.ERROR);
+  const releaseSlot = () => {
+    remaining += 1;
+  };
+
+  const runWorker = async () => {
+    let idle = 0;
+    while (true) {
+      if (!reserveSlot()) return;
+      const job = await claimNextJob();
+      if (!job) {
+        releaseSlot();
+        idle += 1;
+        if (idle >= 2) return;
+        await new Promise((resolve) => setTimeout(resolve, 200));
+        continue;
+      }
+      idle = 0;
+      try {
+        await executeJob(job);
+        processed += 1;
+      } catch (e: any) {
+        const msg = e?.message ?? "unknown error";
+        errors.push(msg);
+        await prisma.conversationJob.update({
+          where: { id: job.id },
+          data: { status: JobStatus.ERROR, lastError: msg, finishedAt: new Date() },
+        });
+        const existing = await prisma.conversationLog.findUnique({
+          where: { id: job.conversationId },
+          select: { qualityMetaJson: true },
+        });
+        const prev = (existing?.qualityMetaJson as ConversationQualityMeta) ?? {};
+        await prisma.conversationLog.update({
+          where: { id: job.conversationId },
+          data: {
+            qualityMetaJson: {
+              ...prev,
+              errors: [...(prev.errors ?? []), msg],
+            } as any,
+          },
+        });
+        await updateConversationStatus(job.conversationId, ConversationStatus.ERROR);
+      }
     }
-  }
+  };
+
+  await Promise.all(Array.from({ length: workerCount }, () => runWorker()));
 
   return { processed, errors };
 }
 
 export async function processAllConversationJobs(conversationId: string) {
-  const result = await processQueuedJobs(10);
+  const envConcurrency = Number(process.env.JOB_CONCURRENCY ?? 3);
+  const concurrency = Number.isFinite(envConcurrency) ? envConcurrency : 1;
+  const result = await processQueuedJobs(10, concurrency);
   return result;
 }

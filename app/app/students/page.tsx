@@ -228,13 +228,17 @@ export default function StudentsPage() {
                     <Button
                       variant="primary"
                       onClick={async () => {
-                        if (!newStudent.name || !newStudent.nameKana || !newStudent.grade) return;
+                        if (!newStudent.name || !newStudent.nameKana || !newStudent.grade) {
+                          alert("氏名・フリガナ・学年は必須です");
+                          return;
+                        }
                         const res = await fetch("/api/students", {
                           method: "POST",
                           headers: { "Content-Type": "application/json" },
                           body: JSON.stringify({
                             organizationId: "org-demo",
                             name: newStudent.name,
+                            nameKana: newStudent.nameKana,
                             grade: newStudent.grade,
                             course: "",
                             enrollmentDate: newStudent.enrollmentDate,
@@ -242,7 +246,11 @@ export default function StudentsPage() {
                             guardianNames: newStudent.guardianNames,
                           }),
                         });
-                        if (!res.ok) return;
+                        if (!res.ok) {
+                          const err = await res.json().catch(() => ({}));
+                          alert(err.error ?? "生徒追加に失敗しました");
+                          return;
+                        }
                         const data = await res.json();
                         setShowNewForm(false);
                         setNewStudent({

@@ -200,7 +200,7 @@ export function StudentRecorder({ studentName, studentId, fallbackLogId, onLogCr
       while (!done && Date.now() - startTime < maxWaitTime) {
         try {
           // ジョブを進める（cronが無い環境のための保険）
-          await fetch(`/api/jobs/run?limit=2`, { method: "POST" }).catch(() => null);
+          await fetch(`/api/jobs/run?limit=4&concurrency=2`, { method: "POST" }).catch(() => null);
 
           const statusRes = await fetch(`/api/conversations/${body.conversationId}`);
           if (statusRes.ok) {
