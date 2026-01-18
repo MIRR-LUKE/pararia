@@ -1,0 +1,6 @@
+node_modules
+
+# env (do not commit)
+.env
+.env.local
+.env.*.local
