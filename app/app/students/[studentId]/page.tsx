@@ -73,7 +73,6 @@ export default function StudentDetailPage({ params }: { params: { studentId: str
   const [selectedLogs, setSelectedLogs] = useState<string[]>([]);
   const [usePreviousReport, setUsePreviousReport] = useState(true);
   const [reportMarkdown, setReportMarkdown] = useState("");
-  const [reportPdf, setReportPdf] = useState<string | null>(null);
   const [reportLoading, setReportLoading] = useState(false);
   const tabBodyRef = useRef<HTMLDivElement | null>(null);
 
@@ -185,7 +184,6 @@ export default function StudentDetailPage({ params }: { params: { studentId: str
     }
     try {
       setReportLoading(true);
-      setReportPdf(null);
       const res = await fetch("/api/ai/generate-report", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -201,10 +199,6 @@ export default function StudentDetailPage({ params }: { params: { studentId: str
       }
       const data = await res.json();
       setReportMarkdown(data.report.reportMarkdown ?? "");
-      setReportPdf(data.pdfBase64 ?? null);
-      if (data.pdfError) {
-        alert(`レポート本文は生成できましたが、PDF生成に失敗しました: ${data.pdfError}`);
-      }
       await fetchStudent();
     } catch (e: any) {
       alert(e?.message ?? "生成に失敗しました");
@@ -448,7 +442,7 @@ export default function StudentDetailPage({ params }: { params: { studentId: str
                         {reportLoading ? "生成中..." : "AIで保護者レポートを生成"}
                       </Button>
 
-                      <div className={styles.subtext}>選択したログからレポートを生成し、PDFも作成します。</div>
+                      <div className={styles.subtext}>選択したログからレポート（テキスト）を生成します。</div>
 
                       <Card title="レポート履歴（最新5件）">
                         {reports && reports.length > 0 ? (
@@ -474,17 +468,6 @@ export default function StudentDetailPage({ params }: { params: { studentId: str
                           placeholder="生成結果がここに表示されます"
                           style={{ minHeight: 240 }}
                         />
-                        {reportPdf && (
-                          <a
-                            href={`data:application/pdf;base64,${reportPdf}`}
-                            target="_blank"
-                            rel="noreferrer"
-                            className={styles.subtext}
-                            style={{ display: "inline-block", marginTop: 8 }}
-                          >
-                            PDFを開く
-                          </a>
-                        )}
                       </Card>
                     </div>
                   </div>

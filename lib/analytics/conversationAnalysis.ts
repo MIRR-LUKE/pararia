@@ -2,7 +2,7 @@ import { ConversationSourceType, ConversationStatus } from "@prisma/client";
 import { prisma } from "../db";
 import { applyProfileDelta } from "../profile";
 import { preprocessTranscript } from "../transcript/preprocess";
-import { generateSummaryChunkMemos, generateExtractChunkMemos, mergeConversationArtifacts } from "../ai/conversationPipeline";
+import { analyzeChunkBlocks, reduceChunkAnalyses, finalizeConversationArtifacts } from "../ai/conversationPipeline";
 
 type CreateConversationInput = {
   transcript: string;
@@ -28,18 +28,14 @@ export async function createStructuredConversationLog({
   });
 
   const pre = preprocessTranscript(transcript);
-  const { memos: summaryMemos } = await generateSummaryChunkMemos(
-    pre.blocks.map((b) => ({ index: b.index, text: b.text })),
+  const { analyses } = await analyzeChunkBlocks(
+    pre.blocks.map((b) => ({ index: b.index, text: b.text, hash: b.hash })),
     { studentName }
   );
-  const { memos: extractMemos } = await generateExtractChunkMemos(
-    pre.blocks.map((b) => ({ index: b.index, text: b.text })),
-    { studentName }
-  );
-  const { result } = await mergeConversationArtifacts({
+  const { reduced } = await reduceChunkAnalyses({ analyses, studentName });
+  const { result } = await finalizeConversationArtifacts({
     studentName,
-    summaryMemos,
-    extractMemos,
+    reduced,
     minSummaryChars: transcript.length >= 20000 ? 1200 : 700,
   });
 
@@ -55,6 +51,7 @@ export async function createStructuredConversationLog({
       timelineJson: result.timeline as any,
       nextActionsJson: result.nextActions as any,
       profileDeltaJson: result.profileDelta as any,
+      parentPackJson: result.parentPack as any,
     },
   });
   console.log("[createStructuredConversationLog] Conversation log created:", {

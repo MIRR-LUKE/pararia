@@ -5,7 +5,7 @@ CREATE TYPE "UserRole" AS ENUM ('ADMIN', 'TEACHER');
 CREATE TYPE "ConversationSourceType" AS ENUM ('MANUAL', 'AUDIO');
 
 -- CreateEnum
-CREATE TYPE "ConversationJobType" AS ENUM ('SUMMARY', 'EXTRACT', 'MERGE', 'FORMAT', 'REPORT');
+CREATE TYPE "ConversationJobType" AS ENUM ('CHUNK_ANALYZE', 'REDUCE', 'FINALIZE', 'FORMAT', 'REPORT');
 
 -- CreateEnum
 CREATE TYPE "JobStatus" AS ENUM ('RUNNING', 'QUEUED', 'DONE', 'ERROR');
@@ -85,7 +85,9 @@ CREATE TABLE "ConversationLog" (
     "timelineJson" JSONB,
     "nextActionsJson" JSONB,
     "profileDeltaJson" JSONB,
+    "parentPackJson" JSONB,
     "formattedTranscript" TEXT,
+    "chunkAnalysisJson" JSONB,
     "qualityMetaJson" JSONB,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
@@ -118,7 +120,6 @@ CREATE TABLE "Report" (
     "organizationId" TEXT NOT NULL,
     "reportMarkdown" TEXT NOT NULL,
     "reportJson" JSONB,
-    "reportPdfBase64" TEXT,
     "periodFrom" TIMESTAMP(3),
     "periodTo" TIMESTAMP(3),
     "sourceLogIds" JSONB,
@@ -176,4 +177,3 @@ ALTER TABLE "Report" ADD CONSTRAINT "Report_studentId_fkey" FOREIGN KEY ("studen
 
 -- AddForeignKey
 ALTER TABLE "Report" ADD CONSTRAINT "Report_previousReportId_fkey" FOREIGN KEY ("previousReportId") REFERENCES "Report"("id") ON DELETE SET NULL ON UPDATE CASCADE;
-

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { ConversationJobType, ConversationStatus, JobStatus, Prisma } from "@prisma/client";
+import { ConversationStatus, Prisma } from "@prisma/client";
 import { enqueueConversationJobs } from "@/lib/jobs/conversationJobs";
 
 export async function POST(
@@ -8,6 +8,8 @@ export async function POST(
   { params }: { params: { id: string } }
 ) {
   try {
+    const { searchParams } = new URL(request.url);
+    const includeFormat = searchParams.get("format") === "1";
     const conversation = await prisma.conversationLog.findUnique({
       where: { id: params.id },
       select: {
@@ -43,19 +45,12 @@ export async function POST(
         timelineJson: Prisma.DbNull,
         nextActionsJson: Prisma.DbNull,
         profileDeltaJson: Prisma.DbNull,
+        parentPackJson: Prisma.DbNull,
         formattedTranscript: null,
       },
     });
 
-    await prisma.conversationJob.createMany({
-      data: [
-        { conversationId: params.id, type: ConversationJobType.SUMMARY, status: JobStatus.QUEUED },
-        { conversationId: params.id, type: ConversationJobType.EXTRACT, status: JobStatus.QUEUED },
-        { conversationId: params.id, type: ConversationJobType.MERGE, status: JobStatus.QUEUED },
-        { conversationId: params.id, type: ConversationJobType.FORMAT, status: JobStatus.QUEUED },
-      ],
-      skipDuplicates: true,
-    });
+    await enqueueConversationJobs(params.id, { includeFormat });
 
     return NextResponse.json({
       success: true,

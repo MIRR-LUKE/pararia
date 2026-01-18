@@ -26,47 +26,70 @@ export type ProfileDelta = {
   personal: ProfileDeltaItem[];
 };
 
-export type ChunkSummaryMemo = {
+export type TimelineCandidate = {
+  title: string;
+  what_happened: string;
+  coach_point: string;
+  student_state: string;
+  evidence_quotes: string[];
+};
+
+export type TodoCandidate = {
+  owner: "COACH" | "STUDENT" | "PARENT";
+  action: string;
+  due: string | null;
+  metric: string;
+  why: string;
+  evidence_quotes: string[];
+};
+
+export type ChunkAnalysis = {
   index: number;
+  hash: string;
   facts: string[];
-  coach_points: string[];
+  coaching_points: string[];
   decisions: string[];
+  student_state_delta: string[];
+  todo_candidates: TodoCandidate[];
+  timeline_candidates: TimelineCandidate[];
+  profile_delta_candidates: ProfileDelta;
   quotes: string[];
+  safety_flags: string[];
 };
 
-export type ChunkExtractMemo = {
-  index: number;
-  timeline_candidates: Array<{
-    title: string;
-    what_happened: string;
-    coach_point: string;
-    student_state: string;
-    evidence_quotes: string[];
-  }>;
-  todo_candidates: Array<{
-    owner: "COACH" | "STUDENT" | "PARENT";
-    action: string;
-    due: string | null;
-    metric: string;
-    why: string;
-    evidence_quotes: string[];
-  }>;
-  profile_delta_candidates: {
-    basic: ProfileDeltaItem[];
-    personal: ProfileDeltaItem[];
-  };
+export type ReducedAnalysis = {
+  facts: string[];
+  coaching_points: string[];
+  decisions: string[];
+  student_state_delta: string[];
+  todo_candidates: TodoCandidate[];
+  timeline_candidates: TimelineCandidate[];
+  profile_delta_candidates: ProfileDelta;
+  quotes: string[];
+  safety_flags: string[];
 };
 
-export type MergeResult = {
+export type ParentPack = {
+  what_we_did: string[];
+  what_improved: string[];
+  what_to_practice: string[];
+  risks_or_notes: string[];
+  next_time_plan: string[];
+  evidence_quotes: string[];
+};
+
+export type FinalizeResult = {
   summaryMarkdown: string;
   timeline: TimelineSection[];
   nextActions: NextAction[];
   profileDelta: ProfileDelta;
+  parentPack: ParentPack;
 };
 
 export type ConversationQualityMeta = {
-  modelSummaryFinal?: string;
-  modelExtractFinal?: string;
+  modelAnalyze?: string;
+  modelReduce?: string;
+  modelFinalize?: string;
   modelReportFinal?: string;
   summaryCharCount?: number;
   timelineSectionCount?: number;
@@ -74,9 +97,9 @@ export type ConversationQualityMeta = {
   quotesCountTotal?: number;
   sttSeconds?: number;
   preprocessSeconds?: number;
-  jobSecondsSummary?: number;
-  jobSecondsExtract?: number;
-  jobSecondsMerge?: number;
+  jobSecondsAnalyze?: number;
+  jobSecondsReduce?: number;
+  jobSecondsFinalize?: number;
   jobSecondsFormat?: number;
   temperature?: number;
   promptVersion?: string;

@@ -55,6 +55,9 @@ type ConversationLog = {
   nextActionsJson?: NextAction[] | null;
   profileDeltaJson?: ProfileDelta | null;
   formattedTranscript?: string | null;
+  rawTextOriginal?: string | null;
+  rawTextCleaned?: string | null;
+  rawSegments?: Array<{ text?: string }> | null;
   createdAt: string;
   student?: {
     id: string;
@@ -127,7 +130,7 @@ export function LogDetailView({ logId, showHeader = true, onBack }: Props) {
 
     while (Date.now() - startTime < maxWaitTime) {
       try {
-        await fetch(`/api/jobs/run?limit=2`, { method: "POST" });
+        await fetch(`/api/jobs/run?limit=4&concurrency=2`, { method: "POST" });
       } catch (jobError) {
         console.warn("[LogDetailView] Job runner error:", jobError);
       }
@@ -243,6 +246,34 @@ export function LogDetailView({ logId, showHeader = true, onBack }: Props) {
     if (!log?.summaryMarkdown) return [];
     return log.summaryMarkdown.split("\n").filter((line) => line.trim().length > 0);
   }, [log?.summaryMarkdown]);
+
+  const fallbackTranscript = useMemo(() => {
+    if (!log) return "";
+    if (log.formattedTranscript) return log.formattedTranscript;
+    if (log.rawTextCleaned?.trim()) return log.rawTextCleaned;
+    if (log.rawTextOriginal?.trim()) return log.rawTextOriginal;
+    if (log.rawSegments?.length) {
+      return log.rawSegments
+        .map((s) => (s?.text ?? "").trim())
+        .filter(Boolean)
+        .join("\n");
+    }
+    return "";
+  }, [log]);
+
+  const handleFormat = async () => {
+    if (!log) return;
+    try {
+      const res = await fetch(`/api/conversations/${logId}/format`, { method: "POST" });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data?.error ?? "全文整形に失敗しました");
+      }
+      await runJobsUntilDone();
+    } catch (e: any) {
+      alert(e?.message ?? "全文整形に失敗しました");
+    }
+  };
 
   if (loading) return <div className={styles.subtext}>読み込み中...</div>;
   if (error) return <div className={styles.subtext}>{error}</div>;
@@ -429,7 +460,7 @@ export function LogDetailView({ logId, showHeader = true, onBack }: Props) {
       {tab === "transcript" && (
         <Card title="全文（整形済み）" subtitle="話者ラベルと段落で読みやすく整理">
           <div className={styles.raw}>
-            {(log.formattedTranscript || "").split("\n").map((line, idx) => {
+            {(fallbackTranscript || "").split("\n").map((line, idx) => {
               if (line.startsWith("**")) {
                 const match = line.match(/^\*\*(.+?)\*\*:\s*(.*)$/);
                 if (match) {
@@ -449,7 +480,14 @@ export function LogDetailView({ logId, showHeader = true, onBack }: Props) {
               }
               return <p key={idx}>{line}</p>;
             })}
-            {!log.formattedTranscript && <div className={styles.subtext}>全文生成中...</div>}
+            {!log.formattedTranscript && (
+              <div style={{ marginTop: 12 }}>
+                <div className={styles.subtext}>簡易表示中（話者ラベルなし）</div>
+                <Button size="small" variant="secondary" onClick={handleFormat}>
+                  全文を整形して読みやすくする
+                </Button>
+              </div>
+            )}
           </div>
         </Card>
       )}

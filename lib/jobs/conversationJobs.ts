@@ -1,23 +1,22 @@
 import { prisma } from "@/lib/db";
 import { ConversationJobType, ConversationStatus, JobStatus } from "@prisma/client";
 import {
-  generateSummaryChunkMemos,
-  generateExtractChunkMemos,
-  mergeConversationArtifacts,
+  analyzeChunkBlocks,
+  reduceChunkAnalyses,
+  finalizeConversationArtifacts,
   getPromptVersion,
   estimateTokens,
 } from "@/lib/ai/conversationPipeline";
 import { formatTranscriptFromSegments, formatTranscriptFromText } from "@/lib/ai/llm";
 import { applyProfileDelta } from "@/lib/profile";
 import { DEFAULT_TEACHER_FULL_NAME } from "@/lib/constants";
-import type { ConversationQualityMeta, ChunkSummaryMemo, ChunkExtractMemo } from "@/lib/types/conversation";
-import { preprocessTranscript } from "@/lib/transcript/preprocess";
+import type { ConversationQualityMeta, ChunkAnalysis, ReducedAnalysis } from "@/lib/types/conversation";
+import { preprocessTranscript, preprocessTranscriptWithSegments } from "@/lib/transcript/preprocess";
 
-const JOB_TYPES: ConversationJobType[] = [
-  ConversationJobType.SUMMARY,
-  ConversationJobType.EXTRACT,
-  ConversationJobType.MERGE,
-  ConversationJobType.FORMAT,
+const DEFAULT_JOB_TYPES: ConversationJobType[] = [
+  ConversationJobType.CHUNK_ANALYZE,
+  ConversationJobType.REDUCE,
+  ConversationJobType.FINALIZE,
 ];
 
 type JobPayload = {
@@ -37,10 +36,14 @@ type ConversationPayload = {
   studentName?: string | null;
   teacherName?: string | null;
   qualityMetaJson?: ConversationQualityMeta | null;
+  chunkAnalysisJson?: any;
 };
 
-export async function enqueueConversationJobs(conversationId: string) {
-  const data = JOB_TYPES.map((type) => ({
+export async function enqueueConversationJobs(
+  conversationId: string,
+  opts?: { includeFormat?: boolean }
+) {
+  const data = [...DEFAULT_JOB_TYPES, ...(opts?.includeFormat ? [ConversationJobType.FORMAT] : [])].map((type) => ({
     conversationId,
     type,
     status: JobStatus.QUEUED,
@@ -80,16 +83,38 @@ async function claimNextJob(): Promise<JobPayload | null> {
   });
 
   for (const job of queued) {
-    if (job.type === ConversationJobType.MERGE) {
+    if (job.type === ConversationJobType.REDUCE) {
       const deps = await prisma.conversationJob.findMany({
         where: {
           conversationId: job.conversationId,
-          type: { in: [ConversationJobType.SUMMARY, ConversationJobType.EXTRACT] },
+          type: ConversationJobType.CHUNK_ANALYZE,
           status: JobStatus.DONE,
         },
         select: { id: true },
       });
-      if (deps.length < 2) continue;
+      if (deps.length < 1) continue;
+    }
+    if (job.type === ConversationJobType.FINALIZE) {
+      const deps = await prisma.conversationJob.findMany({
+        where: {
+          conversationId: job.conversationId,
+          type: ConversationJobType.REDUCE,
+          status: JobStatus.DONE,
+        },
+        select: { id: true },
+      });
+      if (deps.length < 1) continue;
+    }
+    if (job.type === ConversationJobType.FORMAT) {
+      const deps = await prisma.conversationJob.findMany({
+        where: {
+          conversationId: job.conversationId,
+          type: ConversationJobType.FINALIZE,
+          status: JobStatus.DONE,
+        },
+        select: { id: true },
+      });
+      if (deps.length < 1) continue;
     }
 
     const updated = await prisma.conversationJob.updateMany({
@@ -115,16 +140,17 @@ async function updateConversationStatus(conversationId: string, statusHint?: Con
   const byType = (type: ConversationJobType) =>
     jobs.find((j) => j.type === type)?.status ?? JobStatus.QUEUED;
 
-  const summaryDone = byType(ConversationJobType.SUMMARY) === JobStatus.DONE;
-  const extractDone = byType(ConversationJobType.EXTRACT) === JobStatus.DONE;
-  const mergeDone = byType(ConversationJobType.MERGE) === JobStatus.DONE;
-  const formatDone = byType(ConversationJobType.FORMAT) === JobStatus.DONE;
+  const analyzeDone = byType(ConversationJobType.CHUNK_ANALYZE) === JobStatus.DONE;
+  const reduceDone = byType(ConversationJobType.REDUCE) === JobStatus.DONE;
+  const finalizeDone = byType(ConversationJobType.FINALIZE) === JobStatus.DONE;
+  const formatJob = jobs.find((j) => j.type === ConversationJobType.FORMAT);
+  const formatDone = formatJob ? formatJob.status === JobStatus.DONE : true;
   const hasError = jobs.some((j) => j.status === JobStatus.ERROR);
 
   let status: ConversationStatus = ConversationStatus.PROCESSING;
-  if (mergeDone && formatDone) {
+  if (finalizeDone && formatDone) {
     status = ConversationStatus.DONE;
-  } else if (mergeDone || summaryDone || extractDone || formatDone) {
+  } else if (finalizeDone || reduceDone || analyzeDone || (formatJob && formatJob.status === JobStatus.RUNNING)) {
     status = ConversationStatus.PARTIAL;
   }
 
@@ -140,19 +166,52 @@ async function updateConversationStatus(conversationId: string, statusHint?: Con
   });
 }
 
-async function executeSummaryJob(job: JobPayload, convo: ConversationPayload) {
+async function executeAnalyzeJob(job: JobPayload, convo: ConversationPayload) {
   const sourceText = normalizeSourceText(convo);
-  const pre = preprocessTranscript(sourceText);
+  const pre = Array.isArray(convo.rawSegments) && convo.rawSegments.length > 0
+    ? preprocessTranscriptWithSegments(convo.rawTextOriginal ?? sourceText, convo.rawSegments as any)
+    : preprocessTranscript(sourceText);
   if (pre.blocks.length === 0) {
-    throw new Error("No transcript blocks available for SUMMARY job");
+    throw new Error("No transcript blocks available for CHUNK_ANALYZE job");
   }
-  const sttSeconds = estimateSttSeconds(convo.rawSegments);
 
   const start = Date.now();
-  const { memos, model } = await generateSummaryChunkMemos(
-    pre.blocks.map((b) => ({ index: b.index, text: b.text })),
-    { studentName: convo.studentName ?? undefined, teacherName: convo.teacherName ?? undefined, sttSeconds }
+  const existing = (convo.chunkAnalysisJson as any)?.chunks ?? [];
+  const existingByHash = new Map<string, ChunkAnalysis>(
+    existing
+      .map((c: any) => c?.analysis)
+      .filter(Boolean)
+      .map((a: ChunkAnalysis) => [a.hash, a])
   );
+
+  const blocks = pre.blocks.map((b) => ({ index: b.index, text: b.text, hash: b.hash }));
+  const toAnalyze = blocks.filter((b) => !existingByHash.has(b.hash));
+
+  const { analyses: analyzed, model } = toAnalyze.length
+    ? await analyzeChunkBlocks(toAnalyze, {
+        studentName: convo.studentName ?? undefined,
+        teacherName: convo.teacherName ?? undefined,
+      })
+    : { analyses: [], model: "reuse" };
+  const analyzedByHash = new Map(analyzed.map((a) => [a.hash, a]));
+
+  const merged: ChunkAnalysis[] = blocks.map((b) => {
+    const reuse = existingByHash.get(b.hash) ?? analyzedByHash.get(b.hash);
+    if (reuse) return { ...reuse, index: b.index, hash: b.hash };
+    return {
+      index: b.index,
+      hash: b.hash,
+      facts: [],
+      coaching_points: [],
+      decisions: [],
+      student_state_delta: [],
+      todo_candidates: [],
+      timeline_candidates: [],
+      profile_delta_candidates: { basic: [], personal: [] },
+      quotes: [],
+      safety_flags: ["NO_ANALYSIS"],
+    };
+  });
   const duration = Date.now() - start;
 
   await prisma.conversationJob.update({
@@ -161,11 +220,15 @@ async function executeSummaryJob(job: JobPayload, convo: ConversationPayload) {
       status: JobStatus.DONE,
       finishedAt: new Date(),
       model,
-      outputJson: { memos },
+      outputJson: {
+        chunks: merged,
+        reused: blocks.length - toAnalyze.length,
+        analyzed: toAnalyze.length,
+      },
       costMetaJson: {
         promptVersion: getPromptVersion(),
         inputTokensEstimate: pre.blocks.reduce((acc, b) => acc + b.approxTokens, 0),
-        outputTokensEstimate: memos.reduce((acc, m) => acc + estimateTokens(JSON.stringify(m)), 0),
+        outputTokensEstimate: estimateTokens(JSON.stringify(merged)),
         seconds: Math.round(duration / 1000),
       },
     },
@@ -174,95 +237,100 @@ async function executeSummaryJob(job: JobPayload, convo: ConversationPayload) {
   await prisma.conversationLog.update({
     where: { id: convo.id },
     data: {
-      qualityMetaJson: {
-        ...(convo.qualityMetaJson ?? {}),
-        jobSecondsSummary: Math.round(duration / 1000),
-      } as any,
-    },
-  });
-
-  await updateConversationStatus(convo.id);
-  return { memos, duration };
-}
-
-async function executeExtractJob(job: JobPayload, convo: ConversationPayload) {
-  const sourceText = normalizeSourceText(convo);
-  const pre = preprocessTranscript(sourceText);
-  if (pre.blocks.length === 0) {
-    throw new Error("No transcript blocks available for EXTRACT job");
-  }
-  const sttSeconds = estimateSttSeconds(convo.rawSegments);
-
-  const start = Date.now();
-  const { memos, model } = await generateExtractChunkMemos(
-    pre.blocks.map((b) => ({ index: b.index, text: b.text })),
-    { studentName: convo.studentName ?? undefined, teacherName: convo.teacherName ?? undefined, sttSeconds }
-  );
-  const duration = Date.now() - start;
-
-  await prisma.conversationJob.update({
-    where: { id: job.id },
-    data: {
-      status: JobStatus.DONE,
-      finishedAt: new Date(),
-      model,
-      outputJson: { memos },
-      costMetaJson: {
-        promptVersion: getPromptVersion(),
-        inputTokensEstimate: pre.blocks.reduce((acc, b) => acc + b.approxTokens, 0),
-        outputTokensEstimate: memos.reduce((acc, m) => acc + estimateTokens(JSON.stringify(m)), 0),
-        seconds: Math.round(duration / 1000),
+      chunkAnalysisJson: {
+        chunks: merged.map((a) => ({ hash: a.hash, analysis: a })),
+        updatedAt: new Date().toISOString(),
       },
-    },
-  });
-
-  await prisma.conversationLog.update({
-    where: { id: convo.id },
-    data: {
       qualityMetaJson: {
         ...(convo.qualityMetaJson ?? {}),
-        jobSecondsExtract: Math.round(duration / 1000),
+        modelAnalyze: model,
+        jobSecondsAnalyze: Math.round(duration / 1000),
       } as any,
     },
   });
 
   await updateConversationStatus(convo.id);
-  return { memos, duration };
+  return { analyses: merged, duration };
 }
 
-function ensureMemos(data: any): ChunkSummaryMemo[] | ChunkExtractMemo[] {
+function ensureAnalyses(data: any): ChunkAnalysis[] {
   if (!data) return [];
-  if (Array.isArray(data)) return data;
-  if (Array.isArray(data.memos)) return data.memos;
+  if (Array.isArray(data)) return data as ChunkAnalysis[];
+  if (Array.isArray(data.chunks)) return data.chunks as ChunkAnalysis[];
   return [];
 }
 
-async function executeMergeJob(job: JobPayload, convo: ConversationPayload) {
-  const summaryJob = await prisma.conversationJob.findFirst({
-    where: { conversationId: convo.id, type: ConversationJobType.SUMMARY, status: JobStatus.DONE },
-    select: { outputJson: true, costMetaJson: true },
-  });
-  const extractJob = await prisma.conversationJob.findFirst({
-    where: { conversationId: convo.id, type: ConversationJobType.EXTRACT, status: JobStatus.DONE },
-    select: { outputJson: true, costMetaJson: true },
+async function executeReduceJob(job: JobPayload, convo: ConversationPayload) {
+  const analysisJob = await prisma.conversationJob.findFirst({
+    where: { conversationId: convo.id, type: ConversationJobType.CHUNK_ANALYZE, status: JobStatus.DONE },
+    select: { outputJson: true },
   });
 
-  const summaryMemos = ensureMemos(summaryJob?.outputJson) as ChunkSummaryMemo[];
-  const extractMemos = ensureMemos(extractJob?.outputJson) as ChunkExtractMemo[];
+  const chunkJson = analysisJob?.outputJson ?? convo.chunkAnalysisJson ?? {};
+  const rawChunks = (chunkJson as any)?.chunks ?? [];
+  const analyses = ensureAnalyses(rawChunks.map((c: any) => c?.analysis ?? c));
+  if (!analyses.length) {
+    throw new Error("REDUCE dependencies not ready");
+  }
 
-  if (!summaryMemos.length || !extractMemos.length) {
-    throw new Error("MERGE dependencies not ready");
+  const start = Date.now();
+  const { reduced, model } = await reduceChunkAnalyses({
+    analyses,
+    studentName: convo.studentName ?? undefined,
+    teacherName: convo.teacherName ?? undefined,
+  });
+  const duration = Date.now() - start;
+
+  await prisma.conversationJob.update({
+    where: { id: job.id },
+    data: {
+      status: JobStatus.DONE,
+      finishedAt: new Date(),
+      model,
+      outputJson: { reduced },
+      costMetaJson: {
+        promptVersion: getPromptVersion(),
+        inputTokensEstimate: estimateTokens(JSON.stringify(analyses)),
+        outputTokensEstimate: estimateTokens(JSON.stringify(reduced)),
+        seconds: Math.round(duration / 1000),
+      },
+    },
+  });
+
+  await prisma.conversationLog.update({
+    where: { id: convo.id },
+    data: {
+      qualityMetaJson: {
+        ...(convo.qualityMetaJson ?? {}),
+        modelReduce: model,
+        jobSecondsReduce: Math.round(duration / 1000),
+      } as any,
+    },
+  });
+
+  await updateConversationStatus(convo.id);
+  return { reduced, duration };
+}
+
+async function executeFinalizeJob(job: JobPayload, convo: ConversationPayload) {
+  const reduceJob = await prisma.conversationJob.findFirst({
+    where: { conversationId: convo.id, type: ConversationJobType.REDUCE, status: JobStatus.DONE },
+    select: { outputJson: true },
+  });
+
+  const reduced = (reduceJob?.outputJson as any)?.reduced as ReducedAnalysis | undefined;
+  if (!reduced) {
+    throw new Error("FINALIZE dependencies not ready");
   }
 
   const sourceText = normalizeSourceText(convo);
   const minSummaryChars = sourceText.length >= 20000 ? 1200 : 700;
 
   const start = Date.now();
-  const { result, model } = await mergeConversationArtifacts({
+  const { result, model } = await finalizeConversationArtifacts({
     studentName: convo.studentName ?? undefined,
     teacherName: convo.teacherName ?? undefined,
-    summaryMemos,
-    extractMemos,
+    reduced,
     minSummaryChars,
   });
   const duration = Date.now() - start;
@@ -270,17 +338,17 @@ async function executeMergeJob(job: JobPayload, convo: ConversationPayload) {
   const quotesCountTotal =
     result.timeline.reduce((acc, t) => acc + (t.evidence_quotes?.length ?? 0), 0) +
     result.profileDelta.basic.reduce((acc, i) => acc + (i.evidence_quotes?.length ?? 0), 0) +
-    result.profileDelta.personal.reduce((acc, i) => acc + (i.evidence_quotes?.length ?? 0), 0);
+    result.profileDelta.personal.reduce((acc, i) => acc + (i.evidence_quotes?.length ?? 0), 0) +
+    (result.parentPack?.evidence_quotes?.length ?? 0);
 
   const qualityMeta: ConversationQualityMeta = {
     ...(convo.qualityMetaJson ?? {}),
-    modelSummaryFinal: model,
-    modelExtractFinal: model,
+    modelFinalize: model,
     summaryCharCount: result.summaryMarkdown.length,
     timelineSectionCount: result.timeline.length,
     todoCount: result.nextActions.length,
     quotesCountTotal,
-    jobSecondsMerge: Math.round(duration / 1000),
+    jobSecondsFinalize: Math.round(duration / 1000),
     promptVersion: getPromptVersion(),
     generatedAt: new Date().toISOString(),
     inputTokensEstimate: estimateTokens(sourceText),
@@ -293,6 +361,7 @@ async function executeMergeJob(job: JobPayload, convo: ConversationPayload) {
       timelineJson: result.timeline as any,
       nextActionsJson: result.nextActions as any,
       profileDeltaJson: result.profileDelta as any,
+      parentPackJson: result.parentPack as any,
       qualityMetaJson: qualityMeta as any,
     },
   });
@@ -310,7 +379,7 @@ async function executeMergeJob(job: JobPayload, convo: ConversationPayload) {
       },
       costMetaJson: {
         promptVersion: getPromptVersion(),
-        inputTokensEstimate: estimateTokens(JSON.stringify({ summaryMemos, extractMemos })),
+        inputTokensEstimate: estimateTokens(JSON.stringify(reduced)),
         outputTokensEstimate: estimateTokens(JSON.stringify(result)),
         seconds: Math.round(duration / 1000),
       },
@@ -320,10 +389,22 @@ async function executeMergeJob(job: JobPayload, convo: ConversationPayload) {
   try {
     await applyProfileDelta(convo.studentId, result.profileDelta, convo.id);
   } catch (e: any) {
-    console.error("[executeMergeJob] applyProfileDelta failed (non-fatal):", e?.message);
+    console.error("[executeFinalizeJob] applyProfileDelta failed (non-fatal):", e?.message);
   }
 
   await updateConversationStatus(convo.id);
+
+  const formatJob = await prisma.conversationJob.findFirst({
+    where: { conversationId: convo.id, type: ConversationJobType.FORMAT },
+    select: { id: true },
+  });
+  if (!formatJob) {
+    await prisma.conversationLog.update({
+      where: { id: convo.id },
+      data: { rawTextCleaned: null },
+    });
+  }
+
   return { result, duration };
 }
 
@@ -419,11 +500,12 @@ async function executeJob(job: JobPayload) {
     studentName: convo.student?.name ?? null,
     teacherName: convo.user?.name ?? DEFAULT_TEACHER_FULL_NAME,
     qualityMetaJson: (convo.qualityMetaJson as ConversationQualityMeta) ?? null,
+    chunkAnalysisJson: (convo.chunkAnalysisJson as any) ?? null,
   };
 
-  if (job.type === ConversationJobType.SUMMARY) return executeSummaryJob(job, payload);
-  if (job.type === ConversationJobType.EXTRACT) return executeExtractJob(job, payload);
-  if (job.type === ConversationJobType.MERGE) return executeMergeJob(job, payload);
+  if (job.type === ConversationJobType.CHUNK_ANALYZE) return executeAnalyzeJob(job, payload);
+  if (job.type === ConversationJobType.REDUCE) return executeReduceJob(job, payload);
+  if (job.type === ConversationJobType.FINALIZE) return executeFinalizeJob(job, payload);
   if (job.type === ConversationJobType.FORMAT) return executeFormatJob(job, payload);
   throw new Error(`unsupported job type: ${job.type}`);
 }

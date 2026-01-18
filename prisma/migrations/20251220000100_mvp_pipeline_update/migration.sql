@@ -1,10 +1,27 @@
--- CreateEnum
+-- Reset tables/types to match current MVP pipeline (keep _prisma_migrations)
+DROP TABLE IF EXISTS "ConversationJob" CASCADE;
+DROP TABLE IF EXISTS "ConversationLog" CASCADE;
+DROP TABLE IF EXISTS "Report" CASCADE;
+DROP TABLE IF EXISTS "StudentProfile" CASCADE;
+DROP TABLE IF EXISTS "Student" CASCADE;
+DROP TABLE IF EXISTS "User" CASCADE;
+DROP TABLE IF EXISTS "Organization" CASCADE;
+DROP TABLE IF EXISTS "AuditLog" CASCADE;
+
+DROP TYPE IF EXISTS "ConversationJobType" CASCADE;
+DROP TYPE IF EXISTS "ConversationStatus" CASCADE;
+DROP TYPE IF EXISTS "ConversationSourceType" CASCADE;
+DROP TYPE IF EXISTS "JobStatus" CASCADE;
+DROP TYPE IF EXISTS "UserRole" CASCADE;
+
+-- Recreate types/tables according to current schema
+
 CREATE TYPE "UserRole" AS ENUM ('ADMIN', 'TEACHER');
-
--- CreateEnum
 CREATE TYPE "ConversationSourceType" AS ENUM ('MANUAL', 'AUDIO');
+CREATE TYPE "ConversationJobType" AS ENUM ('CHUNK_ANALYZE', 'REDUCE', 'FINALIZE', 'FORMAT', 'REPORT');
+CREATE TYPE "JobStatus" AS ENUM ('RUNNING', 'QUEUED', 'DONE', 'ERROR');
+CREATE TYPE "ConversationStatus" AS ENUM ('PROCESSING', 'PARTIAL', 'DONE', 'ERROR');
 
--- CreateTable
 CREATE TABLE "Organization" (
     "id" TEXT NOT NULL,
     "name" TEXT NOT NULL,
@@ -14,7 +31,6 @@ CREATE TABLE "Organization" (
     CONSTRAINT "Organization_pkey" PRIMARY KEY ("id")
 );
 
--- CreateTable
 CREATE TABLE "User" (
     "id" TEXT NOT NULL,
     "organizationId" TEXT NOT NULL,
@@ -26,11 +42,11 @@ CREATE TABLE "User" (
     CONSTRAINT "User_pkey" PRIMARY KEY ("id")
 );
 
--- CreateTable
 CREATE TABLE "Student" (
     "id" TEXT NOT NULL,
     "organizationId" TEXT NOT NULL,
     "name" TEXT NOT NULL,
+    "nameKana" TEXT,
     "grade" TEXT,
     "course" TEXT,
     "enrollmentDate" TIMESTAMP(3),
@@ -42,7 +58,6 @@ CREATE TABLE "Student" (
     CONSTRAINT "Student_pkey" PRIMARY KEY ("id")
 );
 
--- CreateTable
 CREATE TABLE "StudentProfile" (
     "id" TEXT NOT NULL,
     "studentId" TEXT NOT NULL,
@@ -59,40 +74,63 @@ CREATE TABLE "StudentProfile" (
     CONSTRAINT "StudentProfile_pkey" PRIMARY KEY ("id")
 );
 
--- CreateTable
 CREATE TABLE "ConversationLog" (
     "id" TEXT NOT NULL,
     "organizationId" TEXT NOT NULL,
     "studentId" TEXT NOT NULL,
     "userId" TEXT,
     "sourceType" "ConversationSourceType" NOT NULL,
-    "summary" TEXT NOT NULL,
-    "keyQuotes" JSONB,
-    "keyTopics" JSONB,
-    "nextActions" JSONB,
-    "structuredDelta" JSONB,
+    "status" "ConversationStatus" NOT NULL DEFAULT 'PROCESSING',
+    "rawTextOriginal" TEXT,
+    "rawTextCleaned" TEXT,
+    "rawSegments" JSONB,
+    "rawTextExpiresAt" TIMESTAMP(3),
+    "summaryMarkdown" TEXT,
+    "timelineJson" JSONB,
+    "nextActionsJson" JSONB,
+    "profileDeltaJson" JSONB,
+    "parentPackJson" JSONB,
+    "formattedTranscript" TEXT,
+    "chunkAnalysisJson" JSONB,
+    "qualityMetaJson" JSONB,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "ConversationLog_pkey" PRIMARY KEY ("id")
 );
 
--- CreateTable
+CREATE TABLE "ConversationJob" (
+    "id" TEXT NOT NULL,
+    "conversationId" TEXT NOT NULL,
+    "type" "ConversationJobType" NOT NULL,
+    "status" "JobStatus" NOT NULL DEFAULT 'QUEUED',
+    "model" TEXT,
+    "attempts" INTEGER NOT NULL DEFAULT 0,
+    "lastError" TEXT,
+    "outputJson" JSONB,
+    "costMetaJson" JSONB,
+    "startedAt" TIMESTAMP(3),
+    "finishedAt" TIMESTAMP(3),
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "ConversationJob_pkey" PRIMARY KEY ("id")
+);
+
 CREATE TABLE "Report" (
     "id" TEXT NOT NULL,
     "studentId" TEXT NOT NULL,
     "organizationId" TEXT NOT NULL,
-    "markdown" TEXT NOT NULL,
-    "json" JSONB,
-    "pdfBase64" TEXT,
+    "reportMarkdown" TEXT NOT NULL,
+    "reportJson" JSONB,
     "periodFrom" TIMESTAMP(3),
     "periodTo" TIMESTAMP(3),
     "sourceLogIds" JSONB,
+    "previousReportId" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "Report_pkey" PRIMARY KEY ("id")
 );
 
--- CreateTable
 CREATE TABLE "AuditLog" (
     "id" TEXT NOT NULL,
     "userId" TEXT,
@@ -102,29 +140,28 @@ CREATE TABLE "AuditLog" (
     CONSTRAINT "AuditLog_pkey" PRIMARY KEY ("id")
 );
 
--- CreateIndex
 CREATE UNIQUE INDEX "User_email_key" ON "User"("email");
 
--- AddForeignKey
+CREATE UNIQUE INDEX "ConversationJob_conversationId_type_key" ON "ConversationJob"("conversationId", "type");
+
+CREATE INDEX "ConversationJob_status_type_idx" ON "ConversationJob"("status", "type");
+
 ALTER TABLE "User" ADD CONSTRAINT "User_organizationId_fkey" FOREIGN KEY ("organizationId") REFERENCES "Organization"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
--- AddForeignKey
 ALTER TABLE "Student" ADD CONSTRAINT "Student_organizationId_fkey" FOREIGN KEY ("organizationId") REFERENCES "Organization"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
--- AddForeignKey
 ALTER TABLE "StudentProfile" ADD CONSTRAINT "StudentProfile_studentId_fkey" FOREIGN KEY ("studentId") REFERENCES "Student"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
--- AddForeignKey
 ALTER TABLE "ConversationLog" ADD CONSTRAINT "ConversationLog_organizationId_fkey" FOREIGN KEY ("organizationId") REFERENCES "Organization"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
--- AddForeignKey
 ALTER TABLE "ConversationLog" ADD CONSTRAINT "ConversationLog_studentId_fkey" FOREIGN KEY ("studentId") REFERENCES "Student"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
--- AddForeignKey
 ALTER TABLE "ConversationLog" ADD CONSTRAINT "ConversationLog_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
--- AddForeignKey
+ALTER TABLE "ConversationJob" ADD CONSTRAINT "ConversationJob_conversationId_fkey" FOREIGN KEY ("conversationId") REFERENCES "ConversationLog"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+ALTER TABLE "Report" ADD CONSTRAINT "Report_organizationId_fkey" FOREIGN KEY ("organizationId") REFERENCES "Organization"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
 ALTER TABLE "Report" ADD CONSTRAINT "Report_studentId_fkey" FOREIGN KEY ("studentId") REFERENCES "Student"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
--- AddForeignKey
-ALTER TABLE "Report" ADD CONSTRAINT "Report_organizationId_fkey" FOREIGN KEY ("organizationId") REFERENCES "Organization"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "Report" ADD CONSTRAINT "Report_previousReportId_fkey" FOREIGN KEY ("previousReportId") REFERENCES "Report"("id") ON DELETE SET NULL ON UPDATE CASCADE;

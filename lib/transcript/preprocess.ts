@@ -1,3 +1,5 @@
+import { createHash } from "crypto";
+
 type WhisperSegment = {
   id?: number;
   seek?: number;
@@ -12,7 +14,7 @@ export type PreprocessResult = {
   // sentence-ish chunks (not perfect; used for lightweight downstream prompts if needed)
   chunks: string[];
   // merged blocks for chunk-based LLM processing
-  blocks: Array<{ index: number; text: string; approxTokens: number }>;
+  blocks: Array<{ index: number; text: string; approxTokens: number; hash: string }>;
 };
 
 const DEFAULT_FILLERS = [
@@ -138,6 +140,11 @@ function estimateTokens(text: string) {
   return Math.ceil(text.length / 2);
 }
 
+function hashText(text: string) {
+  // Use a short stable hash for diffing
+  return createHash("sha256").update(text).digest("hex").slice(0, 16);
+}
+
 function splitByTopicBoundaries(text: string) {
   const paragraphs = text
     .split(/\n{2,}/)
@@ -162,7 +169,7 @@ function splitByTopicBoundaries(text: string) {
 }
 
 function buildBlocks(segments: string[], maxTokens = 3200, targetMin = 2000) {
-  const blocks: Array<{ index: number; text: string; approxTokens: number }> = [];
+  const blocks: Array<{ index: number; text: string; approxTokens: number; hash: string }> = [];
   let buffer: string[] = [];
   let tokenCount = 0;
   let index = 0;
@@ -171,7 +178,7 @@ function buildBlocks(segments: string[], maxTokens = 3200, targetMin = 2000) {
     if (!buffer.length) return;
     const text = buffer.join("\n").trim();
     if (!text) return;
-    blocks.push({ index, text, approxTokens: estimateTokens(text) });
+    blocks.push({ index, text, approxTokens: estimateTokens(text), hash: hashText(text) });
     index += 1;
     buffer = [];
     tokenCount = 0;
@@ -211,6 +218,75 @@ export function preprocessTranscript(rawTextOriginal: string): PreprocessResult 
   return { rawTextOriginal: normalized, rawTextCleaned, chunks, blocks };
 }
 
+function buildTimingSegments(
+  segments: WhisperSegment[],
+  opts: { silenceGap?: number; maxWindow?: number; minWindow?: number }
+) {
+  const silenceGap = opts.silenceGap ?? 1.2;
+  const maxWindow = opts.maxWindow ?? 75;
+  const minWindow = opts.minWindow ?? 45;
+  const buffers: string[] = [];
+  let buffer: string[] = [];
+  let startTime: number | null = null;
+  let lastEnd: number | null = null;
+
+  const flush = () => {
+    if (!buffer.length) return;
+    const text = buffer.join("\n").trim();
+    if (text) buffers.push(text);
+    buffer = [];
+    startTime = null;
+    lastEnd = null;
+  };
+
+  for (const seg of segments) {
+    const textRaw = (seg.text ?? "").trim();
+    if (!textRaw) continue;
+    const cleaned = removeFillers(textRaw).trim();
+    if (!cleaned) continue;
+    const segStart = typeof seg.start === "number" ? seg.start : null;
+    const segEnd = typeof seg.end === "number" ? seg.end : segStart;
+
+    if (startTime === null && segStart !== null) startTime = segStart;
+
+    if (lastEnd !== null && segStart !== null) {
+      const gap = segStart - lastEnd;
+      const elapsed = startTime !== null ? segStart - startTime : 0;
+      if (gap >= silenceGap && elapsed >= minWindow) {
+        flush();
+      }
+      if (elapsed >= maxWindow) {
+        flush();
+      }
+    }
+
+    if (startTime === null && segStart !== null) startTime = segStart;
+
+    buffer.push(cleaned);
+    if (segEnd !== null) lastEnd = segEnd;
+  }
+
+  flush();
+  return buffers;
+}
+
+export function preprocessTranscriptWithSegments(
+  rawTextOriginal: string,
+  segments: WhisperSegment[] | null | undefined
+): PreprocessResult {
+  if (!segments?.length) {
+    return preprocessTranscript(rawTextOriginal);
+  }
+  const normalized = normalizeJa(rawTextOriginal);
+  const noFillers = removeFillers(normalized);
+  const dedupedLines = dedupeAdjacentLines(noFillers);
+  const chunks = dedupeChunkNearDuplicates(chunkByPunctuation(dedupedLines));
+  const rawTextCleaned = normalizeJa(chunks.join("\n"));
+  const timingSegments = buildTimingSegments(segments, {});
+  const blocks = buildBlocks(timingSegments.length ? timingSegments : splitByTopicBoundaries(rawTextCleaned));
+  return { rawTextOriginal: normalized, rawTextCleaned, chunks, blocks };
+}
+
 export function segmentsToText(segments: WhisperSegment[] | undefined | null) {
   if (!segments?.length) return "";
   return segments
@@ -219,5 +295,3 @@ export function segmentsToText(segments: WhisperSegment[] | undefined | null) {
     .join("\n")
     .trim();
 }
-
-

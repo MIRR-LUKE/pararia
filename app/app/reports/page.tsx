@@ -118,7 +118,7 @@ export default function ReportDashboardPage() {
     <div className={styles.page}>
       <AppHeader
         title="保護者レポートダッシュボード"
-        subtitle="前回レポ以降のログを自動選択し、ワンタッチでPDF/Markdownを生成"
+        subtitle="前回レポ以降のログを自動選択し、ワンタッチでMarkdownを生成"
       />
 
       <div className={styles.controlRow}>

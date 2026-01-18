@@ -13,12 +13,12 @@
 
 ### ✅ 実装済み
 - 録音/アップロード → `/api/audio` → 会話ログ作成（PROCESSING）
-- 分割→並列→統合のジョブ設計（SUMMARY/EXTRACT/MERGE/FORMAT）
-- Summary/Timeline/ToDo/ProfileDelta/FormattedTranscript の生成・保存
+- 分割→並列→統合のジョブ設計（CHUNK_ANALYZE/REDUCE/FINALIZE、FORMATは任意）
+- Summary/Timeline/ToDo/ProfileDelta/ParentPack の生成・保存
 - ProfileDelta を StudentProfile.profileData に反映
 - 生徒基本情報の編集UI（`PUT /api/students/[id]`）
 - 保護者レポート生成UI（ログ複数選択＋前回参照トグル）
-- 保護者レポート生成API（Markdown + JSON + PDF base64）
+- 保護者レポート生成API（Markdown + JSON、PDFなし）
 
 ### 🟡 部分実装
 - cron/cleanup
@@ -32,7 +32,7 @@
 ---
 
 ## リリース前の作業（手順）
-1. README / task.md 更新（完了）
-2. 旧参照の一掃（完了：docs/scripts更新）
-3. Prisma migrate reset 実行（DB接続エラーで未完了）
-4. `npm run lint` 実行（完了）
+1. README / task.md 更新（実行中）
+2. 旧参照の一掃（SUMMARY/EXTRACT/MERGE/PDF 参照の削除）
+3. Prisma migrate reset 実行
+4. `npm run lint` / `npm run build` 実行

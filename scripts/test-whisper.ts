@@ -6,7 +6,7 @@
 import { transcribeAudio } from "../lib/ai/stt";
 import { createStructuredConversationLog } from "../lib/analytics/conversationAnalysis";
 import { preprocessTranscript } from "../lib/transcript/preprocess";
-import { generateSummaryChunkMemos, generateExtractChunkMemos, mergeConversationArtifacts } from "../lib/ai/conversationPipeline";
+import { analyzeChunkBlocks, reduceChunkAnalyses, finalizeConversationArtifacts } from "../lib/ai/conversationPipeline";
 import { ConversationSourceType } from "@prisma/client";
 
 async function testWhisper() {
@@ -42,20 +42,10 @@ async function testWhisper() {
   const testTranscript = "今日は模試の結果が返ってきて、数学が不安です。最近は抹茶アイスにハマっています。";
   try {
     const pre = preprocessTranscript(testTranscript);
-    const { memos: summaryMemos } = await generateSummaryChunkMemos(
-      pre.blocks.map((b) => ({ index: b.index, text: b.text })),
-      { studentName: "宮本 徹生" }
-    );
-    const { memos: extractMemos } = await generateExtractChunkMemos(
-      pre.blocks.map((b) => ({ index: b.index, text: b.text })),
-      { studentName: "宮本 徹生" }
-    );
-    const { result } = await mergeConversationArtifacts({
-      studentName: "宮本 徹生",
-      summaryMemos,
-      extractMemos,
-      minSummaryChars: 500,
-    });
+    const blocks = pre.blocks.map((b) => ({ index: b.index, text: b.text, hash: b.hash }));
+    const { analyses } = await analyzeChunkBlocks(blocks, { studentName: "宮本 徹生" });
+    const { reduced } = await reduceChunkAnalyses({ analyses });
+    const { result } = await finalizeConversationArtifacts({ reduced, minSummaryChars: 500 });
     console.log("✅ 構造化成功:");
     console.log("  - Summary:", result.summaryMarkdown.substring(0, 50) + "...");
     console.log("  - Timeline:", result.timeline.length, "件");

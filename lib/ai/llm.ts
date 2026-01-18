@@ -2,6 +2,9 @@ import { DEFAULT_TEACHER_FULL_NAME } from "@/lib/constants";
 
 // OPENAI_API_KEY を LLM_API_KEY としても使用可能にする
 const LLM_API_KEY = process.env.LLM_API_KEY || process.env.OPENAI_API_KEY || "";
+const MODEL_FAST = process.env.LLM_MODEL_FAST || process.env.LLM_MODEL || "gpt-5.2";
+const MODEL_FINAL = process.env.LLM_MODEL_FINAL || process.env.LLM_MODEL || "gpt-5.2";
+const MODEL_REPORT = process.env.LLM_MODEL_REPORT || process.env.LLM_MODEL_FINAL || process.env.LLM_MODEL || "gpt-5.2";
 
 export type StructuredDeltaField = {
   value: string;
@@ -347,14 +350,14 @@ ${transcript}`;
         : systemPrompt;
 
       const baseBody: Record<string, any> = {
-        model: "gpt-4o",
+        model: MODEL_FINAL,
         messages: [
           { role: "system", content: sys },
           { role: "user", content: userPrompt },
         ],
-        // gpt-4o は max_tokens を使用
+        // model は max_tokens を使用
         max_tokens: Math.round(maxTokensOverride ?? estimatedTokens),
-        // gpt-4o は JSON強制が安定
+        // JSON強制が安定
         response_format: { type: "json_object" },
         // 4oは温度指定OK。要約の一貫性を保ちつつ、表現は硬すぎない程度。
         temperature: 0.7,
@@ -793,7 +796,7 @@ export async function normalizeTranscriptKanji(
 ${source}`.trim();
 
   const { contentText, finishReason, refusal, raw } = await callChatCompletions({
-    model: "gpt-4o-mini",
+    model: MODEL_FAST,
     messages: [
       { role: "system", content: system },
       { role: "user", content: user },
@@ -850,7 +853,7 @@ async function generateLongConversationSummaryChunk(
 ${rawTextCleaned}`.trim();
 
   const { contentText, finishReason, refusal, raw } = await callChatCompletions({
-    model: "gpt-4o-mini",
+    model: MODEL_FAST,
     messages: [
       { role: "system", content: system },
       { role: "user", content: user },
@@ -971,7 +974,7 @@ export async function extractConversationArtifactsMini(
 ${rawTextCleaned}`.trim();
 
   const { contentText, finishReason, refusal, raw } = await callChatCompletions({
-    model: "gpt-4o-mini",
+    model: MODEL_FAST,
     messages: [
       { role: "system", content: system },
       { role: "user", content: user },
@@ -1159,7 +1162,7 @@ async function formatTranscriptChunk(
 ${rawTextOriginal}`.trim();
 
   const { contentText, finishReason, refusal, raw } = await callChatCompletions({
-    model: "gpt-4o-mini",
+    model: MODEL_FAST,
     messages: [
       { role: "system", content: system },
       { role: "user", content: user },
@@ -1245,7 +1248,7 @@ async function diarizeSegmentChunk(
 ${JSON.stringify(chunk, null, 2)}`;
 
   const { contentText, finishReason, refusal, raw } = await callChatCompletions({
-    model: "gpt-4o-mini",
+    model: MODEL_FAST,
     messages: [
       { role: "system", content: system },
       { role: "user", content: user },
@@ -1298,7 +1301,7 @@ async function refineDiarizedChunk(
 ${JSON.stringify(chunk, null, 2)}`;
 
   const { contentText, raw } = await callChatCompletions({
-    model: "gpt-4o",
+    model: MODEL_FINAL,
     messages: [
       { role: "system", content: system },
       { role: "user", content: user },
@@ -1424,6 +1427,7 @@ type ReportInput = {
   logs: Array<{
     id: string;
     date: string;
+    parentPack?: any;
     summaryMarkdown?: string;
     timeline?: any;
     nextActions?: any;
@@ -1485,6 +1489,7 @@ export async function generateParentReport(input: ReportInput): Promise<{ markdo
 
 # 絶対ルール
 - ですます調
+- 入力に parentPack がある場合は **parentPack を最優先**で構成する
 - 推測で盛らない。不明は「現時点では未確認です」と書く
 - 前回レポートがある場合、「継続」「変化」「今回の焦点」を必ず明示する
 - 科目や試験、教材、期限は可能な範囲で具体に
@@ -1522,6 +1527,8 @@ ${input.logs
         `# Log ${idx + 1}`,
         `date: ${l.date}`,
         `id: ${l.id}`,
+        `parentPack:`,
+        JSON.stringify(l.parentPack ?? {}, null, 2),
         `summaryMarkdown:`,
         l.summaryMarkdown ?? "",
         `timeline:`,
@@ -1535,7 +1542,7 @@ ${input.logs
     .join("\n\n")}`;
 
   const { contentText, raw } = await callChatCompletions({
-    model: "gpt-4o",
+    model: MODEL_REPORT,
     messages: [
       { role: "system", content: systemPrompt },
       { role: "user", content: userPrompt },

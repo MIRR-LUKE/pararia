@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createStructuredConversationLog } from "@/lib/analytics/conversationAnalysis";
 import { preprocessTranscript } from "@/lib/transcript/preprocess";
-import { generateSummaryChunkMemos, generateExtractChunkMemos, mergeConversationArtifacts } from "@/lib/ai/conversationPipeline";
+import { analyzeChunkBlocks, reduceChunkAnalyses, finalizeConversationArtifacts } from "@/lib/ai/conversationPipeline";
 import { ConversationSourceType } from "@prisma/client";
 
 export async function POST(request: Request) {
@@ -15,17 +15,13 @@ export async function POST(request: Request) {
   // 保存せず構造化のみ返す
   if (!save || !organizationId || !studentId) {
     const pre = preprocessTranscript(transcript);
-    const { memos: summaryMemos } = await generateSummaryChunkMemos(
-      pre.blocks.map((b) => ({ index: b.index, text: b.text })),
+    const { analyses } = await analyzeChunkBlocks(
+      pre.blocks.map((b) => ({ index: b.index, text: b.text, hash: b.hash })),
       {}
     );
-    const { memos: extractMemos } = await generateExtractChunkMemos(
-      pre.blocks.map((b) => ({ index: b.index, text: b.text })),
-      {}
-    );
-    const { result } = await mergeConversationArtifacts({
-      summaryMemos,
-      extractMemos,
+    const { reduced } = await reduceChunkAnalyses({ analyses });
+    const { result } = await finalizeConversationArtifacts({
+      reduced,
       minSummaryChars: transcript.length >= 20000 ? 1200 : 700,
     });
     return NextResponse.json({ structured: result, saved: false });

@@ -9,7 +9,7 @@ export async function GET(
     const { searchParams } = new URL(request.url);
     const process = searchParams.get("process");
     if (process === "1") {
-      // Fire-and-forget: Process both Job A (SUMMARY) and Job B (EXTRACT) in parallel
+      // Fire-and-forget: Process queued jobs in the background
       try {
         const { processAllConversationJobs } = await import("@/lib/jobs/conversationJobs");
         // don't await heavy work here; both jobs run in parallel in the background
@@ -63,6 +63,7 @@ export async function GET(
       timelineJson: conversation.timelineJson as any,
       nextActionsJson: conversation.nextActionsJson as any,
       profileDeltaJson: conversation.profileDeltaJson as any,
+      parentPackJson: conversation.parentPackJson as any,
       formattedTranscript: conversation.formattedTranscript,
       qualityMetaJson: conversation.qualityMetaJson as any,
     };
@@ -175,6 +176,7 @@ export async function PATCH(
       timelineJson: updated.timelineJson as any,
       nextActionsJson: updated.nextActionsJson as any,
       profileDeltaJson: updated.profileDeltaJson as any,
+      parentPackJson: updated.parentPackJson as any,
       formattedTranscript: updated.formattedTranscript,
       qualityMetaJson: updated.qualityMetaJson as any,
     };

@@ -86,7 +86,9 @@ model ConversationLog {
   timelineJson        Json?
   nextActionsJson     Json?
   profileDeltaJson    Json?
+  parentPackJson      Json?
   formattedTranscript String?
+  chunkAnalysisJson   Json?
   qualityMetaJson     Json?
 
   createdAt DateTime @default(now())
@@ -124,7 +126,6 @@ model Report {
   organizationId   String
   reportMarkdown   String
   reportJson       Json?
-  reportPdfBase64  String?
   periodFrom       DateTime?
   periodTo         DateTime?
   sourceLogIds     Json?
@@ -156,9 +157,9 @@ enum ConversationSourceType {
 }
 
 enum ConversationJobType {
-  SUMMARY
-  EXTRACT
-  MERGE
+  CHUNK_ANALYZE
+  REDUCE
+  FINALIZE
   FORMAT
   REPORT
 }

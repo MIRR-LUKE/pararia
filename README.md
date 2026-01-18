@@ -12,19 +12,22 @@
 - `POST /api/audio` で **Whisper (verbose_json)** を実行。
 - 前処理（フィラー除去 / 連続重複整理 / 段落化 / 話題境界推定 / chunk作成）。
 - `ConversationLog` を **status=PROCESSING** で保存し、`rawTextOriginal/rawTextCleaned/rawSegments` をTTL付きで保持。
-- `ConversationJob` を **SUMMARY/EXTRACT/MERGE/FORMAT** の4本でキュー投入（即レス）。
+- `ConversationJob` を **CHUNK_ANALYZE / REDUCE / FINALIZE** でキュー投入（即レス）。
+- `FORMAT` は **必要時のみ**（全文整形を要求したときに追加）。
 
-2) **会話ログの構造化（分割→並列→統合）**
-- Step1: chunkごとに **メモ生成**（デフォルト4o-mini、長文は4o）。
-- Step2: **4oで統合**し、Summary / Timeline / ToDo / ProfileDelta を確定稿で生成。
-- Step3: **formattedTranscript** を整形（ルール整形 + 4o-mini補正 + 4o最終整合）。
+2) **会話ログの構造化（分割→並列→Reduce→Finalize）**
+- Step1: **CHUNK_ANALYZE**（1チャンク1回、事実/指導/ToDo/Timeline/差分を統合抽出）
+- Step2: **REDUCE**（重複排除・並び替えで統合下書き）
+- Step3: **FINALIZE**（確定稿: Summary / Timeline / ToDo / ProfileDelta / ParentPack）
+- Step4: **FORMAT**（全文整形、必要時のみ）
 - 生成完了で **status=DONE**。`rawTextCleaned` は即削除、rawはTTLで削除。
 - Jobsは **並列実行**（同時進行数は `JOB_CONCURRENCY` で調整）。
 
 3) **会話ログ詳細（編集・再生成・削除）**
 - `/app/logs/[logId]` で **Summary / Timeline / ToDo / 全文** を表示。
 - `PATCH /api/conversations/[id]` で **Summary編集**。
-- `POST /api/conversations/[id]/regenerate` で **再生成**（SUMMARY/EXTRACT/MERGE/FORMAT再投入）。
+- `POST /api/conversations/[id]/regenerate` で **再生成**（CHUNK_ANALYZE/REDUCE/FINALIZE再投入）。
+- `POST /api/conversations/[id]/format` で **全文整形のみ** を追加キュー。
 - `DELETE /api/conversations/[id]` で **削除**。
 
 4) **カルテ更新（basic/personal）**
@@ -32,7 +35,8 @@
 - `basic/personal` は **配列形式**（field/value/confidence/evidence_quotes）。
 
 5) **保護者レポート生成（API + UI）**
-- `POST /api/ai/generate-report` で **Markdown + JSON + PDF(base64)** を生成。
+- `POST /api/ai/generate-report` で **Markdown + JSON** を生成（PDFなし）。
+- 入力は **ParentPack中心**（速度・品質安定）。
 - ログ複数選択 + 前回レポ参照トグルあり。
 - `Report` に保存（`previousReportId` 参照あり）。
 
@@ -68,7 +72,8 @@
 - `PATCH /api/conversations/[id]` : 会話ログ更新
 - `DELETE /api/conversations/[id]` : 会話ログ削除
 - `POST /api/conversations/[id]/regenerate` : 再生成
-- `POST /api/ai/generate-report` : 保護者レポート生成 + PDF
+- `POST /api/conversations/[id]/format` : 全文整形のみ
+- `POST /api/ai/generate-report` : 保護者レポート生成（テキストのみ）
 - `GET /api/students` : 生徒一覧（DB）
 - `POST /api/students` : 生徒作成（DB）
 - `GET /api/students/[id]` : 生徒詳細（DB）
@@ -79,11 +84,12 @@
 ## LLM / STT設計（品質 × 速度）
 
 - **STT**: OpenAI Whisper API（`verbose_json`）
-- **チャンク**: 2,000〜3,200 tokens相当、話題境界 + 段落 + 最大長
-- **Step1（メモ）**: 4o-mini（30分以上 or 20,000文字超は4o）
+- **チャンク**: 2,000〜3,200 tokens相当、沈黙/時間ウィンドウ + 最大長
+- **Step1（CHUNK_ANALYZE）**: GPT-5.2（fast）
 - **並列実行**: `JOB_CONCURRENCY` を超えない範囲で同時にジョブ実行
-- **Step2（統合）**: 4oで最終稿（Summary/Timeline/ToDo/ProfileDelta）
-- **Step3（整形）**: ルール整形 + 4o-mini補正 + 4o整合
+- **Step2（REDUCE）**: GPT-5.2（fast）
+- **Step3（FINALIZE）**: GPT-5.2（high quality）
+- **FORMAT**: 必要時のみ実行
 - **TTL**: rawTextOriginal/rawTextCleaned/rawSegments は 30日。成果物は永続保持。
 
 ---
@@ -93,10 +99,10 @@
 - **Student / StudentProfile**: `profileData` に basic/personal を配列で保持
 - **ConversationLog**:
   - rawTextOriginal/rawTextCleaned/rawSegments + rawTextExpiresAt
-  - summaryMarkdown / timelineJson / nextActionsJson / profileDeltaJson / formattedTranscript
+  - summaryMarkdown / timelineJson / nextActionsJson / profileDeltaJson / parentPackJson / formattedTranscript
   - status（PROCESSING/PARTIAL/DONE/ERROR）
-- **ConversationJob**: SUMMARY/EXTRACT/MERGE/FORMAT/REPORT
-- **Report**: reportMarkdown / reportJson / reportPdfBase64 / previousReportId
+- **ConversationJob**: CHUNK_ANALYZE/REDUCE/FINALIZE/FORMAT/REPORT
+- **Report**: reportMarkdown / reportJson / previousReportId
 
 ---
 
@@ -118,6 +124,9 @@ BASIC_AUTH_USER="demo"
 BASIC_AUTH_PASS="demo"
 CRON_SECRET="change-me"
 JOB_CONCURRENCY="3"
+LLM_MODEL_FAST="gpt-5.2"
+LLM_MODEL_FINAL="gpt-5.2"
+LLM_MODEL_REPORT="gpt-5.2"
 ```
 
 ---

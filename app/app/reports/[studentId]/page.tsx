@@ -162,7 +162,7 @@ export default function ReportPage({ params }: { params: { studentId: string } }
         </div>
       </div>
 
-      <Card title="生成結果（編集可）" subtitle="保護者に送る前に整形。Markdown/PDF対応予定">
+      <Card title="生成結果（編集可）" subtitle="保護者に送る前に整形。Markdownのみ">
         <textarea
           className={styles.textarea}
           value={content}
@@ -174,9 +174,6 @@ export default function ReportPage({ params }: { params: { studentId: string } }
           </Button>
           <Button type="button" variant="secondary">
             コピー用テキスト
-          </Button>
-          <Button type="button" variant="ghost">
-            PDFプレビュー（実装予定）
           </Button>
         </div>
       </Card>

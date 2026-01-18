@@ -1,8 +1,11 @@
 import { DEFAULT_TEACHER_FULL_NAME } from "@/lib/constants";
 import type {
-  ChunkSummaryMemo,
-  ChunkExtractMemo,
-  MergeResult,
+  ChunkAnalysis,
+  ReducedAnalysis,
+  FinalizeResult,
+  ParentPack,
+  TimelineCandidate,
+  TodoCandidate,
   ProfileDelta,
   TimelineSection,
   NextAction,
@@ -10,7 +13,7 @@ import type {
 } from "@/lib/types/conversation";
 
 const LLM_API_KEY = process.env.LLM_API_KEY || process.env.OPENAI_API_KEY || "";
-const PROMPT_VERSION = "v0.2";
+const PROMPT_VERSION = "v0.3";
 
 type ChatCompletionResponse = {
   choices?: Array<{
@@ -112,6 +115,14 @@ export function estimateTokens(text: string) {
   return Math.ceil(text.length / 2);
 }
 
+function getFastModel() {
+  return process.env.LLM_MODEL_FAST || process.env.LLM_MODEL || "gpt-5.2";
+}
+
+function getFinalModel() {
+  return process.env.LLM_MODEL_FINAL || process.env.LLM_MODEL || "gpt-5.2";
+}
+
 export function maskSensitiveText(text: string) {
   let out = text;
   // email
@@ -173,6 +184,46 @@ function normalizeNextActions(actions: NextAction[]) {
     }));
 }
 
+function normalizeReducedAnalysis(input: ReducedAnalysis): ReducedAnalysis {
+  return {
+    facts: (input.facts ?? []).map((v) => String(v).trim()).filter(Boolean),
+    coaching_points: (input.coaching_points ?? []).map((v) => String(v).trim()).filter(Boolean),
+    decisions: (input.decisions ?? []).map((v) => String(v).trim()).filter(Boolean),
+    student_state_delta: (input.student_state_delta ?? []).map((v) => String(v).trim()).filter(Boolean),
+    todo_candidates: (input.todo_candidates ?? []).map((t) => ({
+      owner: t.owner ?? "STUDENT",
+      action: String(t.action ?? "").trim(),
+      due: t.due ?? null,
+      metric: String(t.metric ?? "").trim(),
+      why: String(t.why ?? "").trim(),
+      evidence_quotes: sanitizeQuotes(t.evidence_quotes ?? []),
+    })),
+    timeline_candidates: (input.timeline_candidates ?? []).map((t) => ({
+      title: String(t.title ?? "").trim(),
+      what_happened: String(t.what_happened ?? "").trim(),
+      coach_point: String(t.coach_point ?? "").trim(),
+      student_state: String(t.student_state ?? "").trim(),
+      evidence_quotes: sanitizeQuotes(t.evidence_quotes ?? []),
+    })),
+    profile_delta_candidates: normalizeProfileDelta(input.profile_delta_candidates ?? { basic: [], personal: [] }),
+    quotes: sanitizeQuotes(input.quotes ?? []),
+    safety_flags: (input.safety_flags ?? []).map((v) => String(v).trim()).filter(Boolean),
+  };
+}
+
+function normalizeParentPack(pack: ParentPack): ParentPack {
+  const normalizeList = (items?: string[]) =>
+    (items ?? []).map((v) => String(v).trim()).filter(Boolean);
+  return {
+    what_we_did: normalizeList(pack.what_we_did),
+    what_improved: normalizeList(pack.what_improved),
+    what_to_practice: normalizeList(pack.what_to_practice),
+    risks_or_notes: normalizeList(pack.risks_or_notes),
+    next_time_plan: normalizeList(pack.next_time_plan),
+    evidence_quotes: sanitizeQuotes(pack.evidence_quotes ?? []),
+  };
+}
+
 function formatStudentLabel(name?: string) {
   if (!name) return "生徒";
   return `${name}さん`;
@@ -184,25 +235,17 @@ function formatTeacherLabel(name?: string) {
   return `${cleaned}先生`;
 }
 
-function shouldUseFourO(stepSeconds: number | null, rawTextCleaned: string) {
-  if (stepSeconds != null && stepSeconds >= 30 * 60) return true;
-  if (rawTextCleaned.length >= 20000) return true;
-  return false;
-}
-
-export async function generateSummaryChunkMemos(
-  blocks: Array<{ index: number; text: string }>,
-  opts: { studentName?: string; teacherName?: string; sttSeconds?: number | null }
-): Promise<{ memos: ChunkSummaryMemo[]; model: string } > {
-  const useFourO = shouldUseFourO(opts.sttSeconds ?? null, blocks.map((b) => b.text).join("\n"));
-  const model = useFourO ? "gpt-4o" : "gpt-4o-mini";
+export async function analyzeChunkBlocks(
+  blocks: Array<{ index: number; text: string; hash: string }>,
+  opts: { studentName?: string; teacherName?: string }
+): Promise<{ analyses: ChunkAnalysis[]; model: string }> {
+  const model = getFastModel();
   const studentLabel = formatStudentLabel(opts.studentName);
   const teacherLabel = formatTeacherLabel(opts.teacherName);
 
   const tasks = blocks.map(async (block) => {
-    const system = `あなたは学習塾の教務です。以下の会話チャンクから、事実と指導ポイントを抽出します。
-推測は禁止。抽象語で逃げない。引用は原文から20〜60文字。
-出力はJSONのみ。`;
+    const system = `あなたは学習塾の教務です。会話チャンクを1回で分析し、構造化JSONを返します。
+推測は禁止。引用は原文から20〜60文字。出力はJSONのみ。`;
 
     const user = `会話チャンク（${block.index + 1}）:
 ${block.text}
@@ -210,70 +253,9 @@ ${block.text}
 出力JSON:
 {
   "facts": ["..."],
-  "coach_points": ["..."],
+  "coaching_points": ["..."],
   "decisions": ["..."],
-  "quotes": ["..."]
-}
-
-注意:
-- facts は会話から確認できた事実のみ
-- coach_points は ${teacherLabel} の指導の核
-- decisions は決定事項/約束
-- quotes は ${studentLabel}/${teacherLabel} の短い引用`;
-
-    const { contentText, raw } = await callChatCompletions({
-      model,
-      messages: [
-        { role: "system", content: system },
-        { role: "user", content: user },
-      ],
-      response_format: { type: "json_object" },
-      temperature: 0.2,
-    });
-
-    const jsonText = contentText ?? extractJsonCandidate(raw) ?? "";
-    const parsed = tryParseJson<any>(jsonText) ?? {};
-    return {
-      index: block.index,
-      facts: (parsed.facts ?? []).map((v: any) => String(v)),
-      coach_points: (parsed.coach_points ?? []).map((v: any) => String(v)),
-      decisions: (parsed.decisions ?? []).map((v: any) => String(v)),
-      quotes: sanitizeQuotes((parsed.quotes ?? []).map((v: any) => String(v))),
-    } as ChunkSummaryMemo;
-  });
-
-  const memos = await Promise.all(tasks);
-  return { memos, model };
-}
-
-export async function generateExtractChunkMemos(
-  blocks: Array<{ index: number; text: string }>,
-  opts: { studentName?: string; teacherName?: string; sttSeconds?: number | null }
-): Promise<{ memos: ChunkExtractMemo[]; model: string }> {
-  const useFourO = shouldUseFourO(opts.sttSeconds ?? null, blocks.map((b) => b.text).join("\n"));
-  const model = useFourO ? "gpt-4o" : "gpt-4o-mini";
-  const studentLabel = formatStudentLabel(opts.studentName);
-  const teacherLabel = formatTeacherLabel(opts.teacherName);
-
-  const tasks = blocks.map(async (block) => {
-    const system = `あなたは学習塾の教務です。会話チャンクから話題候補・ToDo候補・カルテ更新候補を抽出します。
-推測は禁止。引用は原文から20〜60文字。
-出力はJSONのみ。`;
-
-    const user = `会話チャンク（${block.index + 1}）:
-${block.text}
-
-出力JSON:
-{
-  "timeline_candidates": [
-    {
-      "title": "...",
-      "what_happened": "...",
-      "coach_point": "...",
-      "student_state": "...",
-      "evidence_quotes": ["..."]
-    }
-  ],
+  "student_state_delta": ["..."],
   "todo_candidates": [
     {
       "owner": "COACH|STUDENT|PARENT",
@@ -284,6 +266,15 @@ ${block.text}
       "evidence_quotes": ["..."]
     }
   ],
+  "timeline_candidates": [
+    {
+      "title": "...",
+      "what_happened": "...",
+      "coach_point": "...",
+      "student_state": "...",
+      "evidence_quotes": ["..."]
+    }
+  ],
   "profile_delta_candidates": {
     "basic": [
       { "field": "school|grade|targets|subjects|materials|mockResults|guardian|schedule|issues|nextSessionPlan", "value": "...", "confidence": 0-100, "evidence_quotes": ["..."] }
@@ -291,12 +282,16 @@ ${block.text}
     "personal": [
       { "field": "...", "value": "...", "confidence": 0-100, "evidence_quotes": ["..."] }
     ]
-  }
+  },
+  "quotes": ["..."],
+  "safety_flags": ["PII","SENSITIVE","AMBIGUOUS"]
 }
 
 注意:
-- student_state は断定しすぎない
-- quotes は ${studentLabel}/${teacherLabel} の短い引用`;
+- facts は会話から確認できた事実のみ
+- coaching_points は ${teacherLabel} の指導の核
+- quotes は ${studentLabel}/${teacherLabel} の短い引用
+- safety_flags は該当がない場合は空配列`;
 
     const { contentText, raw } = await callChatCompletions({
       model,
@@ -310,15 +305,13 @@ ${block.text}
 
     const jsonText = contentText ?? extractJsonCandidate(raw) ?? "";
     const parsed = tryParseJson<any>(jsonText) ?? {};
-    return {
+    const analysis: ChunkAnalysis = {
       index: block.index,
-      timeline_candidates: (parsed.timeline_candidates ?? []).map((item: any) => ({
-        title: String(item?.title ?? ""),
-        what_happened: String(item?.what_happened ?? ""),
-        coach_point: String(item?.coach_point ?? ""),
-        student_state: String(item?.student_state ?? ""),
-        evidence_quotes: sanitizeQuotes((item?.evidence_quotes ?? []).map((v: any) => String(v))),
-      })),
+      hash: block.hash,
+      facts: (parsed.facts ?? []).map((v: any) => String(v)),
+      coaching_points: (parsed.coaching_points ?? []).map((v: any) => String(v)),
+      decisions: (parsed.decisions ?? []).map((v: any) => String(v)),
+      student_state_delta: (parsed.student_state_delta ?? []).map((v: any) => String(v)),
       todo_candidates: (parsed.todo_candidates ?? []).map((item: any) => ({
         owner: item?.owner ?? "STUDENT",
         action: String(item?.action ?? ""),
@@ -327,74 +320,107 @@ ${block.text}
         why: String(item?.why ?? ""),
         evidence_quotes: sanitizeQuotes((item?.evidence_quotes ?? []).map((v: any) => String(v))),
       })),
-      profile_delta_candidates: {
-        basic: (parsed?.profile_delta_candidates?.basic ?? []).map((item: any) => ({
-          field: String(item?.field ?? ""),
-          value: String(item?.value ?? ""),
-          confidence: Number(item?.confidence ?? 50),
-          evidence_quotes: sanitizeQuotes((item?.evidence_quotes ?? []).map((v: any) => String(v))),
-        })),
-        personal: (parsed?.profile_delta_candidates?.personal ?? []).map((item: any) => ({
-          field: String(item?.field ?? ""),
-          value: String(item?.value ?? ""),
-          confidence: Number(item?.confidence ?? 50),
-          evidence_quotes: sanitizeQuotes((item?.evidence_quotes ?? []).map((v: any) => String(v))),
-        })),
-      },
-    } as ChunkExtractMemo;
+      timeline_candidates: (parsed.timeline_candidates ?? []).map((item: any) => ({
+        title: String(item?.title ?? ""),
+        what_happened: String(item?.what_happened ?? ""),
+        coach_point: String(item?.coach_point ?? ""),
+        student_state: String(item?.student_state ?? ""),
+        evidence_quotes: sanitizeQuotes((item?.evidence_quotes ?? []).map((v: any) => String(v))),
+      })),
+      profile_delta_candidates: normalizeProfileDelta(parsed.profile_delta_candidates ?? { basic: [], personal: [] }),
+      quotes: sanitizeQuotes((parsed.quotes ?? []).map((v: any) => String(v))),
+      safety_flags: (parsed.safety_flags ?? []).map((v: any) => String(v)),
+    };
+    return analysis;
   });
 
-  const memos = await Promise.all(tasks);
-  return { memos, model };
+  const analyses = await Promise.all(tasks);
+  return { analyses, model };
 }
 
-function buildMergePrompt(input: {
+export async function reduceChunkAnalyses(input: {
+  analyses: ChunkAnalysis[];
   studentName?: string;
   teacherName?: string;
-  summaryMemos: ChunkSummaryMemo[];
-  extractMemos: ChunkExtractMemo[];
+}): Promise<{ reduced: ReducedAnalysis; model: string }> {
+  const model = getFastModel();
+  const studentLabel = formatStudentLabel(input.studentName);
+  const teacherLabel = formatTeacherLabel(input.teacherName);
+
+  const system = `あなたは会話ログの統合担当です。以下のチャンク分析を重複排除し、整合性を保ちながら統合します。
+創作は禁止。出力はJSONのみ。`;
+
+  const user = `生徒: ${studentLabel}
+講師: ${teacherLabel}
+
+チャンク分析:
+${JSON.stringify(
+    input.analyses.map((a) => ({
+      index: a.index,
+      facts: a.facts,
+      coaching_points: a.coaching_points,
+      decisions: a.decisions,
+      student_state_delta: a.student_state_delta,
+      todo_candidates: a.todo_candidates,
+      timeline_candidates: a.timeline_candidates,
+      profile_delta_candidates: a.profile_delta_candidates,
+      quotes: a.quotes,
+      safety_flags: a.safety_flags,
+    })),
+    null,
+    2
+  )}
+
+出力JSON:
+{
+  "facts": ["..."],
+  "coaching_points": ["..."],
+  "decisions": ["..."],
+  "student_state_delta": ["..."],
+  "todo_candidates": [...],
+  "timeline_candidates": [...],
+  "profile_delta_candidates": { "basic": [...], "personal": [...] },
+  "quotes": ["..."],
+  "safety_flags": ["..."]
+}`;
+
+  const { contentText, raw } = await callChatCompletions({
+    model,
+    messages: [
+      { role: "system", content: system },
+      { role: "user", content: user },
+    ],
+    response_format: { type: "json_object" },
+    temperature: 0.2,
+  });
+
+  const jsonText = contentText ?? extractJsonCandidate(raw) ?? "";
+  const parsed = tryParseJson<ReducedAnalysis>(jsonText) ?? {
+    facts: [],
+    coaching_points: [],
+    decisions: [],
+    student_state_delta: [],
+    todo_candidates: [],
+    timeline_candidates: [],
+    profile_delta_candidates: { basic: [], personal: [] },
+    quotes: [],
+    safety_flags: [],
+  };
+
+  const reduced = normalizeReducedAnalysis(parsed);
+  return { reduced, model };
+}
+
+function buildFinalizePrompt(input: {
+  studentName?: string;
+  teacherName?: string;
+  reduced: ReducedAnalysis;
   minSummaryChars: number;
 }): { system: string; user: string } {
   const studentLabel = formatStudentLabel(input.studentName);
   const teacherLabel = formatTeacherLabel(input.teacherName);
-  const summaryNotes = input.summaryMemos
-    .map((m) => {
-      const lines = [
-        `# chunk ${m.index + 1}`,
-        `facts: ${m.facts.join(" / ")}`,
-        `coach_points: ${m.coach_points.join(" / ")}`,
-        `decisions: ${m.decisions.join(" / ")}`,
-        `quotes: ${m.quotes.join(" / ")}`,
-      ];
-      return lines.join("\n");
-    })
-    .join("\n\n");
 
-  const extractNotes = input.extractMemos
-    .map((m) => {
-      const lines = [
-        `# chunk ${m.index + 1}`,
-        `timeline_candidates:`,
-        ...m.timeline_candidates.map(
-          (t) => `- ${t.title} | ${t.what_happened} | ${t.coach_point} | ${t.student_state} | quotes: ${t.evidence_quotes.join(" / ")}`
-        ),
-        `todo_candidates:`,
-        ...m.todo_candidates.map(
-          (t) => `- ${t.owner} | ${t.action} | ${t.due} | ${t.metric} | ${t.why} | quotes: ${t.evidence_quotes.join(" / ")}`
-        ),
-        `profile_delta_candidates:`,
-        ...m.profile_delta_candidates.basic.map(
-          (b) => `- basic | ${b.field} | ${b.value} | ${b.confidence} | ${b.evidence_quotes.join(" / ")}`
-        ),
-        ...m.profile_delta_candidates.personal.map(
-          (p) => `- personal | ${p.field} | ${p.value} | ${p.confidence} | ${p.evidence_quotes.join(" / ")}`
-        ),
-      ];
-      return lines.join("\n");
-    })
-    .join("\n\n");
-
-  const system = `あなたは学習塾の教務担当です。以下のメモを統合し、会話ログの最終成果物を作成します。
+  const system = `あなたは学習塾の教務担当です。統合済み素材から会話ログの最終成果物を作成します。
 
 【絶対ルール】
 - 推測・断定を禁止（会話から確認できた事実のみ）
@@ -403,6 +429,7 @@ function buildMergePrompt(input: {
 - Timelineは最低3セクション、各セクションに引用2〜4本必須
 - ToDoは owner/action/due/metric/why を必須
 - ProfileDeltaは basic/personal に分け、confidenceと引用必須
+- ParentPackは保護者向け素材として具体的に
 - evidence_quotes は20〜60文字の短い引用
 
 【出力JSON】
@@ -433,6 +460,14 @@ function buildMergePrompt(input: {
     "personal": [
       { "field": "...", "value": "...", "confidence": 0-100, "evidence_quotes": ["..."] }
     ]
+  },
+  "parentPack": {
+    "what_we_did": ["..."],
+    "what_improved": ["..."],
+    "what_to_practice": ["..."],
+    "risks_or_notes": ["..."],
+    "next_time_plan": ["..."],
+    "evidence_quotes": ["..."]
   }
 }
 
@@ -444,17 +479,14 @@ SummaryMarkdownの見出しは必ず以下を使用:
   const user = `生徒: ${studentLabel}
 講師: ${teacherLabel}
 
-[Summaryメモ]
-${summaryNotes}
-
-[Extractメモ]
-${extractNotes}
+統合素材:
+${JSON.stringify(input.reduced, null, 2)}
 
 上記を統合して、JSONのみ出力してください。`;
   return { system, user };
 }
 
-function validateMergeOutput(result: MergeResult, minSummaryChars: number) {
+function validateFinalizeOutput(result: FinalizeResult, minSummaryChars: number) {
   const issues: string[] = [];
   if (!result.summaryMarkdown || result.summaryMarkdown.length < minSummaryChars) {
     issues.push("summaryMarkdownが短すぎます");
@@ -468,23 +500,24 @@ function validateMergeOutput(result: MergeResult, minSummaryChars: number) {
   if (!result.profileDelta) {
     issues.push("profileDeltaが空です");
   }
+  if (!result.parentPack) {
+    issues.push("parentPackが空です");
+  }
   return issues;
 }
 
-async function repairMergeOutput(params: {
-  result: MergeResult;
+async function repairFinalizeOutput(params: {
+  result: FinalizeResult;
   issues: string[];
   studentName?: string;
   teacherName?: string;
-  summaryMemos: ChunkSummaryMemo[];
-  extractMemos: ChunkExtractMemo[];
+  reduced: ReducedAnalysis;
   minSummaryChars: number;
-}): Promise<MergeResult> {
-  const { system, user } = buildMergePrompt({
+}): Promise<FinalizeResult> {
+  const { system } = buildFinalizePrompt({
     studentName: params.studentName,
     teacherName: params.teacherName,
-    summaryMemos: params.summaryMemos,
-    extractMemos: params.extractMemos,
+    reduced: params.reduced,
     minSummaryChars: params.minSummaryChars,
   });
 
@@ -499,7 +532,7 @@ ${JSON.stringify(params.result, null, 2)}
 修正してJSONのみ出力してください。`;
 
   const { contentText, raw } = await callChatCompletions({
-    model: "gpt-4o",
+    model: getFinalModel(),
     messages: [
       { role: "system", content: repairSystem },
       { role: "user", content: repairUser },
@@ -509,21 +542,20 @@ ${JSON.stringify(params.result, null, 2)}
   });
 
   const jsonText = contentText ?? extractJsonCandidate(raw) ?? "";
-  const parsed = tryParseJson<MergeResult>(jsonText);
+  const parsed = tryParseJson<FinalizeResult>(jsonText);
   if (!parsed) return params.result;
   return parsed;
 }
 
-export async function mergeConversationArtifacts(input: {
+export async function finalizeConversationArtifacts(input: {
   studentName?: string;
   teacherName?: string;
-  summaryMemos: ChunkSummaryMemo[];
-  extractMemos: ChunkExtractMemo[];
+  reduced: ReducedAnalysis;
   minSummaryChars: number;
-}): Promise<{ result: MergeResult; model: string }> {
-  const { system, user } = buildMergePrompt(input);
+}): Promise<{ result: FinalizeResult; model: string }> {
+  const { system, user } = buildFinalizePrompt(input);
   const { contentText, raw } = await callChatCompletions({
-    model: "gpt-4o",
+    model: getFinalModel(),
     messages: [
       { role: "system", content: system },
       { role: "user", content: user },
@@ -533,27 +565,34 @@ export async function mergeConversationArtifacts(input: {
   });
 
   const jsonText = contentText ?? extractJsonCandidate(raw) ?? "";
-  const parsed = tryParseJson<MergeResult>(jsonText);
+  const parsed = tryParseJson<FinalizeResult>(jsonText);
   if (!parsed) {
-    throw new Error("MERGE output JSON parse failed");
+    throw new Error("FINALIZE output JSON parse failed");
   }
 
-  let result: MergeResult = {
+  let result: FinalizeResult = {
     summaryMarkdown: parsed.summaryMarkdown ?? "",
     timeline: normalizeTimeline(parsed.timeline ?? []),
     nextActions: normalizeNextActions(parsed.nextActions ?? []),
     profileDelta: normalizeProfileDelta(parsed.profileDelta ?? { basic: [], personal: [] }),
+    parentPack: normalizeParentPack(parsed.parentPack ?? {
+      what_we_did: [],
+      what_improved: [],
+      what_to_practice: [],
+      risks_or_notes: [],
+      next_time_plan: [],
+      evidence_quotes: [],
+    }),
   };
 
-  const issues = validateMergeOutput(result, input.minSummaryChars);
+  const issues = validateFinalizeOutput(result, input.minSummaryChars);
   if (issues.length > 0) {
-    const repaired = await repairMergeOutput({
+    const repaired = await repairFinalizeOutput({
       result,
       issues,
       studentName: input.studentName,
       teacherName: input.teacherName,
-      summaryMemos: input.summaryMemos,
-      extractMemos: input.extractMemos,
+      reduced: input.reduced,
       minSummaryChars: input.minSummaryChars,
     });
     result = {
@@ -561,10 +600,11 @@ export async function mergeConversationArtifacts(input: {
       timeline: normalizeTimeline(repaired.timeline ?? result.timeline),
       nextActions: normalizeNextActions(repaired.nextActions ?? result.nextActions),
       profileDelta: normalizeProfileDelta(repaired.profileDelta ?? result.profileDelta),
+      parentPack: normalizeParentPack(repaired.parentPack ?? result.parentPack),
     };
   }
 
-  return { result, model: "gpt-4o" };
+  return { result, model: getFinalModel() };
 }
 
 export function getPromptVersion() {
