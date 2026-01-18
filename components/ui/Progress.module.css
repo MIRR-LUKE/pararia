@@ -1,0 +1,15 @@
+.wrapper {
+  width: 100%;
+  background: #f1f5f9;
+  border-radius: 999px;
+  height: 10px;
+  overflow: hidden;
+  border: 1px solid #e2e8f0;
+}
+
+.bar {
+  height: 100%;
+  background: linear-gradient(90deg, #1d4ed8, #2563eb, #1e3a8a);
+  border-radius: 999px;
+  transition: width 0.2s ease;
+}

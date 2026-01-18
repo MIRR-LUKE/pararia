@@ -1,0 +1,446 @@
+.recorderCard {
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 24px;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.08);
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 24px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.headerLeft {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.iconWrapper {
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #3b82f6, #2563eb);
+  display: grid;
+  place-items: center;
+  color: #fff;
+  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.2);
+}
+
+.title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 800;
+  color: #0f172a;
+  line-height: 1.2;
+}
+
+.subtitle {
+  margin: 4px 0 0;
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.content {
+  display: grid;
+  gap: 24px;
+}
+
+/* 待機中 */
+.idleState {
+  display: grid;
+  place-items: center;
+  gap: 16px;
+  padding: 40px 20px;
+}
+
+.recordButton {
+  background: none;
+  border: none;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  gap: 16px;
+  transition: transform 0.2s ease;
+}
+
+.recordButton:hover {
+  transform: scale(1.05);
+}
+
+.recordButton:active {
+  transform: scale(0.95);
+}
+
+.recordButtonInner {
+  width: 120px;
+  height: 120px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #fee2e2, #fecaca);
+  display: grid;
+  place-items: center;
+  box-shadow: 0 8px 24px rgba(220, 38, 38, 0.3);
+  transition: all 0.3s ease;
+}
+
+.recordButton:hover .recordButtonInner {
+  box-shadow: 0 12px 32px rgba(220, 38, 38, 0.4);
+  transform: scale(1.05);
+}
+
+.recordButtonLabel {
+  font-size: 18px;
+  font-weight: 700;
+  color: #dc2626;
+}
+
+.hint {
+  font-size: 14px;
+  color: var(--muted);
+  text-align: center;
+}
+
+/* 録音中 */
+.recordingState {
+  display: grid;
+  place-items: center;
+  gap: 24px;
+  padding: 40px 20px;
+}
+
+.recordingVisual {
+  position: relative;
+  width: 160px;
+  height: 160px;
+  display: grid;
+  place-items: center;
+}
+
+.recordingPulse {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  background: rgba(220, 38, 38, 0.2);
+  animation: pulse 2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.2);
+    opacity: 0.5;
+  }
+}
+
+.recordingIcon {
+  position: relative;
+  z-index: 1;
+  animation: pulse-icon 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse-icon {
+  0%, 100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.1);
+  }
+}
+
+.recordingInfo {
+  display: grid;
+  gap: 16px;
+  width: 100%;
+  max-width: 400px;
+}
+
+.timeDisplay {
+  font-size: 48px;
+  font-weight: 800;
+  text-align: center;
+  color: #dc2626;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 2px;
+}
+
+.audioLevels {
+  display: flex;
+  justify-content: center;
+  align-items: flex-end;
+  gap: 4px;
+  height: 40px;
+  padding: 8px 0;
+}
+
+.audioBar {
+  width: 6px;
+  background: linear-gradient(180deg, #3b82f6, #2563eb);
+  border-radius: 3px;
+  transition: height 0.18s ease;
+  box-shadow: 0 0 8px rgba(37, 99, 235, 0.4);
+}
+
+.stopButton {
+  padding: 14px 28px;
+  font-size: 16px;
+  font-weight: 700;
+  color: #fff;
+  background: linear-gradient(135deg, #dc2626, #b91c1c);
+  border: none;
+  border-radius: 12px;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(220, 38, 38, 0.3);
+  transition: all 0.2s ease;
+}
+
+.stopButton:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(220, 38, 38, 0.4);
+}
+
+.stopButton:active {
+  transform: translateY(0);
+}
+
+/* 処理中 */
+.processingState {
+  display: grid;
+  gap: 24px;
+  padding: 40px 20px;
+  text-align: center;
+}
+
+.processingIcon {
+  display: grid;
+  place-items: center;
+  height: 80px;
+}
+
+.spinner {
+  width: 48px;
+  height: 48px;
+  border: 4px solid #e2e8f0;
+  border-top-color: #3b82f6;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.processingInfo {
+  display: grid;
+  gap: 12px;
+}
+
+.processingTitle {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+  color: #1e3a8a;
+}
+
+.progressBar {
+  width: 100%;
+  height: 12px;
+  background: #e2e8f0;
+  border-radius: 6px;
+  overflow: hidden;
+  position: relative;
+}
+
+.progressFill {
+  height: 100%;
+  border-radius: 6px;
+  transition: width 0.5s ease, background 0.3s ease;
+  box-shadow: 0 0 8px rgba(59, 130, 246, 0.3);
+}
+
+.progressText {
+  font-size: 14px;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.progressNote {
+  color: #6366f1;
+}
+
+/* 成功 */
+.successState {
+  display: grid;
+  place-items: center;
+  gap: 16px;
+  padding: 40px 20px;
+  text-align: center;
+}
+
+.successIcon {
+  animation: success-bounce 0.6s ease;
+}
+
+@keyframes success-bounce {
+  0%, 100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.15);
+  }
+}
+
+.successTitle {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 800;
+  color: #059669;
+}
+
+.successText {
+  margin: 0;
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.viewLogLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 12px 24px;
+  font-size: 16px;
+  font-weight: 700;
+  color: #059669;
+  text-decoration: none;
+  border: 2px solid #059669;
+  border-radius: 12px;
+  transition: all 0.2s ease;
+  margin-top: 8px;
+}
+
+.viewLogLink:hover {
+  background: #ecfdf5;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(5, 150, 105, 0.2);
+}
+
+/* エラー */
+.errorState {
+  display: grid;
+  place-items: center;
+  gap: 16px;
+  padding: 40px 20px;
+  text-align: center;
+}
+
+.errorIcon {
+  animation: error-shake 0.5s ease;
+}
+
+@keyframes error-shake {
+  0%, 100% {
+    transform: translateX(0);
+  }
+  25% {
+    transform: translateX(-8px);
+  }
+  75% {
+    transform: translateX(8px);
+  }
+}
+
+.errorTitle {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 800;
+  color: #dc2626;
+}
+
+.errorText {
+  margin: 0;
+  font-size: 14px;
+  color: var(--muted);
+  max-width: 400px;
+}
+
+/* ドラッグ&ドロップ */
+.dropZone {
+  border: 2px dashed var(--border);
+  border-radius: 12px;
+  padding: 32px 24px;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  background: #f8fafc;
+}
+
+.dropZone:hover {
+  border-color: #3b82f6;
+  background: #eff6ff;
+}
+
+.dropZone.dragging {
+  border-color: #2563eb;
+  background: #dbeafe;
+  transform: scale(1.02);
+}
+
+.dropZoneText {
+  margin: 12px 0 4px;
+  font-size: 16px;
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.dropZoneHint {
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+/* 設定 */
+.settings {
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+.settingLabel {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 14px;
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.qualitySelect {
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.qualitySelect:hover {
+  border-color: #3b82f6;
+}
+
+.qualitySelect:focus {
+  outline: none;
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+}
+
+

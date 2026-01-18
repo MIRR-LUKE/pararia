@@ -1,0 +1,172 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  // For Prisma migrations / long-lived connections, prefer a direct (non-pooler) URL.
+  // Set this only if you use Supabase "Session pooler" for DATABASE_URL.
+  // directUrl = env("DIRECT_URL")  // Optional: uncomment if using Session pooler
+}
+
+model Organization {
+  id        String   @id @default(cuid())
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users    User[]
+  students Student[]
+  conversations ConversationLog[]
+  reports  Report[]
+}
+
+model User {
+  id             String   @id @default(cuid())
+  organizationId String
+  email          String   @unique
+  passwordHash   String
+  name           String
+  role           UserRole @default(TEACHER)
+
+  organization  Organization        @relation(fields: [organizationId], references: [id])
+  conversations ConversationLog[]
+}
+
+enum UserRole {
+  ADMIN
+  TEACHER
+}
+
+model Student {
+  id             String   @id @default(cuid())
+  organizationId String
+  name           String
+  grade          String?
+  course         String?
+  enrollmentDate DateTime?
+  birthdate      DateTime?
+  guardianNames  String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  conversations ConversationLog[]
+  profiles      StudentProfile[]
+  reports       Report[]
+}
+
+model StudentProfile {
+  id              String   @id @default(cuid())
+  studentId       String
+  summary         String?
+  personality     String?
+  learningStyle   String?
+  motivationSource String?
+  ngApproach      String?
+  profileData     Json?
+  basicData       Json?
+  updatedAt       DateTime @updatedAt
+  createdAt       DateTime @default(now())
+
+  student Student @relation(fields: [studentId], references: [id])
+}
+
+model ConversationLog {
+  id              String   @id @default(cuid())
+  organizationId  String
+  studentId       String
+  userId          String?
+  sourceType      ConversationSourceType
+  // --- Raw transcript storage (v0.2爆速パイプライン要件) ---
+  // NOTE: 以前は全文保存しない方針だったが、現行仕様では raw_text_original / raw_text_cleaned を保存して即UI表示する。
+  rawTextOriginal String   @default("")
+  rawTextCleaned  String   @default("")
+  rawSegments     Json?    // Whisper verbose_json segments (start/end/text)
+
+  // --- LLM outputs ---
+  summary         String   @default("") // Job A (human-readable long summary with bold/formatting)
+  title           String?  // Short title for conversation log (1 sentence, generated from summary)
+  timeline        Json?    // Timeline by topic: [{topic: string, summary: string}]
+  nextActions     Json?    // ToDo/Next actions: string[]
+  structuredDelta Json?    // Profile updates: {personal: {...}, basics: {...}}
+  formattedTranscript String? // Formatted transcript with headings and speaker separation
+  // Legacy fields (deprecated, kept for compatibility)
+  timeSections    Json?
+  keyQuotes       Json?
+  keyTopics       Json?
+
+  // --- Async job status tracking ---
+  summaryStatus   JobStatus @default(PENDING)
+  extractStatus   JobStatus @default(PENDING)
+  summaryError    String?
+  extractError    String?
+  summaryUpdatedAt DateTime?
+  extractUpdatedAt DateTime?
+  createdAt       DateTime @default(now())
+
+  organization Organization          @relation(fields: [organizationId], references: [id])
+  student      Student               @relation(fields: [studentId], references: [id])
+  user         User?                 @relation(fields: [userId], references: [id])
+
+  jobs ConversationJob[]
+}
+
+enum ConversationSourceType {
+  MANUAL
+  AUDIO
+}
+
+enum ConversationJobType {
+  SUMMARY  // Job A: gpt-4o long readable summary
+  EXTRACT  // Job B: gpt-4o-mini structured extraction
+}
+
+enum JobStatus {
+  PENDING
+  RUNNING
+  SUCCESS
+  FAILED
+}
+
+model ConversationJob {
+  id             String             @id @default(cuid())
+  conversationId String
+  type           ConversationJobType
+  status         JobStatus          @default(PENDING)
+  attempts       Int                @default(0)
+  lastError      String?
+  startedAt      DateTime?
+  finishedAt     DateTime?
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+
+  conversation ConversationLog @relation(fields: [conversationId], references: [id])
+
+  @@unique([conversationId, type])
+  @@index([status, type])
+}
+
+model Report {
+  id              String   @id @default(cuid())
+  studentId       String
+  organizationId  String
+  markdown        String
+  json            Json?
+  pdfBase64       String?
+  periodFrom      DateTime?
+  periodTo        DateTime?
+  sourceLogIds    Json?
+  createdAt       DateTime @default(now())
+
+  student      Student      @relation(fields: [studentId], references: [id])
+  organization Organization @relation(fields: [organizationId], references: [id])
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String?
+  action    String
+  createdAt DateTime @default(now())
+}

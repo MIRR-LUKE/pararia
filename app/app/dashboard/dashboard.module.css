@@ -1,0 +1,90 @@
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 14px;
+}
+
+.kpiCard {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.kpiLabel {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.kpiValue {
+  font-size: 26px;
+  font-weight: 800;
+  color: var(--text);
+}
+
+.chartGrid {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr;
+  gap: 14px;
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.row {
+  display: grid;
+  grid-template-columns: 1.2fr 0.7fr 0.7fr 0.6fr 0.8fr;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: #f8fafc;
+}
+
+.heading {
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.hero {
+  display: grid;
+  grid-template-columns: 1.6fr 1fr;
+  gap: 14px;
+}
+
+.heroCard {
+  background: linear-gradient(135deg, #1d4ed8, #0f172a);
+  color: #e5edff;
+  border-radius: var(--card-radius);
+  padding: 20px;
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.18);
+  display: grid;
+  gap: 12px;
+}
+
+.heroTitle {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 800;
+}
+
+.heroText {
+  margin: 0;
+  color: #cbd5ff;
+}
+
+.miniGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 8px;
+}
+
+.iconRow {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  color: #cbd5ff;
+  font-size: 13px;
+}
