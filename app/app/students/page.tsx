@@ -1,25 +1,38 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { Card } from "@/components/ui/Card";
 import { Progress } from "@/components/ui/Progress";
 import styles from "./students.module.css";
-import {
-  getConversationsByStudentId,
-  getProfileCompleteness,
-  students,
-} from "@/lib/mockData";
 import { Button } from "@/components/ui/Button";
 import { Icon } from "@/components/ui/Icon";
 import { DEFAULT_TEACHER_FULL_NAME } from "@/lib/constants";
 
 type SortKey = "latest" | "oldest" | "logCount";
 
+type StudentRow = {
+  id: string;
+  name: string;
+  grade?: string | null;
+  course?: string | null;
+  guardianNames?: string | null;
+  lastConversationDate?: string | null;
+  conversationCount: number;
+  completeness: number;
+};
+
+function calcCompleteness(profileData?: any) {
+  const basic = profileData?.basic ?? [];
+  const personal = profileData?.personal ?? [];
+  const total = (basic?.length ?? 0) + (personal?.length ?? 0);
+  return Math.min(100, total * 6);
+}
+
 export default function StudentsPage() {
   const router = useRouter();
-  const [data, setData] = useState(students);
+  const [data, setData] = useState<StudentRow[]>([]);
   const [keyword, setKeyword] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("latest");
   const [showNewForm, setShowNewForm] = useState(false);
@@ -30,46 +43,49 @@ export default function StudentsPage() {
     enrollmentDate: "",
     birthdate: "",
     guardianNames: "",
-    motivationScore: 60,
   });
 
-  const enriched = useMemo(() => {
-    return data.map((student) => {
-      const logs = getConversationsByStudentId(student.id);
-      const lastLog = logs.sort((a, b) => (a.date < b.date ? 1 : -1))[0];
-      const daysSinceLast = lastLog
-        ? Math.floor(
-            (Date.now() - new Date(lastLog.date).getTime()) / (1000 * 60 * 60 * 24)
-          )
-        : null;
-      const completeness = getProfileCompleteness(student.profile);
-      return {
-        ...student,
-        conversationCount: logs.length,
-        lastConversationDate: lastLog?.date ?? "",
-        daysSinceLast,
-        completeness,
-      };
-    });
-  }, [data]);
+  const refresh = async () => {
+    try {
+      const res = await fetch("/api/students");
+      if (!res.ok) return;
+      const json = await res.json();
+      const rows: StudentRow[] = (json.students ?? []).map((s: any) => {
+        const lastConversation = s.conversations?.[0]?.createdAt ?? null;
+        const profileData = s.profiles?.[0]?.profileData ?? {};
+        return {
+          id: s.id,
+          name: s.name,
+          grade: s.grade,
+          course: s.course,
+          guardianNames: s.guardianNames,
+          lastConversationDate: lastConversation,
+          conversationCount: s._count?.conversations ?? 0,
+          completeness: calcCompleteness(profileData),
+        };
+      });
+      setData(rows);
+    } catch (e) {
+      console.error("[StudentsPage] fetch failed", e);
+    }
+  };
+
+  useEffect(() => {
+    refresh();
+  }, []);
 
   const filtered = useMemo(() => {
     const base = keyword
-      ? enriched.filter(
-          (s) =>
-            s.name.includes(keyword) ||
-            (s.nameKana ?? "").includes(keyword) ||
-            s.teacher.includes(keyword)
-        )
-      : enriched;
+      ? data.filter((s) => s.name.includes(keyword) || (s.grade ?? "").includes(keyword))
+      : data;
     if (sortKey === "latest") {
-      return [...base].sort((a, b) => (a.lastConversationDate < b.lastConversationDate ? 1 : -1));
+      return [...base].sort((a, b) => (a.lastConversationDate ?? "") < (b.lastConversationDate ?? "") ? 1 : -1);
     }
     if (sortKey === "oldest") {
-      return [...base].sort((a, b) => (a.lastConversationDate > b.lastConversationDate ? 1 : -1));
+      return [...base].sort((a, b) => (a.lastConversationDate ?? "") > (b.lastConversationDate ?? "") ? 1 : -1);
     }
     return [...base].sort((a, b) => (b.conversationCount ?? 0) - (a.conversationCount ?? 0));
-  }, [enriched, keyword, sortKey]);
+  }, [data, keyword, sortKey]);
 
   return (
     <div>
@@ -79,7 +95,7 @@ export default function StudentsPage() {
         actions={
           <input
             className={styles.search}
-            placeholder="名前・担当で検索"
+            placeholder="名前・学年で検索"
             value={keyword}
             onChange={(e) => setKeyword(e.target.value)}
           />
@@ -211,33 +227,23 @@ export default function StudentsPage() {
                     </Button>
                     <Button
                       variant="primary"
-                      onClick={() => {
+                      onClick={async () => {
                         if (!newStudent.name || !newStudent.nameKana || !newStudent.grade) return;
-                        const id = `s-new-${Date.now()}`;
-                        const created = {
-                          id,
-                          name: newStudent.name,
-                          nameKana: newStudent.nameKana,
-                          grade: newStudent.grade,
-                          course: "",
-                          enrollmentDate: newStudent.enrollmentDate,
-                          birthdate: newStudent.birthdate,
-                          guardianNames: newStudent.guardianNames,
-                          lastConversationDate: "",
-                          conversationCount: 0,
-                          motivationScore: newStudent.motivationScore,
-                          teacher: DEFAULT_TEACHER_FULL_NAME,
-                          profile: {
-                            summary: "新規登録された生徒です。会話ログを追加してカルテを育ててください。",
-                            personal: {},
-                            basics: {},
-                            aiTodos: [],
-                          },
-                          motivationHistory: [],
-                          events: [],
-                          studyPlan: [],
-                        };
-                        setData((prev) => [created, ...prev]);
+                        const res = await fetch("/api/students", {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({
+                            organizationId: "org-demo",
+                            name: newStudent.name,
+                            grade: newStudent.grade,
+                            course: "",
+                            enrollmentDate: newStudent.enrollmentDate,
+                            birthdate: newStudent.birthdate,
+                            guardianNames: newStudent.guardianNames,
+                          }),
+                        });
+                        if (!res.ok) return;
+                        const data = await res.json();
                         setShowNewForm(false);
                         setNewStudent({
                           name: "",
@@ -246,9 +252,9 @@ export default function StudentsPage() {
                           enrollmentDate: "",
                           birthdate: "",
                           guardianNames: "",
-                          motivationScore: 60,
                         });
-                        router.push(`/app/students/${id}`);
+                        await refresh();
+                        router.push(`/app/students/${data.student.id}`);
                       }}
                     >
                       <Icon name="plus" /> 登録してカルテへ
@@ -272,7 +278,7 @@ export default function StudentsPage() {
                 <thead>
                   <tr>
                     <th>生徒名 / 学年</th>
-                    <th>最終会話から</th>
+                    <th>最終会話</th>
                     <th>会話ログ件数</th>
                     <th>カルテ充実度</th>
                     <th>担当</th>
@@ -294,14 +300,12 @@ export default function StudentsPage() {
                       >
                         <td style={{ fontWeight: 700 }}>
                           {student.name}
-                          {student.nameKana ? <div className={styles.subtext}>{student.nameKana}</div> : null}
                           <div className={styles.subtext}>{student.grade}</div>
                         </td>
                         <td>
-                          {student.daysSinceLast != null ? (
+                          {student.lastConversationDate ? (
                             <span>
-                              {student.daysSinceLast} 日
-                              <div className={styles.subtext}>{student.lastConversationDate}</div>
+                              {new Date(student.lastConversationDate).toLocaleDateString("ja-JP")}
                             </span>
                           ) : (
                             <span className={styles.subtext}>未会話</span>
@@ -316,7 +320,7 @@ export default function StudentsPage() {
                             <Progress value={student.completeness ?? 0} />
                           </div>
                         </td>
-                        <td>{student.teacher}</td>
+                        <td>{DEFAULT_TEACHER_FULL_NAME}</td>
                       </tr>
                     ))
                   )}

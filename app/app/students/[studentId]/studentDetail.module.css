@@ -1433,6 +1433,11 @@
   padding: 10px;
 }
 
+.cardGrid {
+  display: grid;
+  gap: 12px;
+}
+
 .fieldRow {
   display: grid;
   gap: 4px;

@@ -1,69 +1,40 @@
-# Prisma & 音声テキスト化〜ログ生成フロー確認レポート
+# Prisma & 会話ログ生成フロー確認レポート
 
 ## ✅ 確認完了項目
 
 ### 1. Prismaスキーマ
-- ✅ `ConversationLog` モデルに `timeSections: Json?` フィールドが存在
-- ✅ Prismaスキーマのバリデーション成功
-- ✅ Prisma Client生成成功
-- ✅ マイグレーション状態: **Database schema is up to date!**
+- ✅ `ConversationLog` に `summaryMarkdown / timelineJson / nextActionsJson / profileDeltaJson / formattedTranscript` を保持
+- ✅ `ConversationLog.status` が PROCESSING/PARTIAL/DONE/ERROR
+- ✅ `ConversationJob` が SUMMARY/EXTRACT/MERGE/FORMAT/REPORT
 
-### 2. LLM処理（`lib/ai/llm.ts`）
-- ✅ `structureConversation` 関数で `timeSections` を生成
-- ✅ LLMプロンプトに `timeSections` 生成ルールを含む
-- ✅ LLMレスポンスから `timeSections` をパース
-- ✅ モック処理でも `timeSections` を生成（テスト用）
+### 2. LLM処理
+- ✅ チャンク分割（話題境界 + 段落 + 最大長）
+- ✅ Step1: chunkメモ生成（4o-mini / 長文は4o）
+- ✅ Step2: 4o統合で Summary/Timeline/ToDo/ProfileDelta を確定
+- ✅ Step3: formattedTranscript 整形
 
-### 3. データベース保存（`lib/analytics/conversationAnalysis.ts`）
-- ✅ `createStructuredConversationLog` で `timeSections` を保存
-- ✅ ログ出力で `timeSections` の生成・保存を確認可能
+### 3. データベース保存
+- ✅ `createStructuredConversationLog` が Summary/Timeline/ToDo/ProfileDelta を保存
+- ✅ ProfileDelta を StudentProfile.profileData に反映
 
 ### 4. APIエンドポイント
-- ✅ `/api/audio` (POST): `timeSections` をレスポンスに含む
-- ✅ `/api/conversations` (GET): `timeSections` をレスポンスに含む
-- ✅ `/api/conversations/[id]` (GET): `timeSections` をレスポンスに含む
-- ✅ `/api/conversations` (POST): `timeSections` を保存
+- ✅ `/api/audio` (POST): 会話ログ作成 + Jobs投入
+- ✅ `/api/conversations` (GET/POST)
+- ✅ `/api/conversations/[id]` (GET/PATCH/DELETE)
+- ✅ `/api/conversations/[id]/regenerate` (POST)
+- ✅ `/api/jobs/run` (POST): 手動ジョブ実行
+- ✅ `/api/maintenance/cleanup` (POST): TTL掃除
 
 ### 5. フロントエンド
-- ✅ `LogDetailView.tsx`: `timeSections` を表示
-- ✅ `TimeSectionList` コンポーネントで時間軸セクションを表示
+- ✅ `LogDetailView.tsx`: Summary/Timeline/ToDo/全文 表示
+- ✅ 生徒詳細でログ生成 / レポート生成
 
-### 6. テスト結果
-- ✅ フルフローテスト成功
-- ✅ `timeSections` が生成・保存・取得可能であることを確認
-
-## 📋 フロー確認
-
-```
-音声アップロード
-  ↓
-Whisper API (文字起こし)
-  ↓
-LLM (構造化処理)
-  ├─ summary
-  ├─ timeSections ← ✅ 生成
-  ├─ keyQuotes
-  ├─ keyTopics
-  ├─ nextActions
-  └─ structuredDelta
-  ↓
-データベース保存
-  └─ timeSections ← ✅ 保存
-  ↓
-フロントエンド表示
-  └─ TimeSectionList ← ✅ 表示
-```
+---
 
 ## 🎯 結論
 
-**すべてのフローが正常に動作しています！**
+**MVPの会話ログ生成フローは分割→並列→統合の設計で成立しています。**
 
-- Prismaスキーマに `timeSections` フィールドが存在
-- LLMが `timeSections` を生成
-- データベースに `timeSections` が保存
-- APIエンドポイントで `timeSections` を返却
-- フロントエンドで `timeSections` を表示
-
-音声テキスト化からログ生成までの全フローが `timeSections` に対応済みです。
-
-
+- Summary/Timeline/ToDo/ProfileDelta が保存
+- formattedTranscript の可読性を重視して保持
+- rawText* はTTLで削除

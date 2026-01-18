@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { ConversationSourceType } from "@prisma/client";
+import { ConversationSourceType, ConversationStatus } from "@prisma/client";
 import { preprocessTranscript } from "@/lib/transcript/preprocess";
 import { enqueueConversationJobs } from "@/lib/jobs/conversationJobs";
 
@@ -35,17 +35,12 @@ export async function GET(request: Request) {
       },
     });
 
-    // JSONフィールドを適切にシリアライズ
     const formattedConversations = conversations.map((c) => ({
       ...c,
-      timeline: c.timeline as any,
-      nextActions: c.nextActions as string[] | null,
-      structuredDelta: c.structuredDelta as any,
+      timelineJson: c.timelineJson as any,
+      nextActionsJson: c.nextActionsJson as any,
+      profileDeltaJson: c.profileDeltaJson as any,
       formattedTranscript: c.formattedTranscript,
-      // Legacy fields (for backward compatibility)
-      timeSections: c.timeSections as any,
-      keyQuotes: c.keyQuotes as string[] | null,
-      keyTopics: c.keyTopics as string[] | null,
       date: new Date(c.createdAt).toLocaleDateString("ja-JP"), // フロントエンド表示用
     }));
 
@@ -84,6 +79,8 @@ export async function POST(request: Request) {
   }
 
   const pre = preprocessTranscript(transcript);
+  const expiresAt = new Date();
+  expiresAt.setDate(expiresAt.getDate() + 30);
   const conversation = await prisma.conversationLog.create({
     data: {
       organizationId,
@@ -91,10 +88,11 @@ export async function POST(request: Request) {
       userId,
       sourceType:
         sourceType === "AUDIO" ? ConversationSourceType.AUDIO : ConversationSourceType.MANUAL,
+      status: ConversationStatus.PROCESSING,
       rawTextOriginal: pre.rawTextOriginal,
       rawTextCleaned: pre.rawTextCleaned,
-      // rawSegments, summary, and other LLM outputs will be filled asynchronously
-      summary: "",
+      rawTextExpiresAt: expiresAt,
+      // rawSegments, LLM outputs will be filled asynchronously
     },
   });
 

@@ -1,7 +1,8 @@
-import { ConversationSourceType } from "@prisma/client";
+import { ConversationSourceType, ConversationStatus } from "@prisma/client";
 import { prisma } from "../db";
-import { structureConversation, StructuredDelta } from "../ai/llm";
 import { applyProfileDelta } from "../profile";
+import { preprocessTranscript } from "../transcript/preprocess";
+import { generateSummaryChunkMemos, generateExtractChunkMemos, mergeConversationArtifacts } from "../ai/conversationPipeline";
 
 type CreateConversationInput = {
   transcript: string;
@@ -26,14 +27,20 @@ export async function createStructuredConversationLog({
     transcriptLength: transcript.length,
   });
 
-  const structured = await structureConversation(transcript, { studentName });
-  console.log("[createStructuredConversationLog] Structured data received:", {
-    summaryLength: structured.summary.length,
-    timeSectionsCount: structured.timeSections?.length ?? 0,
-    keyQuotesCount: structured.keyQuotes.length,
-    keyTopicsCount: structured.keyTopics.length,
-    nextActionsCount: structured.nextActions.length,
-    hasStructuredDelta: !!structured.structuredDelta,
+  const pre = preprocessTranscript(transcript);
+  const { memos: summaryMemos } = await generateSummaryChunkMemos(
+    pre.blocks.map((b) => ({ index: b.index, text: b.text })),
+    { studentName }
+  );
+  const { memos: extractMemos } = await generateExtractChunkMemos(
+    pre.blocks.map((b) => ({ index: b.index, text: b.text })),
+    { studentName }
+  );
+  const { result } = await mergeConversationArtifacts({
+    studentName,
+    summaryMemos,
+    extractMemos,
+    minSummaryChars: transcript.length >= 20000 ? 1200 : 700,
   });
 
   console.log("[createStructuredConversationLog] Creating conversation log in DB...");
@@ -43,25 +50,20 @@ export async function createStructuredConversationLog({
       studentId,
       userId,
       sourceType,
-      summary: structured.summary,
-      timeSections: structured.timeSections && structured.timeSections.length > 0 
-        ? structured.timeSections 
-        : undefined,
-      keyQuotes: structured.keyQuotes,
-      keyTopics: structured.keyTopics,
-      nextActions: structured.nextActions,
-      structuredDelta: structured.structuredDelta,
+      status: ConversationStatus.DONE,
+      summaryMarkdown: result.summaryMarkdown,
+      timelineJson: result.timeline as any,
+      nextActionsJson: result.nextActions as any,
+      profileDeltaJson: result.profileDelta as any,
     },
   });
   console.log("[createStructuredConversationLog] Conversation log created:", {
     id: conversation.id,
-    hasTimeSections: !!conversation.timeSections,
-    timeSectionsType: conversation.timeSections ? typeof conversation.timeSections : "null",
   });
 
   try {
     console.log("[createStructuredConversationLog] Applying profile delta...");
-    await applyProfileDelta(studentId, structured.structuredDelta as StructuredDelta, conversation.id);
+    await applyProfileDelta(studentId, result.profileDelta, conversation.id);
     console.log("[createStructuredConversationLog] Profile delta applied successfully");
   } catch (profileError: any) {
     console.error("[createStructuredConversationLog] Profile delta failed (non-fatal):", {

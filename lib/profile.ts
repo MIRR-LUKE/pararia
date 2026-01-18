@@ -1,62 +1,47 @@
 import { prisma } from "./db";
-import { StructuredDelta } from "./ai/llm";
+import type { ProfileDelta, ProfileDeltaItem } from "./types/conversation";
 
 type Snapshot = {
-  personal?: Record<
-    string,
-    {
-      value: string;
-      detail?: string;
-      updatedAt?: string;
-      sourceLogId?: string;
-      confidence?: number;
-      category?: string;
-    }
-  >;
-  basics?: Record<
-    string,
-    {
-      value: string;
-      detail?: string;
-      updatedAt?: string;
-      sourceLogId?: string;
-      confidence?: number;
-      category?: string;
-    }
-  >;
+  personal?: Array<ProfileDeltaItem & { updatedAt?: string; sourceLogId?: string }>;
+  basic?: Array<ProfileDeltaItem & { updatedAt?: string; sourceLogId?: string }>;
+  lastUpdatedFromLogId?: string;
 };
 
-function mergeSnapshot(current: Snapshot, delta: StructuredDelta, conversationId: string): Snapshot {
+function mergeItems(
+  current: Array<ProfileDeltaItem & { updatedAt?: string; sourceLogId?: string }> | undefined,
+  incoming: ProfileDeltaItem[] | undefined,
+  conversationId: string
+) {
   const now = new Date().toISOString();
+  const map = new Map<string, ProfileDeltaItem & { updatedAt?: string; sourceLogId?: string }>();
+  (current ?? []).forEach((item) => {
+    const key = `${item.field}::${item.value}`;
+    map.set(key, item);
+  });
+  (incoming ?? []).forEach((item) => {
+    if (!item.field || !item.value) return;
+    const key = `${item.field}::${item.value}`;
+    map.set(key, {
+      ...item,
+      updatedAt: now,
+      sourceLogId: conversationId,
+    });
+  });
+  return Array.from(map.values());
+}
+
+function mergeSnapshot(current: Snapshot, delta: ProfileDelta, conversationId: string): Snapshot {
   const next: Snapshot = {
-    personal: { ...(current.personal ?? {}) },
-    basics: { ...(current.basics ?? {}) },
+    personal: mergeItems(current.personal, delta.personal, conversationId),
+    basic: mergeItems(current.basic, delta.basic, conversationId),
+    lastUpdatedFromLogId: conversationId,
   };
-
-  Object.entries(delta.personal ?? {}).forEach(([field, value]) => {
-    next.personal![field] = {
-      ...(next.personal?.[field] ?? {}),
-      ...value,
-      updatedAt: value.updatedAt ?? now,
-      sourceLogId: value.sourceLogId ?? conversationId,
-    };
-  });
-
-  Object.entries(delta.basics ?? {}).forEach(([field, value]) => {
-    next.basics![field] = {
-      ...(next.basics?.[field] ?? {}),
-      ...value,
-      updatedAt: value.updatedAt ?? now,
-      sourceLogId: value.sourceLogId ?? conversationId,
-    };
-  });
-
   return next;
 }
 
 export async function applyProfileDelta(
   studentId: string,
-  delta: StructuredDelta,
+  delta: ProfileDelta,
   conversationId: string
 ) {
   try {
@@ -69,14 +54,15 @@ export async function applyProfileDelta(
     });
 
     const currentSnapshot: Snapshot = (latest?.profileData as Snapshot) ?? {
-      personal: {},
-      basics: {},
+      personal: [],
+      basic: [],
+      lastUpdatedFromLogId: undefined,
     };
 
     const merged = mergeSnapshot(currentSnapshot, delta, conversationId);
     console.log("[applyProfileDelta] Merged snapshot:", {
-      personalFields: Object.keys(merged.personal ?? {}).length,
-      basicsFields: Object.keys(merged.basics ?? {}).length,
+      personalFields: merged.personal?.length ?? 0,
+      basicsFields: merged.basic?.length ?? 0,
     });
 
     if (latest) {
@@ -93,7 +79,7 @@ export async function applyProfileDelta(
         data: {
           studentId,
           profileData: merged,
-          basicData: merged.basics,
+          basicData: merged.basic,
           summary: "会話ログから自動生成されたカルテ",
         },
       });

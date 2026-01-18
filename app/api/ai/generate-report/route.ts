@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { generateParentReportMarkdown } from "@/lib/ai/llm";
+import { generateParentReport } from "@/lib/ai/llm";
 import { generateReportPdfBase64 } from "@/lib/pdf/report";
 
 export async function POST(request: Request) {
   const body = await request.json();
-  const { studentId, fromDate, toDate, logIds } = body ?? {};
+  const { studentId, fromDate, toDate, logIds, usePreviousReport } = body ?? {};
 
   if (!studentId) {
     return NextResponse.json(
@@ -24,11 +24,14 @@ export async function POST(request: Request) {
     orderBy: { createdAt: "desc" },
   });
 
-  const from = logIds?.length
-    ? undefined
-    : fromDate
-    ? new Date(fromDate)
-    : previousReport?.periodTo ?? undefined;
+  if (!logIds || logIds.length === 0) {
+    return NextResponse.json(
+      { error: "logIds is required for report generation" },
+      { status: 400 }
+    );
+  }
+
+  const from = fromDate ? new Date(fromDate) : previousReport?.periodTo ?? undefined;
   const to = toDate ? new Date(toDate) : undefined;
 
   const logs = await prisma.conversationLog.findMany({
@@ -46,18 +49,25 @@ export async function POST(request: Request) {
     orderBy: { createdAt: "desc" },
   });
 
-  const markdown = await generateParentReportMarkdown({
+  const latestProfile = await prisma.studentProfile.findFirst({
+    where: { studentId },
+    orderBy: { createdAt: "desc" },
+  });
+
+  const { markdown, reportJson } = await generateParentReport({
     studentName: student.name,
     organizationName: undefined,
     periodFrom: from?.toISOString().slice(0, 10),
     periodTo: (to ?? new Date()).toISOString().slice(0, 10),
-    previousReport: previousReport?.markdown,
+    previousReport: usePreviousReport ? previousReport?.reportMarkdown ?? undefined : undefined,
+    profileSnapshot: latestProfile?.profileData ?? {},
     logs: logs.map((log) => ({
       id: log.id,
       date: log.createdAt.toISOString().slice(0, 10),
-      summary: log.summary,
-      keyQuotes: (log.keyQuotes as string[]) ?? [],
-      nextActions: (log.nextActions as string[]) ?? [],
+      summaryMarkdown: log.summaryMarkdown ?? "",
+      timeline: log.timelineJson ?? [],
+      nextActions: log.nextActionsJson ?? [],
+      profileDelta: log.profileDeltaJson ?? {},
     })),
   });
 
@@ -67,16 +77,18 @@ export async function POST(request: Request) {
     periodFrom: from?.toISOString().slice(0, 10),
     periodTo: (to ?? new Date()).toISOString().slice(0, 10),
     markdown,
-    keyQuotes: logs.flatMap((l) => (l.keyQuotes as string[]) ?? []).slice(0, 5),
+    keyQuotes: [],
   });
 
   const report = await prisma.report.create({
     data: {
       studentId,
       organizationId: student.organizationId,
-      markdown,
+      reportMarkdown: markdown,
+      reportJson: reportJson as any,
       pdfBase64,
       sourceLogIds: logs.map((l) => l.id),
+      previousReportId: previousReport?.id ?? undefined,
       periodFrom: from ?? undefined,
       periodTo: to ?? new Date(),
     },

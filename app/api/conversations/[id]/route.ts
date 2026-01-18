@@ -36,6 +36,17 @@ export async function GET(
             email: true,
           },
         },
+        jobs: {
+          select: {
+            id: true,
+            type: true,
+            status: true,
+            model: true,
+            startedAt: true,
+            finishedAt: true,
+            lastError: true,
+          },
+        },
       },
     });
 
@@ -43,20 +54,17 @@ export async function GET(
       return NextResponse.json({ error: "not found" }, { status: 404 });
     }
 
-    // JSONフィールドを適切にシリアライズ
     const response = {
       ...conversation,
       rawTextOriginal: conversation.rawTextOriginal,
       rawTextCleaned: conversation.rawTextCleaned,
       rawSegments: conversation.rawSegments as any,
-      timeline: conversation.timeline as any,
-      nextActions: conversation.nextActions as string[] | null,
-      structuredDelta: conversation.structuredDelta as any,
+      summaryMarkdown: conversation.summaryMarkdown,
+      timelineJson: conversation.timelineJson as any,
+      nextActionsJson: conversation.nextActionsJson as any,
+      profileDeltaJson: conversation.profileDeltaJson as any,
       formattedTranscript: conversation.formattedTranscript,
-      // Legacy fields (for backward compatibility)
-      timeSections: conversation.timeSections as any,
-      keyQuotes: conversation.keyQuotes as string[] | null,
-      keyTopics: conversation.keyTopics as string[] | null,
+      qualityMetaJson: conversation.qualityMetaJson as any,
     };
 
     return NextResponse.json({ conversation: response });
@@ -114,11 +122,10 @@ export async function PATCH(
   try {
     const body = await request.json();
     const {
-      summary,
-      title,
-      timeline,
-      nextActions,
-      structuredDelta,
+      summaryMarkdown,
+      timelineJson,
+      nextActionsJson,
+      profileDeltaJson,
       formattedTranscript,
     } = body;
 
@@ -132,11 +139,10 @@ export async function PATCH(
 
     // Update only provided fields
     const updateData: any = {};
-    if (summary !== undefined) updateData.summary = summary;
-    if (title !== undefined) updateData.title = title;
-    if (timeline !== undefined) updateData.timeline = timeline;
-    if (nextActions !== undefined) updateData.nextActions = nextActions;
-    if (structuredDelta !== undefined) updateData.structuredDelta = structuredDelta;
+    if (summaryMarkdown !== undefined) updateData.summaryMarkdown = summaryMarkdown;
+    if (timelineJson !== undefined) updateData.timelineJson = timelineJson;
+    if (nextActionsJson !== undefined) updateData.nextActionsJson = nextActionsJson;
+    if (profileDeltaJson !== undefined) updateData.profileDeltaJson = profileDeltaJson;
     if (formattedTranscript !== undefined) updateData.formattedTranscript = formattedTranscript;
 
     const updated = await prisma.conversationLog.update({
@@ -160,19 +166,17 @@ export async function PATCH(
       },
     });
 
-    // JSONフィールドを適切にシリアライズ
     const response = {
       ...updated,
       rawTextOriginal: updated.rawTextOriginal,
       rawTextCleaned: updated.rawTextCleaned,
       rawSegments: updated.rawSegments as any,
-      timeline: updated.timeline as any,
-      nextActions: updated.nextActions as string[] | null,
-      structuredDelta: updated.structuredDelta as any,
+      summaryMarkdown: updated.summaryMarkdown,
+      timelineJson: updated.timelineJson as any,
+      nextActionsJson: updated.nextActionsJson as any,
+      profileDeltaJson: updated.profileDeltaJson as any,
       formattedTranscript: updated.formattedTranscript,
-      timeSections: updated.timeSections as any,
-      keyQuotes: updated.keyQuotes as string[] | null,
-      keyTopics: updated.keyTopics as string[] | null,
+      qualityMetaJson: updated.qualityMetaJson as any,
     };
 
     return NextResponse.json({ conversation: response });

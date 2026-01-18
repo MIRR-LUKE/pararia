@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createStructuredConversationLog } from "@/lib/analytics/conversationAnalysis";
-import { structureConversation } from "@/lib/ai/llm";
+import { preprocessTranscript } from "@/lib/transcript/preprocess";
+import { generateSummaryChunkMemos, generateExtractChunkMemos, mergeConversationArtifacts } from "@/lib/ai/conversationPipeline";
 import { ConversationSourceType } from "@prisma/client";
 
 export async function POST(request: Request) {
@@ -13,8 +14,21 @@ export async function POST(request: Request) {
 
   // 保存せず構造化のみ返す
   if (!save || !organizationId || !studentId) {
-    const structured = await structureConversation(transcript);
-    return NextResponse.json({ structured, saved: false });
+    const pre = preprocessTranscript(transcript);
+    const { memos: summaryMemos } = await generateSummaryChunkMemos(
+      pre.blocks.map((b) => ({ index: b.index, text: b.text })),
+      {}
+    );
+    const { memos: extractMemos } = await generateExtractChunkMemos(
+      pre.blocks.map((b) => ({ index: b.index, text: b.text })),
+      {}
+    );
+    const { result } = await mergeConversationArtifacts({
+      summaryMemos,
+      extractMemos,
+      minSummaryChars: transcript.length >= 20000 ? 1200 : 700,
+    });
+    return NextResponse.json({ structured: result, saved: false });
   }
 
   const conversation = await createStructuredConversationLog({

@@ -1,9 +1,11 @@
 import { NextResponse } from "next/server";
 import { transcribeAudioVerbose } from "@/lib/ai/stt";
-import { ConversationSourceType } from "@prisma/client";
+import { ConversationSourceType, ConversationStatus } from "@prisma/client";
 import { preprocessTranscript } from "@/lib/transcript/preprocess";
 import { prisma } from "@/lib/db";
-import { enqueueConversationJobs, processAllConversationJobs } from "@/lib/jobs/conversationJobs";
+import { enqueueConversationJobs } from "@/lib/jobs/conversationJobs";
+import type { ConversationQualityMeta } from "@/lib/types/conversation";
+import { getPromptVersion } from "@/lib/ai/conversationPipeline";
 
 export async function POST(request: Request) {
   try {
@@ -37,12 +39,14 @@ export async function POST(request: Request) {
       mimeType: file.type,
     });
 
+    const sttStart = Date.now();
     const stt = await transcribeAudioVerbose({
       buffer,
       filename: file.name,
       mimeType: file.type,
       language: "ja",
     });
+    const sttSeconds = Math.round((Date.now() - sttStart) / 1000);
 
     // 音声データはテキスト化後、メモリから解放される（ファイルとして保存していない）
     // buffer はガベージコレクションで自動的に削除される
@@ -53,7 +57,9 @@ export async function POST(request: Request) {
       rawTextOriginalLength: stt.rawTextOriginal.length,
       segmentsCount: stt.segments?.length ?? 0,
     });
+    const preprocessStart = Date.now();
     const pre = preprocessTranscript(stt.rawTextOriginal);
+    const preprocessSeconds = Math.round((Date.now() - preprocessStart) / 1000);
     console.log("[POST /api/audio] Preprocessing complete:", {
       originalLength: pre.rawTextOriginal.length,
       cleanedLength: pre.rawTextCleaned.length,
@@ -68,18 +74,27 @@ export async function POST(request: Request) {
     });
     let conversation;
     try {
+      const expiresAt = new Date();
+      expiresAt.setDate(expiresAt.getDate() + 30);
+      const qualityMeta: ConversationQualityMeta = {
+        sttSeconds,
+        preprocessSeconds,
+        promptVersion: getPromptVersion(),
+        generatedAt: new Date().toISOString(),
+      };
       conversation = await prisma.conversationLog.create({
         data: {
           organizationId,
           studentId,
           userId,
           sourceType: ConversationSourceType.AUDIO,
+          status: ConversationStatus.PROCESSING,
           rawTextOriginal: pre.rawTextOriginal,
           rawTextCleaned: pre.rawTextCleaned,
           rawSegments: stt.segments ?? [],
+          rawTextExpiresAt: expiresAt,
+          qualityMetaJson: qualityMeta as any,
           // LLM outputs will be filled asynchronously
-          summary: "",
-          // title, timeline, nextActions, structuredDelta, formattedTranscript are nullable and will be set by jobs
         },
       });
       console.log("[POST /api/audio] Conversation log created successfully:", {
@@ -97,15 +112,9 @@ export async function POST(request: Request) {
     }
 
     await enqueueConversationJobs(conversation.id);
-
-    // Fire-and-forget: Start both Job A (SUMMARY) and Job B (EXTRACT) in parallel
-    // This runs asynchronously and doesn't block the response
-    processAllConversationJobs(conversation.id).catch((e) => {
-      console.error("[POST /api/audio] Background job processing failed (non-fatal):", {
-        conversationId: conversation.id,
-        error: e?.message,
-        stack: e?.stack,
-      });
+    const jobs = await prisma.conversationJob.findMany({
+      where: { conversationId: conversation.id },
+      select: { id: true, type: true, status: true },
     });
 
     console.log("[POST /api/audio] Conversation log created, jobs enqueued and started in parallel:", {
@@ -117,8 +126,8 @@ export async function POST(request: Request) {
     return NextResponse.json({
       conversationId: conversation.id,
       rawTextCleaned: conversation.rawTextCleaned,
-      summaryStatus: conversation.summaryStatus,
-      extractStatus: conversation.extractStatus,
+      status: conversation.status,
+      jobs,
     });
   } catch (e: any) {
     console.error("[POST /api/audio] failed", {

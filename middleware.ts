@@ -1,0 +1,57 @@
+import { NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+
+const USER = process.env.BASIC_AUTH_USER;
+const PASS = process.env.BASIC_AUTH_PASS;
+const CRON_SECRET = process.env.CRON_SECRET;
+
+export function middleware(request: NextRequest) {
+  const { pathname } = request.nextUrl;
+  if (pathname.startsWith("/_next") || pathname.startsWith("/favicon") || pathname.startsWith("/robots.txt")) {
+    return NextResponse.next();
+  }
+
+  if (CRON_SECRET) {
+    const cronHeader = request.headers.get("x-cron-secret");
+    if (cronHeader && cronHeader === CRON_SECRET) {
+      return NextResponse.next();
+    }
+    const cronQuery = request.nextUrl.searchParams.get("cron_secret");
+    if (cronQuery && cronQuery === CRON_SECRET) {
+      return NextResponse.next();
+    }
+  }
+
+  if (!USER || !PASS) {
+    return NextResponse.next();
+  }
+
+  const auth = request.headers.get("authorization");
+  if (!auth || !auth.startsWith("Basic ")) {
+    return new NextResponse("Authorization required", {
+      status: 401,
+      headers: {
+        "WWW-Authenticate": "Basic realm=\"PARARIA\"",
+      },
+    });
+  }
+
+  const base64 = auth.split(" ")[1] ?? "";
+  const decoded = Buffer.from(base64, "base64").toString("utf-8");
+  const [user, pass] = decoded.split(":");
+
+  if (user !== USER || pass !== PASS) {
+    return new NextResponse("Unauthorized", {
+      status: 401,
+      headers: {
+        "WWW-Authenticate": "Basic realm=\"PARARIA\"",
+      },
+    });
+  }
+
+  return NextResponse.next();
+}
+
+export const config = {
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|robots.txt).*)"],
+};

@@ -12,11 +12,10 @@
  * 4. Job enqueue and parallel execution
  */
 
-import { transcribeAudioVerbose } from "../lib/ai/stt";
 import { preprocessTranscript } from "../lib/transcript/preprocess";
 import { prisma } from "../lib/db";
-import { ConversationSourceType } from "@prisma/client";
-import { enqueueConversationJobs, processAllConversationJobs } from "../lib/jobs/conversationJobs";
+import { ConversationSourceType, ConversationStatus } from "@prisma/client";
+import { enqueueConversationJobs, processQueuedJobs } from "../lib/jobs/conversationJobs";
 
 async function testAudioPipeline() {
   console.log("🧪 Testing audio upload → conversation log generation pipeline...\n");
@@ -35,7 +34,7 @@ async function testAudioPipeline() {
   console.log("✅ Preprocessing complete:", {
     originalLength: pre.rawTextOriginal.length,
     cleanedLength: pre.rawTextCleaned.length,
-    chunks: pre.chunks.length,
+    blocks: pre.blocks.length,
   });
   console.log("Cleaned preview:", pre.rawTextCleaned.substring(0, 200) + "...\n");
 
@@ -52,17 +51,17 @@ async function testAudioPipeline() {
       organizationId: "org-demo",
       studentId: student.id,
       sourceType: ConversationSourceType.AUDIO,
+      status: ConversationStatus.PROCESSING,
       rawTextOriginal: pre.rawTextOriginal,
       rawTextCleaned: pre.rawTextCleaned,
       rawSegments: [],
-      summary: "",
-      // timeSections, keyQuotes, keyTopics, nextActions, structuredDelta are nullable and will be set by jobs
+      rawTextExpiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
     },
   });
   console.log("✅ Conversation log created:", {
     id: conversation.id,
     studentId: conversation.studentId,
-    rawTextCleanedLength: conversation.rawTextCleaned.length,
+    rawTextCleanedLength: conversation.rawTextCleaned?.length ?? 0,
   });
   console.log("");
 
@@ -78,13 +77,18 @@ async function testAudioPipeline() {
   // Step 4: Process jobs in parallel
   console.log("⚙️  Step 4: Processing jobs in parallel...");
   const startTime = Date.now();
-  const result = await processAllConversationJobs(conversation.id);
+  let processed = 0;
+  const errors: string[] = [];
+  do {
+    const run = await processQueuedJobs(5);
+    processed = run.processed;
+    if (run.errors.length) errors.push(...run.errors);
+  } while (processed > 0);
   const elapsed = Date.now() - startTime;
   console.log("✅ Jobs processed:", {
-    summary: result.summary.ok ? "✅" : `❌ ${result.summary.error}`,
-    extract: result.extract.ok ? "✅" : `❌ ${result.extract.error}`,
     elapsedMs: elapsed,
     elapsedSec: (elapsed / 1000).toFixed(2),
+    errors: errors.length ? errors : "none",
   });
   console.log("");
 
@@ -94,13 +98,12 @@ async function testAudioPipeline() {
     where: { id: conversation.id },
     select: {
       id: true,
-      summary: true,
-      summaryStatus: true,
-      extractStatus: true,
-      keyQuotes: true,
-      keyTopics: true,
-      nextActions: true,
-      timeSections: true,
+      status: true,
+      summaryMarkdown: true,
+      timelineJson: true,
+      nextActionsJson: true,
+      profileDeltaJson: true,
+      formattedTranscript: true,
     },
   });
 
@@ -110,18 +113,17 @@ async function testAudioPipeline() {
   }
 
   console.log("✅ Results:", {
-    hasSummary: !!updated.summary && updated.summary.length > 0,
-    summaryLength: updated.summary?.length ?? 0,
-    summaryStatus: updated.summaryStatus,
-    extractStatus: updated.extractStatus,
-    hasKeyQuotes: Array.isArray(updated.keyQuotes) && updated.keyQuotes.length > 0,
-    hasKeyTopics: Array.isArray(updated.keyTopics) && updated.keyTopics.length > 0,
-    hasNextActions: Array.isArray(updated.nextActions) && updated.nextActions.length > 0,
-    hasTimeSections: !!updated.timeSections,
+    status: updated.status,
+    hasSummary: !!updated.summaryMarkdown && updated.summaryMarkdown.length > 0,
+    summaryLength: updated.summaryMarkdown?.length ?? 0,
+    timelineSections: Array.isArray(updated.timelineJson) ? updated.timelineJson.length : 0,
+    nextActions: Array.isArray(updated.nextActionsJson) ? updated.nextActionsJson.length : 0,
+    profileDelta: !!updated.profileDeltaJson,
+    hasFormattedTranscript: !!updated.formattedTranscript,
   });
 
-  if (updated.summary) {
-    console.log("\n📄 Summary preview:", updated.summary.substring(0, 300) + "...");
+  if (updated.summaryMarkdown) {
+    console.log("\n📄 Summary preview:", updated.summaryMarkdown.substring(0, 300) + "...");
   }
 
   console.log("\n✅ Pipeline test complete!");
@@ -135,5 +137,3 @@ testAudioPipeline().catch((e) => {
   console.error("❌ Test failed:", e);
   process.exit(1);
 });
-
-

@@ -11,6 +11,8 @@ export type PreprocessResult = {
   rawTextCleaned: string;
   // sentence-ish chunks (not perfect; used for lightweight downstream prompts if needed)
   chunks: string[];
+  // merged blocks for chunk-based LLM processing
+  blocks: Array<{ index: number; text: string; approxTokens: number }>;
 };
 
 const DEFAULT_FILLERS = [
@@ -117,13 +119,96 @@ function dedupeChunkNearDuplicates(chunks: string[]) {
   return out;
 }
 
+const TOPIC_BOUNDARY_PATTERNS = [
+  /^ところで/,
+  /^では/,
+  /^じゃあ/,
+  /^それでは/,
+  /^それじゃ/,
+  /^それから/,
+  /^次に/,
+  /^あとで/,
+  /^ちなみに/,
+  /^話を戻すと/,
+  /^本題に戻ると/,
+];
+
+function estimateTokens(text: string) {
+  // Rough estimate for Japanese: 1 token ~= 2 chars
+  return Math.ceil(text.length / 2);
+}
+
+function splitByTopicBoundaries(text: string) {
+  const paragraphs = text
+    .split(/\n{2,}/)
+    .map((p) => p.trim())
+    .filter(Boolean);
+  const segments: string[] = [];
+  for (const para of paragraphs) {
+    const lines = para.split(/\n/).map((l) => l.trim()).filter(Boolean);
+    let buffer = "";
+    for (const line of lines) {
+      const isBoundary = TOPIC_BOUNDARY_PATTERNS.some((re) => re.test(line));
+      if (isBoundary && buffer) {
+        segments.push(buffer.trim());
+        buffer = line;
+      } else {
+        buffer = buffer ? `${buffer}\n${line}` : line;
+      }
+    }
+    if (buffer.trim()) segments.push(buffer.trim());
+  }
+  return segments;
+}
+
+function buildBlocks(segments: string[], maxTokens = 3200, targetMin = 2000) {
+  const blocks: Array<{ index: number; text: string; approxTokens: number }> = [];
+  let buffer: string[] = [];
+  let tokenCount = 0;
+  let index = 0;
+
+  const flush = () => {
+    if (!buffer.length) return;
+    const text = buffer.join("\n").trim();
+    if (!text) return;
+    blocks.push({ index, text, approxTokens: estimateTokens(text) });
+    index += 1;
+    buffer = [];
+    tokenCount = 0;
+  };
+
+  for (const seg of segments) {
+    const segTokens = estimateTokens(seg);
+    if (!buffer.length) {
+      buffer.push(seg);
+      tokenCount = segTokens;
+      continue;
+    }
+    if (tokenCount + segTokens > maxTokens) {
+      flush();
+      buffer.push(seg);
+      tokenCount = segTokens;
+      continue;
+    }
+    buffer.push(seg);
+    tokenCount += segTokens;
+    if (tokenCount >= targetMin) {
+      flush();
+    }
+  }
+  flush();
+  return blocks;
+}
+
 export function preprocessTranscript(rawTextOriginal: string): PreprocessResult {
   const normalized = normalizeJa(rawTextOriginal);
   const noFillers = removeFillers(normalized);
   const dedupedLines = dedupeAdjacentLines(noFillers);
   const chunks = dedupeChunkNearDuplicates(chunkByPunctuation(dedupedLines));
   const rawTextCleaned = normalizeJa(chunks.join("\n"));
-  return { rawTextOriginal: normalized, rawTextCleaned, chunks };
+  const topicSegments = splitByTopicBoundaries(rawTextCleaned);
+  const blocks = buildBlocks(topicSegments);
+  return { rawTextOriginal: normalized, rawTextCleaned, chunks, blocks };
 }
 
 export function segmentsToText(segments: WhisperSegment[] | undefined | null) {
@@ -134,6 +219,5 @@ export function segmentsToText(segments: WhisperSegment[] | undefined | null) {
     .join("\n")
     .trim();
 }
-
 
 

@@ -1210,8 +1210,17 @@ function chunkSegmentsByChars(segments: DiarizedSegment[], maxChars = 4000) {
   return chunks;
 }
 
+function heuristicSpeakerLabel(text: string) {
+  const trimmed = text.trim();
+  if (!trimmed) return "unknown";
+  if (/^(はい|うん|ええ|そうです|そうですね)/.test(trimmed)) return "student";
+  if (/(どう思う|どうかな|どう？|できますか|できる？|次回|宿題)/.test(trimmed)) return "teacher";
+  if (trimmed.endsWith("？") || trimmed.endsWith("?")) return "teacher";
+  return "unknown";
+}
+
 async function diarizeSegmentChunk(
-  chunk: DiarizedSegment[],
+  chunk: Array<DiarizedSegment & { hint?: string }>,
   opts?: { studentName?: string; teacherName?: string }
 ): Promise<
   Array<{ index: number; speaker: "teacher" | "student" | "unknown"; text: string; confidence?: number }>
@@ -1271,6 +1280,50 @@ ${JSON.stringify(chunk, null, 2)}`;
   }));
 }
 
+async function refineDiarizedChunk(
+  chunk: Array<{ index: number; speaker: "teacher" | "student" | "unknown"; text: string }>,
+  opts?: { studentName?: string; teacherName?: string }
+) {
+  const studentLabel = formatStudentLabel(opts?.studentName);
+  const teacherLabel = formatTeacherLabel(opts?.teacherName);
+  const system = `あなたは話者ラベルの整合性チェックを行います。
+目的: teacher/student/unknown の誤りを直す。意味変更は禁止。
+話者名は ${teacherLabel}/${studentLabel} を想定。出力はJSONのみ。`;
+
+  const user = `以下の話者ラベルを整合性チェックし、必要なら修正してください。
+出力JSON:
+{"segments":[{"index":0,"speaker":"teacher|student|unknown","text":"..."}]}
+
+入力:
+${JSON.stringify(chunk, null, 2)}`;
+
+  const { contentText, raw } = await callChatCompletions({
+    model: "gpt-4o",
+    messages: [
+      { role: "system", content: system },
+      { role: "user", content: user },
+    ],
+    response_format: { type: "json_object" },
+    temperature: 0.2,
+  });
+
+  const parsed =
+    tryParseJson<{ segments?: Array<{ index: number; speaker?: string; text?: string }> }>(
+      (contentText ?? "").trim()
+    ) ??
+    (extractJsonCandidate(raw) ? tryParseJson<any>(extractJsonCandidate(raw)!) : null);
+
+  if (!parsed?.segments) return chunk;
+  return parsed.segments.map((s: { index: number; speaker?: string; text?: string }) => ({
+    index: s.index,
+    speaker:
+      s.speaker === "teacher" || s.speaker === "student" || s.speaker === "unknown"
+        ? s.speaker
+        : "unknown",
+    text: (s.text ?? "").trim(),
+  }));
+}
+
 export async function formatTranscriptFromSegments(
   segments: Array<{ start?: number; end?: number; text?: string }>,
   opts?: { studentName?: string; teacherName?: string }
@@ -1289,11 +1342,30 @@ export async function formatTranscriptFromSegments(
   const chunks = chunkSegmentsByChars(sourceSegments, 3500);
   const labeled: Array<{ index: number; speaker: "teacher" | "student" | "unknown"; text: string }> = [];
   for (const chunk of chunks) {
-    const result = await diarizeSegmentChunk(chunk, opts);
+    const hinted = chunk.map((c) => ({ ...c, hint: heuristicSpeakerLabel(c.text) }));
+    const result = await diarizeSegmentChunk(hinted, opts);
     labeled.push(...result);
   }
 
-  const labelMap = new Map(labeled.map((s) => [s.index, s]));
+  const refinedChunks = chunkSegmentsByChars(
+    labeled.map((l) => ({ index: l.index, text: l.text })) as DiarizedSegment[],
+    3800
+  );
+  const refined: Array<{ index: number; speaker: "teacher" | "student" | "unknown"; text: string }> = [];
+  for (const chunk of refinedChunks) {
+    const chunkItems = chunk.map((c) => {
+      const matched = labeled.find((l) => l.index === c.index);
+      return {
+        index: c.index,
+        speaker: matched?.speaker ?? "unknown",
+        text: matched?.text ?? c.text,
+      };
+    });
+    const result = await refineDiarizedChunk(chunkItems, opts);
+    refined.push(...result);
+  }
+
+  const labelMap = new Map(refined.map((s) => [s.index, s]));
   const teacherLabel = formatTeacherLabel(opts?.teacherName);
   const studentLabel = formatStudentLabel(opts?.studentName);
 
@@ -1329,22 +1401,75 @@ export async function formatTranscriptFromSegments(
 
   return lines.join("\n");
 }
+
+export async function formatTranscriptFromText(
+  rawText: string,
+  opts?: { studentName?: string; teacherName?: string }
+): Promise<string> {
+  if (!rawText?.trim()) return "";
+  const paragraphs = rawText
+    .replace(/\r\n/g, "\n")
+    .split(/\n{2,}/)
+    .map((p) => p.trim())
+    .filter(Boolean);
+  return paragraphs.map((p) => `**話者不明**: ${p}`).join("\n");
+}
 type ReportInput = {
   studentName: string;
   organizationName?: string;
   periodFrom?: string;
   periodTo?: string;
   previousReport?: string;
+  profileSnapshot?: any;
   logs: Array<{
     id: string;
     date: string;
-    summary: string;
-    keyQuotes: string[];
-    nextActions: string[];
+    summaryMarkdown?: string;
+    timeline?: any;
+    nextActions?: any;
+    profileDelta?: any;
   }>;
 };
 
-export async function generateParentReportMarkdown(input: ReportInput): Promise<string> {
+type ParentReportJson = {
+  date: string;
+  salutation: string;
+  studentName: string;
+  keyPoints: string;
+  sections: Array<{ title: string; body: string }>;
+  homework: Array<{ item: string; why: string; metric: string; due: string | null }>;
+  closing: string;
+};
+
+function renderParentReportMarkdown(report: ParentReportJson, orgName: string, periodFrom: string, periodTo: string) {
+  const lines: string[] = [];
+  lines.push(`${orgName} / ${report.studentName} / 対象期間: ${periodFrom}〜${periodTo} / 作成日: ${report.date}`);
+  lines.push("");
+  lines.push(report.salutation);
+  lines.push("");
+  lines.push("## 今回の要点");
+  lines.push(report.keyPoints);
+  lines.push("");
+  report.sections.forEach((section) => {
+    lines.push(`## ${section.title}`);
+    lines.push(section.body);
+    lines.push("");
+  });
+  lines.push("## 次回までの宿題");
+  if (report.homework.length === 0) {
+    lines.push("（今回の宿題はありません）");
+  } else {
+    report.homework.forEach((hw, idx) => {
+      lines.push(`${idx + 1}. ${hw.item}（期限: ${hw.due ?? "次回面談まで"} / 指標: ${hw.metric}）`);
+      lines.push(`   理由: ${hw.why}`);
+    });
+  }
+  lines.push("");
+  lines.push(report.closing);
+  return lines.join("\n").trim();
+}
+
+export async function generateParentReport(input: ReportInput): Promise<{ markdown: string; reportJson: ParentReportJson }> {
   if (!LLM_API_KEY) {
     throw new Error("LLM_API_KEY (or OPENAI_API_KEY) is not set. Report generation requires LLM (no mock).");
   }
@@ -1355,30 +1480,30 @@ export async function generateParentReportMarkdown(input: ReportInput): Promise<
   const createdAt = new Date().toISOString().slice(0, 10);
   const previous = (input.previousReport ?? "").trim();
 
-  const systemPrompt = `あなたは学習塾の保護者向けレポートを作る編集者です。
+  const systemPrompt = `あなたは学習塾の教務責任者です。保護者向けの近況報告レポートを作成します。
+浅見が手書きしていた文章と同等の品質を目標に、具体的で自然な日本語（ですます）で書いてください。
 
-【目的】
-- 保護者が「今の状況」「何が分かったか」「塾として何をするか」「家庭に何をお願いするか」を一読で理解できる文章にする。
-- 元データは会話ログの構造化情報（summary/keyQuotes/nextActions）であり、作文や一般論で水増ししない。
+# 絶対ルール
+- ですます調
+- 推測で盛らない。不明は「現時点では未確認です」と書く
+- 前回レポートがある場合、「継続」「変化」「今回の焦点」を必ず明示する
+- 科目や試験、教材、期限は可能な範囲で具体に
 
-【絶対禁止】
-- 抽象語だけで逃げる（例：重要、課題、改善、必要）
-- 具体性のない励まし文
-- 元データにない断定（推測で埋めない）
-- 会話ログの全文引用（短い根拠引用は末尾のみ）
+# 章立て（必ずこの順）
+1) 今回の要点（2〜4文）
+2) 学習状況（事実）
+3) 課題と原因（分析）
+4) 次の打ち手（科目別・教材・順序・期限）
+5) 受験戦略（志望校/併願リスク/今やる理由）
+6) 次回までの宿題（3〜6件、why/due/metric付き）
+7) 締め
 
-【出力フォーマット（Markdown固定）】
-1) ヘッダー（A4想定）
-  - ${organizationName} / 生徒名 / 対象期間 / 作成日
-2) 今回（今期間）の要点（3〜6点、箇条書き）
-3) 学習状況（事実ベース）
-4) 生活/メンタル/興味関心（会話から得た範囲、推測禁止）
-5) 次の方針（塾側） / ご家庭へのお願い（それぞれ箇条書き）
-6) 次回会話の予定提案（任意：1〜2案）
-7) 根拠引用（重要発言）: 会話ログの keyQuotes から、短く数点（3〜6点）
-
-【重要】
-- 「前回レポート」を必ず参照し、連続性（変化/継続/新情報）を明示する。`;
+# 出力（JSONのみ）
+{
+  \"date\": \"YYYY-MM-DD\",
+  \"salutation\": \"お世話になっております。◯◯でございます。...\",
+  \"studentName\": \"...\",
+  \"keyPoints\": \"...\",\n  \"sections\": [\n    { \"title\": \"学習状況\", \"body\": \"...\" },\n    { \"title\": \"課題と原因\", \"body\": \"...\" },\n    { \"title\": \"次の打ち手\", \"body\": \"...\" },\n    { \"title\": \"受験戦略\", \"body\": \"...\" }\n  ],\n  \"homework\": [\n    { \"item\": \"...\", \"why\": \"...\", \"metric\": \"...\", \"due\": \"YYYY-MM-DD or null\" }\n  ],\n  \"closing\": \"近況報告は以上になります。引き続きよろしくお願いいたします。\"\n}`;
 
   const userPrompt = `生徒名: ${input.studentName}
 対象期間: ${periodFrom} 〜 ${periodTo}
@@ -1387,97 +1512,59 @@ export async function generateParentReportMarkdown(input: ReportInput): Promise<
 前回レポート（あれば必ず参照）:
 ${previous ? previous : "（前回レポートなし）"}
 
+生徒プロフィール（最新スナップショット）:
+${JSON.stringify(input.profileSnapshot ?? {}, null, 2)}
+
 会話ログ（今回の対象。新しい順）:
 ${input.logs
-  .map((l, idx) => {
-    const quotes = (l.keyQuotes ?? []).slice(0, 8).map((q) => `- ${q}`).join("\n");
-    const actions = (l.nextActions ?? []).slice(0, 8).map((a) => `- ${a}`).join("\n");
-    return [
-      `# Log ${idx + 1}`,
-      `date: ${l.date}`,
-      `id: ${l.id}`,
-      `summary:`,
-      l.summary,
-      ``,
-      `keyQuotes:`,
-      quotes || "（なし）",
-      ``,
-      `nextActions:`,
-      actions || "（なし）",
-    ].join("\n");
-  })
-  .join("\n\n")}`;
+    .map((l, idx) =>
+      [
+        `# Log ${idx + 1}`,
+        `date: ${l.date}`,
+        `id: ${l.id}`,
+        `summaryMarkdown:`,
+        l.summaryMarkdown ?? "",
+        `timeline:`,
+        JSON.stringify(l.timeline ?? [], null, 2),
+        `nextActions:`,
+        JSON.stringify(l.nextActions ?? [], null, 2),
+        `profileDelta:`,
+        JSON.stringify(l.profileDelta ?? {}, null, 2),
+      ].join("\n")
+    )
+    .join("\n\n")}`;
 
-  const startTime = Date.now();
-  const baseBody: Record<string, any> = {
+  const { contentText, raw } = await callChatCompletions({
     model: "gpt-4o",
     messages: [
       { role: "system", content: systemPrompt },
       { role: "user", content: userPrompt },
     ],
-    max_tokens: 3500,
-    temperature: 0.4,
-  };
-
-  async function doFetch(body: Record<string, any>) {
-    return await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${LLM_API_KEY}`,
-      },
-      body: JSON.stringify(body),
-    });
-  }
-
-  let response = await doFetch(baseBody);
-  if (!response.ok && response.status === 400) {
-    const t = await response.text().catch(() => "");
-    const err = tryParseOpenAIError(t);
-    const param = err?.error?.param ?? "";
-    const code = err?.error?.code ?? "";
-    const msg = err?.error?.message ?? t;
-    if (code === "unsupported_parameter" || code === "unsupported_value") {
-      const body2 = { ...baseBody };
-      if (param === "max_tokens" || /max_tokens/i.test(msg)) {
-        delete body2.max_tokens;
-      }
-      // 万一入っていたら外す
-      delete body2.temperature;
-      delete body2.top_p;
-      delete body2.frequency_penalty;
-      delete body2.presence_penalty;
-      response = await doFetch(body2);
-    } else {
-      // 元のレスポンスを復元
-      response = new Response(t, { status: 400, statusText: "Bad Request" });
-    }
-  }
-
-  const elapsed = Date.now() - startTime;
-  console.log("[generateParentReportMarkdown] LLM API call completed:", {
-    elapsedMs: elapsed,
-    elapsedSec: (elapsed / 1000).toFixed(2),
-    logsCount: input.logs.length,
+    response_format: { type: "json_object" },
+    temperature: 0.3,
   });
 
-  if (!response.ok) {
-    const errorText = await response.text().catch(() => "");
-    throw new Error(`LLM report API failed (${response.status}): ${errorText}`);
-  }
-
-  const raw = await response.text().catch(() => "");
-  const data = tryParseJson<ChatCompletionResponse>(raw);
-  if (!data) {
-    console.error("[generateParentReportMarkdown] Unexpected non-JSON response:", raw.slice(0, 800));
+  const jsonText = contentText ?? extractJsonCandidate(raw) ?? "";
+  const parsed = tryParseJson<ParentReportJson>(jsonText);
+  if (!parsed) {
     throw new Error("LLM report returned non-JSON response.");
   }
-  const { contentText, finishReason, refusal } = extractChatCompletionContent(data);
-  const markdown = (contentText ?? "").trim();
-  if (!markdown) {
-    const reason = finishReason ? `finish_reason=${finishReason}` : "finish_reason=(unknown)";
-    const ref = refusal ? ` refusal=${refusal}` : "";
-    throw new Error(`LLM report returned empty content (${reason}).${ref}`);
-  }
+
+  const reportJson: ParentReportJson = {
+    date: parsed.date ?? createdAt,
+    salutation: parsed.salutation ?? "お世話になっております。",
+    studentName: parsed.studentName ?? input.studentName,
+    keyPoints: parsed.keyPoints ?? "",
+    sections: parsed.sections ?? [],
+    homework: parsed.homework ?? [],
+    closing: parsed.closing ?? "近況報告は以上になります。引き続きよろしくお願いいたします。",
+  };
+
+  const markdown = renderParentReportMarkdown(reportJson, organizationName, periodFrom, periodTo);
+  return { markdown, reportJson };
+}
+
+export async function generateParentReportMarkdown(input: ReportInput): Promise<string> {
+  const { markdown } = await generateParentReport(input);
   return markdown;
 }

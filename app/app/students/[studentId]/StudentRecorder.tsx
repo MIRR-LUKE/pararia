@@ -159,11 +159,11 @@ export function StudentRecorder({ studentName, studentId, fallbackLogId, onLogCr
         throw new Error(errorMsg);
       }
 
-      let body: { 
+      let body: {
         conversationId?: string;
         rawTextCleaned?: string;
-        summaryStatus?: string;
-        extractStatus?: string;
+        status?: string;
+        jobs?: Array<{ id: string; type: string; status: string }>;
         error?: string;
       };
       try {
@@ -196,18 +196,19 @@ export function StudentRecorder({ studentName, studentId, fallbackLogId, onLogCr
         setAiGenerationProgress(llmProgress);
       }, 800); // 800msごとに更新
 
-      let bothComplete = false;
-      while (!bothComplete && Date.now() - startTime < maxWaitTime) {
+      let done = false;
+      while (!done && Date.now() - startTime < maxWaitTime) {
         try {
+          // ジョブを進める（cronが無い環境のための保険）
+          await fetch(`/api/jobs/run?limit=2`, { method: "POST" }).catch(() => null);
+
           const statusRes = await fetch(`/api/conversations/${body.conversationId}`);
           if (statusRes.ok) {
             const statusData = await statusRes.json();
             const log = statusData.conversation;
-            const summaryDone = log.summaryStatus === "SUCCESS";
-            const extractDone = log.extractStatus === "SUCCESS";
-            bothComplete = summaryDone && extractDone;
+            done = log.status === "DONE";
 
-            if (bothComplete) {
+            if (done) {
               // インターバルを確実にクリア
               if (llmProgressInterval) {
                 clearInterval(llmProgressInterval);
@@ -237,7 +238,7 @@ export function StudentRecorder({ studentName, studentId, fallbackLogId, onLogCr
           // ポーリングエラーは無視して続行
         }
 
-        if (!bothComplete) {
+        if (!done) {
           await new Promise((resolve) => setTimeout(resolve, pollInterval));
         }
       }
@@ -248,7 +249,7 @@ export function StudentRecorder({ studentName, studentId, fallbackLogId, onLogCr
         llmProgressInterval = null;
       }
 
-      if (!bothComplete) {
+      if (!done) {
         // タイムアウトした場合でも、ログIDは設定して成功とする（ユーザーは全文を読める）
         console.warn("[StudentRecorder] LLM processing timeout, but log is available");
         setAiGenerationProgress(99);

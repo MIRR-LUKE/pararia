@@ -5,9 +5,9 @@
 
 import { transcribeAudio } from "../lib/ai/stt";
 import { createStructuredConversationLog } from "../lib/analytics/conversationAnalysis";
+import { preprocessTranscript } from "../lib/transcript/preprocess";
+import { generateSummaryChunkMemos, generateExtractChunkMemos, mergeConversationArtifacts } from "../lib/ai/conversationPipeline";
 import { ConversationSourceType } from "@prisma/client";
-import { readFileSync } from "fs";
-import { join } from "path";
 
 async function testWhisper() {
   console.log("🧪 Whisper API接続テスト開始\n");
@@ -41,12 +41,25 @@ async function testWhisper() {
   console.log("📊 構造化テスト...");
   const testTranscript = "今日は模試の結果が返ってきて、数学が不安です。最近は抹茶アイスにハマっています。";
   try {
-    const structured = await import("../lib/ai/llm").then(m => m.structureConversation(testTranscript));
+    const pre = preprocessTranscript(testTranscript);
+    const { memos: summaryMemos } = await generateSummaryChunkMemos(
+      pre.blocks.map((b) => ({ index: b.index, text: b.text })),
+      { studentName: "宮本 徹生" }
+    );
+    const { memos: extractMemos } = await generateExtractChunkMemos(
+      pre.blocks.map((b) => ({ index: b.index, text: b.text })),
+      { studentName: "宮本 徹生" }
+    );
+    const { result } = await mergeConversationArtifacts({
+      studentName: "宮本 徹生",
+      summaryMemos,
+      extractMemos,
+      minSummaryChars: 500,
+    });
     console.log("✅ 構造化成功:");
-    console.log("  - Summary:", structured.summary.substring(0, 50) + "...");
-    console.log("  - Key Quotes:", structured.keyQuotes.length, "件");
-    console.log("  - Key Topics:", structured.keyTopics.join(", "));
-    console.log("  - Next Actions:", structured.nextActions.length, "件\n");
+    console.log("  - Summary:", result.summaryMarkdown.substring(0, 50) + "...");
+    console.log("  - Timeline:", result.timeline.length, "件");
+    console.log("  - Next Actions:", result.nextActions.length, "件\n");
   } catch (error: any) {
     console.error("❌ 構造化失敗:", error.message);
     process.exit(1);
@@ -63,7 +76,7 @@ async function testWhisper() {
     });
     console.log("✅ ログ生成成功:");
     console.log("  - Conversation ID:", conversation.id);
-    console.log("  - Summary:", conversation.summary.substring(0, 50) + "...");
+    console.log("  - Summary:", conversation.summaryMarkdown?.substring(0, 50) ?? "" + "...");
     console.log("  - Created At:", conversation.createdAt);
     console.log("\n🎉 すべてのテストが成功しました！");
   } catch (error: any) {
@@ -78,4 +91,3 @@ testWhisper().catch((error) => {
   console.error("❌ テスト実行エラー:", error);
   process.exit(1);
 });
-

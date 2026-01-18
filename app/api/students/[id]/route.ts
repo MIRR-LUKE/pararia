@@ -16,6 +16,10 @@ export async function GET(
         orderBy: { createdAt: "desc" },
         take: 10,
       },
+      reports: {
+        orderBy: { createdAt: "desc" },
+        take: 5,
+      },
     },
   });
 
@@ -31,12 +35,16 @@ export async function PUT(
   { params }: { params: { id: string } }
 ) {
   const body = await request.json();
-  const { name, grade, course } = body ?? {};
+  const { name, grade, course, guardianNames, enrollmentDate, birthdate } = body ?? {};
 
   const data: Record<string, unknown> = {};
   if (name !== undefined) data.name = name;
   if (grade !== undefined) data.grade = grade;
   if (course !== undefined) data.course = course;
+  if (guardianNames !== undefined) data.guardianNames = guardianNames;
+  if (enrollmentDate !== undefined)
+    data.enrollmentDate = enrollmentDate ? new Date(enrollmentDate) : null;
+  if (birthdate !== undefined) data.birthdate = birthdate ? new Date(birthdate) : null;
 
   const student = await prisma.student.update({
     where: { id: params.id },

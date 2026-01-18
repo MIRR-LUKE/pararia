@@ -8,6 +8,13 @@ export async function GET() {
         orderBy: { createdAt: "desc" },
         take: 1,
       },
+      conversations: {
+        orderBy: { createdAt: "desc" },
+        take: 1,
+      },
+      _count: {
+        select: { conversations: true },
+      },
     },
   });
 

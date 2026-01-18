@@ -1,101 +1,124 @@
-# PARARIA SaaS v0.2（会話ログ蓄積特化版）
+# PARARIA SaaS（現状実装まとめ）
 
-「録音→構造化会話ログ→カルテ自動更新→ワンタッチ保護者レポート」を最短動線で実現する学習塾向けAIダッシュボード。
+学習塾向けの「録音 → 会話ログ → カルテ更新 → 保護者レポート」を最短導線で回すダッシュボード。
+本READMEは **現在の実装状態（UI / API / DB / Jobs）** を正確にまとめたものです。
 
-## 価値提案（v0.2）
-- 録音ボタンを押すだけで完結（先生の負担極小）。
-- raw transcriptは保存せず、構造化データのみをDBに格納。
-- 雑談も含めた会話が溜まるほどカルテが自動で充実。
-- ワンタッチで保護者レポート生成（前回レポ参照＋前回以降ログの自動選択）。PDF出力対応。
-- 指標は「最終会話からの日数」「会話ログ件数」「カルテ充実度」。モチベ/リスクは補助指標。
+---
 
-## 技術スタック
-- Next.js 14 (App Router), React 18, TypeScript, CSS Modules
-- Prisma 5 + PostgreSQL
-- bcryptjs
-- PDFKit（サーバーで簡易PDF生成）
+## 主要フロー（実装済み）
 
-## データベーススキーマ（主要）
-- **Organization**: `id`, `name`, `reports[]`, timestamps
-- **User**: `id`, `email`, `passwordHash`, `name`, `role (ADMIN|TEACHER)`, `organizationId`
-- **Student**: `id`, `organizationId`, `name`, `grade`, `course?`, `enrollmentDate?`, `birthdate?`, `guardianNames?`, timestamps, `reports[]`
-- **StudentProfile**: 既存フィールド + `profileData Json?`（personal/basicのスナップショット）
-- **ConversationLog**: `summary`, `keyQuotes Json?`, `keyTopics Json?`, `nextActions Json?`, `structuredDelta Json?`, `sourceType`, timestamps（※rawTextなし）
-- **Report**: `markdown`, `json?`, `pdfBase64?`, `periodFrom/To?`, `sourceLogIds Json?`, timestamps
-- **Enums**: `UserRole (ADMIN|TEACHER)`, `ConversationSourceType (MANUAL|AUDIO)`, `DropoutRiskLevel (LOW|MEDIUM|HIGH)`
+1) **録音 / 音声アップロード → 会話ログ作成**
+- 生徒詳細の `StudentRecorder` で **録音 / 音声ファイルアップロード** に対応（MediaRecorder + File Upload）。
+- `POST /api/audio` で **Whisper (verbose_json)** を実行。
+- 前処理（フィラー除去 / 連続重複整理 / 段落化 / 話題境界推定 / chunk作成）。
+- `ConversationLog` を **status=PROCESSING** で保存し、`rawTextOriginal/rawTextCleaned/rawSegments` をTTL付きで保持。
+- `ConversationJob` を **SUMMARY/EXTRACT/MERGE/FORMAT** の4本でキュー投入（即レス）。
 
-## API（v0.2仕様）
-- `POST /api/auth/login` : email/passwordでログイン（セッション発行は未実装）
-- `GET /api/students` : 生徒一覧取得
-- `POST /api/students` : 生徒作成（氏名・学年必須、入塾日/生年月日/保護者氏名は任意）
-- `POST /api/conversations`
-  - transcriptがあればLLM構造化→保存
-  - もしくは summary/keyQuotes/keyTopics/nextActions/structuredDelta を直接保存
-  - 戻り値: 構造化された会話ログ（rawなし）
-- `POST /api/audio`
-  - 音声を受信→STT→LLMで構造化→ConversationLog保存→StudentProfileへ差分反映
-  - 戻り値: conversationId, summary, keyQuotes, keyTopics, nextActions, structuredDelta
-- `POST /api/ai/analyze-conversation`
-  - transcriptを構造化（save=falseで試算、save=true+IDsで保存）
-- `POST /api/ai/generate-report`
-  - デフォルト: 前回レポ以降の全ログを自動選択（logIds指定も可）
-  - 生成物を`Report`に保存（markdown, pdfBase64, sourceLogIds, periodFrom/To）
+2) **会話ログの構造化（分割→並列→統合）**
+- Step1: chunkごとに **メモ生成**（デフォルト4o-mini、長文は4o）。
+- Step2: **4oで統合**し、Summary / Timeline / ToDo / ProfileDelta を確定稿で生成。
+- Step3: **formattedTranscript** を整形（ルール整形 + 4o-mini補正 + 4o最終整合）。
+- 生成完了で **status=DONE**。`rawTextCleaned` は即削除、rawはTTLで削除。
 
-## フロントエンド（主要画面）
-- `/app/students` 生徒一覧
-  - 検索: 氏名
-  - ソート: 最終会話の新旧 / 会話ログ件数
-  - 表示: 生徒名・学年 / 最終会話からの日数 / ログ件数 / カルテ充実度% / CTA「録音して会話ログ追加」「ワンタッチ保護者レポート」
-  - 生徒追加フォーム（簡潔: 氏名・学年・入塾日・生年月日・保護者氏名）
-- `/app/students/[id]` 生徒詳細（タブ廃止・縦統合）
-  - 上部: 録音UI（録音→文字起こし→構造化→即時保存）
-  - カルテ: パーソナル/基本情報（値・最終更新・根拠logId）。会話が増えると自動で育つ。
-  - 会話ログ: summary / keyQuotes / keyTopics / nextActions / カルテ更新差分（全文表示なし）
-  - 保護者レポート: メインCTA「ワンタッチ生成」、サブ「ログを選んで生成」。Markdown+PDFプレビュー/履歴。
-- `/app/logs/[logId]` 会話ログ詳細（構造化のみ表示）
-- `/app/reports` 生徒別レポート一覧（最新日付・次回推奨・ワンタッチ生成）
+3) **会話ログ詳細（編集・再生成・削除）**
+- `/app/logs/[logId]` で **Summary / Timeline / ToDo / 全文** を表示。
+- `PATCH /api/conversations/[id]` で **Summary編集**。
+- `POST /api/conversations/[id]/regenerate` で **再生成**（SUMMARY/EXTRACT/MERGE/FORMAT再投入）。
+- `DELETE /api/conversations/[id]` で **削除**。
 
-## ライブラリ・ユーティリティ
-- `lib/ai/llm.ts`
-  - `structureConversation(transcript)` : summary / keyQuotes / keyTopics / nextActions / structuredDelta（モック可、rawを保持しない）
-  - `generateParentReportMarkdown(input)` : 前回レポ参照 + 期間情報を加味したMarkdown生成（LLM未接続時はモック）
-- `lib/analytics/conversationAnalysis.ts`
-  - `createStructuredConversationLog({ transcript, ... })` : STT結果から構造化ログを保存し、カルテ差分を適用
-- `lib/profile.ts`
-  - `applyProfileDelta(studentId, delta, conversationId)` : profileData Jsonをマージし最終更新・根拠を保持
-- `lib/pdf/report.ts`
-  - `generateReportPdfBase64(input)` : Markdownを簡易PDFに変換（PDFKit）
-- `lib/ai/stt.ts` : STTモック（APIキー未設定時はデモ文字起こし）
-- `lib/mockData.ts` : 構造化会話ログ＆カルテ差分を持つデモデータ
+4) **カルテ更新（basic/personal）**
+- LLM抽出した **ProfileDelta** を `applyProfileDelta` で `StudentProfile.profileData` に反映。
+- `basic/personal` は **配列形式**（field/value/confidence/evidence_quotes）。
 
-## 環境変数
-`.env.local` をプロジェクト直下に作成して設定します（雛形は `config/env.example`）。
+5) **保護者レポート生成（API + UI）**
+- `POST /api/ai/generate-report` で **Markdown + JSON + PDF(base64)** を生成。
+- ログ複数選択 + 前回レポ参照トグルあり。
+- `Report` に保存（`previousReportId` 参照あり）。
+
+---
+
+## 画面一覧（UI実装状況）
+
+- `/login` : デモログイン画面（認証は未接続）。
+- `/app/dashboard` : KPI/チャート（**mockData依存**）。
+- `/app/students` : **DB接続済み**（一覧/検索/新規追加）。
+- `/app/students/[id]` :
+  - 録音/アップロード → `/api/audio` 連携
+  - 会話ログ一覧（`/api/conversations`）
+  - 生徒基本情報編集UI（`PUT /api/students/[id]`）
+  - 保護者レポート生成UI（`/api/ai/generate-report`）
+- `/app/logs/[logId]` : 会話ログ詳細（**DB連携**）
+- `/app/reports` : 保護者レポートダッシュボード（**mockData依存**）
+- `/app/reports/[studentId]` : レポート詳細（**mockData依存**）
+- `/app/settings` : 塾情報・保持ポリシー（**ローカル状態のみ**）
+
+---
+
+## API一覧（現状）
+
+- `POST /api/audio` : 音声→STT→会話ログ作成→Jobs投入
+- `POST /api/jobs/run?limit=N` : キュー実行（手動/デバッグ用）
+- `POST /api/jobs/conversation-logs/process` : 旧互換（1件処理）
+- `POST /api/maintenance/cleanup` : TTL削除（rawText* を掃除）
+- `GET /api/conversations?studentId=...` : 会話ログ一覧
+- `POST /api/conversations` : 手入力ログ作成（Jobs投入）
+- `GET /api/conversations/[id]` : 会話ログ取得
+- `PATCH /api/conversations/[id]` : 会話ログ更新
+- `DELETE /api/conversations/[id]` : 会話ログ削除
+- `POST /api/conversations/[id]/regenerate` : 再生成
+- `POST /api/ai/generate-report` : 保護者レポート生成 + PDF
+- `GET /api/students` : 生徒一覧（DB）
+- `POST /api/students` : 生徒作成（DB）
+- `GET /api/students/[id]` : 生徒詳細（DB）
+- `PUT /api/students/[id]` : 生徒情報更新（DB）
+
+---
+
+## LLM / STT設計（品質 × 速度）
+
+- **STT**: OpenAI Whisper API（`verbose_json`）
+- **チャンク**: 2,000〜3,200 tokens相当、話題境界 + 段落 + 最大長
+- **Step1（メモ）**: 4o-mini（30分以上 or 20,000文字超は4o）
+- **Step2（統合）**: 4oで最終稿（Summary/Timeline/ToDo/ProfileDelta）
+- **Step3（整形）**: ルール整形 + 4o-mini補正 + 4o整合
+- **TTL**: rawTextOriginal/rawTextCleaned/rawSegments は 30日。成果物は永続保持。
+
+---
+
+## DB主要スキーマ（現状）
+
+- **Student / StudentProfile**: `profileData` に basic/personal を配列で保持
+- **ConversationLog**:
+  - rawTextOriginal/rawTextCleaned/rawSegments + rawTextExpiresAt
+  - summaryMarkdown / timelineJson / nextActionsJson / profileDeltaJson / formattedTranscript
+  - status（PROCESSING/PARTIAL/DONE/ERROR）
+- **ConversationJob**: SUMMARY/EXTRACT/MERGE/FORMAT/REPORT
+- **Report**: reportMarkdown / reportJson / reportPdfBase64 / previousReportId
+
+---
+
+## 認証 / Cron
+
+- **Basic Auth**: `middleware.ts` で `/app` `/api` を保護
+- **Cleanup Cron**: `vercel.json` から `/api/maintenance/cleanup` を定期実行
+
+---
+
+## 環境変数（例）
 
 ```env
 DATABASE_URL="postgresql://user:password@localhost:5432/pararia?schema=public"
-OPENAI_API_KEY="sk-..."  # STT(Whisper)に使用
+OPENAI_API_KEY="sk-..."  # STT/LLM
+LLM_API_KEY="sk-..."     # 省略時はOPENAI_API_KEYを使用
+BASIC_AUTH_USER="demo"
+BASIC_AUTH_PASS="demo"
+CRON_SECRET="change-me"
 ```
 
-## セットアップ
-```bash
-npm install
-npm run prisma:generate
-npm run prisma:migrate
-npm run dev   # http://localhost:3000
-```
+---
 
-## データ保持ポリシー（v0.2）
-- raw transcriptはDBに保存しない。保存するのは構造化データのみ。
-- カルテは `structuredDelta` をマージして自動更新（最終更新日・根拠logIdを保持）。
-- 音声ファイルの保持期間設定UIはあり（削除ロジックはTODO）。
+## 未接続 / 制約
 
-## 既知の課題 / TODO
-- 認証セッション未実装（JWT/Cookie導入予定）
-- LLM/STTの実API連携はモック（トークン最適化プロンプト要）
-- PDFテンプレは簡易版（デザイン強化・署名欄などは今後）
-- テスト未整備
-- エラーハンドリング・レート制限強化
-
-## バージョン
-- v0.2.0（会話ログ蓄積・カルテ自動更新・PDFレポートの導線刷新）
-
+- ダッシュボード / レポート画面は **mockData依存**
+- `/login` はデモUIのみ（認証はBasic Authで代替）
+- cronは `CRON_SECRET` 設定が必要

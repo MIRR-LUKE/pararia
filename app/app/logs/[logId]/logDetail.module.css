@@ -182,6 +182,12 @@
   border-color: #1d4ed8;
 }
 
+.active {
+  background: #1d4ed8;
+  color: #fff;
+  border-color: #1d4ed8;
+}
+
 .badgeList {
   display: flex;
   gap: 6px;
