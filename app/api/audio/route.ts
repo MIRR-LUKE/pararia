@@ -111,9 +111,10 @@ export async function POST(request: Request) {
       throw new Error(`データベース保存に失敗しました: ${dbError?.message ?? "unknown error"}`);
     }
 
+    let jobs: Array<{ id: string; type: string; status: string }> = [];
     try {
       await enqueueConversationJobs(conversation.id);
-      const jobs = await prisma.conversationJob.findMany({
+      jobs = await prisma.conversationJob.findMany({
         where: { conversationId: conversation.id },
         select: { id: true, type: true, status: true },
       });
