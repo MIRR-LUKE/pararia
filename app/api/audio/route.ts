@@ -3,7 +3,7 @@ import { transcribeAudioVerbose } from "@/lib/ai/stt";
 import { ConversationSourceType, ConversationStatus } from "@prisma/client";
 import { preprocessTranscriptWithSegments } from "@/lib/transcript/preprocess";
 import { prisma } from "@/lib/db";
-import { enqueueConversationJobs } from "@/lib/jobs/conversationJobs";
+import { enqueueConversationJobs, processAllConversationJobs } from "@/lib/jobs/conversationJobs";
 import type { ConversationQualityMeta } from "@/lib/types/conversation";
 import { getPromptVersion } from "@/lib/ai/conversationPipeline";
 import { ensureOrganizationId } from "@/lib/server/organization";
@@ -14,7 +14,7 @@ export async function POST(request: Request) {
     const formData = await request.formData();
     const file = formData.get("file") as File | null;
     const studentId = formData.get("studentId") as string | null;
-    const organizationId = await ensureOrganizationId(formData.get("organizationId") as string | null);
+    const requestedOrganizationId = formData.get("organizationId") as string | null;
     const userId = (formData.get("userId") as string | null) ?? undefined;
 
     if (!file || !studentId) {
@@ -25,11 +25,13 @@ export async function POST(request: Request) {
       );
     }
 
+    const organizationIdPromise = ensureOrganizationId(requestedOrganizationId);
+
     console.log("[POST /api/audio] Transcribing audio...", {
       filename: file.name,
       size: file.size,
       studentId,
-      organizationId,
+      organizationId: requestedOrganizationId ?? "(default)",
     });
 
     const buffer = Buffer.from(await file.arrayBuffer());
@@ -67,13 +69,14 @@ export async function POST(request: Request) {
     });
 
     console.log("[POST /api/audio] Creating conversation log in DB (fast path)...", {
-      organizationId,
+      organizationId: requestedOrganizationId ?? "(default)",
       studentId,
       userId: userId ?? "none",
       rawTextCleanedLength: pre.rawTextCleaned.length,
     });
     let conversation;
     try {
+      const organizationId = await organizationIdPromise;
       const expiresAt = new Date();
       expiresAt.setDate(expiresAt.getDate() + 30);
       const qualityMeta: ConversationQualityMeta = {
@@ -117,6 +120,14 @@ export async function POST(request: Request) {
       jobs = await prisma.conversationJob.findMany({
         where: { conversationId: conversation.id },
         select: { id: true, type: true, status: true },
+      });
+
+      // Start processing immediately to reduce first-byte-to-result latency.
+      void processAllConversationJobs(conversation.id).catch((bgError) => {
+        console.error("[POST /api/audio] Background job processing failed:", {
+          conversationId: conversation.id,
+          error: (bgError as any)?.message,
+        });
       });
 
       console.log("[POST /api/audio] Conversation log created, jobs enqueued:", {

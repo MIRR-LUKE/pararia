@@ -9,6 +9,12 @@ export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
     const studentId = searchParams.get("studentId");
+    const limitRaw = searchParams.get("limit");
+    const limitParam = limitRaw ? Number(limitRaw) : NaN;
+    const limit =
+      Number.isFinite(limitParam) && limitParam > 0
+        ? Math.min(Math.floor(limitParam), 200)
+        : undefined;
 
     if (!studentId) {
       return NextResponse.json(
@@ -20,19 +26,18 @@ export async function GET(request: Request) {
     const conversations = await prisma.conversationLog.findMany({
       where: { studentId },
       orderBy: { createdAt: "desc" },
-      include: {
-        student: {
-          select: {
-            id: true,
-            name: true,
-          },
-        },
-        user: {
-          select: {
-            id: true,
-            name: true,
-          },
-        },
+      ...(limit ? { take: limit } : {}),
+      select: {
+        id: true,
+        studentId: true,
+        status: true,
+        summaryMarkdown: true,
+        timelineJson: true,
+        nextActionsJson: true,
+        profileDeltaJson: true,
+        formattedTranscript: true,
+        qualityMetaJson: true,
+        createdAt: true,
       },
     });
 

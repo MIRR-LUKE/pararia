@@ -8,6 +8,7 @@ export async function GET(
   try {
     const { searchParams } = new URL(request.url);
     const process = searchParams.get("process");
+    const brief = searchParams.get("brief") === "1";
     if (process === "1") {
       // Fire-and-forget: Process queued jobs in the background
       try {
@@ -17,6 +18,31 @@ export async function GET(
       } catch (e) {
         // ignore
       }
+    }
+
+    if (brief) {
+      const briefConversation = await prisma.conversationLog.findUnique({
+        where: { id: params.id },
+        select: {
+          id: true,
+          status: true,
+          createdAt: true,
+          jobs: {
+            select: {
+              id: true,
+              type: true,
+              status: true,
+              startedAt: true,
+              finishedAt: true,
+              lastError: true,
+            },
+          },
+        },
+      });
+      if (!briefConversation) {
+        return NextResponse.json({ error: "not found" }, { status: 404 });
+      }
+      return NextResponse.json({ conversation: briefConversation });
     }
 
     const conversation = await prisma.conversationLog.findUnique({

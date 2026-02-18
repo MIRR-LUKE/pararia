@@ -33,6 +33,8 @@ function calcCompleteness(profileData?: any) {
 export default function StudentsPage() {
   const router = useRouter();
   const [data, setData] = useState<StudentRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [keyword, setKeyword] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("latest");
   const [showNewForm, setShowNewForm] = useState(false);
@@ -46,12 +48,15 @@ export default function StudentsPage() {
   });
 
   const refresh = async () => {
+    setLoading(true);
+    setLoadError(null);
     try {
-      const res = await fetch("/api/students");
+      const res = await fetch("/api/students", { cache: "no-store" });
       if (!res.ok) {
         const errorText = await res.text().catch(() => "");
         console.error("[StudentsPage] API error:", res.status, errorText);
         setData([]);
+        setLoadError(`Failed to load students (${res.status})`);
         return;
       }
       const json = await res.json();
@@ -87,6 +92,9 @@ export default function StudentsPage() {
     } catch (e) {
       console.error("[StudentsPage] fetch failed", e);
       setData([]);
+      setLoadError("Failed to load students. Please refresh and try again.");
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -301,6 +309,14 @@ export default function StudentsPage() {
             }
             subtitle={`${filtered.length}名の生徒`}
           >
+            {loadError && (
+              <div style={{ marginBottom: 12, display: "flex", gap: 8, alignItems: "center", color: "#b91c1c" }}>
+                <span>{loadError}</span>
+                <Button size="small" variant="secondary" onClick={refresh}>
+                  Retry
+                </Button>
+              </div>
+            )}
             <div className={styles.tableWrapper}>
               <table className={styles.table}>
                 <thead>
@@ -313,7 +329,13 @@ export default function StudentsPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {filtered.length === 0 ? (
+                  {loading ? (
+                    <tr>
+                      <td colSpan={5} style={{ textAlign: "center", padding: 40, color: "var(--muted)" }}>
+                        Loading...
+                      </td>
+                    </tr>
+                  ) : filtered.length === 0 ? (
                     <tr>
                       <td colSpan={5} style={{ textAlign: "center", padding: 40, color: "var(--muted)" }}>
                         該当する生徒が見つかりませんでした

@@ -19,11 +19,25 @@ const DEFAULT_JOB_TYPES: ConversationJobType[] = [
   ConversationJobType.FINALIZE,
 ];
 
+const JOB_PRIORITY: Record<ConversationJobType, number> = {
+  [ConversationJobType.CHUNK_ANALYZE]: 0,
+  [ConversationJobType.REDUCE]: 1,
+  [ConversationJobType.FINALIZE]: 2,
+  [ConversationJobType.FORMAT]: 3,
+  [ConversationJobType.REPORT]: 4,
+};
+
+const activeConversationRuns = new Set<string>();
+
 type JobPayload = {
   id: string;
   conversationId: string;
   type: ConversationJobType;
   attempts: number;
+};
+
+type ProcessJobsOptions = {
+  conversationId?: string;
 };
 
 type ConversationPayload = {
@@ -90,49 +104,67 @@ function estimateSttSeconds(segments?: Array<{ start?: number; end?: number }> |
   return Math.max(0, max - min);
 }
 
-async function claimNextJob(): Promise<JobPayload | null> {
+function dependencySatisfied(
+  type: ConversationJobType,
+  statusByType: Map<ConversationJobType, JobStatus>
+) {
+  if (type === ConversationJobType.CHUNK_ANALYZE) return true;
+  if (type === ConversationJobType.REDUCE) {
+    return statusByType.get(ConversationJobType.CHUNK_ANALYZE) === JobStatus.DONE;
+  }
+  if (type === ConversationJobType.FINALIZE) {
+    return statusByType.get(ConversationJobType.REDUCE) === JobStatus.DONE;
+  }
+  if (type === ConversationJobType.FORMAT) {
+    return statusByType.get(ConversationJobType.FINALIZE) === JobStatus.DONE;
+  }
+  return true;
+}
+
+async function claimNextJob(opts?: ProcessJobsOptions): Promise<JobPayload | null> {
   const queued = await prisma.conversationJob.findMany({
-    where: { status: JobStatus.QUEUED },
-    orderBy: [{ type: "asc" }, { createdAt: "asc" }],
-    take: 20,
-    select: { id: true, conversationId: true, type: true, attempts: true },
+    where: {
+      status: JobStatus.QUEUED,
+      ...(opts?.conversationId ? { conversationId: opts.conversationId } : {}),
+    },
+    orderBy: [{ createdAt: "asc" }],
+    take: 50,
+    select: { id: true, conversationId: true, type: true, attempts: true, createdAt: true },
+  });
+  if (queued.length === 0) return null;
+
+  const conversationIds = Array.from(new Set(queued.map((job) => job.conversationId)));
+  const states = await prisma.conversationJob.findMany({
+    where: {
+      conversationId: { in: conversationIds },
+      type: {
+        in: [
+          ConversationJobType.CHUNK_ANALYZE,
+          ConversationJobType.REDUCE,
+          ConversationJobType.FINALIZE,
+        ],
+      },
+    },
+    select: { conversationId: true, type: true, status: true },
   });
 
-  for (const job of queued) {
-    if (job.type === ConversationJobType.REDUCE) {
-      const deps = await prisma.conversationJob.findMany({
-        where: {
-          conversationId: job.conversationId,
-          type: ConversationJobType.CHUNK_ANALYZE,
-          status: JobStatus.DONE,
-        },
-        select: { id: true },
-      });
-      if (deps.length < 1) continue;
-    }
-    if (job.type === ConversationJobType.FINALIZE) {
-      const deps = await prisma.conversationJob.findMany({
-        where: {
-          conversationId: job.conversationId,
-          type: ConversationJobType.REDUCE,
-          status: JobStatus.DONE,
-        },
-        select: { id: true },
-      });
-      if (deps.length < 1) continue;
-    }
-    if (job.type === ConversationJobType.FORMAT) {
-      const deps = await prisma.conversationJob.findMany({
-        where: {
-          conversationId: job.conversationId,
-          type: ConversationJobType.FINALIZE,
-          status: JobStatus.DONE,
-        },
-        select: { id: true },
-      });
-      if (deps.length < 1) continue;
-    }
+  const statusByConversation = new Map<string, Map<ConversationJobType, JobStatus>>();
+  for (const state of states) {
+    const byType =
+      statusByConversation.get(state.conversationId) ?? new Map<ConversationJobType, JobStatus>();
+    byType.set(state.type, state.status);
+    statusByConversation.set(state.conversationId, byType);
+  }
 
+  const eligible = queued
+    .filter((job) => dependencySatisfied(job.type, statusByConversation.get(job.conversationId) ?? new Map()))
+    .sort((a, b) => {
+      const pri = JOB_PRIORITY[a.type] - JOB_PRIORITY[b.type];
+      if (pri !== 0) return pri;
+      return a.createdAt.getTime() - b.createdAt.getTime();
+    });
+
+  for (const job of eligible) {
     const updated = await prisma.conversationJob.updateMany({
       where: { id: job.id, status: JobStatus.QUEUED },
       data: {
@@ -141,7 +173,14 @@ async function claimNextJob(): Promise<JobPayload | null> {
         attempts: { increment: 1 },
       },
     });
-    if (updated.count === 1) return job;
+    if (updated.count === 1) {
+      return {
+        id: job.id,
+        conversationId: job.conversationId,
+        type: job.type,
+        attempts: job.attempts,
+      };
+    }
   }
 
   return null;
@@ -528,7 +567,8 @@ async function executeJob(job: JobPayload) {
 
 export async function processQueuedJobs(
   limit = 1,
-  concurrency = 1
+  concurrency = 1,
+  opts?: ProcessJobsOptions
 ): Promise<{ processed: number; errors: string[] }> {
   const errors: string[] = [];
   let processed = 0;
@@ -551,7 +591,7 @@ export async function processQueuedJobs(
     let idle = 0;
     while (true) {
       if (!reserveSlot()) return;
-      const job = await claimNextJob();
+      const job = await claimNextJob(opts);
       if (!job) {
         releaseSlot();
         idle += 1;
@@ -595,8 +635,23 @@ export async function processQueuedJobs(
 }
 
 export async function processAllConversationJobs(conversationId: string) {
-  const envConcurrency = Number(process.env.JOB_CONCURRENCY ?? 3);
-  const concurrency = Number.isFinite(envConcurrency) ? envConcurrency : 1;
-  const result = await processQueuedJobs(10, concurrency);
-  return result;
+  if (activeConversationRuns.has(conversationId)) {
+    return { processed: 0, errors: [] };
+  }
+  activeConversationRuns.add(conversationId);
+  try {
+    const envConcurrency = Number(process.env.JOB_CONCURRENCY ?? 3);
+    const concurrency = Number.isFinite(envConcurrency) ? Math.max(1, Math.floor(envConcurrency)) : 1;
+    const pending = await prisma.conversationJob.count({
+      where: {
+        conversationId,
+        status: { in: [JobStatus.QUEUED, JobStatus.RUNNING] },
+      },
+    });
+    const limit = Math.max(10, pending * 2, 4);
+    const result = await processQueuedJobs(limit, concurrency, { conversationId });
+    return result;
+  } finally {
+    activeConversationRuns.delete(conversationId);
+  }
 }

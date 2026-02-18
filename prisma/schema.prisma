@@ -49,6 +49,8 @@ model Student {
   conversations ConversationLog[]
   profiles       StudentProfile[]
   reports        Report[]
+
+  @@index([organizationId, createdAt])
 }
 
 model StudentProfile {
@@ -97,6 +99,10 @@ model ConversationLog {
   student      Student        @relation(fields: [studentId], references: [id])
   user         User?          @relation(fields: [userId], references: [id])
   jobs         ConversationJob[]
+
+  @@index([studentId, createdAt])
+  @@index([organizationId, createdAt])
+  @@index([rawTextExpiresAt])
 }
 
 model ConversationJob {
@@ -118,6 +124,7 @@ model ConversationJob {
 
   @@unique([conversationId, type])
   @@index([status, type])
+  @@index([conversationId, type, status])
 }
 
 model Report {
@@ -137,6 +144,9 @@ model Report {
 
   previousReport Report?  @relation("ReportPrevious", fields: [previousReportId], references: [id])
   nextReports    Report[] @relation("ReportPrevious")
+
+  @@index([studentId, createdAt])
+  @@index([organizationId, createdAt])
 }
 
 model AuditLog {

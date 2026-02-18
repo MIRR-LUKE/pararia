@@ -2,15 +2,45 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { ensureOrganizationId } from "@/lib/server/organization";
 
-export async function GET() {
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
+export async function GET(request: Request) {
   try {
+    const { searchParams } = new URL(request.url);
+    const organizationId = searchParams.get("organizationId");
+    const limitRaw = searchParams.get("limit");
+    const limit = limitRaw ? Math.max(1, Math.min(200, Number(limitRaw))) : undefined;
+
     const students = await prisma.student.findMany({
-      include: {
+      where: {
+        ...(organizationId ? { organizationId } : {}),
+      },
+      ...(limit && Number.isFinite(limit) ? { take: Math.floor(limit) } : {}),
+      select: {
+        id: true,
+        organizationId: true,
+        name: true,
+        nameKana: true,
+        grade: true,
+        course: true,
+        enrollmentDate: true,
+        birthdate: true,
+        guardianNames: true,
+        createdAt: true,
+        updatedAt: true,
         profiles: {
+          select: {
+            profileData: true,
+            createdAt: true,
+          },
           orderBy: { createdAt: "desc" },
           take: 1,
         },
         conversations: {
+          select: {
+            createdAt: true,
+          },
           orderBy: { createdAt: "desc" },
           take: 1,
         },
@@ -21,7 +51,14 @@ export async function GET() {
       orderBy: { createdAt: "desc" },
     });
 
-    return NextResponse.json({ students });
+    return NextResponse.json(
+      { students },
+      {
+        headers: {
+          "Cache-Control": "no-store, max-age=0",
+        },
+      }
+    );
   } catch (e: any) {
     console.error("[GET /api/students] Error:", {
       error: e?.message,

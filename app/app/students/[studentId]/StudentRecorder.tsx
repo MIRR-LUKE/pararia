@@ -182,8 +182,8 @@ export function StudentRecorder({ studentName, studentId, fallbackLogId, onLogCr
       setAiGenerationProgress(0);
       setTranscriptionStage("会話ログをAI生成中");
       
-      const maxWaitTime = 300000; // 5分
-      const pollInterval = 2000; // 2秒ごと
+      const maxWaitTime = 300000;
+      const pollInterval = 1500;
       const startTime = Date.now();
 
       // LLM処理中の進捗シミュレーション（0% → 99%）
@@ -200,14 +200,21 @@ export function StudentRecorder({ studentName, studentId, fallbackLogId, onLogCr
       while (!done && Date.now() - startTime < maxWaitTime) {
         try {
           // ジョブを進める（cronが無い環境のための保険）
-          await fetch(`/api/jobs/run?limit=4&concurrency=2`, { method: "POST" }).catch(() => null);
 
-          const statusRes = await fetch(`/api/conversations/${body.conversationId}`);
+          const statusRes = await fetch(`/api/conversations/${body.conversationId}?process=1&brief=1`, { cache: "no-store" });
           if (statusRes.ok) {
             const statusData = await statusRes.json();
             const log = statusData.conversation;
             done = log.status === "DONE";
 
+            if (log.status === "ERROR") {
+              const failedJob = Array.isArray(log.jobs)
+                ? log.jobs.find((j: any) => j?.status === "ERROR")
+                : null;
+              throw new Error(
+                failedJob?.lastError || "AI generation failed during background processing."
+              );
+            }
             if (done) {
               // インターバルを確実にクリア
               if (llmProgressInterval) {
