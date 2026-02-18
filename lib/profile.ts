@@ -47,44 +47,49 @@ export async function applyProfileDelta(
   try {
     console.log("[applyProfileDelta] Starting...", { studentId, conversationId });
     
-    // 最も新しいプロフィールを取得（存在しなければ新規作成）
-    const latest = await prisma.studentProfile.findFirst({
-      where: { studentId },
-      orderBy: { createdAt: "desc" },
-    });
-
-    const currentSnapshot: Snapshot = (latest?.profileData as Snapshot) ?? {
-      personal: [],
-      basic: [],
-      lastUpdatedFromLogId: undefined,
-    };
-
-    const merged = mergeSnapshot(currentSnapshot, delta, conversationId);
-    console.log("[applyProfileDelta] Merged snapshot:", {
-      personalFields: merged.personal?.length ?? 0,
-      basicsFields: merged.basic?.length ?? 0,
-    });
-
-    if (latest) {
-      await prisma.studentProfile.update({
-        where: { id: latest.id },
-        data: {
-          profileData: merged,
-          updatedAt: new Date(),
-        },
+    // トランザクション内で取得と更新を実行して競合状態を防ぐ
+    const merged = await prisma.$transaction(async (tx) => {
+      // 最も新しいプロフィールを取得（存在しなければ新規作成）
+      const latest = await tx.studentProfile.findFirst({
+        where: { studentId },
+        orderBy: { createdAt: "desc" },
       });
-      console.log("[applyProfileDelta] Profile updated:", latest.id);
-    } else {
-      const created = await prisma.studentProfile.create({
-        data: {
-          studentId,
-          profileData: merged,
-          basicData: merged.basic,
-          summary: "会話ログから自動生成されたカルテ",
-        },
+
+      const currentSnapshot: Snapshot = (latest?.profileData as Snapshot) ?? {
+        personal: [],
+        basic: [],
+        lastUpdatedFromLogId: undefined,
+      };
+
+      const mergedSnapshot = mergeSnapshot(currentSnapshot, delta, conversationId);
+      console.log("[applyProfileDelta] Merged snapshot:", {
+        personalFields: mergedSnapshot.personal?.length ?? 0,
+        basicsFields: mergedSnapshot.basic?.length ?? 0,
       });
-      console.log("[applyProfileDelta] Profile created:", created.id);
-    }
+
+      if (latest) {
+        await tx.studentProfile.update({
+          where: { id: latest.id },
+          data: {
+            profileData: mergedSnapshot,
+            updatedAt: new Date(),
+          },
+        });
+        console.log("[applyProfileDelta] Profile updated:", latest.id);
+      } else {
+        await tx.studentProfile.create({
+          data: {
+            studentId,
+            profileData: mergedSnapshot,
+            basicData: mergedSnapshot.basic,
+            summary: "会話ログから自動生成されたカルテ",
+          },
+        });
+        console.log("[applyProfileDelta] Profile created");
+      }
+
+      return mergedSnapshot;
+    });
 
     return merged;
   } catch (error: any) {
