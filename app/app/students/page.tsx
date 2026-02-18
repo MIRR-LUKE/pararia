@@ -48,25 +48,45 @@ export default function StudentsPage() {
   const refresh = async () => {
     try {
       const res = await fetch("/api/students");
-      if (!res.ok) return;
+      if (!res.ok) {
+        const errorText = await res.text().catch(() => "");
+        console.error("[StudentsPage] API error:", res.status, errorText);
+        setData([]);
+        return;
+      }
       const json = await res.json();
       const rows: StudentRow[] = (json.students ?? []).map((s: any) => {
-        const lastConversation = s.conversations?.[0]?.createdAt ?? null;
-        const profileData = s.profiles?.[0]?.profileData ?? {};
-        return {
-          id: s.id,
-          name: s.name,
-          grade: s.grade,
-          course: s.course,
-          guardianNames: s.guardianNames,
-          lastConversationDate: lastConversation,
-          conversationCount: s._count?.conversations ?? 0,
-          completeness: calcCompleteness(profileData),
-        };
+        try {
+          const lastConversation = s.conversations?.[0]?.createdAt ?? null;
+          const profileData = s.profiles?.[0]?.profileData ?? {};
+          return {
+            id: s.id,
+            name: s.name ?? "",
+            grade: s.grade ?? null,
+            course: s.course ?? null,
+            guardianNames: s.guardianNames ?? null,
+            lastConversationDate: lastConversation,
+            conversationCount: s._count?.conversations ?? 0,
+            completeness: calcCompleteness(profileData),
+          };
+        } catch (e) {
+          console.error("[StudentsPage] Error mapping student:", s.id, e);
+          return {
+            id: s.id ?? "",
+            name: s.name ?? "",
+            grade: s.grade ?? null,
+            course: s.course ?? null,
+            guardianNames: s.guardianNames ?? null,
+            lastConversationDate: null,
+            conversationCount: 0,
+            completeness: 0,
+          };
+        }
       });
       setData(rows);
     } catch (e) {
       console.error("[StudentsPage] fetch failed", e);
+      setData([]);
     }
   };
 
