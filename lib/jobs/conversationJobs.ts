@@ -4,6 +4,7 @@ import {
   analyzeChunkBlocks,
   reduceChunkAnalyses,
   finalizeConversationArtifacts,
+  generateConversationArtifactsSinglePass,
   getPromptVersion,
   estimateTokens,
 } from "@/lib/ai/conversationPipeline";
@@ -28,6 +29,9 @@ const JOB_PRIORITY: Record<ConversationJobType, number> = {
 };
 
 const activeConversationRuns = new Set<string>();
+const ENABLE_SINGLE_PASS_MODE = process.env.ENABLE_SINGLE_PASS_MODE !== "0";
+const SINGLE_PASS_MAX_BLOCKS = Math.max(1, Math.min(4, Number(process.env.SINGLE_PASS_MAX_BLOCKS ?? 2)));
+const SINGLE_PASS_MAX_CHARS = Math.max(1200, Number(process.env.SINGLE_PASS_MAX_CHARS ?? 12000));
 
 type JobPayload = {
   id: string;
@@ -47,6 +51,11 @@ type ConversationPayload = {
   rawTextCleaned?: string | null;
   rawSegments?: any[] | null;
   formattedTranscript?: string | null;
+  summaryMarkdown?: string | null;
+  timelineJson?: any;
+  nextActionsJson?: any;
+  profileDeltaJson?: any;
+  parentPackJson?: any;
   studentName?: string | null;
   teacherName?: string | null;
   qualityMetaJson?: ConversationQualityMeta | null;
@@ -92,6 +101,18 @@ function normalizeSourceText(payload: ConversationPayload) {
       .trim();
   }
   return "";
+}
+
+function hasSinglePassArtifacts(payload: ConversationPayload) {
+  const hasTimeline = Array.isArray(payload.timelineJson) && payload.timelineJson.length > 0;
+  const hasActions = Array.isArray(payload.nextActionsJson) && payload.nextActionsJson.length > 0;
+  return Boolean(
+    payload.summaryMarkdown?.trim() &&
+    hasTimeline &&
+    hasActions &&
+    payload.profileDeltaJson &&
+    payload.parentPackJson
+  );
 }
 
 function estimateSttSeconds(segments?: Array<{ start?: number; end?: number }> | null) {
@@ -230,6 +251,90 @@ async function executeAnalyzeJob(job: JobPayload, convo: ConversationPayload) {
     throw new Error("No transcript blocks available for CHUNK_ANALYZE job");
   }
 
+  const sourceLength = sourceText.length;
+  const minSummaryChars = sourceLength >= 20000 ? 1200 : sourceLength < 3000 ? 380 : 700;
+  const minTimelineSections = sourceLength >= 12000 ? 3 : 2;
+  const singlePassEligible =
+    ENABLE_SINGLE_PASS_MODE &&
+    pre.blocks.length <= SINGLE_PASS_MAX_BLOCKS &&
+    sourceLength <= SINGLE_PASS_MAX_CHARS &&
+    !hasSinglePassArtifacts(convo);
+
+  if (singlePassEligible) {
+    const start = Date.now();
+    const { result, model, apiCalls, repaired } = await generateConversationArtifactsSinglePass({
+      transcript: sourceText,
+      studentName: convo.studentName ?? undefined,
+      teacherName: convo.teacherName ?? undefined,
+      minSummaryChars,
+      minTimelineSections,
+    });
+    const duration = Date.now() - start;
+    const quotesCountTotal =
+      result.timeline.reduce((acc, t) => acc + (t.evidence_quotes?.length ?? 0), 0) +
+      result.profileDelta.basic.reduce((acc, i) => acc + (i.evidence_quotes?.length ?? 0), 0) +
+      result.profileDelta.personal.reduce((acc, i) => acc + (i.evidence_quotes?.length ?? 0), 0) +
+      (result.parentPack?.evidence_quotes?.length ?? 0);
+
+    await prisma.conversationLog.update({
+      where: { id: convo.id },
+      data: {
+        summaryMarkdown: result.summaryMarkdown,
+        timelineJson: result.timeline as any,
+        nextActionsJson: result.nextActions as any,
+        profileDeltaJson: result.profileDelta as any,
+        parentPackJson: result.parentPack as any,
+        qualityMetaJson: {
+          ...(convo.qualityMetaJson ?? {}),
+          singlePassMode: true,
+          singlePassRepaired: repaired,
+          modelSinglePass: model,
+          jobSecondsSinglePass: Math.round(duration / 1000),
+          llmApiCallsSinglePass: apiCalls,
+          modelAnalyze: model,
+          modelFinalize: model,
+          jobSecondsAnalyze: Math.round(duration / 1000),
+          llmApiCallsAnalyze: apiCalls,
+          finalizeRepaired: repaired,
+          summaryCharCount: result.summaryMarkdown.length,
+          timelineSectionCount: result.timeline.length,
+          todoCount: result.nextActions.length,
+          quotesCountTotal,
+          promptVersion: getPromptVersion(),
+          generatedAt: new Date().toISOString(),
+          inputTokensEstimate: estimateTokens(sourceText),
+        } as any,
+      },
+    });
+
+    await prisma.conversationJob.update({
+      where: { id: job.id },
+      data: {
+        status: JobStatus.DONE,
+        finishedAt: new Date(),
+        model,
+        outputJson: {
+          mode: "single-pass",
+          summaryCharCount: result.summaryMarkdown.length,
+          timelineSectionCount: result.timeline.length,
+          todoCount: result.nextActions.length,
+          llmApiCalls: apiCalls,
+          repaired,
+        },
+        costMetaJson: {
+          promptVersion: getPromptVersion(),
+          inputTokensEstimate: pre.blocks.reduce((acc, b) => acc + b.approxTokens, 0),
+          outputTokensEstimate: estimateTokens(JSON.stringify(result)),
+          seconds: Math.round(duration / 1000),
+          llmApiCalls: apiCalls,
+        },
+      },
+    });
+
+    await updateConversationStatus(convo.id);
+    return { analyses: [], duration };
+  }
+
   const start = Date.now();
   const existing = (convo.chunkAnalysisJson as any)?.chunks ?? [];
   const existingByHash = new Map<string, ChunkAnalysis>(
@@ -242,12 +347,12 @@ async function executeAnalyzeJob(job: JobPayload, convo: ConversationPayload) {
   const blocks = pre.blocks.map((b) => ({ index: b.index, text: b.text, hash: b.hash }));
   const toAnalyze = blocks.filter((b) => !existingByHash.has(b.hash));
 
-  const { analyses: analyzed, model } = toAnalyze.length
+  const { analyses: analyzed, model, apiCalls: analyzeApiCalls } = toAnalyze.length
     ? await analyzeChunkBlocks(toAnalyze, {
         studentName: convo.studentName ?? undefined,
         teacherName: convo.teacherName ?? undefined,
       })
-    : { analyses: [], model: "reuse" };
+    : { analyses: [], model: "reuse", apiCalls: 0 };
   const analyzedByHash = new Map(analyzed.map((a) => [a.hash, a]));
 
   const merged: ChunkAnalysis[] = blocks.map((b) => {
@@ -279,12 +384,14 @@ async function executeAnalyzeJob(job: JobPayload, convo: ConversationPayload) {
         chunks: merged,
         reused: blocks.length - toAnalyze.length,
         analyzed: toAnalyze.length,
+        llmApiCalls: analyzeApiCalls,
       },
       costMetaJson: {
         promptVersion: getPromptVersion(),
         inputTokensEstimate: pre.blocks.reduce((acc, b) => acc + b.approxTokens, 0),
         outputTokensEstimate: estimateTokens(JSON.stringify(merged)),
         seconds: Math.round(duration / 1000),
+        llmApiCalls: analyzeApiCalls,
       },
     },
   });
@@ -300,6 +407,7 @@ async function executeAnalyzeJob(job: JobPayload, convo: ConversationPayload) {
         ...(convo.qualityMetaJson ?? {}),
         modelAnalyze: model,
         jobSecondsAnalyze: Math.round(duration / 1000),
+        llmApiCallsAnalyze: analyzeApiCalls,
       } as any,
     },
   });
@@ -316,6 +424,54 @@ function ensureAnalyses(data: any): ChunkAnalysis[] {
 }
 
 async function executeReduceJob(job: JobPayload, convo: ConversationPayload) {
+  const singlePassMode = (convo.qualityMetaJson as any)?.singlePassMode === true;
+  if (singlePassMode && hasSinglePassArtifacts(convo)) {
+    await prisma.conversationJob.update({
+      where: { id: job.id },
+      data: {
+        status: JobStatus.DONE,
+        finishedAt: new Date(),
+        model: "skip-single-pass",
+        outputJson: { skipped: true, reason: "single-pass", llmApiCalls: 0 },
+        costMetaJson: {
+          promptVersion: getPromptVersion(),
+          inputTokensEstimate: 0,
+          outputTokensEstimate: 0,
+          seconds: 0,
+          llmApiCalls: 0,
+        },
+      },
+    });
+
+    await prisma.conversationLog.update({
+      where: { id: convo.id },
+      data: {
+        qualityMetaJson: {
+          ...(convo.qualityMetaJson ?? {}),
+          modelReduce: "skip-single-pass",
+          jobSecondsReduce: 0,
+          llmApiCallsReduce: 0,
+        } as any,
+      },
+    });
+
+    await updateConversationStatus(convo.id);
+    return {
+      reduced: {
+        facts: [],
+        coaching_points: [],
+        decisions: [],
+        student_state_delta: [],
+        todo_candidates: [],
+        timeline_candidates: [],
+        profile_delta_candidates: { basic: [], personal: [] },
+        quotes: [],
+        safety_flags: [],
+      } as ReducedAnalysis,
+      duration: 0,
+    };
+  }
+
   const analysisJob = await prisma.conversationJob.findFirst({
     where: { conversationId: convo.id, type: ConversationJobType.CHUNK_ANALYZE, status: JobStatus.DONE },
     select: { outputJson: true },
@@ -329,7 +485,7 @@ async function executeReduceJob(job: JobPayload, convo: ConversationPayload) {
   }
 
   const start = Date.now();
-  const { reduced, model } = await reduceChunkAnalyses({
+  const { reduced, model, apiCalls: reduceApiCalls } = await reduceChunkAnalyses({
     analyses,
     studentName: convo.studentName ?? undefined,
     teacherName: convo.teacherName ?? undefined,
@@ -342,12 +498,13 @@ async function executeReduceJob(job: JobPayload, convo: ConversationPayload) {
       status: JobStatus.DONE,
       finishedAt: new Date(),
       model,
-      outputJson: { reduced },
+      outputJson: { reduced, llmApiCalls: reduceApiCalls },
       costMetaJson: {
         promptVersion: getPromptVersion(),
         inputTokensEstimate: estimateTokens(JSON.stringify(analyses)),
         outputTokensEstimate: estimateTokens(JSON.stringify(reduced)),
         seconds: Math.round(duration / 1000),
+        llmApiCalls: reduceApiCalls,
       },
     },
   });
@@ -359,6 +516,7 @@ async function executeReduceJob(job: JobPayload, convo: ConversationPayload) {
         ...(convo.qualityMetaJson ?? {}),
         modelReduce: model,
         jobSecondsReduce: Math.round(duration / 1000),
+        llmApiCallsReduce: reduceApiCalls,
       } as any,
     },
   });
@@ -368,6 +526,107 @@ async function executeReduceJob(job: JobPayload, convo: ConversationPayload) {
 }
 
 async function executeFinalizeJob(job: JobPayload, convo: ConversationPayload) {
+  const singlePassMode = (convo.qualityMetaJson as any)?.singlePassMode === true;
+  if (singlePassMode && hasSinglePassArtifacts(convo)) {
+    const timeline = (Array.isArray(convo.timelineJson) ? convo.timelineJson : []) as any[];
+    const nextActions = (Array.isArray(convo.nextActionsJson) ? convo.nextActionsJson : []) as any[];
+    const profileDelta = (convo.profileDeltaJson as any) ?? { basic: [], personal: [] };
+    const parentPack = (convo.parentPackJson as any) ?? {
+      what_we_did: [],
+      what_improved: [],
+      what_to_practice: [],
+      risks_or_notes: [],
+      next_time_plan: [],
+      evidence_quotes: [],
+    };
+    const summaryMarkdown = convo.summaryMarkdown ?? "";
+    const quotesCountTotal =
+      timeline.reduce((acc: number, t: any) => acc + (t?.evidence_quotes?.length ?? 0), 0) +
+      (profileDelta?.basic ?? []).reduce((acc: number, i: any) => acc + (i?.evidence_quotes?.length ?? 0), 0) +
+      (profileDelta?.personal ?? []).reduce((acc: number, i: any) => acc + (i?.evidence_quotes?.length ?? 0), 0) +
+      (parentPack?.evidence_quotes?.length ?? 0);
+
+    try {
+      await applyProfileDelta(convo.studentId, profileDelta, convo.id);
+    } catch (e: any) {
+      console.error("[executeFinalizeJob] applyProfileDelta failed (single-pass, non-fatal):", e?.message);
+    }
+
+    const qualityMeta: ConversationQualityMeta = {
+      ...(convo.qualityMetaJson ?? {}),
+      modelFinalize:
+        (convo.qualityMetaJson as any)?.modelSinglePass ||
+        (convo.qualityMetaJson as any)?.modelAnalyze ||
+        "skip-single-pass",
+      summaryCharCount: summaryMarkdown.length,
+      timelineSectionCount: timeline.length,
+      todoCount: nextActions.length,
+      quotesCountTotal,
+      jobSecondsFinalize: 0,
+      llmApiCallsFinalize: 0,
+      finalizeRepaired: (convo.qualityMetaJson as any)?.singlePassRepaired ?? false,
+      promptVersion: getPromptVersion(),
+      generatedAt: new Date().toISOString(),
+      inputTokensEstimate: estimateTokens(normalizeSourceText(convo)),
+    };
+
+    await prisma.conversationLog.update({
+      where: { id: convo.id },
+      data: {
+        qualityMetaJson: qualityMeta as any,
+      },
+    });
+
+    await prisma.conversationJob.update({
+      where: { id: job.id },
+      data: {
+        status: JobStatus.DONE,
+        finishedAt: new Date(),
+        model: "skip-single-pass",
+        outputJson: {
+          skipped: true,
+          reason: "single-pass",
+          summaryCharCount: summaryMarkdown.length,
+          timelineSectionCount: timeline.length,
+          todoCount: nextActions.length,
+          llmApiCalls: 0,
+          repaired: (convo.qualityMetaJson as any)?.singlePassRepaired ?? false,
+        },
+        costMetaJson: {
+          promptVersion: getPromptVersion(),
+          inputTokensEstimate: 0,
+          outputTokensEstimate: 0,
+          seconds: 0,
+          llmApiCalls: 0,
+        },
+      },
+    });
+
+    await updateConversationStatus(convo.id);
+
+    const formatJob = await prisma.conversationJob.findFirst({
+      where: { conversationId: convo.id, type: ConversationJobType.FORMAT },
+      select: { id: true },
+    });
+    if (!formatJob) {
+      await prisma.conversationLog.update({
+        where: { id: convo.id },
+        data: { rawTextCleaned: null },
+      });
+    }
+
+    return {
+      result: {
+        summaryMarkdown,
+        timeline: timeline as any,
+        nextActions: nextActions as any,
+        profileDelta: profileDelta as any,
+        parentPack: parentPack as any,
+      },
+      duration: 0,
+    };
+  }
+
   const reduceJob = await prisma.conversationJob.findFirst({
     where: { conversationId: convo.id, type: ConversationJobType.REDUCE, status: JobStatus.DONE },
     select: { outputJson: true },
@@ -379,14 +638,16 @@ async function executeFinalizeJob(job: JobPayload, convo: ConversationPayload) {
   }
 
   const sourceText = normalizeSourceText(convo);
-  const minSummaryChars = sourceText.length >= 20000 ? 1200 : 700;
+  const minSummaryChars = sourceText.length >= 20000 ? 1200 : sourceText.length < 3000 ? 380 : 700;
+  const minTimelineSections = sourceText.length >= 12000 ? 3 : 2;
 
   const start = Date.now();
-  const { result, model } = await finalizeConversationArtifacts({
+  const { result, model, apiCalls: finalizeApiCalls, repaired } = await finalizeConversationArtifacts({
     studentName: convo.studentName ?? undefined,
     teacherName: convo.teacherName ?? undefined,
     reduced,
     minSummaryChars,
+    minTimelineSections,
   });
   const duration = Date.now() - start;
 
@@ -404,6 +665,8 @@ async function executeFinalizeJob(job: JobPayload, convo: ConversationPayload) {
     todoCount: result.nextActions.length,
     quotesCountTotal,
     jobSecondsFinalize: Math.round(duration / 1000),
+    llmApiCallsFinalize: finalizeApiCalls,
+    finalizeRepaired: repaired,
     promptVersion: getPromptVersion(),
     generatedAt: new Date().toISOString(),
     inputTokensEstimate: estimateTokens(sourceText),
@@ -431,12 +694,15 @@ async function executeFinalizeJob(job: JobPayload, convo: ConversationPayload) {
         summaryCharCount: result.summaryMarkdown.length,
         timelineSectionCount: result.timeline.length,
         todoCount: result.nextActions.length,
+        llmApiCalls: finalizeApiCalls,
+        repaired,
       },
       costMetaJson: {
         promptVersion: getPromptVersion(),
         inputTokensEstimate: estimateTokens(JSON.stringify(reduced)),
         outputTokensEstimate: estimateTokens(JSON.stringify(result)),
         seconds: Math.round(duration / 1000),
+        llmApiCalls: finalizeApiCalls,
       },
     },
   });
@@ -552,6 +818,11 @@ async function executeJob(job: JobPayload) {
     rawTextCleaned: convo.rawTextCleaned,
     rawSegments: (convo.rawSegments as any[]) ?? [],
     formattedTranscript: convo.formattedTranscript,
+    summaryMarkdown: convo.summaryMarkdown,
+    timelineJson: convo.timelineJson as any,
+    nextActionsJson: convo.nextActionsJson as any,
+    profileDeltaJson: convo.profileDeltaJson as any,
+    parentPackJson: convo.parentPackJson as any,
     studentName: convo.student?.name ?? null,
     teacherName: convo.user?.name ?? DEFAULT_TEACHER_FULL_NAME,
     qualityMetaJson: (convo.qualityMetaJson as ConversationQualityMeta) ?? null,

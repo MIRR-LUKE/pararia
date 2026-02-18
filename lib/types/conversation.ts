@@ -101,6 +101,15 @@ export type ConversationQualityMeta = {
   jobSecondsReduce?: number;
   jobSecondsFinalize?: number;
   jobSecondsFormat?: number;
+  llmApiCallsAnalyze?: number;
+  llmApiCallsReduce?: number;
+  llmApiCallsFinalize?: number;
+  finalizeRepaired?: boolean;
+  singlePassMode?: boolean;
+  singlePassRepaired?: boolean;
+  modelSinglePass?: string;
+  jobSecondsSinglePass?: number;
+  llmApiCallsSinglePass?: number;
   temperature?: number;
   promptVersion?: string;
   generatedAt?: string;

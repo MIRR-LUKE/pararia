@@ -168,7 +168,7 @@ function splitByTopicBoundaries(text: string) {
   return segments;
 }
 
-function buildBlocks(segments: string[], maxTokens = 3200, targetMin = 2000) {
+function buildBlocks(segments: string[], maxTokens = 4200, targetMin = 2600) {
   const blocks: Array<{ index: number; text: string; approxTokens: number; hash: string }> = [];
   let buffer: string[] = [];
   let tokenCount = 0;

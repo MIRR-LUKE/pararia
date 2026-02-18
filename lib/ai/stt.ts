@@ -8,6 +8,8 @@ type TranscribeInput = {
   language?: string; // e.g. "ja"
 };
 
+const STT_MODEL = process.env.STT_MODEL || "whisper-1";
+
 export type WhisperVerboseSegment = {
   id?: number;
   seek?: number;
@@ -46,7 +48,7 @@ export async function transcribeAudio({
   const form = new FormData();
   const blob = new Blob([new Uint8Array(buffer)], { type: mimeType || "application/octet-stream" });
   form.append("file", blob, filename);
-  form.append("model", "whisper-1");
+  form.append("model", STT_MODEL);
   form.append("language", language);
 
   try {
@@ -135,7 +137,7 @@ export async function transcribeAudioVerbose({
   const form = new FormData();
   const blob = new Blob([new Uint8Array(buffer)], { type: mimeType || "application/octet-stream" });
   form.append("file", blob, filename);
-  form.append("model", "whisper-1");
+  form.append("model", STT_MODEL);
   form.append("language", language);
   form.append("response_format", "verbose_json");
 
