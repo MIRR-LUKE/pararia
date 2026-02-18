@@ -42,6 +42,87 @@
 
 ---
 
+## 会話ログ生成ロジック（詳細）
+
+### 1) 入力 → 前処理
+- **入力経路**: 録音/音声アップロード（`/api/audio`） or 手入力（`/api/conversations`）
+- **STT**: Whisper `verbose_json`（text + segments）
+- **前処理（LLMなし）**:
+  - フィラー除去・連続重複整理・段落化
+  - **沈黙/時間ウィンドウ/話者変化**を使って境界を切る
+  - **2,000〜3,200 tokens**相当で chunk を作成
+  - 各 chunk に **hash** を付与（差分再処理に使用）
+
+### 2) ConversationLog の作成
+- `ConversationLog` を **status=PROCESSING** で作成
+- 生テキストは **TTL付き**で保持
+  - `rawTextOriginal` / `rawTextCleaned` / `rawSegments`
+  - `rawTextExpiresAt` を保存（TTL 30日）
+
+### 3) CHUNK_ANALYZE（並列）
+- 1会話につき **CHUNK_ANALYZE job 1件**をキュー投入  
+  - job内で **chunkごとに並列**で分析
+- 出力（JSON固定）:
+  - `facts` / `coaching_points` / `decisions`
+  - `student_state_delta`
+  - `todo_candidates`（owner/action/due/metric/why + quotes）
+  - `timeline_candidates`（title/what_happened/coach_point/student_state + quotes）
+  - `profile_delta_candidates`（basic/personal + confidence + quotes）
+  - `quotes` / `safety_flags`
+- **chunk hash が一致する場合は再分析をスキップ**（差分処理）
+- 保存先: `ConversationLog.chunkAnalysisJson`
+
+### 4) REDUCE（統合下書き）
+- CHUNK_ANALYZEの結果を **重複排除・整列**して統合
+- 保存先: `ConversationJob.outputJson`（REDUCE）
+
+### 5) FINALIZE（確定稿）
+- **GPT-5.2（高品質側）**で最終成果物を確定
+- 生成物（保存）:
+  - `summaryMarkdown`
+  - `timelineJson`
+  - `nextActionsJson`
+  - `profileDeltaJson`
+  - `parentPackJson`（保護者レポート素材）
+- **ProfileDelta** は `applyProfileDelta` で `StudentProfile.profileData` に反映
+
+### 6) FORMAT（必要時のみ）
+- `/api/conversations/[id]/format` を叩いた時だけ **全文整形**を実行
+- 保存先: `formattedTranscript`
+
+### 7) ステータス遷移 / raw削除
+- **status**: `PROCESSING → PARTIAL → DONE`
+  - `FINALIZE` 完了で PARTIAL  
+  - `FINALIZE` + （FORMAT jobがあれば完了）で DONE
+- `rawTextCleaned` は **FINALIZE 完了時 or FORMAT 完了時**に削除  
+  `rawTextOriginal/rawSegments` は TTL で削除
+
+---
+
+## 保護者レポート生成ロジック（詳細）
+
+### 1) 入力ソース
+- **対象ログ**: 生徒詳細で選択した会話ログ（複数選択）
+- **主素材**: 各ログの `parentPackJson` を束ねて使用
+- **補助素材**: `StudentProfile.profileData` / 前回レポート（`previousReportId`）
+
+### 2) 生成フロー
+1. 選択ログの `parentPackJson` を時系列で束ねる  
+2. **GPT-5.2（高品質側）**で保護者向け文章を生成  
+3. **reportJson + reportMarkdown** を保存
+
+### 3) 出力仕様（テキストのみ）
+- `Report.reportJson`（構造化）
+- `Report.reportMarkdown`（表示/コピー用）
+- **PDF生成は実装しない**（MVP方針）
+
+### 4) UI側の挙動
+- 生徒詳細タブ内で **ログ複数選択 → 生成**
+- 生成中UIはローディング表示
+- 生成結果は Markdown で表示（履歴は最新3件）
+
+---
+
 ## 画面一覧（UI実装状況）
 
 - `/login` : デモログイン画面（認証は未接続）。

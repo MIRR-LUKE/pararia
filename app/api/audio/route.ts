@@ -111,17 +111,28 @@ export async function POST(request: Request) {
       throw new Error(`データベース保存に失敗しました: ${dbError?.message ?? "unknown error"}`);
     }
 
-    await enqueueConversationJobs(conversation.id);
-    const jobs = await prisma.conversationJob.findMany({
-      where: { conversationId: conversation.id },
-      select: { id: true, type: true, status: true },
-    });
+    try {
+      await enqueueConversationJobs(conversation.id);
+      const jobs = await prisma.conversationJob.findMany({
+        where: { conversationId: conversation.id },
+        select: { id: true, type: true, status: true },
+      });
 
-    console.log("[POST /api/audio] Conversation log created, jobs enqueued and started in parallel:", {
-      id: conversation.id,
-      studentId: conversation.studentId,
-      organizationId: conversation.organizationId,
-    });
+      console.log("[POST /api/audio] Conversation log created, jobs enqueued:", {
+        id: conversation.id,
+        studentId: conversation.studentId,
+        organizationId: conversation.organizationId,
+        jobsCount: jobs.length,
+        jobTypes: jobs.map((j) => j.type),
+      });
+    } catch (jobError: any) {
+      console.error("[POST /api/audio] Failed to enqueue jobs:", {
+        conversationId: conversation.id,
+        error: jobError?.message,
+      });
+      // ジョブのエンキューに失敗しても会話ログは作成されているので、エラーを返す
+      throw new Error(`ジョブの作成に失敗しました: ${jobError?.message ?? "unknown error"}`);
+    }
 
     return NextResponse.json({
       conversationId: conversation.id,

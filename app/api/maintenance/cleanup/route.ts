@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { Prisma } from "@prisma/client";
 
-export async function POST() {
+async function handleCleanup() {
   try {
     const now = new Date();
     const result = await prisma.conversationLog.updateMany({
@@ -24,10 +24,18 @@ export async function POST() {
       ranAt: now.toISOString(),
     });
   } catch (e: any) {
-    console.error("[POST /api/maintenance/cleanup] Error:", {
+    console.error("[/api/maintenance/cleanup] Error:", {
       error: e?.message,
       stack: e?.stack,
     });
     return NextResponse.json({ ok: false, error: e?.message ?? "Internal Server Error" }, { status: 500 });
   }
+}
+
+export async function GET() {
+  return handleCleanup();
+}
+
+export async function POST() {
+  return handleCleanup();
 }

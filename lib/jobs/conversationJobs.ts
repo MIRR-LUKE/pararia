@@ -43,12 +43,28 @@ export async function enqueueConversationJobs(
   conversationId: string,
   opts?: { includeFormat?: boolean }
 ) {
-  const data = [...DEFAULT_JOB_TYPES, ...(opts?.includeFormat ? [ConversationJobType.FORMAT] : [])].map((type) => ({
-    conversationId,
-    type,
-    status: JobStatus.QUEUED,
-  }));
-  await prisma.conversationJob.createMany({ data, skipDuplicates: true });
+  try {
+    const data = [...DEFAULT_JOB_TYPES, ...(opts?.includeFormat ? [ConversationJobType.FORMAT] : [])].map((type) => ({
+      conversationId,
+      type,
+      status: JobStatus.QUEUED,
+    }));
+    const result = await prisma.conversationJob.createMany({ data, skipDuplicates: true });
+    console.log("[enqueueConversationJobs] Jobs enqueued:", {
+      conversationId,
+      count: result.count,
+      types: data.map((d) => d.type),
+    });
+    return result;
+  } catch (e: any) {
+    console.error("[enqueueConversationJobs] Failed to enqueue jobs:", {
+      conversationId,
+      error: e?.message,
+      code: e?.code,
+      stack: e?.stack,
+    });
+    throw new Error(`Failed to enqueue jobs: ${e?.message ?? "unknown error"}`);
+  }
 }
 
 function normalizeSourceText(payload: ConversationPayload) {
