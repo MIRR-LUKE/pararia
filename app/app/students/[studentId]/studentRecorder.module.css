@@ -65,6 +65,12 @@
   cursor: pointer;
 }
 
+.recordButton:focus-visible,
+.stopButton:focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: 3px;
+}
+
 .recordButton:disabled {
   opacity: 0.5;
   cursor: not-allowed;
@@ -299,6 +305,11 @@
   .recordButtonInner {
     width: 96px;
     height: 96px;
+  }
+
+  .recordingVisual {
+    width: 128px;
+    height: 128px;
   }
 
   .timeDisplay {

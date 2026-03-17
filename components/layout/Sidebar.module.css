@@ -1,4 +1,4 @@
-﻿.sidebar {
+.sidebar {
   width: var(--sidebar-width);
   min-width: var(--sidebar-width);
   height: 100vh;
@@ -37,7 +37,10 @@
   color: var(--text);
 }
 
-.brandSub {
+.brandSub,
+.switcherLabel,
+.queueLabel,
+.userMeta {
   font-size: 12px;
   color: var(--muted);
 }
@@ -45,12 +48,6 @@
 .switcher {
   display: grid;
   gap: 8px;
-}
-
-.switcherLabel {
-  font-size: 12px;
-  font-weight: 700;
-  color: var(--muted);
 }
 
 .switcherButton {
@@ -94,6 +91,43 @@
   color: var(--surface);
 }
 
+.queueCard {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+  border-radius: 18px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+}
+
+.queueHead,
+.queueMetrics {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.queueTitle {
+  font-size: 14px;
+  font-weight: 800;
+  color: var(--text);
+}
+
+.queueLink {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.queueMetrics > div {
+  display: grid;
+  gap: 4px;
+}
+
+.queueMetrics strong {
+  font-size: 18px;
+}
+
 .footer {
   margin-top: auto;
   display: grid;
@@ -110,11 +144,6 @@
 .userName {
   font-size: 14px;
   font-weight: 800;
-}
-
-.userMeta {
-  font-size: 12px;
-  color: var(--muted);
 }
 
 .signOut {
@@ -138,12 +167,19 @@
   }
 
   .menu {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
 
 @media (max-width: 720px) {
-  .menu {
-    grid-template-columns: 1fr 1fr;
+  .menu,
+  .queueMetrics {
+    grid-template-columns: 1fr;
+    display: grid;
+  }
+
+  .queueHead {
+    flex-direction: column;
+    align-items: flex-start;
   }
 }

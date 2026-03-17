@@ -69,7 +69,7 @@ function summarize(student: StudentRow) {
         title: "面談を始める",
         reason: "この生徒にはまだ会話ログがありません。",
         cta: "面談を始める",
-        href: `/app/students/${student.id}?focus=interview`,
+        href: `/app/students/${student.id}?panel=recording&mode=INTERVIEW`,
         score: 100,
       },
     };
@@ -85,7 +85,7 @@ function summarize(student: StudentRow) {
         title: "チェックアウト待ち",
         reason: "授業前チェックインは完了しています。授業後の録音で指導報告を完成できます。",
         cta: "チェックアウトを録る",
-        href: `/app/students/${student.id}?focus=lesson`,
+        href: `/app/students/${student.id}?panel=recording&mode=LESSON_REPORT&part=CHECK_OUT`,
         score: 95,
       },
     };
@@ -117,7 +117,7 @@ function summarize(student: StudentRow) {
         title: "レポ確認待ち",
         reason: "保護者に送る前の確認が必要です。",
         cta: "レポ確認",
-        href: `/app/reports/${student.id}`,
+        href: `/app/students/${student.id}?panel=report`,
         score: 82,
       },
     };

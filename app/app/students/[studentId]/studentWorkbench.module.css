@@ -1,0 +1,138 @@
+.queueDock,
+.workbenchSection {
+  display: grid;
+  gap: 16px;
+}
+
+.queueDockHeader,
+.queueItemHead,
+.workbenchHeader,
+.reportBlockHead {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.queueList,
+.actionStack,
+.reportBlocks,
+.structureList,
+.issueList {
+  display: grid;
+  gap: 10px;
+}
+
+.queueItem,
+.metricCard,
+.previewPanel,
+.qualityCard,
+.issueCard,
+.reportBlock,
+.structureItem {
+  padding: 14px;
+  border-radius: 18px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+}
+
+.metricGrid,
+.qualityColumns {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.qualityColumns {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.eyebrow,
+.metricLabel,
+.sectionLabel {
+  font-size: 12px;
+  color: var(--muted);
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.workbenchTitle {
+  margin: 6px 0 0;
+  font-size: 22px;
+  letter-spacing: -0.02em;
+}
+
+.mutedText,
+.previewText,
+.reportParagraph,
+.issueList p,
+.qualityCard p {
+  margin: 8px 0 0;
+  color: var(--muted);
+  line-height: 1.7;
+}
+
+.previewText {
+  margin: 0;
+  white-space: pre-wrap;
+  font: inherit;
+  color: var(--text);
+}
+
+.metricCard strong {
+  display: block;
+  margin-top: 8px;
+  font-size: 16px;
+}
+
+.structureItem {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+}
+
+.inlineActions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.inlineError {
+  padding: 12px 14px;
+  border-radius: 16px;
+  border: 1px solid color-mix(in srgb, var(--text) 18%, transparent);
+  background: color-mix(in srgb, var(--surface) 90%, var(--surface-2));
+}
+
+.emptyWorkbench {
+  min-height: 140px;
+  border-radius: 18px;
+  border: 1px dashed var(--border-strong);
+  background: var(--surface-2);
+  display: grid;
+  place-items: center;
+  text-align: center;
+  padding: 18px;
+  color: var(--muted);
+}
+
+@media (max-width: 920px) {
+  .metricGrid,
+  .qualityColumns {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 720px) {
+  .queueDockHeader,
+  .queueItemHead,
+  .workbenchHeader,
+  .reportBlockHead,
+  .structureItem {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}

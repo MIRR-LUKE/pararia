@@ -10,6 +10,7 @@ type Props = {
   studentId: string;
   fallbackLogId?: string;
   onLogCreated?: () => void;
+  onOpenProof?: (logId: string) => void;
 };
 
 type RecordingState = "idle" | "recording" | "processing" | "success" | "error";
@@ -26,7 +27,7 @@ function formatBytes(bytes: number) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-export function StudentRecorder({ studentName, studentId, onLogCreated }: Props) {
+export function StudentRecorder({ studentName, studentId, onLogCreated, onOpenProof }: Props) {
   const [state, setState] = useState<RecordingState>("idle");
   const [seconds, setSeconds] = useState(0);
   const [levels, setLevels] = useState([8, 18, 12, 20, 10, 16, 22]);
@@ -419,9 +420,13 @@ export function StudentRecorder({ studentName, studentId, onLogCreated }: Props)
             <h4 className={styles.processingTitle}>面談ログを更新しました</h4>
             <p className={styles.hint}>Student Room とログ詳細に、要点と次の行動が反映されています。</p>
             <div className={styles.inlineActions}>
-              <Link href={`/app/logs/${logId}`}>
-                <Button>根拠を見る</Button>
-              </Link>
+              {onOpenProof ? (
+                <Button onClick={() => onOpenProof(logId)}>根拠を見る</Button>
+              ) : (
+                <Link href={`/app/students/${studentId}?panel=proof&logId=${logId}`}>
+                  <Button>根拠を見る</Button>
+                </Link>
+              )}
               <Button variant="secondary" onClick={reset}>
                 もう一度録音
               </Button>

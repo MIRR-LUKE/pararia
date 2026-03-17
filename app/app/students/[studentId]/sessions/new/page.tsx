@@ -5,5 +5,5 @@ export default function NewSessionPage({
 }: {
   params: { studentId: string };
 }) {
-  redirect(`/app/students/${params.studentId}?focus=interview`);
+  redirect(`/app/students/${params.studentId}?panel=recording&mode=INTERVIEW`);
 }

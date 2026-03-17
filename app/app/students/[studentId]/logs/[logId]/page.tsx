@@ -1,15 +1,9 @@
-"use client";
+import { redirect } from "next/navigation";
 
-import { LogDetailView } from "@/app/app/logs/LogDetailView";
-
-export default function StudentLogDetail({
+export default function StudentLogDetailRedirect({
   params,
 }: {
   params: { studentId: string; logId: string };
 }) {
-  return (
-    <div style={{ marginTop: 8 }}>
-      <LogDetailView logId={params.logId} showHeader={false} />
-    </div>
-  );
+  redirect(`/app/students/${params.studentId}?panel=proof&logId=${params.logId}`);
 }

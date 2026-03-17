@@ -31,6 +31,11 @@
   cursor: pointer;
 }
 
+.filterChip:focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: 2px;
+}
+
 .filterChipActive {
   background: var(--text);
   border-color: var(--text);
@@ -52,6 +57,7 @@
   display: flex;
   gap: 10px;
   justify-content: flex-end;
+  flex-wrap: wrap;
 }
 
 .list {
@@ -159,5 +165,11 @@
 @media (max-width: 720px) {
   .formGrid {
     grid-template-columns: 1fr;
+  }
+
+  .formActions,
+  .filters {
+    flex-direction: column;
+    align-items: stretch;
   }
 }

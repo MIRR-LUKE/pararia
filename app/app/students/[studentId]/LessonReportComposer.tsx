@@ -10,6 +10,8 @@ type Props = {
   studentName: string;
   onCompleted?: () => void;
   onReportFromSession?: (sessionId: string) => void;
+  onOpenProof?: (logId: string) => void;
+  preferredPartType?: PartType;
 };
 
 type PartType = "CHECK_IN" | "CHECK_OUT";
@@ -70,7 +72,14 @@ function formatBytes(bytes: number) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-export function LessonReportComposer({ studentId, studentName, onCompleted, onReportFromSession }: Props) {
+export function LessonReportComposer({
+  studentId,
+  studentName,
+  onCompleted,
+  onReportFromSession,
+  onOpenProof,
+  preferredPartType = "CHECK_IN",
+}: Props) {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [checkIn, setCheckIn] = useState<PartState>(createInitialPartState);
@@ -447,10 +456,15 @@ export function LessonReportComposer({ studentId, studentName, onCompleted, onRe
     setEstimatedSize("-");
   };
 
-  const partConfigs = [
-    { partType: "CHECK_IN" as const, state: checkIn, fileInputRef: checkInFileInputRef },
-    { partType: "CHECK_OUT" as const, state: checkOut, fileInputRef: checkOutFileInputRef },
-  ];
+  const orderedPartTypes = preferredPartType === "CHECK_OUT"
+    ? (["CHECK_OUT", "CHECK_IN"] as const)
+    : (["CHECK_IN", "CHECK_OUT"] as const);
+
+  const partConfigs = orderedPartTypes.map((partType) => ({
+    partType,
+    state: partType === "CHECK_IN" ? checkIn : checkOut,
+    fileInputRef: partType === "CHECK_IN" ? checkInFileInputRef : checkOutFileInputRef,
+  }));
 
   return (
     <div className={styles.recorderCard}>
@@ -573,9 +587,13 @@ export function LessonReportComposer({ studentId, studentName, onCompleted, onRe
 
         {conversationId ? (
           <div className={styles.inlineActions}>
-            <Link href={`/app/logs/${conversationId}`}>
-              <Button>根拠を見る</Button>
-            </Link>
+            {onOpenProof ? (
+              <Button onClick={() => onOpenProof(conversationId)}>根拠を見る</Button>
+            ) : (
+              <Link href={`/app/students/${studentId}?panel=proof&logId=${conversationId}`}>
+                <Button>根拠を見る</Button>
+              </Link>
+            )}
             {sessionId && onReportFromSession ? (
               <Button variant="secondary" onClick={() => onReportFromSession(sessionId)}>
                 この内容でレポートを確認

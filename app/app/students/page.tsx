@@ -56,7 +56,7 @@ function summarize(student: StudentRow) {
       state: "未開始",
       oneLiner: "まだ会話データがありません。最初の面談から始めます。",
       nextAction: "最初の面談を録音",
-      href: `/app/students/${student.id}?focus=interview`,
+      href: `/app/students/${student.id}?panel=recording&mode=INTERVIEW`,
       view: "interview" as const,
     };
   }
@@ -67,7 +67,7 @@ function summarize(student: StudentRow) {
       oneLiner:
         latestSession.heroOneLiner ?? "授業前の記録だけ保存されています。授業後の録音で完了します。",
       nextAction: "チェックアウトを録る",
-      href: `/app/students/${student.id}?focus=lesson`,
+      href: `/app/students/${student.id}?panel=recording&mode=LESSON_REPORT&part=CHECK_OUT`,
       view: "all" as const,
     };
   }
@@ -87,7 +87,7 @@ function summarize(student: StudentRow) {
       state: latestSession.heroStateLabel ?? "確認待ち",
       oneLiner: latestSession.heroOneLiner ?? latestSession.latestSummary ?? "保護者レポートの確認待ちがあります。",
       nextAction: "レポを確認",
-      href: `/app/reports/${student.id}`,
+      href: `/app/students/${student.id}?panel=report`,
       view: "report" as const,
     };
   }

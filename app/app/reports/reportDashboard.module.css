@@ -47,6 +47,11 @@
   cursor: pointer;
 }
 
+.filterChip:focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: 2px;
+}
+
 .filterChipActive {
   background: var(--text);
   border-color: var(--text);
@@ -132,5 +137,14 @@
   .grid,
   .metricGrid {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 720px) {
+  .filterRow,
+  .cardHeader,
+  .footer {
+    flex-direction: column;
+    align-items: flex-start;
   }
 }

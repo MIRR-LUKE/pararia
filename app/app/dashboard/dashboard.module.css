@@ -54,6 +54,10 @@
   font-size: 15px;
 }
 
+.heroActions a {
+  width: 100%;
+}
+
 .statusStrip {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -208,5 +212,18 @@
 
   .queueActionBlock {
     justify-content: flex-start;
+  }
+}
+
+@media (max-width: 720px) {
+  .hero,
+  .queueRow,
+  .statusItem,
+  .miniItem {
+    padding: 16px;
+  }
+
+  .heroTitle {
+    font-size: 26px;
   }
 }

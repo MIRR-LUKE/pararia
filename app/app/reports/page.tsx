@@ -117,9 +117,9 @@ export default function ReportDashboardPage() {
             ? "check-in まで完了しています。授業後のチェックアウトで指導報告を完成させます。"
             : `${pendingEntities} 件の固有名詞候補を確認できます。`,
           href: needsCheckout
-            ? `/app/students/${student.id}`
+            ? `/app/students/${student.id}?panel=recording&mode=LESSON_REPORT&part=CHECK_OUT`
             : latestSession.conversation?.id
-              ? `/app/logs/${latestSession.conversation.id}`
+              ? `/app/students/${student.id}?panel=proof&logId=${latestSession.conversation.id}`
               : `/app/students/${student.id}`,
           cta: needsCheckout ? "チェックアウトを録る" : "根拠を確認する",
         };
@@ -192,7 +192,7 @@ export default function ReportDashboardPage() {
         ) : (
           <div className={styles.grid}>
             {rows.map((student) => (
-              <Link key={student.id} href={`/app/reports/${student.id}`} className={styles.linkCard}>
+              <Link key={student.id} href={`/app/students/${student.id}?panel=report`} className={styles.linkCard}>
                 <div className={styles.cardHeader}>
                   <div>
                     <div className={styles.name}>{student.name}</div>
