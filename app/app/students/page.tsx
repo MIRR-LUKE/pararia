@@ -1,384 +1,333 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { AppHeader } from "@/components/layout/AppHeader";
-import { Card } from "@/components/ui/Card";
-import { Progress } from "@/components/ui/Progress";
-import styles from "./students.module.css";
+import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
-import { Icon } from "@/components/ui/Icon";
-import { DEFAULT_TEACHER_FULL_NAME } from "@/lib/constants";
+import { Card } from "@/components/ui/Card";
+import styles from "./students.module.css";
 
-type SortKey = "latest" | "oldest" | "logCount";
+type SessionSummary = {
+  id: string;
+  status: string;
+  type: "INTERVIEW" | "LESSON_REPORT";
+  sessionDate: string;
+  heroStateLabel?: string | null;
+  heroOneLiner?: string | null;
+  latestSummary?: string | null;
+  pendingEntityCount: number;
+};
+
+type ReportSummary = {
+  id: string;
+  status: string;
+  createdAt: string;
+  sentAt?: string | null;
+};
 
 type StudentRow = {
   id: string;
   name: string;
+  nameKana?: string | null;
   grade?: string | null;
   course?: string | null;
   guardianNames?: string | null;
-  lastConversationDate?: string | null;
-  conversationCount: number;
-  completeness: number;
+  profiles?: Array<{ profileData?: any }>;
+  sessions?: SessionSummary[];
+  reports?: ReportSummary[];
+  _count?: { sessions: number; reports: number };
 };
 
-function calcCompleteness(profileData?: any) {
-  const basic = profileData?.basic ?? [];
-  const personal = profileData?.personal ?? [];
-  const total = (basic?.length ?? 0) + (personal?.length ?? 0);
-  return Math.min(100, total * 6);
+type ViewKey = "all" | "interview" | "review" | "report";
+
+function completeness(profileData?: any) {
+  const basic = Array.isArray(profileData?.basic) ? profileData.basic.length : 0;
+  const personal = Array.isArray(profileData?.personal) ? profileData.personal.length : 0;
+  return Math.min(100, (basic + personal) * 6);
+}
+
+function summarize(student: StudentRow) {
+  const latestSession = student.sessions?.[0];
+  const latestReport = student.reports?.[0];
+
+  if (!latestSession) {
+    return {
+      state: "未開始",
+      oneLiner: "まだ会話データがありません。最初の面談から始めます。",
+      nextAction: "最初の面談を録音",
+      href: `/app/students/${student.id}?focus=interview`,
+      view: "interview" as const,
+    };
+  }
+
+  if (latestSession.type === "LESSON_REPORT" && latestSession.status === "COLLECTING") {
+    return {
+      state: latestSession.heroStateLabel ?? "授業途中",
+      oneLiner:
+        latestSession.heroOneLiner ?? "授業前の記録だけ保存されています。授業後の録音で完了します。",
+      nextAction: "チェックアウトを録る",
+      href: `/app/students/${student.id}?focus=lesson`,
+      view: "all" as const,
+    };
+  }
+
+  if (latestSession.pendingEntityCount > 0) {
+    return {
+      state: latestSession.heroStateLabel ?? "要確認",
+      oneLiner: latestSession.heroOneLiner ?? latestSession.latestSummary ?? "確認が必要な固有名詞があります。",
+      nextAction: "要確認を開く",
+      href: `/app/students/${student.id}`,
+      view: "review" as const,
+    };
+  }
+
+  if (latestReport && latestReport.status !== "SENT") {
+    return {
+      state: latestSession.heroStateLabel ?? "確認待ち",
+      oneLiner: latestSession.heroOneLiner ?? latestSession.latestSummary ?? "保護者レポートの確認待ちがあります。",
+      nextAction: "レポを確認",
+      href: `/app/reports/${student.id}`,
+      view: "report" as const,
+    };
+  }
+
+  return {
+    state: latestSession.heroStateLabel ?? "更新済み",
+    oneLiner:
+      latestSession.heroOneLiner ?? latestSession.latestSummary ?? "次の会話に向けた材料が揃っています。",
+    nextAction: "生徒ルームへ",
+    href: `/app/students/${student.id}`,
+    view: "all" as const,
+  };
 }
 
 export default function StudentsPage() {
-  const router = useRouter();
-  const [data, setData] = useState<StudentRow[]>([]);
+  const [students, setStudents] = useState<StudentRow[]>([]);
   const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState<string | null>(null);
-  const [keyword, setKeyword] = useState("");
-  const [sortKey, setSortKey] = useState<SortKey>("latest");
-  const [showNewForm, setShowNewForm] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
+  const [view, setView] = useState<ViewKey>("all");
+  const [showCreate, setShowCreate] = useState(false);
   const [newStudent, setNewStudent] = useState({
     name: "",
     nameKana: "",
     grade: "",
-    enrollmentDate: "",
-    birthdate: "",
+    course: "",
     guardianNames: "",
   });
 
   const refresh = async () => {
     setLoading(true);
-    setLoadError(null);
+    setError(null);
     try {
       const res = await fetch("/api/students", { cache: "no-store" });
-      if (!res.ok) {
-        const errorText = await res.text().catch(() => "");
-        console.error("[StudentsPage] API error:", res.status, errorText);
-        setData([]);
-        setLoadError(`Failed to load students (${res.status})`);
-        return;
-      }
-      const json = await res.json();
-      const rows: StudentRow[] = (json.students ?? []).map((s: any) => {
-        try {
-          const lastConversation = s.conversations?.[0]?.createdAt ?? null;
-          const profileData = s.profiles?.[0]?.profileData ?? {};
-          return {
-            id: s.id,
-            name: s.name ?? "",
-            grade: s.grade ?? null,
-            course: s.course ?? null,
-            guardianNames: s.guardianNames ?? null,
-            lastConversationDate: lastConversation,
-            conversationCount: s._count?.conversations ?? 0,
-            completeness: calcCompleteness(profileData),
-          };
-        } catch (e) {
-          console.error("[StudentsPage] Error mapping student:", s.id, e);
-          return {
-            id: s.id ?? "",
-            name: s.name ?? "",
-            grade: s.grade ?? null,
-            course: s.course ?? null,
-            guardianNames: s.guardianNames ?? null,
-            lastConversationDate: null,
-            conversationCount: 0,
-            completeness: 0,
-          };
-        }
-      });
-      setData(rows);
-    } catch (e) {
-      console.error("[StudentsPage] fetch failed", e);
-      setData([]);
-      setLoadError("Failed to load students. Please refresh and try again.");
+      const body = await res.json();
+      if (!res.ok) throw new Error(body?.error ?? "生徒一覧の取得に失敗しました。");
+      setStudents(body.students ?? []);
+    } catch (err: any) {
+      setError(err?.message ?? "生徒一覧の取得に失敗しました。");
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    refresh();
+    void refresh();
   }, []);
 
+  const rows = useMemo(() => {
+    return students.map((student) => {
+      const summary = summarize(student);
+      return {
+        ...student,
+        completeness: completeness(student.profiles?.[0]?.profileData),
+        state: summary.state,
+        oneLiner: summary.oneLiner,
+        nextAction: summary.nextAction,
+        href: summary.href,
+        viewKey: summary.view,
+      };
+    });
+  }, [students]);
+
   const filtered = useMemo(() => {
-    const base = keyword
-      ? data.filter((s) => s.name.includes(keyword) || (s.grade ?? "").includes(keyword))
-      : data;
-    if (sortKey === "latest") {
-      return [...base].sort((a, b) => (a.lastConversationDate ?? "") < (b.lastConversationDate ?? "") ? 1 : -1);
+    const lowered = query.trim().toLowerCase();
+    return rows.filter((student) => {
+      const latestSession = student.sessions?.[0];
+      const latestReport = student.reports?.[0];
+      const matchesView =
+        view === "all"
+          ? true
+          : view === "interview"
+            ? !latestSession
+            : view === "review"
+              ? (latestSession?.pendingEntityCount ?? 0) > 0
+              : Boolean(latestReport && latestReport.status !== "SENT");
+
+      if (!matchesView) return false;
+      if (!lowered) return true;
+      return [student.name, student.nameKana, student.grade, student.course]
+        .filter(Boolean)
+        .some((value) => String(value).toLowerCase().includes(lowered));
+    });
+  }, [query, rows, view]);
+
+  const createStudent = async () => {
+    if (!newStudent.name.trim() || !newStudent.nameKana.trim() || !newStudent.grade.trim()) {
+      alert("生徒名、フリガナ、学年は必須です。");
+      return;
     }
-    if (sortKey === "oldest") {
-      return [...base].sort((a, b) => (a.lastConversationDate ?? "") > (b.lastConversationDate ?? "") ? 1 : -1);
+
+    const res = await fetch("/api/students", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: newStudent.name.trim(),
+        nameKana: newStudent.nameKana.trim(),
+        grade: newStudent.grade.trim(),
+        course: newStudent.course.trim() || undefined,
+        guardianNames: newStudent.guardianNames.trim() || undefined,
+      }),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      alert(body?.error ?? "生徒の作成に失敗しました。");
+      return;
     }
-    return [...base].sort((a, b) => (b.conversationCount ?? 0) - (a.conversationCount ?? 0));
-  }, [data, keyword, sortKey]);
+
+    setShowCreate(false);
+    setNewStudent({ name: "", nameKana: "", grade: "", course: "", guardianNames: "" });
+    await refresh();
+  };
 
   return (
-    <div>
+    <div className={styles.page}>
       <AppHeader
-        title="生徒一覧"
-        subtitle="最終会話・ログ件数・カルテ充実度を軸に優先度を決める"
+        title="Students"
+        subtitle="ここは全生徒ディレクトリです。探して入り、状態を見て、必要ならそのまま面談や授業へ進みます。"
         actions={
-          <input
-            className={styles.search}
-            placeholder="名前・学年で検索"
-            value={keyword}
-            onChange={(e) => setKeyword(e.target.value)}
-          />
+          <Button variant="secondary" onClick={() => setShowCreate((prev) => !prev)}>
+            生徒を追加
+          </Button>
         }
       />
 
-      <Card>
-        <div className={styles.tabContent}>
-          <div className={styles.headerRow}>
-            <div>
-              <div className={styles.title}>生徒一覧</div>
-              <div className={styles.subtitle}>
-                会話が多いほどカルテが充実。最終会話が古い順にフォローを推奨。
-              </div>
-            </div>
-            <div className={styles.actionsRow}>
-              <select
-                className={styles.select}
-                value={sortKey}
-                onChange={(e) => setSortKey(e.target.value as SortKey)}
-              >
-                <option value="latest">最終会話が新しい順</option>
-                <option value="oldest">最終会話が古い順</option>
-                <option value="logCount">会話ログが多い順</option>
-              </select>
-              <Button size="small" variant="secondary" onClick={() => setShowNewForm((v) => !v)}>
-                <Icon name="plus" /> 生徒を追加
-              </Button>
-            </div>
-          </div>
-
-          {showNewForm && (
-            <div
-              className={styles.overlay}
-              role="dialog"
-              aria-modal="true"
-              onMouseDown={() => setShowNewForm(false)}
+      <section className={styles.toolbar}>
+        <input
+          className={styles.search}
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="名前、フリガナ、学年、コースで検索"
+        />
+        <div className={styles.filters}>
+          {[
+            { key: "all", label: "すべて" },
+            { key: "interview", label: "面談待ち" },
+            { key: "review", label: "要確認" },
+            { key: "report", label: "レポ待ち" },
+          ].map((item) => (
+            <button
+              key={item.key}
+              type="button"
+              className={`${styles.filterChip} ${view === item.key ? styles.filterChipActive : ""}`}
+              onClick={() => setView(item.key as ViewKey)}
             >
-              <div className={styles.modal} onMouseDown={(e) => e.stopPropagation()}>
-                <div className={styles.modalHeader}>
-                  <div>
-                    <div className={styles.modalTitle}>
-                      <Icon name="plus" /> 新規生徒登録
-                    </div>
-                    <div className={styles.modalSubtitle}>
-                      必須: 氏名 / フリガナ / 学年（残りは任意）。会話ログは生徒詳細で追加します。
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    className={styles.closeButton}
-                    onClick={() => setShowNewForm(false)}
-                    aria-label="閉じる"
-                  >
-                    ×
-                  </button>
-                </div>
-
-                <div className={styles.formGrid}>
-                  <div className={styles.field}>
-                    <label className={styles.formLabel}>
-                      氏名 <span className={styles.required}>必須</span>
-                    </label>
-                    <input
-                      className={styles.input}
-                      value={newStudent.name}
-                      onChange={(e) => setNewStudent((p) => ({ ...p, name: e.target.value }))}
-                      placeholder="例）佐藤 太郎"
-                    />
-                  </div>
-                  <div className={styles.field}>
-                    <label className={styles.formLabel}>
-                      フリガナ（カタカナ） <span className={styles.required}>必須</span>
-                    </label>
-                    <input
-                      className={styles.input}
-                      value={newStudent.nameKana}
-                      onChange={(e) => setNewStudent((p) => ({ ...p, nameKana: e.target.value }))}
-                      placeholder="例）サトウ タロウ"
-                    />
-                  </div>
-                  <div className={styles.field}>
-                    <label className={styles.formLabel}>
-                      学年 <span className={styles.required}>必須</span>
-                    </label>
-                    <input
-                      className={styles.input}
-                      value={newStudent.grade}
-                      onChange={(e) => setNewStudent((p) => ({ ...p, grade: e.target.value }))}
-                      placeholder="例）高校1年"
-                    />
-                  </div>
-                  <div className={styles.field}>
-                    <label className={styles.formLabel}>入塾日</label>
-                    <input
-                      className={styles.input}
-                      type="date"
-                      value={newStudent.enrollmentDate}
-                      onChange={(e) => setNewStudent((p) => ({ ...p, enrollmentDate: e.target.value }))}
-                    />
-                  </div>
-                  <div className={styles.field}>
-                    <label className={styles.formLabel}>生年月日</label>
-                    <input
-                      className={styles.input}
-                      type="date"
-                      value={newStudent.birthdate}
-                      onChange={(e) => setNewStudent((p) => ({ ...p, birthdate: e.target.value }))}
-                    />
-                  </div>
-                  <div className={styles.field}>
-                    <label className={styles.formLabel}>保護者（氏名）</label>
-                    <input
-                      className={styles.input}
-                      value={newStudent.guardianNames}
-                      onChange={(e) => setNewStudent((p) => ({ ...p, guardianNames: e.target.value }))}
-                      placeholder="例）父: 佐藤一郎 / 母: 佐藤花子"
-                    />
-                  </div>
-                </div>
-
-                <div className={styles.modalFooter}>
-                  <div className={styles.footerNote}>
-                    <Icon name="info" /> 登録後、生徒詳細で「録音→会話ログ→カルテ更新」ができます
-                  </div>
-                  <div className={styles.footerActions}>
-                    <Button variant="secondary" onClick={() => setShowNewForm(false)}>
-                      キャンセル
-                    </Button>
-                    <Button
-                      variant="primary"
-                      onClick={async () => {
-                        if (!newStudent.name || !newStudent.nameKana || !newStudent.grade) {
-                          alert("氏名・フリガナ・学年は必須です");
-                          return;
-                        }
-                        const res = await fetch("/api/students", {
-                          method: "POST",
-                          headers: { "Content-Type": "application/json" },
-                          body: JSON.stringify({
-                            organizationId: "org-demo",
-                            name: newStudent.name,
-                            nameKana: newStudent.nameKana,
-                            grade: newStudent.grade,
-                            course: "",
-                            enrollmentDate: newStudent.enrollmentDate,
-                            birthdate: newStudent.birthdate,
-                            guardianNames: newStudent.guardianNames,
-                          }),
-                        });
-                        if (!res.ok) {
-                          const err = await res.json().catch(() => ({}));
-                          alert(err.error ?? "生徒追加に失敗しました");
-                          return;
-                        }
-                        const data = await res.json();
-                        setShowNewForm(false);
-                        setNewStudent({
-                          name: "",
-                          nameKana: "",
-                          grade: "",
-                          enrollmentDate: "",
-                          birthdate: "",
-                          guardianNames: "",
-                        });
-                        await refresh();
-                        router.push(`/app/students/${data.student.id}`);
-                      }}
-                    >
-                      <Icon name="plus" /> 登録してカルテへ
-                    </Button>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          <Card
-            title={
-              <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <Icon name="list" /> 生徒リスト
-              </span>
-            }
-            subtitle={`${filtered.length}名の生徒`}
-          >
-            {loadError && (
-              <div style={{ marginBottom: 12, display: "flex", gap: 8, alignItems: "center", color: "#b91c1c" }}>
-                <span>{loadError}</span>
-                <Button size="small" variant="secondary" onClick={refresh}>
-                  Retry
-                </Button>
-              </div>
-            )}
-            <div className={styles.tableWrapper}>
-              <table className={styles.table}>
-                <thead>
-                  <tr>
-                    <th>生徒名 / 学年</th>
-                    <th>最終会話</th>
-                    <th>会話ログ件数</th>
-                    <th>カルテ充実度</th>
-                    <th>担当</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {loading ? (
-                    <tr>
-                      <td colSpan={5} style={{ textAlign: "center", padding: 40, color: "var(--muted)" }}>
-                        Loading...
-                      </td>
-                    </tr>
-                  ) : filtered.length === 0 ? (
-                    <tr>
-                      <td colSpan={5} style={{ textAlign: "center", padding: 40, color: "var(--muted)" }}>
-                        該当する生徒が見つかりませんでした
-                      </td>
-                    </tr>
-                  ) : (
-                    filtered.map((student) => (
-                      <tr
-                        key={student.id}
-                        className={styles.row}
-                        onClick={() => router.push(`/app/students/${student.id}`)}
-                      >
-                        <td style={{ fontWeight: 700 }}>
-                          {student.name}
-                          <div className={styles.subtext}>{student.grade}</div>
-                        </td>
-                        <td>
-                          {student.lastConversationDate ? (
-                            <span>
-                              {new Date(student.lastConversationDate).toLocaleDateString("ja-JP")}
-                            </span>
-                          ) : (
-                            <span className={styles.subtext}>未会話</span>
-                          )}
-                        </td>
-                        <td>
-                          <span style={{ fontWeight: 700 }}>{student.conversationCount ?? 0} 件</span>
-                        </td>
-                        <td>
-                          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                            <span>{student.completeness ?? 0}%</span>
-                            <Progress value={student.completeness ?? 0} />
-                          </div>
-                        </td>
-                        <td>{DEFAULT_TEACHER_FULL_NAME}</td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </Card>
+              {item.label}
+            </button>
+          ))}
         </div>
+      </section>
+
+      {showCreate && (
+        <Card title="新しい生徒を追加" subtitle="最小限の情報だけ入れて、あとから会話でプロフィールを育てます。">
+          <div className={styles.formGrid}>
+            <input
+              value={newStudent.name}
+              onChange={(event) => setNewStudent((prev) => ({ ...prev, name: event.target.value }))}
+              placeholder="生徒名"
+            />
+            <input
+              value={newStudent.nameKana}
+              onChange={(event) => setNewStudent((prev) => ({ ...prev, nameKana: event.target.value }))}
+              placeholder="フリガナ"
+            />
+            <input
+              value={newStudent.grade}
+              onChange={(event) => setNewStudent((prev) => ({ ...prev, grade: event.target.value }))}
+              placeholder="学年"
+            />
+            <input
+              value={newStudent.course}
+              onChange={(event) => setNewStudent((prev) => ({ ...prev, course: event.target.value }))}
+              placeholder="コース"
+            />
+            <input
+              value={newStudent.guardianNames}
+              onChange={(event) => setNewStudent((prev) => ({ ...prev, guardianNames: event.target.value }))}
+              placeholder="保護者名"
+            />
+          </div>
+          <div className={styles.formActions}>
+            <Button variant="secondary" onClick={() => setShowCreate(false)}>
+              閉じる
+            </Button>
+            <Button onClick={createStudent}>追加する</Button>
+          </div>
+        </Card>
+      )}
+
+      <Card title="生徒ディレクトリ" subtitle="今日の緊急度ではなく、探しやすさと次の行動の分かりやすさを優先します。">
+        {error && <div className={styles.error}>{error}</div>}
+        {loading ? (
+          <div className={styles.empty}>読み込み中です。</div>
+        ) : filtered.length === 0 ? (
+          <div className={styles.emptyState}>
+            <strong>条件に合う生徒がいません</strong>
+            <p>検索条件を変えるか、新しい生徒を追加してください。</p>
+          </div>
+        ) : (
+          <div className={styles.list}>
+            {filtered.map((student) => (
+              <Link key={student.id} href={student.href} className={styles.row}>
+                <div className={styles.rowIdentity}>
+                  <div className={styles.rowTop}>
+                    <strong className={styles.rowName}>{student.name}</strong>
+                    {student.grade ? <span className={styles.meta}>{student.grade}</span> : null}
+                    <Badge label={student.state} tone={student.sessions?.[0]?.pendingEntityCount ? "high" : "medium"} />
+                  </div>
+                  <p className={styles.oneLiner}>{student.oneLiner}</p>
+                </div>
+
+                <div className={styles.rowMetaColumn}>
+                  <div>
+                    <div className={styles.metaLabel}>次にやること</div>
+                    <div className={styles.metaValue}>{student.nextAction}</div>
+                  </div>
+                  <div>
+                    <div className={styles.metaLabel}>プロフィール</div>
+                    <div className={styles.metaValue}>{student.completeness}%</div>
+                  </div>
+                </div>
+
+                <div className={styles.rowMetaColumn}>
+                  <div>
+                    <div className={styles.metaLabel}>セッション</div>
+                    <div className={styles.metaValue}>{student._count?.sessions ?? 0} 件</div>
+                  </div>
+                  <div>
+                    <div className={styles.metaLabel}>レポート</div>
+                    <div className={styles.metaValue}>{student._count?.reports ?? 0} 件</div>
+                  </div>
+                </div>
+
+                <div className={styles.rowAction}>
+                  <Button>{student.nextAction}</Button>
+                </div>
+              </Link>
+            ))}
+          </div>
+        )}
       </Card>
     </div>
   );

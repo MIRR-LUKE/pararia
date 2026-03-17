@@ -1,17 +1,14 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { generateParentReport } from "@/lib/ai/llm";
+import { generateParentReport } from "@/lib/ai/parentReport";
 
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { studentId, fromDate, toDate, logIds, usePreviousReport } = body ?? {};
+    const { studentId, fromDate, toDate, logIds, sessionIds, usePreviousReport } = body ?? {};
 
     if (!studentId) {
-      return NextResponse.json(
-        { error: "studentId is required" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "studentId is required" }, { status: 400 });
     }
 
     const student = await prisma.student.findUnique({ where: { id: studentId } });
@@ -24,9 +21,12 @@ export async function POST(request: Request) {
       orderBy: { createdAt: "desc" },
     });
 
-    if (!logIds || logIds.length === 0) {
+    const resolvedLogIds = Array.isArray(logIds) ? logIds.filter(Boolean) : [];
+    const resolvedSessionIds = Array.isArray(sessionIds) ? sessionIds.filter(Boolean) : [];
+
+    if (resolvedLogIds.length === 0 && resolvedSessionIds.length === 0) {
       return NextResponse.json(
-        { error: "logIds is required for report generation" },
+        { error: "logIds or sessionIds is required for report generation" },
         { status: 400 }
       );
     }
@@ -37,31 +37,55 @@ export async function POST(request: Request) {
     const logs = await prisma.conversationLog.findMany({
       where: {
         studentId,
-        ...(logIds?.length
-          ? { id: { in: logIds } }
-          : {
-              createdAt: {
-                ...(from ? { gte: from } : {}),
-                ...(to ? { lte: to } : {}),
-              },
-            }),
+        ...(resolvedLogIds.length
+          ? { id: { in: resolvedLogIds } }
+          : resolvedSessionIds.length
+            ? { sessionId: { in: resolvedSessionIds } }
+            : {
+                createdAt: {
+                  ...(from ? { gte: from } : {}),
+                  ...(to ? { lte: to } : {}),
+                },
+              }),
       },
-      orderBy: { createdAt: "desc" },
+      orderBy: { createdAt: "asc" },
+      include: {
+        session: {
+          select: {
+            type: true,
+          },
+        },
+      },
     });
 
     if (logs.length === 0) {
-      return NextResponse.json(
-        { error: "selected logs not found" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "selected logs not found" }, { status: 400 });
     }
+
+    const allCandidateLogs = await prisma.conversationLog.findMany({
+      where: {
+        studentId,
+        createdAt: {
+          ...(from ? { gte: from } : {}),
+          ...(to ? { lte: to } : {}),
+        },
+      },
+      orderBy: { createdAt: "asc" },
+      include: {
+        session: {
+          select: {
+            type: true,
+          },
+        },
+      },
+    });
 
     const latestProfile = await prisma.studentProfile.findFirst({
       where: { studentId },
       orderBy: { createdAt: "desc" },
     });
 
-    const { markdown, reportJson } = await generateParentReport({
+    const { markdown, reportJson, bundleQualityEval } = await generateParentReport({
       studentName: student.name,
       organizationName: undefined,
       periodFrom: from?.toISOString().slice(0, 10),
@@ -70,13 +94,43 @@ export async function POST(request: Request) {
       profileSnapshot: latestProfile?.profileData ?? {},
       logs: logs.map((log) => ({
         id: log.id,
+        sessionId: log.sessionId,
         date: log.createdAt.toISOString().slice(0, 10),
+        mode: log.session?.type === "LESSON_REPORT" ? "LESSON_REPORT" : "INTERVIEW",
         parentPack: log.parentPackJson ?? {},
         summaryMarkdown: log.summaryMarkdown ?? "",
         timeline: log.timelineJson ?? [],
         nextActions: log.nextActionsJson ?? [],
         profileDelta: log.profileDeltaJson ?? {},
+        studentState: log.studentStateJson ?? {},
+        profileSections: log.profileSectionsJson ?? [],
+        quickQuestions: log.quickQuestionsJson ?? [],
+        entityCandidates: log.entityCandidatesJson ?? [],
+        lessonReport: log.lessonReportJson ?? null,
       })),
+      allLogsForSuggestions: allCandidateLogs.map((log) => ({
+        id: log.id,
+        sessionId: log.sessionId,
+        date: log.createdAt.toISOString().slice(0, 10),
+        mode: log.session?.type === "LESSON_REPORT" ? "LESSON_REPORT" : "INTERVIEW",
+        summaryMarkdown: log.summaryMarkdown ?? "",
+        parentPack: log.parentPackJson ?? {},
+        timeline: log.timelineJson ?? [],
+        nextActions: log.nextActionsJson ?? [],
+        studentState: log.studentStateJson ?? {},
+        profileSections: log.profileSectionsJson ?? [],
+        quickQuestions: log.quickQuestionsJson ?? [],
+        entityCandidates: log.entityCandidatesJson ?? [],
+        lessonReport: log.lessonReportJson ?? null,
+      })),
+    });
+
+    const pendingEntityCount = await prisma.sessionEntity.count({
+      where: {
+        studentId,
+        sessionId: { in: logs.map((log) => log.sessionId).filter(Boolean) as string[] },
+        status: "PENDING",
+      },
     });
 
     const report = await prisma.report.create({
@@ -85,10 +139,15 @@ export async function POST(request: Request) {
         organizationId: student.organizationId,
         reportMarkdown: markdown,
         reportJson: reportJson as any,
-        sourceLogIds: logs.map((l) => l.id),
+        sourceLogIds: logs.map((log) => log.id),
         previousReportId: previousReport?.id ?? undefined,
         periodFrom: from ?? undefined,
         periodTo: to ?? new Date(),
+        qualityChecksJson: {
+          pendingEntityCount,
+          generatedFromSessions: logs.map((log) => log.sessionId).filter(Boolean),
+          bundleQualityEval,
+        } as any,
       },
     });
 

@@ -1,11 +1,12 @@
 import { createHash } from "crypto";
 
 type WhisperSegment = {
-  id?: number;
+  id?: number | string;
   seek?: number;
   start?: number;
   end?: number;
   text?: string;
+  speaker?: string;
 };
 
 export type PreprocessResult = {

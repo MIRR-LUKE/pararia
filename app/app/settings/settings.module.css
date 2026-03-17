@@ -1,26 +1,96 @@
-.grid {
+﻿.page {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: 14px;
+  gap: 18px;
 }
 
-.field {
+.grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.themeStack,
+.policyList {
+  display: grid;
+  gap: 12px;
+}
+
+.themeOption {
+  width: 100%;
+  padding: 16px;
+  border-radius: 18px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  text-align: left;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  cursor: pointer;
+  transition: border-color 0.16s ease, background 0.16s ease, transform 0.16s ease;
+}
+
+.themeOption:hover {
+  border-color: var(--border-strong);
+  background: var(--surface);
+  transform: translateY(-1px);
+}
+
+.themeOptionActive {
+  border-color: var(--text);
+  background: var(--surface);
+}
+
+.themeTitle,
+.label {
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.themeState,
+.previewLabel,
+.note {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.previewRow {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.previewCard,
+.policyItem {
+  padding: 16px;
+  border-radius: 18px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
   display: grid;
   gap: 6px;
 }
 
-.label {
-  font-weight: 700;
+.policyItem p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.field {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 14px;
 }
 
 .input {
-  padding: 12px;
-  border-radius: 12px;
-  border: 1px solid var(--border);
-  background: #fff;
+  min-height: 46px;
+  padding: 0 14px;
 }
 
-.note {
-  font-size: 12px;
-  color: var(--muted);
+@media (max-width: 980px) {
+  .grid,
+  .previewRow {
+    grid-template-columns: 1fr;
+  }
 }

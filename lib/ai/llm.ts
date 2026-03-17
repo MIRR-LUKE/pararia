@@ -2,9 +2,9 @@ import { DEFAULT_TEACHER_FULL_NAME } from "@/lib/constants";
 
 // OPENAI_API_KEY を LLM_API_KEY としても使用可能にする
 const LLM_API_KEY = process.env.LLM_API_KEY || process.env.OPENAI_API_KEY || "";
-const MODEL_FAST = process.env.LLM_MODEL_FAST || process.env.LLM_MODEL || "gpt-5.2";
-const MODEL_FINAL = process.env.LLM_MODEL_FINAL || process.env.LLM_MODEL || "gpt-5.2";
-const MODEL_REPORT = process.env.LLM_MODEL_REPORT || process.env.LLM_MODEL_FINAL || process.env.LLM_MODEL || "gpt-5.2";
+const MODEL_FAST = process.env.LLM_MODEL_FAST || process.env.LLM_MODEL || "gpt-5-mini";
+const MODEL_FINAL = process.env.LLM_MODEL_FINAL || process.env.LLM_MODEL || "gpt-5.4";
+const MODEL_REPORT = process.env.LLM_MODEL_REPORT || process.env.LLM_MODEL_FINAL || process.env.LLM_MODEL || "gpt-5.4";
 
 export type StructuredDeltaField = {
   value: string;
@@ -738,6 +738,7 @@ async function callChatCompletions(params: {
   model: string;
   messages: Array<{ role: "system" | "user"; content: string }>;
   max_tokens?: number;
+  max_completion_tokens?: number;
   temperature?: number;
   response_format?: { type: "json_object" };
 }): Promise<{ raw: string; data: ChatCompletionResponse | null; contentText: string | null; finishReason?: string; refusal?: string }> {
@@ -745,30 +746,68 @@ async function callChatCompletions(params: {
     throw new Error("LLM_API_KEY (or OPENAI_API_KEY) is not set. LLM is required.");
   }
 
-  const res = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${LLM_API_KEY}`,
-    },
-    body: JSON.stringify({
-      model: params.model,
-      messages: params.messages,
-      ...(params.max_tokens ? { max_tokens: params.max_tokens } : {}),
-      ...(typeof params.temperature === "number" ? { temperature: params.temperature } : {}),
-      ...(params.response_format ? { response_format: params.response_format } : {}),
-    }),
-  });
+  let body: Record<string, unknown> = {
+    model: params.model,
+    messages: params.messages,
+    ...(
+      params.max_completion_tokens || params.max_tokens
+        ? { max_completion_tokens: params.max_completion_tokens ?? params.max_tokens }
+        : {}
+    ),
+    ...(typeof params.temperature === "number" ? { temperature: params.temperature } : {}),
+    ...(params.response_format ? { response_format: params.response_format } : {}),
+  };
 
-  const raw = await res.text().catch(() => "");
-  if (!res.ok) {
-    throw new Error(`LLM API failed (${res.status}): ${raw}`);
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const res = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${LLM_API_KEY}`,
+      },
+      body: JSON.stringify(body),
+    });
+
+    const raw = await res.text().catch(() => "");
+    if (res.ok) {
+      const data = tryParseJson<ChatCompletionResponse>(raw);
+      if (!data) return { raw, data: null, contentText: null };
+      const extracted = extractChatCompletionContent(data);
+      return { raw, data, ...extracted };
+    }
+
+    const lower = raw.toLowerCase();
+    let changed = false;
+    const nextBody = { ...body };
+
+    if ("temperature" in nextBody && /temperature/.test(lower) && /default|unsupported|not supported/.test(lower)) {
+      delete nextBody.temperature;
+      changed = true;
+    }
+
+    if ("response_format" in nextBody && /response_format/.test(lower)) {
+      delete nextBody.response_format;
+      changed = true;
+    }
+
+    if ("max_completion_tokens" in nextBody && /max_completion_tokens/.test(lower)) {
+      nextBody.max_tokens = nextBody.max_completion_tokens;
+      delete nextBody.max_completion_tokens;
+      changed = true;
+    } else if ("max_tokens" in nextBody && /max_tokens/.test(lower) && !/max_completion_tokens/.test(lower)) {
+      nextBody.max_completion_tokens = nextBody.max_tokens;
+      delete nextBody.max_tokens;
+      changed = true;
+    }
+
+    if (!changed) {
+      throw new Error(`LLM API failed (${res.status}): ${raw}`);
+    }
+
+    body = nextBody;
   }
 
-  const data = tryParseJson<ChatCompletionResponse>(raw);
-  if (!data) return { raw, data: null, contentText: null };
-  const extracted = extractChatCompletionContent(data);
-  return { raw, data, ...extracted };
+  throw new Error("LLM API retry budget exceeded.");
 }
 
 export async function normalizeTranscriptKanji(

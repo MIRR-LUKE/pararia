@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
+import { buildOperationalLog, buildReuseBlocks, renderOperationalSummaryMarkdown } from "@/lib/operational-log";
 
 export async function GET(
   request: Request,
@@ -10,12 +11,10 @@ export async function GET(
     const process = searchParams.get("process");
     const brief = searchParams.get("brief") === "1";
     if (process === "1") {
-      // Fire-and-forget: Process queued jobs in the background
       try {
         const { processAllConversationJobs } = await import("@/lib/jobs/conversationJobs");
-        // don't await heavy work here; both jobs run in parallel in the background
         void processAllConversationJobs(params.id).catch(() => {});
-      } catch (e) {
+      } catch {
         // ignore
       }
     }
@@ -25,6 +24,7 @@ export async function GET(
         where: { id: params.id },
         select: {
           id: true,
+          sessionId: true,
           status: true,
           createdAt: true,
           jobs: {
@@ -62,6 +62,15 @@ export async function GET(
             email: true,
           },
         },
+        session: {
+          select: {
+            id: true,
+            type: true,
+            status: true,
+            sessionDate: true,
+            pendingEntityCount: true,
+          },
+        },
         jobs: {
           select: {
             id: true,
@@ -73,6 +82,16 @@ export async function GET(
             lastError: true,
           },
         },
+        entities: {
+          select: {
+            id: true,
+            kind: true,
+            rawValue: true,
+            canonicalValue: true,
+            confidence: true,
+            status: true,
+          },
+        },
       },
     });
 
@@ -80,21 +99,70 @@ export async function GET(
       return NextResponse.json({ error: "not found" }, { status: 404 });
     }
 
-    const response = {
-      ...conversation,
-      rawTextOriginal: conversation.rawTextOriginal,
-      rawTextCleaned: conversation.rawTextCleaned,
-      rawSegments: conversation.rawSegments as any,
-      summaryMarkdown: conversation.summaryMarkdown,
-      timelineJson: conversation.timelineJson as any,
-      nextActionsJson: conversation.nextActionsJson as any,
-      profileDeltaJson: conversation.profileDeltaJson as any,
-      parentPackJson: conversation.parentPackJson as any,
-      formattedTranscript: conversation.formattedTranscript,
-      qualityMetaJson: conversation.qualityMetaJson as any,
-    };
-
-    return NextResponse.json({ conversation: response });
+    return NextResponse.json({
+      conversation: {
+        ...conversation,
+        rawSegments: conversation.rawSegments as any,
+        timelineJson: conversation.timelineJson as any,
+        nextActionsJson: conversation.nextActionsJson as any,
+        profileDeltaJson: conversation.profileDeltaJson as any,
+        parentPackJson: conversation.parentPackJson as any,
+        studentStateJson: conversation.studentStateJson as any,
+        topicSuggestionsJson: conversation.topicSuggestionsJson as any,
+        quickQuestionsJson: conversation.quickQuestionsJson as any,
+        profileSectionsJson: conversation.profileSectionsJson as any,
+        observationJson: conversation.observationJson as any,
+        entityCandidatesJson: conversation.entityCandidatesJson as any,
+        lessonReportJson: conversation.lessonReportJson as any,
+        qualityMetaJson: conversation.qualityMetaJson as any,
+        operationalLog: buildOperationalLog({
+          sessionType: conversation.session?.type,
+          createdAt: conversation.createdAt,
+          summaryMarkdown: conversation.summaryMarkdown ?? "",
+          timeline: conversation.timelineJson as any,
+          nextActions: conversation.nextActionsJson as any,
+          parentPack: conversation.parentPackJson as any,
+          studentState: conversation.studentStateJson as any,
+          profileSections: conversation.profileSectionsJson as any,
+          quickQuestions: conversation.quickQuestionsJson as any,
+          entityCandidates: conversation.entityCandidatesJson as any,
+          lessonReport: conversation.lessonReportJson as any,
+          sessionEntities: conversation.entities as any,
+        }),
+        operationalSummaryMarkdown: renderOperationalSummaryMarkdown(
+          buildOperationalLog({
+            sessionType: conversation.session?.type,
+            createdAt: conversation.createdAt,
+            summaryMarkdown: conversation.summaryMarkdown ?? "",
+            timeline: conversation.timelineJson as any,
+            nextActions: conversation.nextActionsJson as any,
+            parentPack: conversation.parentPackJson as any,
+            studentState: conversation.studentStateJson as any,
+            profileSections: conversation.profileSectionsJson as any,
+            quickQuestions: conversation.quickQuestionsJson as any,
+            entityCandidates: conversation.entityCandidatesJson as any,
+            lessonReport: conversation.lessonReportJson as any,
+            sessionEntities: conversation.entities as any,
+          })
+        ),
+        reuseBlocks: buildReuseBlocks(
+          buildOperationalLog({
+            sessionType: conversation.session?.type,
+            createdAt: conversation.createdAt,
+            summaryMarkdown: conversation.summaryMarkdown ?? "",
+            timeline: conversation.timelineJson as any,
+            nextActions: conversation.nextActionsJson as any,
+            parentPack: conversation.parentPackJson as any,
+            studentState: conversation.studentStateJson as any,
+            profileSections: conversation.profileSectionsJson as any,
+            quickQuestions: conversation.quickQuestionsJson as any,
+            entityCandidates: conversation.entityCandidatesJson as any,
+            lessonReport: conversation.lessonReportJson as any,
+            sessionEntities: conversation.entities as any,
+          })
+        ),
+      },
+    });
   } catch (error: any) {
     console.error("[GET /api/conversations/[id]] Error:", error);
     return NextResponse.json(
@@ -105,33 +173,34 @@ export async function GET(
 }
 
 export async function DELETE(
-  request: Request,
+  _request: Request,
   { params }: { params: { id: string } }
 ) {
   try {
     const conversation = await prisma.conversationLog.findUnique({
       where: { id: params.id },
-      select: { id: true, studentId: true },
+      select: { id: true, studentId: true, sessionId: true },
     });
 
     if (!conversation) {
       return NextResponse.json({ error: "conversation not found" }, { status: 404 });
     }
 
-    // Delete related jobs first
-    await prisma.conversationJob.deleteMany({
-      where: { conversationId: params.id },
-    });
+    await prisma.conversationJob.deleteMany({ where: { conversationId: params.id } });
+    await prisma.conversationLog.delete({ where: { id: params.id } });
 
-    // Delete the conversation log
-    await prisma.conversationLog.delete({
-      where: { id: params.id },
-    });
+    if (conversation.sessionId) {
+      await prisma.session.update({
+        where: { id: conversation.sessionId },
+        data: { status: "DRAFT", pendingEntityCount: 0 },
+      });
+    }
 
     return NextResponse.json({
       success: true,
-      message: "会話ログを削除しました",
+      message: "conversation deleted",
       studentId: conversation.studentId,
+      sessionId: conversation.sessionId,
     });
   } catch (error: any) {
     console.error("[DELETE /api/conversations/[id]] Error:", error);
@@ -154,60 +223,52 @@ export async function PATCH(
       nextActionsJson,
       profileDeltaJson,
       formattedTranscript,
-    } = body;
+      studentStateJson,
+      topicSuggestionsJson,
+      quickQuestionsJson,
+      profileSectionsJson,
+      observationJson,
+      entityCandidatesJson,
+      lessonReportJson,
+    } = body ?? {};
 
-    const conversation = await prisma.conversationLog.findUnique({
-      where: { id: params.id },
-    });
-
-    if (!conversation) {
-      return NextResponse.json({ error: "conversation not found" }, { status: 404 });
-    }
-
-    // Update only provided fields
     const updateData: any = {};
     if (summaryMarkdown !== undefined) updateData.summaryMarkdown = summaryMarkdown;
     if (timelineJson !== undefined) updateData.timelineJson = timelineJson;
     if (nextActionsJson !== undefined) updateData.nextActionsJson = nextActionsJson;
     if (profileDeltaJson !== undefined) updateData.profileDeltaJson = profileDeltaJson;
     if (formattedTranscript !== undefined) updateData.formattedTranscript = formattedTranscript;
+    if (studentStateJson !== undefined) updateData.studentStateJson = studentStateJson;
+    if (topicSuggestionsJson !== undefined) updateData.topicSuggestionsJson = topicSuggestionsJson;
+    if (quickQuestionsJson !== undefined) updateData.quickQuestionsJson = quickQuestionsJson;
+    if (profileSectionsJson !== undefined) updateData.profileSectionsJson = profileSectionsJson;
+    if (observationJson !== undefined) updateData.observationJson = observationJson;
+    if (entityCandidatesJson !== undefined) updateData.entityCandidatesJson = entityCandidatesJson;
+    if (lessonReportJson !== undefined) updateData.lessonReportJson = lessonReportJson;
 
     const updated = await prisma.conversationLog.update({
       where: { id: params.id },
       data: updateData,
-      include: {
-        student: {
-          select: {
-            id: true,
-            name: true,
-            grade: true,
-          },
-        },
-        user: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
-          },
-        },
-      },
     });
 
-    const response = {
-      ...updated,
-      rawTextOriginal: updated.rawTextOriginal,
-      rawTextCleaned: updated.rawTextCleaned,
-      rawSegments: updated.rawSegments as any,
-      summaryMarkdown: updated.summaryMarkdown,
-      timelineJson: updated.timelineJson as any,
-      nextActionsJson: updated.nextActionsJson as any,
-      profileDeltaJson: updated.profileDeltaJson as any,
-      parentPackJson: updated.parentPackJson as any,
-      formattedTranscript: updated.formattedTranscript,
-      qualityMetaJson: updated.qualityMetaJson as any,
-    };
-
-    return NextResponse.json({ conversation: response });
+    return NextResponse.json({
+      conversation: {
+        ...updated,
+        rawSegments: updated.rawSegments as any,
+        timelineJson: updated.timelineJson as any,
+        nextActionsJson: updated.nextActionsJson as any,
+        profileDeltaJson: updated.profileDeltaJson as any,
+        parentPackJson: updated.parentPackJson as any,
+        studentStateJson: updated.studentStateJson as any,
+        topicSuggestionsJson: updated.topicSuggestionsJson as any,
+        quickQuestionsJson: updated.quickQuestionsJson as any,
+        profileSectionsJson: updated.profileSectionsJson as any,
+        observationJson: updated.observationJson as any,
+        entityCandidatesJson: updated.entityCandidatesJson as any,
+        lessonReportJson: updated.lessonReportJson as any,
+        qualityMetaJson: updated.qualityMetaJson as any,
+      },
+    });
   } catch (error: any) {
     console.error("[PATCH /api/conversations/[id]] Error:", error);
     return NextResponse.json(

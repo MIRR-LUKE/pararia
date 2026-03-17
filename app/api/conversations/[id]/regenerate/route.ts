@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/db";
 import { ConversationStatus, Prisma } from "@prisma/client";
+import { prisma } from "@/lib/db";
 import { enqueueConversationJobs } from "@/lib/jobs/conversationJobs";
 
 export async function POST(
@@ -17,6 +17,7 @@ export async function POST(
         rawTextOriginal: true,
         rawTextCleaned: true,
         formattedTranscript: true,
+        sessionId: true,
       },
     });
 
@@ -26,17 +27,13 @@ export async function POST(
 
     if (!conversation.rawTextOriginal && !conversation.formattedTranscript) {
       return NextResponse.json(
-        { error: "rawTextOriginal or formattedTranscript is missing. Cannot regenerate." },
+        { error: "raw transcript is missing. Cannot regenerate." },
         { status: 400 }
       );
     }
 
-    // 既存のジョブを削除（再生成のため）
-    await prisma.conversationJob.deleteMany({
-      where: { conversationId: params.id },
-    });
+    await prisma.conversationJob.deleteMany({ where: { conversationId: params.id } });
 
-    // ステータスをリセット
     await prisma.conversationLog.update({
       where: { id: params.id },
       data: {
@@ -46,15 +43,29 @@ export async function POST(
         nextActionsJson: Prisma.DbNull,
         profileDeltaJson: Prisma.DbNull,
         parentPackJson: Prisma.DbNull,
+        studentStateJson: Prisma.DbNull,
+        topicSuggestionsJson: Prisma.DbNull,
+        quickQuestionsJson: Prisma.DbNull,
+        profileSectionsJson: Prisma.DbNull,
+        observationJson: Prisma.DbNull,
+        entityCandidatesJson: Prisma.DbNull,
+        lessonReportJson: Prisma.DbNull,
         formattedTranscript: null,
       },
     });
 
     await enqueueConversationJobs(params.id, { includeFormat });
 
+    if (conversation.sessionId) {
+      await prisma.session.update({
+        where: { id: conversation.sessionId },
+        data: { status: "PROCESSING", pendingEntityCount: 0 },
+      });
+    }
+
     return NextResponse.json({
       success: true,
-      message: "再生成を開始しました。ジョブ実行APIで処理を進めてください。",
+      message: "regeneration started",
       conversationId: params.id,
     });
   } catch (error: any) {

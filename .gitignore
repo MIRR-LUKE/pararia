@@ -8,3 +8,4 @@ node_modules
 # next build output
 .next
 out
+tsconfig.tsbuildinfo

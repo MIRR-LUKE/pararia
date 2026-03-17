@@ -8,9 +8,12 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
+    "typecheck": "tsc --noEmit",
+    "verify": "npm run lint && npm run typecheck && npm run build",
     "postinstall": "prisma generate",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
+    "prisma:migrate:deploy": "prisma migrate deploy",
     "prisma:seed": "tsx prisma/seed.ts"
   },
   "prisma": {
@@ -22,6 +25,7 @@
     "clsx": "^2.0.0",
     "iconv-lite": "^0.6.3",
     "next": "14.0.4",
+    "next-auth": "^5.0.0-beta.30",
     "react": "18.2.0",
     "react-dom": "18.2.0"
   },

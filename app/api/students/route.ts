@@ -44,8 +44,37 @@ export async function GET(request: Request) {
           orderBy: { createdAt: "desc" },
           take: 1,
         },
+        sessions: {
+          select: {
+            id: true,
+            status: true,
+            type: true,
+            sessionDate: true,
+            heroStateLabel: true,
+            heroOneLiner: true,
+            latestSummary: true,
+            pendingEntityCount: true,
+            conversation: {
+              select: {
+                id: true,
+              },
+            },
+          },
+          orderBy: { sessionDate: "desc" },
+          take: 1,
+        },
+        reports: {
+          select: {
+            id: true,
+            status: true,
+            createdAt: true,
+            sentAt: true,
+          },
+          orderBy: { createdAt: "desc" },
+          take: 1,
+        },
         _count: {
-          select: { conversations: true },
+          select: { conversations: true, sessions: true, reports: true },
         },
       },
       orderBy: { createdAt: "desc" },

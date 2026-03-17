@@ -1,18 +1,17 @@
-.recorderCard {
-  background: #fff;
+﻿.recorderCard {
+  display: grid;
+  gap: 18px;
+  padding: 22px;
+  border-radius: 24px;
   border: 1px solid var(--border);
-  border-radius: 16px;
-  padding: 24px;
-  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.08);
+  background: var(--surface);
 }
 
 .header {
   display: flex;
   justify-content: space-between;
+  gap: 16px;
   align-items: flex-start;
-  margin-bottom: 24px;
-  padding-bottom: 16px;
-  border-bottom: 1px solid var(--border);
 }
 
 .headerLeft {
@@ -21,96 +20,94 @@
   align-items: flex-start;
 }
 
-.iconWrapper {
-  width: 48px;
-  height: 48px;
-  border-radius: 12px;
-  background: linear-gradient(135deg, #3b82f6, #2563eb);
-  display: grid;
-  place-items: center;
-  color: #fff;
-  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.2);
-}
-
 .title {
   margin: 0;
-  font-size: 20px;
-  font-weight: 800;
-  color: #0f172a;
-  line-height: 1.2;
+  font-size: 22px;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
 }
 
 .subtitle {
-  margin: 4px 0 0;
-  font-size: 14px;
+  margin: 6px 0 0;
   color: var(--muted);
 }
 
 .content {
   display: grid;
-  gap: 24px;
+  gap: 18px;
 }
 
-/* 待機中 */
-.idleState {
+.idleState,
+.processingState,
+.successState,
+.errorState {
+  min-height: 260px;
   display: grid;
   place-items: center;
-  gap: 16px;
-  padding: 40px 20px;
+  gap: 14px;
+  padding: 20px;
+  text-align: center;
+  border-radius: 20px;
+  border: 1px dashed var(--border-strong);
+  background: var(--surface-2);
+}
+
+.dragging {
+  background: var(--surface-3);
 }
 
 .recordButton {
-  background: none;
   border: none;
-  cursor: pointer;
+  background: transparent;
   display: grid;
-  place-items: center;
-  gap: 16px;
-  transition: transform 0.2s ease;
+  gap: 14px;
+  justify-items: center;
+  cursor: pointer;
 }
 
-.recordButton:hover {
-  transform: scale(1.05);
-}
-
-.recordButton:active {
-  transform: scale(0.95);
+.recordButton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .recordButtonInner {
-  width: 120px;
-  height: 120px;
-  border-radius: 50%;
-  background: linear-gradient(135deg, #fee2e2, #fecaca);
-  display: grid;
-  place-items: center;
-  box-shadow: 0 8px 24px rgba(220, 38, 38, 0.3);
-  transition: all 0.3s ease;
-}
-
-.recordButton:hover .recordButtonInner {
-  box-shadow: 0 12px 32px rgba(220, 38, 38, 0.4);
-  transform: scale(1.05);
+  width: 112px;
+  height: 112px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--recording) 30%, var(--border));
+  background: radial-gradient(circle at center, color-mix(in srgb, var(--recording) 72%, white) 0 28px, transparent 29px),
+    color-mix(in srgb, var(--recording) 10%, var(--surface));
 }
 
 .recordButtonLabel {
-  font-size: 18px;
-  font-weight: 700;
-  color: #dc2626;
+  font-size: 16px;
+  font-weight: 800;
 }
 
-.hint {
-  font-size: 14px;
+.hint,
+.metaText,
+.progressText {
   color: var(--muted);
-  text-align: center;
+  font-size: 13px;
+  line-height: 1.5;
 }
 
-/* 録音中 */
+.inlineActions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+}
+
 .recordingState {
   display: grid;
-  place-items: center;
-  gap: 24px;
-  padding: 40px 20px;
+  gap: 18px;
+  justify-items: center;
+  padding: 24px;
+  border-radius: 20px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
 }
 
 .recordingVisual {
@@ -123,53 +120,47 @@
 
 .recordingPulse {
   position: absolute;
-  width: 100%;
-  height: 100%;
-  border-radius: 50%;
-  background: rgba(220, 38, 38, 0.2);
+  inset: 0;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--recording) 16%, transparent);
   animation: pulse 2s ease-in-out infinite;
 }
 
+.recordingCore {
+  position: relative;
+  z-index: 1;
+  width: 84px;
+  height: 84px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--recording) 30%, var(--border));
+  background: radial-gradient(circle at center, color-mix(in srgb, var(--recording) 78%, white) 0 22px, transparent 23px),
+    color-mix(in srgb, var(--recording) 12%, var(--surface));
+}
+
 @keyframes pulse {
-  0%, 100% {
+  0%,
+  100% {
     transform: scale(1);
     opacity: 1;
   }
   50% {
-    transform: scale(1.2);
-    opacity: 0.5;
-  }
-}
-
-.recordingIcon {
-  position: relative;
-  z-index: 1;
-  animation: pulse-icon 1.5s ease-in-out infinite;
-}
-
-@keyframes pulse-icon {
-  0%, 100% {
-    transform: scale(1);
-  }
-  50% {
-    transform: scale(1.1);
+    transform: scale(1.08);
+    opacity: 0.55;
   }
 }
 
 .recordingInfo {
   display: grid;
-  gap: 16px;
-  width: 100%;
-  max-width: 400px;
+  gap: 14px;
+  width: min(100%, 360px);
 }
 
 .timeDisplay {
-  font-size: 48px;
+  font-size: 44px;
   font-weight: 800;
+  letter-spacing: -0.03em;
   text-align: center;
-  color: #dc2626;
   font-variant-numeric: tabular-nums;
-  letter-spacing: 2px;
 }
 
 .audioLevels {
@@ -177,270 +168,140 @@
   justify-content: center;
   align-items: flex-end;
   gap: 4px;
-  height: 40px;
-  padding: 8px 0;
+  height: 44px;
 }
 
 .audioBar {
   width: 6px;
-  background: linear-gradient(180deg, #3b82f6, #2563eb);
-  border-radius: 3px;
+  border-radius: 999px;
+  background: var(--text);
+  opacity: 0.7;
   transition: height 0.18s ease;
-  box-shadow: 0 0 8px rgba(37, 99, 235, 0.4);
 }
 
 .stopButton {
-  padding: 14px 28px;
-  font-size: 16px;
-  font-weight: 700;
-  color: #fff;
-  background: linear-gradient(135deg, #dc2626, #b91c1c);
-  border: none;
-  border-radius: 12px;
+  min-height: 46px;
+  border-radius: 14px;
+  border: 1px solid var(--text);
+  background: var(--text);
+  color: var(--surface);
+  font-weight: 800;
   cursor: pointer;
-  box-shadow: 0 4px 12px rgba(220, 38, 38, 0.3);
-  transition: all 0.2s ease;
-}
-
-.stopButton:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 6px 16px rgba(220, 38, 38, 0.4);
-}
-
-.stopButton:active {
-  transform: translateY(0);
-}
-
-/* 処理中 */
-.processingState {
-  display: grid;
-  gap: 24px;
-  padding: 40px 20px;
-  text-align: center;
-}
-
-.processingIcon {
-  display: grid;
-  place-items: center;
-  height: 80px;
-}
-
-.spinner {
-  width: 48px;
-  height: 48px;
-  border: 4px solid #e2e8f0;
-  border-top-color: #3b82f6;
-  border-radius: 50%;
-  animation: spin 1s linear infinite;
-}
-
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-.processingInfo {
-  display: grid;
-  gap: 12px;
 }
 
 .processingTitle {
   margin: 0;
-  font-size: 18px;
-  font-weight: 700;
-  color: #1e3a8a;
+  font-size: 20px;
+  line-height: 1.2;
 }
 
 .progressBar {
-  width: 100%;
+  width: min(100%, 420px);
   height: 12px;
-  background: #e2e8f0;
-  border-radius: 6px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
   overflow: hidden;
-  position: relative;
 }
 
 .progressFill {
   height: 100%;
-  border-radius: 6px;
-  transition: width 0.5s ease, background 0.3s ease;
-  box-shadow: 0 0 8px rgba(59, 130, 246, 0.3);
+  background: var(--text);
+  transition: width 0.35s ease;
 }
 
-.progressText {
-  font-size: 14px;
-  color: var(--muted);
-  font-weight: 600;
-}
-
-.progressNote {
-  color: #6366f1;
-}
-
-/* 成功 */
-.successState {
+.stepStrip {
   display: grid;
-  place-items: center;
-  gap: 16px;
-  padding: 40px 20px;
-  text-align: center;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
 }
 
-.successIcon {
-  animation: success-bounce 0.6s ease;
-}
-
-@keyframes success-bounce {
-  0%, 100% {
-    transform: scale(1);
-  }
-  50% {
-    transform: scale(1.15);
-  }
-}
-
-.successTitle {
-  margin: 0;
-  font-size: 24px;
-  font-weight: 800;
-  color: #059669;
-}
-
-.successText {
-  margin: 0;
-  font-size: 14px;
+.stepChip {
+  min-height: 40px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
   color: var(--muted);
-}
-
-.viewLogLink {
-  display: inline-flex;
+  font-size: 12px;
+  font-weight: 800;
+  display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 12px 24px;
-  font-size: 16px;
-  font-weight: 700;
-  color: #059669;
-  text-decoration: none;
-  border: 2px solid #059669;
-  border-radius: 12px;
-  transition: all 0.2s ease;
-  margin-top: 8px;
+  justify-content: center;
+  text-align: center;
 }
 
-.viewLogLink:hover {
-  background: #ecfdf5;
-  transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(5, 150, 105, 0.2);
+.stepActive {
+  background: var(--surface);
+  border-color: var(--text);
+  color: var(--text);
 }
 
-/* エラー */
-.errorState {
+.stepDone {
+  background: var(--text);
+  border-color: var(--text);
+  color: var(--surface);
+}
+
+.partGrid {
   display: grid;
-  place-items: center;
-  gap: 16px;
-  padding: 40px 20px;
-  text-align: center;
+  gap: 14px;
 }
 
-.errorIcon {
-  animation: error-shake 0.5s ease;
+.partCard {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+  border-radius: 20px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
 }
 
-@keyframes error-shake {
-  0%, 100% {
-    transform: translateX(0);
-  }
-  25% {
-    transform: translateX(-8px);
-  }
-  75% {
-    transform: translateX(8px);
-  }
-}
-
-.errorTitle {
-  margin: 0;
-  font-size: 20px;
-  font-weight: 800;
-  color: #dc2626;
-}
-
-.errorText {
-  margin: 0;
-  font-size: 14px;
-  color: var(--muted);
-  max-width: 400px;
-}
-
-/* ドラッグ&ドロップ */
-.dropZone {
-  border: 2px dashed var(--border);
-  border-radius: 12px;
-  padding: 32px 24px;
-  text-align: center;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  background: #f8fafc;
-}
-
-.dropZone:hover {
-  border-color: #3b82f6;
-  background: #eff6ff;
-}
-
-.dropZone.dragging {
-  border-color: #2563eb;
-  background: #dbeafe;
-  transform: scale(1.02);
-}
-
-.dropZoneText {
-  margin: 12px 0 4px;
-  font-size: 16px;
-  font-weight: 600;
-  color: #0f172a;
-}
-
-.dropZoneHint {
-  margin: 0;
-  font-size: 13px;
-  color: var(--muted);
-}
-
-/* 設定 */
-.settings {
-  padding-top: 16px;
-  border-top: 1px solid var(--border);
-}
-
-.settingLabel {
+.partHeader {
   display: flex;
   justify-content: space-between;
-  align-items: center;
-  font-size: 14px;
-  font-weight: 600;
-  color: #0f172a;
+  gap: 14px;
+  align-items: flex-start;
 }
 
-.qualitySelect {
-  padding: 8px 12px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: #fff;
-  font-size: 14px;
-  cursor: pointer;
-  transition: all 0.2s ease;
+.partBody {
+  display: grid;
+  gap: 14px;
 }
 
-.qualitySelect:hover {
-  border-color: #3b82f6;
+.uploadBlock {
+  display: grid;
+  gap: 8px;
+  justify-items: start;
 }
 
-.qualitySelect:focus {
-  outline: none;
-  border-color: #2563eb;
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+.textarea {
+  width: 100%;
+  min-height: 120px;
+  padding: 12px 14px;
+  resize: vertical;
 }
 
+@media (max-width: 720px) {
+  .header,
+  .partHeader,
+  .inlineActions,
+  .stepStrip {
+    grid-template-columns: 1fr;
+    flex-direction: column;
+    align-items: stretch;
+  }
 
+  .inlineActions {
+    justify-content: flex-start;
+  }
+
+  .recordButtonInner {
+    width: 96px;
+    height: 96px;
+  }
+
+  .timeDisplay {
+    font-size: 36px;
+  }
+}

@@ -9,45 +9,103 @@ export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
     const studentId = searchParams.get("studentId");
+    const typeFilter = searchParams.get("type");
     const limitRaw = searchParams.get("limit");
     const limitParam = limitRaw ? Number(limitRaw) : NaN;
     const limit =
       Number.isFinite(limitParam) && limitParam > 0
         ? Math.min(Math.floor(limitParam), 200)
-        : undefined;
+        : 50;
 
-    if (!studentId) {
-      return NextResponse.json(
-        { error: "studentId is required" },
-        { status: 400 }
-      );
+    if (studentId) {
+      const sessionTypeFilter =
+        typeFilter === "LESSON_REPORT" || typeFilter === "INTERVIEW" ? typeFilter : undefined;
+      const conversations = await prisma.conversationLog.findMany({
+        where: {
+          studentId,
+          ...(sessionTypeFilter ? { session: { type: sessionTypeFilter } } : {}),
+        },
+        orderBy: { createdAt: "desc" },
+        take: limit,
+        select: {
+          id: true,
+          studentId: true,
+          sessionId: true,
+          status: true,
+          summaryMarkdown: true,
+          timelineJson: true,
+          nextActionsJson: true,
+          profileDeltaJson: true,
+          studentStateJson: true,
+          topicSuggestionsJson: true,
+          quickQuestionsJson: true,
+          profileSectionsJson: true,
+          lessonReportJson: true,
+          entityCandidatesJson: true,
+          formattedTranscript: true,
+          qualityMetaJson: true,
+          createdAt: true,
+          student: { select: { id: true, name: true, grade: true } },
+          session: { select: { type: true } },
+        },
+      });
+
+      const formattedConversations = conversations.map((conversation) => ({
+        id: conversation.id,
+        studentId: conversation.studentId,
+        sessionId: conversation.sessionId,
+        status: conversation.status,
+        summaryMarkdown: conversation.summaryMarkdown,
+        timelineJson: conversation.timelineJson as any,
+        nextActionsJson: conversation.nextActionsJson as any,
+        profileDeltaJson: conversation.profileDeltaJson as any,
+        studentStateJson: conversation.studentStateJson as any,
+        topicSuggestionsJson: conversation.topicSuggestionsJson as any,
+        quickQuestionsJson: conversation.quickQuestionsJson as any,
+        profileSectionsJson: conversation.profileSectionsJson as any,
+        lessonReportJson: conversation.lessonReportJson as any,
+        entityCandidatesJson: conversation.entityCandidatesJson as any,
+        formattedTranscript: conversation.formattedTranscript,
+        createdAt: conversation.createdAt,
+        date: new Date(conversation.createdAt).toLocaleDateString("ja-JP"),
+        student: conversation.student,
+        sessionType: conversation.session?.type ?? null,
+      }));
+
+      return NextResponse.json({ conversations: formattedConversations });
     }
 
+    const sessionTypeFilter =
+      typeFilter === "LESSON_REPORT" || typeFilter === "INTERVIEW" ? typeFilter : undefined;
+
     const conversations = await prisma.conversationLog.findMany({
-      where: { studentId },
+      where: sessionTypeFilter
+        ? { session: { type: sessionTypeFilter } }
+        : undefined,
       orderBy: { createdAt: "desc" },
-      ...(limit ? { take: limit } : {}),
+      take: limit,
       select: {
         id: true,
         studentId: true,
+        sessionId: true,
         status: true,
         summaryMarkdown: true,
-        timelineJson: true,
-        nextActionsJson: true,
-        profileDeltaJson: true,
-        formattedTranscript: true,
-        qualityMetaJson: true,
         createdAt: true,
+        student: { select: { id: true, name: true, grade: true } },
+        session: { select: { type: true } },
       },
     });
 
     const formattedConversations = conversations.map((c) => ({
-      ...c,
-      timelineJson: c.timelineJson as any,
-      nextActionsJson: c.nextActionsJson as any,
-      profileDeltaJson: c.profileDeltaJson as any,
-      formattedTranscript: c.formattedTranscript,
-      date: new Date(c.createdAt).toLocaleDateString("ja-JP"), // フロントエンド表示用
+      id: c.id,
+      studentId: c.studentId,
+      sessionId: c.sessionId,
+      status: c.status,
+      summaryMarkdown: c.summaryMarkdown,
+      createdAt: c.createdAt,
+      date: new Date(c.createdAt).toLocaleDateString("ja-JP"),
+      student: c.student,
+      sessionType: c.session?.type ?? null,
     }));
 
     return NextResponse.json({ conversations: formattedConversations });
@@ -65,10 +123,7 @@ export async function POST(request: Request) {
   const { organizationId, studentId, userId, transcript, sourceType } = body ?? {};
 
   if (!studentId) {
-    return NextResponse.json(
-      { error: "studentId is required" },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: "studentId is required" }, { status: 400 });
   }
 
   if (!transcript || typeof transcript !== "string" || transcript.trim().length === 0) {
@@ -93,7 +148,6 @@ export async function POST(request: Request) {
       rawTextOriginal: pre.rawTextOriginal,
       rawTextCleaned: pre.rawTextCleaned,
       rawTextExpiresAt: expiresAt,
-      // rawSegments, LLM outputs will be filled asynchronously
     },
   });
 

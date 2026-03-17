@@ -1,4 +1,4 @@
-.shell {
+﻿.shell {
   display: flex;
   min-height: 100vh;
 }
@@ -6,16 +6,26 @@
 .main {
   display: flex;
   flex-direction: column;
-  margin-left: 240px;
-  width: calc(100% - 240px);
+  margin-left: var(--sidebar-width);
+  width: calc(100% - var(--sidebar-width));
 }
 
 .content {
-  padding: 20px;
-  max-width: 1200px;
   width: 100%;
-  margin: 0 auto 40px;
-  display: flex;
-  flex-direction: column;
-  gap: 18px;
+  max-width: var(--content-max-width);
+  margin: 0 auto;
+  padding: 24px 24px 56px;
+  display: grid;
+  gap: 20px;
+}
+
+@media (max-width: 1080px) {
+  .main {
+    margin-left: 0;
+    width: 100%;
+  }
+
+  .content {
+    padding: 20px 16px 40px;
+  }
 }

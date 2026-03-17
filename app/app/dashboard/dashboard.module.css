@@ -1,90 +1,212 @@
-.grid {
+﻿.page {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 14px;
-}
-
-.kpiCard {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.kpiLabel {
-  color: var(--muted);
-  font-size: 13px;
-}
-
-.kpiValue {
-  font-size: 26px;
-  font-weight: 800;
-  color: var(--text);
-}
-
-.chartGrid {
-  display: grid;
-  grid-template-columns: 1.4fr 1fr;
-  gap: 14px;
-}
-
-.list {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.row {
-  display: grid;
-  grid-template-columns: 1.2fr 0.7fr 0.7fr 0.6fr 0.8fr;
-  gap: 8px;
-  padding: 10px;
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  background: #f8fafc;
-}
-
-.heading {
-  font-size: 14px;
-  font-weight: 700;
+  gap: 18px;
 }
 
 .hero {
   display: grid;
-  grid-template-columns: 1.6fr 1fr;
-  gap: 14px;
+  grid-template-columns: minmax(0, 1.4fr) minmax(280px, 0.9fr);
+  gap: 18px;
+  padding: 26px;
+  border-radius: 28px;
+  border: 1px solid var(--border);
+  background: linear-gradient(180deg, var(--surface), var(--surface-2));
 }
 
-.heroCard {
-  background: linear-gradient(135deg, #1d4ed8, #0f172a);
-  color: #e5edff;
-  border-radius: var(--card-radius);
-  padding: 20px;
-  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.18);
+.heroCopy {
   display: grid;
-  gap: 12px;
+  gap: 10px;
+}
+
+.eyebrow {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
 }
 
 .heroTitle {
   margin: 0;
-  font-size: 20px;
-  font-weight: 800;
+  font-size: 30px;
+  line-height: 1.08;
+  letter-spacing: -0.03em;
 }
 
 .heroText {
   margin: 0;
-  color: #cbd5ff;
+  max-width: 54ch;
+  color: var(--muted);
 }
 
-.miniGrid {
+.heroActions {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 12px;
+  align-content: start;
+}
+
+.heroButton,
+.heroButtonSecondary {
+  width: 100%;
+  min-height: 56px;
+  justify-content: center;
+  font-size: 15px;
+}
+
+.statusStrip {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.statusItem {
+  min-height: 88px;
+  padding: 16px 18px;
+  border-radius: 20px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  display: grid;
   gap: 8px;
 }
 
-.iconRow {
+.statusItem strong {
+  font-size: 24px;
+}
+
+.statusLabel {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.queueList {
+  display: grid;
+  gap: 12px;
+}
+
+.queueRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.95fr) auto;
+  gap: 16px;
+  padding: 18px;
+  border-radius: 20px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  align-items: center;
+}
+
+.queueIdentity,
+.queueReasonBlock,
+.queueActionBlock {
+  min-width: 0;
+}
+
+.queueNameRow {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   align-items: center;
-  color: #cbd5ff;
+}
+
+.queueName {
+  font-size: 16px;
+}
+
+.queueMeta {
+  color: var(--muted);
   font-size: 13px;
+}
+
+.queueOneLiner,
+.queueReason {
+  margin: 8px 0 0;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.queueTitle {
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.queueActionBlock {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.lowerGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.miniList {
+  display: grid;
+  gap: 10px;
+}
+
+.miniItem {
+  min-height: 56px;
+  padding: 0 14px;
+  border-radius: 16px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.directorySummary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.summaryLabel {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.summaryValue {
+  margin-top: 8px;
+  font-size: 28px;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+}
+
+.emptyState,
+.empty {
+  min-height: 200px;
+  border-radius: 20px;
+  border: 1px dashed var(--border-strong);
+  background: var(--surface-2);
+  display: grid;
+  place-items: center;
+  text-align: center;
+  gap: 12px;
+  padding: 24px;
+}
+
+.error {
+  margin-bottom: 6px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  border: 1px solid var(--text);
+  background: var(--surface);
+}
+
+@media (max-width: 1080px) {
+  .hero,
+  .lowerGrid,
+  .statusStrip,
+  .queueRow {
+    grid-template-columns: 1fr;
+  }
+
+  .queueActionBlock {
+    justify-content: flex-start;
+  }
 }

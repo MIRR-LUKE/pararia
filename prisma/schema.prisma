@@ -18,6 +18,7 @@ model Organization {
   students      Student[]
   conversations ConversationLog[]
   reports       Report[]
+  Session       Session[]
 }
 
 model User {
@@ -28,12 +29,14 @@ model User {
   name           String
   role           UserRole @default(TEACHER)
 
-  organization  Organization   @relation(fields: [organizationId], references: [id])
+  organization  Organization      @relation(fields: [organizationId], references: [id])
   conversations ConversationLog[]
+  sessions      Session[]
+  reportsSent   Report[]          @relation("ReportSentBy")
 }
 
 model Student {
-  id             String   @id @default(cuid())
+  id             String    @id @default(cuid())
   organizationId String
   name           String
   nameKana       String?
@@ -42,13 +45,16 @@ model Student {
   enrollmentDate DateTime?
   birthdate      DateTime?
   guardianNames  String?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
-  organization  Organization   @relation(fields: [organizationId], references: [id])
+  organization  Organization      @relation(fields: [organizationId], references: [id])
   conversations ConversationLog[]
-  profiles       StudentProfile[]
-  reports        Report[]
+  sessions      Session[]
+  entities      StudentEntity[]
+  profiles      StudentProfile[]
+  reports       Report[]
+  SessionEntity SessionEntity[]
 
   @@index([organizationId, createdAt])
 }
@@ -70,12 +76,13 @@ model StudentProfile {
 }
 
 model ConversationLog {
-  id              String             @id @default(cuid())
-  organizationId  String
-  studentId       String
-  userId          String?
-  sourceType      ConversationSourceType
-  status          ConversationStatus @default(PROCESSING)
+  id             String                 @id @default(cuid())
+  organizationId String
+  studentId      String
+  userId         String?
+  sessionId      String?                @unique
+  sourceType     ConversationSourceType
+  status         ConversationStatus     @default(PROCESSING)
 
   // --- Raw transcript storage (TTL) ---
   rawTextOriginal  String?
@@ -84,21 +91,30 @@ model ConversationLog {
   rawTextExpiresAt DateTime?
 
   // --- LLM outputs (final artifacts) ---
-  summaryMarkdown     String?
-  timelineJson        Json?
-  nextActionsJson     Json?
-  profileDeltaJson    Json?
-  parentPackJson      Json?
-  formattedTranscript String?
-  chunkAnalysisJson   Json?
-  qualityMetaJson     Json?
+  summaryMarkdown      String?
+  timelineJson         Json?
+  nextActionsJson      Json?
+  profileDeltaJson     Json?
+  parentPackJson       Json?
+  studentStateJson     Json?
+  topicSuggestionsJson Json?
+  quickQuestionsJson   Json?
+  profileSectionsJson  Json?
+  observationJson      Json?
+  entityCandidatesJson Json?
+  lessonReportJson     Json?
+  formattedTranscript  String?
+  chunkAnalysisJson    Json?
+  qualityMetaJson      Json?
 
   createdAt DateTime @default(now())
 
-  organization Organization   @relation(fields: [organizationId], references: [id])
-  student      Student        @relation(fields: [studentId], references: [id])
-  user         User?          @relation(fields: [userId], references: [id])
+  organization Organization      @relation(fields: [organizationId], references: [id])
+  student      Student           @relation(fields: [studentId], references: [id])
+  user         User?             @relation(fields: [userId], references: [id])
+  session      Session?          @relation(fields: [sessionId], references: [id])
   jobs         ConversationJob[]
+  entities     SessionEntity[]
 
   @@index([studentId, createdAt])
   @@index([organizationId, createdAt])
@@ -128,19 +144,26 @@ model ConversationJob {
 }
 
 model Report {
-  id               String   @id @default(cuid())
-  studentId        String
-  organizationId   String
-  reportMarkdown   String
-  reportJson       Json?
-  periodFrom       DateTime?
-  periodTo         DateTime?
-  sourceLogIds     Json?
-  previousReportId String?
-  createdAt        DateTime @default(now())
+  id                String       @id @default(cuid())
+  studentId         String
+  organizationId    String
+  reportMarkdown    String
+  reportJson        Json?
+  status            ReportStatus @default(DRAFT)
+  reviewedAt        DateTime?
+  sentAt            DateTime?
+  sentByUserId      String?
+  deliveryChannel   String?
+  qualityChecksJson Json?
+  periodFrom        DateTime?
+  periodTo          DateTime?
+  sourceLogIds      Json?
+  previousReportId  String?
+  createdAt         DateTime     @default(now())
 
   organization Organization @relation(fields: [organizationId], references: [id])
   student      Student      @relation(fields: [studentId], references: [id])
+  sentBy       User?        @relation("ReportSentBy", fields: [sentByUserId], references: [id])
 
   previousReport Report?  @relation("ReportPrevious", fields: [previousReportId], references: [id])
   nextReports    Report[] @relation("ReportPrevious")
@@ -156,9 +179,106 @@ model AuditLog {
   createdAt DateTime @default(now())
 }
 
+model Session {
+  id                 String        @id @default(cuid())
+  organizationId     String
+  studentId          String
+  userId             String?
+  type               SessionType
+  status             SessionStatus @default(DRAFT)
+  title              String?
+  notes              String?
+  sessionDate        DateTime      @default(now())
+  heroStateLabel     String?
+  heroOneLiner       String?
+  latestSummary      String?
+  pendingEntityCount Int           @default(0)
+  completedAt        DateTime?
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+
+  organization Organization     @relation(fields: [organizationId], references: [id])
+  student      Student          @relation(fields: [studentId], references: [id])
+  user         User?            @relation(fields: [userId], references: [id])
+  parts        SessionPart[]
+  entities     SessionEntity[]
+  conversation ConversationLog?
+
+  @@index([studentId, sessionDate])
+  @@index([organizationId, sessionDate])
+  @@index([status, type])
+}
+
+model SessionPart {
+  id                  String                 @id @default(cuid())
+  sessionId           String
+  partType            SessionPartType
+  sourceType          ConversationSourceType @default(AUDIO)
+  status              SessionPartStatus      @default(PENDING)
+  fileName            String?
+  mimeType            String?
+  byteSize            Int?
+  storageUrl          String?
+  rawTextOriginal     String?
+  rawTextCleaned      String?
+  rawSegments         Json?
+  qualityMetaJson     Json?
+  transcriptExpiresAt DateTime?
+  createdAt           DateTime               @default(now())
+  updatedAt           DateTime               @updatedAt
+
+  session Session @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@unique([sessionId, partType])
+  @@index([sessionId, status])
+}
+
+model StudentEntity {
+  id            String     @id @default(cuid())
+  studentId     String
+  kind          EntityKind
+  canonicalName String
+  aliasesJson   Json?
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+
+  student      Student         @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  sessionLinks SessionEntity[]
+
+  @@unique([studentId, kind, canonicalName])
+  @@index([studentId, kind])
+}
+
+model SessionEntity {
+  id              String       @id @default(cuid())
+  sessionId       String
+  conversationId  String?
+  studentId       String
+  studentEntityId String?
+  kind            EntityKind
+  rawValue        String
+  canonicalValue  String?
+  confidence      Int          @default(50)
+  status          EntityStatus @default(PENDING)
+  occurrencesJson Json?
+  sourceJson      Json?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  session       Session          @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  conversation  ConversationLog? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+  student       Student          @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  studentEntity StudentEntity?   @relation(fields: [studentEntityId], references: [id], onDelete: SetNull)
+
+  @@index([sessionId, status])
+  @@index([studentId, kind])
+}
+
 enum UserRole {
   ADMIN
+  MANAGER
   TEACHER
+  INSTRUCTOR
 }
 
 enum ConversationSourceType {
@@ -186,4 +306,55 @@ enum ConversationStatus {
   PARTIAL
   DONE
   ERROR
+}
+
+enum SessionType {
+  INTERVIEW
+  LESSON_REPORT
+}
+
+enum SessionStatus {
+  DRAFT
+  COLLECTING
+  PROCESSING
+  READY
+  ERROR
+}
+
+enum SessionPartType {
+  FULL
+  CHECK_IN
+  CHECK_OUT
+  TEXT_NOTE
+}
+
+enum SessionPartStatus {
+  PENDING
+  UPLOADING
+  TRANSCRIBING
+  READY
+  ERROR
+}
+
+enum EntityKind {
+  SCHOOL
+  TARGET_SCHOOL
+  MATERIAL
+  EXAM
+  CRAM_SCHOOL
+  TEACHER
+  METRIC
+  OTHER
+}
+
+enum EntityStatus {
+  PENDING
+  CONFIRMED
+  IGNORED
+}
+
+enum ReportStatus {
+  DRAFT
+  REVIEWED
+  SENT
 }

@@ -1,4 +1,6 @@
-import { DEFAULT_TEACHER_FULL_NAME } from "@/lib/constants";
+"use client";
+
+import { useSession } from "next-auth/react";
 import styles from "./AppHeader.module.css";
 
 type Props = {
@@ -8,6 +10,9 @@ type Props = {
 };
 
 export function AppHeader({ title, subtitle, actions }: Props) {
+  const { data: session } = useSession();
+  const initials = (session?.user?.name || "P").slice(0, 1).toUpperCase();
+
   return (
     <header className={styles.header}>
       <div>
@@ -17,10 +22,12 @@ export function AppHeader({ title, subtitle, actions }: Props) {
       <div className={styles.actions}>
         {actions}
         <div className={styles.user}>
-          <div className={styles.avatar}>A</div>
+          <div className={styles.avatar}>{initials}</div>
           <div>
-            <div style={{ fontWeight: 700 }}>{DEFAULT_TEACHER_FULL_NAME}（講師）</div>
-            <div style={{ fontSize: 12, color: "var(--muted)" }}>本校舎</div>
+            <div style={{ fontWeight: 700 }}>{session?.user?.name ?? "Staff"}</div>
+            <div style={{ fontSize: 12, color: "var(--muted)" }}>
+              {(session?.user as any)?.role ?? "TEACHER"}
+            </div>
           </div>
         </div>
       </div>
@@ -28,21 +35,6 @@ export function AppHeader({ title, subtitle, actions }: Props) {
   );
 }
 
-// backward compatibility
 export function AppHeaderUserOnly({ title, subtitle }: Props) {
-  return (
-    <header className={styles.header}>
-      <div>
-        <h1 className={styles.title}>{title}</h1>
-        {subtitle && <p className={styles.subtitle}>{subtitle}</p>}
-      </div>
-      <div className={styles.user}>
-        <div className={styles.avatar}>A</div>
-        <div>
-          <div style={{ fontWeight: 700 }}>{DEFAULT_TEACHER_FULL_NAME}（講師）</div>
-          <div style={{ fontSize: 12, color: "var(--muted)" }}>本校舎</div>
-        </div>
-      </div>
-    </header>
-  );
+  return <AppHeader title={title} subtitle={subtitle} />;
 }

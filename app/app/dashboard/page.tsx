@@ -1,192 +1,331 @@
-import { useMemo } from "react";
-import { AppHeader } from "@/components/layout/AppHeader";
-import { Card } from "@/components/ui/Card";
-import { Badge } from "@/components/ui/Badge";
-import { LineChart } from "@/components/charts/LineChart";
-import { BarChart } from "@/components/charts/BarChart";
-import { Button } from "@/components/ui/Button";
-import {
-  conversationLogTrend,
-  getConversationsByStudentId,
-  getProfileCompleteness,
-  motivationDistribution,
-  students,
-} from "@/lib/mockData";
-import styles from "./dashboard.module.css";
-import { Progress } from "@/components/ui/Progress";
-import Link from "next/link";
+﻿"use client";
 
-function daysSince(dateStr?: string | null) {
-  if (!dateStr) return null;
-  const d = new Date(dateStr);
-  if (Number.isNaN(d.getTime())) return null;
-  return Math.floor((Date.now() - d.getTime()) / (1000 * 60 * 60 * 24));
+import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import { AppHeader } from "@/components/layout/AppHeader";
+import { Badge } from "@/components/ui/Badge";
+import { Button } from "@/components/ui/Button";
+import { Card } from "@/components/ui/Card";
+import styles from "./dashboard.module.css";
+
+type SessionSummary = {
+  id: string;
+  status: string;
+  type: "INTERVIEW" | "LESSON_REPORT";
+  sessionDate: string;
+  heroStateLabel?: string | null;
+  heroOneLiner?: string | null;
+  latestSummary?: string | null;
+  pendingEntityCount: number;
+  conversation?: { id: string } | null;
+};
+
+type ReportSummary = {
+  id: string;
+  status: string;
+  createdAt: string;
+  sentAt?: string | null;
+};
+
+type StudentRow = {
+  id: string;
+  name: string;
+  grade?: string | null;
+  course?: string | null;
+  profiles?: Array<{ profileData?: any }>;
+  sessions?: SessionSummary[];
+  reports?: ReportSummary[];
+  _count?: { sessions: number; reports: number };
+};
+
+type QueueKind = "interview" | "lesson" | "report" | "review" | "room";
+
+type QueueItem = {
+  student: StudentRow;
+  kind: QueueKind;
+  title: string;
+  reason: string;
+  cta: string;
+  href: string;
+  score: number;
+};
+
+function completeness(profileData?: any) {
+  const basic = Array.isArray(profileData?.basic) ? profileData.basic.length : 0;
+  const personal = Array.isArray(profileData?.personal) ? profileData.personal.length : 0;
+  return Math.min(100, (basic + personal) * 6);
+}
+
+function summarize(student: StudentRow) {
+  const latestSession = student.sessions?.[0];
+  const latestReport = student.reports?.[0];
+
+  if (!latestSession) {
+    return {
+      state: "未開始",
+      oneLiner: "まだ会話データがありません。最初の面談から始めます。",
+      queue: {
+        kind: "interview" as const,
+        title: "面談を始める",
+        reason: "この生徒にはまだ会話ログがありません。",
+        cta: "面談を始める",
+        href: `/app/students/${student.id}?focus=interview`,
+        score: 100,
+      },
+    };
+  }
+
+  if (latestSession.type === "LESSON_REPORT" && latestSession.status === "COLLECTING") {
+    return {
+      state: latestSession.heroStateLabel ?? "授業途中",
+      oneLiner:
+        latestSession.heroOneLiner ?? "授業前の記録だけ保存されています。授業後の記録で完了します。",
+      queue: {
+        kind: "lesson" as const,
+        title: "チェックアウト待ち",
+        reason: "授業前チェックインは完了しています。授業後の録音で指導報告を完成できます。",
+        cta: "チェックアウトを録る",
+        href: `/app/students/${student.id}?focus=lesson`,
+        score: 95,
+      },
+    };
+  }
+
+  if (latestSession.pendingEntityCount > 0) {
+    return {
+      state: latestSession.heroStateLabel ?? "要確認",
+      oneLiner:
+        latestSession.heroOneLiner ?? latestSession.latestSummary ?? "要確認の固有名詞があります。",
+      queue: {
+        kind: "review" as const,
+        title: "要確認あり",
+        reason: `固有名詞の確認が ${latestSession.pendingEntityCount} 件残っています。`,
+        cta: "確認する",
+        href: `/app/students/${student.id}`,
+        score: 88,
+      },
+    };
+  }
+
+  if (latestReport && latestReport.status !== "SENT") {
+    return {
+      state: latestSession.heroStateLabel ?? "確認待ち",
+      oneLiner:
+        latestSession.heroOneLiner ?? latestSession.latestSummary ?? "保護者レポートの確認待ちがあります。",
+      queue: {
+        kind: "report" as const,
+        title: "レポ確認待ち",
+        reason: "保護者に送る前の確認が必要です。",
+        cta: "レポ確認",
+        href: `/app/reports/${student.id}`,
+        score: 82,
+      },
+    };
+  }
+
+  return {
+    state: latestSession.heroStateLabel ?? "更新済み",
+    oneLiner:
+      latestSession.heroOneLiner ?? latestSession.latestSummary ?? "次の会話に向けて確認内容が整理されています。",
+    queue: {
+      kind: "room" as const,
+      title: "次の会話を見る",
+      reason: "次の会話に向けた質問と行動を確認できます。",
+      cta: "生徒ルームへ",
+      href: `/app/students/${student.id}`,
+      score: 40,
+    },
+  };
 }
 
 export default function DashboardPage() {
-  const enriched = useMemo(() => {
-    return students.map((s) => {
-      const logs = getConversationsByStudentId(s.id).sort((a, b) =>
-        a.date < b.date ? 1 : -1
-      );
-      const last = logs[0];
-      return {
-        ...s,
-        conversationCount: logs.length,
-        lastConversationDate: last?.date ?? "",
-        daysSinceLast: last ? daysSince(last.date) : null,
-        completeness: getProfileCompleteness(s.profile),
-      };
-    });
+  const [students, setStudents] = useState<StudentRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const load = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const res = await fetch("/api/students", { cache: "no-store" });
+        const body = await res.json();
+        if (!res.ok) throw new Error(body?.error ?? "生徒情報の取得に失敗しました。");
+        setStudents(body.students ?? []);
+      } catch (err: any) {
+        setError(err?.message ?? "Today の読み込みに失敗しました。");
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    void load();
   }, []);
 
-  const conversationsThisWeek = useMemo(() => {
-    const now = new Date();
-    const cutoff = new Date(now);
-    cutoff.setDate(now.getDate() - 6);
-    return enriched.reduce((acc, s) => {
-      const logs = getConversationsByStudentId(s.id);
-      return (
-        acc +
-        logs.filter((l) => {
-          const d = new Date(l.date);
-          return d >= cutoff && d <= now;
-        }).length
-      );
-    }, 0);
+  const enriched = useMemo(() => {
+    return students.map((student) => {
+      const summary = summarize(student);
+      return {
+        ...student,
+        completeness: completeness(student.profiles?.[0]?.profileData),
+        state: summary.state,
+        oneLiner: summary.oneLiner,
+        queue: summary.queue,
+      };
+    });
+  }, [students]);
+
+  const queue = useMemo(
+    () => [...enriched].sort((a, b) => b.queue.score - a.queue.score).slice(0, 8),
+    [enriched]
+  );
+
+  const stats = useMemo(() => {
+    const interview = enriched.filter((item) => item.queue.kind === "interview").length;
+    const lesson = enriched.filter((item) => item.queue.kind === "lesson").length;
+    const report = enriched.filter((item) => item.queue.kind === "report").length;
+    const review = enriched.filter((item) => item.queue.kind === "review").length;
+    return { interview, lesson, report, review };
   }, [enriched]);
 
-  const dormant = enriched.filter((s) => (s.daysSinceLast ?? Infinity) > 14).length;
-  const avgCompleteness =
-    enriched.reduce((acc, s) => acc + (s.completeness ?? 0), 0) / (enriched.length || 1);
-
-  const followPriority = [...enriched]
-    .sort((a, b) => (b.daysSinceLast ?? -1) - (a.daysSinceLast ?? -1))
-    .slice(0, 8);
-
-  const kpis = [
-    { label: "在籍生徒数", value: students.length },
-    { label: "今週の会話ログ", value: conversationsThisWeek },
-    { label: "要フォロー(14日超)", value: dormant },
-    { label: "カルテ充実度(平均)", value: `${Math.round(avgCompleteness)}%` },
-  ];
+  const interviewHref = queue.find((item) => item.queue.kind === "interview")?.queue.href ?? "/app/students";
+  const lessonHref = queue.find((item) => item.queue.kind === "lesson")?.queue.href ?? "/app/students";
 
   return (
-    <div>
+    <div className={styles.page}>
       <AppHeader
-        title="ダッシュボード"
-        subtitle="会話ログ蓄積を軸に、フォロー優先度とレポート生成を一目で確認"
-        actions={
-          <div className={styles.actionRow}>
-            <Link href="/app/students">
-              <Button variant="primary" size="small">
-                録音して会話ログを追加
-              </Button>
-            </Link>
-            <Link href="/app/reports">
-              <Button variant="secondary" size="small">
-                ワンタッチで保護者レポート
-              </Button>
-            </Link>
-          </div>
-        }
+        title="Today"
+        subtitle="今すぐ対応が必要な生徒だけを前に出します。ここでは読むより先に、動き始めることを優先します。"
       />
 
-      <div className={styles.hero}>
-        <div className={styles.heroCard}>
-          <h2 className={styles.heroTitle}>🧭 今日の優先フォロー</h2>
+      <section className={styles.hero}>
+        <div className={styles.heroCopy}>
+          <p className={styles.eyebrow}>今日やること</p>
+          <h2 className={styles.heroTitle}>押すのは1回。あとは成果物が順に増える。</h2>
           <p className={styles.heroText}>
-            「最終会話が古い」「会話ログが少ない」「カルテ充実度が低い」順にフォロー。
+            面談、授業、保護者レポートのうち、いま最優先の仕事だけをここに並べます。
           </p>
-          <div className={styles.iconRow}>
-            <span>🎙 録音→構造化→カルテ更新</span>
-            <span>📄 ワンタッチ保護者レポート</span>
-            <span>🧩 カルテ充実度アップ</span>
-          </div>
-          <div className={styles.miniGrid}>
-            <Badge label={`要フォロー ${dormant}名`} tone="high" />
-            <Badge label={`今週の会話 ${conversationsThisWeek}件`} tone="medium" />
-            <Badge label={`カルテ充実度 平均 ${Math.round(avgCompleteness)}%`} tone="low" />
-          </div>
         </div>
-        <Card title="📊 サマリー">
-          <div style={{ display: "grid", gap: 8 }}>
-            {kpis.map((kpi) => (
-              <div key={kpi.label} style={{ display: "flex", justifyContent: "space-between" }}>
-                <span>{kpi.label}</span>
-                <strong>{kpi.value}</strong>
+        <div className={styles.heroActions}>
+          <Link href={interviewHref}>
+            <Button className={styles.heroButton}>面談を始める</Button>
+          </Link>
+          <Link href={lessonHref}>
+            <Button variant="secondary" className={styles.heroButtonSecondary}>授業を始める</Button>
+          </Link>
+        </div>
+      </section>
+
+      <section className={styles.statusStrip}>
+        <div className={styles.statusItem}>
+          <span className={styles.statusLabel}>面談未実施</span>
+          <strong>{stats.interview}</strong>
+        </div>
+        <div className={styles.statusItem}>
+          <span className={styles.statusLabel}>check-out 待ち</span>
+          <strong>{stats.lesson}</strong>
+        </div>
+        <div className={styles.statusItem}>
+          <span className={styles.statusLabel}>レポ確認待ち</span>
+          <strong>{stats.report}</strong>
+        </div>
+        <div className={styles.statusItem}>
+          <span className={styles.statusLabel}>要確認</span>
+          <strong>{stats.review}</strong>
+        </div>
+      </section>
+
+      <Card
+        title="今日の優先キュー"
+        subtitle="最初の 5〜8 件だけ見れば、その日の主要な仕事を始められる状態にします。"
+      >
+        {error && <div className={styles.error}>{error}</div>}
+        {loading ? (
+          <div className={styles.empty}>読み込み中です。</div>
+        ) : queue.length === 0 ? (
+          <div className={styles.emptyState}>
+            <strong>今日の優先対応はありません</strong>
+            <p>新しい面談や授業を始めるなら、全生徒一覧から対象の生徒を開いてください。</p>
+            <Link href="/app/students">
+              <Button>全生徒を見る</Button>
+            </Link>
+          </div>
+        ) : (
+          <div className={styles.queueList}>
+            {queue.map((item) => (
+              <div key={item.id} className={styles.queueRow}>
+                <div className={styles.queueIdentity}>
+                  <div className={styles.queueNameRow}>
+                    <strong className={styles.queueName}>{item.name}</strong>
+                    {item.grade ? <span className={styles.queueMeta}>{item.grade}</span> : null}
+                    <Badge label={item.state} tone={item.queue.kind === "review" ? "high" : "medium"} />
+                  </div>
+                  <p className={styles.queueOneLiner}>{item.oneLiner}</p>
+                </div>
+                <div className={styles.queueReasonBlock}>
+                  <div className={styles.queueTitle}>{item.queue.title}</div>
+                  <p className={styles.queueReason}>{item.queue.reason}</p>
+                </div>
+                <div className={styles.queueActionBlock}>
+                  <Link href={item.queue.href}>
+                    <Button>{item.queue.cta}</Button>
+                  </Link>
+                </div>
               </div>
             ))}
           </div>
-        </Card>
-      </div>
-
-      <div className={styles.grid}>
-        {kpis.map((kpi) => (
-          <Card key={kpi.label}>
-            <div className={styles.kpiCard}>
-              <span className={styles.kpiLabel}>{kpi.label}</span>
-              <span className={styles.kpiValue}>{kpi.value}</span>
-            </div>
-          </Card>
-        ))}
-      </div>
-
-      <div className={styles.chartGrid}>
-        <Card title="会話ログ数推移（過去6ヶ月）">
-          <LineChart data={conversationLogTrend} />
-        </Card>
-        <Card title="会話量分布（モチベ指標として補助）">
-          <BarChart data={motivationDistribution} />
-        </Card>
-      </div>
-
-      <Card
-        title="フォロー優先（最終会話が古い順）"
-        subtitle="離塾リスク指標は使いません。会話空白とカルテ充実度で優先度を決めます。"
-      >
-        <div className={`${styles.row} ${styles.heading}`}>
-          <div>生徒名</div>
-          <div>学年</div>
-          <div>会話ログ</div>
-          <div>カルテ充実度</div>
-          <div>最終会話</div>
-          <div>操作</div>
-        </div>
-        <div className={styles.list}>
-          {followPriority.map((student) => (
-            <div key={student.id} className={styles.row}>
-              <div style={{ fontWeight: 700 }}>{student.name}</div>
-              <div>{student.grade}</div>
-              <div>{student.conversationCount ?? 0}件</div>
-              <div>
-                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <span>{student.completeness ?? 0}%</span>
-                  <Progress value={student.completeness ?? 0} />
-                </div>
-              </div>
-              <div>
-                {student.lastConversationDate || "未会話"}
-                <div className={styles.subtext}>
-                  {student.daysSinceLast != null ? `${student.daysSinceLast} 日前` : "―"}
-                </div>
-              </div>
-              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                <Link href={`/app/students/${student.id}#record`}>
-                  <Button size="small" variant="primary">
-                    録音して追加
-                  </Button>
-                </Link>
-                <Link href={`/app/students/${student.id}#report`}>
-                  <Button size="small" variant="secondary">
-                    レポート生成
-                  </Button>
-                </Link>
-              </div>
-            </div>
-          ))}
-        </div>
+        )}
       </Card>
+
+      <div className={styles.lowerGrid}>
+        <Card
+          title="次に確認すること"
+          subtitle="生成済みの内容を読む前に、どこで止まっているかだけ分かれば十分です。"
+        >
+          <div className={styles.miniList}>
+            <div className={styles.miniItem}>
+              <strong>面談未実施</strong>
+              <span>{stats.interview} 人</span>
+            </div>
+            <div className={styles.miniItem}>
+              <strong>授業後の録音待ち</strong>
+              <span>{stats.lesson} 人</span>
+            </div>
+            <div className={styles.miniItem}>
+              <strong>レポート確認待ち</strong>
+              <span>{stats.report} 人</span>
+            </div>
+            <div className={styles.miniItem}>
+              <strong>固有名詞などの要確認</strong>
+              <span>{stats.review} 人</span>
+            </div>
+          </div>
+        </Card>
+
+        <Card
+          title="全体の状態"
+          subtitle="詳細なKPIではなく、今日の運用を止めるものだけ静かに出します。"
+        >
+          <div className={styles.directorySummary}>
+            <div>
+              <div className={styles.summaryLabel}>登録生徒</div>
+              <div className={styles.summaryValue}>{students.length}</div>
+            </div>
+            <div>
+              <div className={styles.summaryLabel}>平均プロフィール充足</div>
+              <div className={styles.summaryValue}>
+                {students.length > 0
+                  ? Math.round(
+                      enriched.reduce((acc, item) => acc + item.completeness, 0) /
+                        Math.max(1, enriched.length)
+                    )
+                  : 0}
+                %
+              </div>
+            </div>
+          </div>
+        </Card>
+      </div>
     </div>
   );
 }

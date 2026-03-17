@@ -3,6 +3,7 @@ import { prisma } from "../db";
 import { applyProfileDelta } from "../profile";
 import { preprocessTranscript } from "../transcript/preprocess";
 import { analyzeChunkBlocks, reduceChunkAnalyses, finalizeConversationArtifacts } from "../ai/conversationPipeline";
+import { buildOperationalLog, renderOperationalSummaryMarkdown } from "../operational-log";
 
 type CreateConversationInput = {
   transcript: string;
@@ -38,6 +39,19 @@ export async function createStructuredConversationLog({
     reduced,
     minSummaryChars: transcript.length >= 20000 ? 1200 : 700,
   });
+  const summaryMarkdown = renderOperationalSummaryMarkdown(
+    buildOperationalLog({
+      summaryMarkdown: result.summaryMarkdown,
+      timeline: result.timeline as any,
+      nextActions: result.nextActions as any,
+      parentPack: result.parentPack as any,
+      studentState: result.studentState as any,
+      profileSections: result.profileSections as any,
+      quickQuestions: result.quickQuestions as any,
+      entityCandidates: result.entityCandidates as any,
+      lessonReport: result.lessonReport as any,
+    })
+  );
 
   console.log("[createStructuredConversationLog] Creating conversation log in DB...");
   const conversation = await prisma.conversationLog.create({
@@ -47,7 +61,7 @@ export async function createStructuredConversationLog({
       userId,
       sourceType,
       status: ConversationStatus.DONE,
-      summaryMarkdown: result.summaryMarkdown,
+      summaryMarkdown,
       timelineJson: result.timeline as any,
       nextActionsJson: result.nextActions as any,
       profileDeltaJson: result.profileDelta as any,

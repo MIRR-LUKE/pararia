@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
-import { transcribeAudioVerbose } from "@/lib/ai/stt";
+import { transcribeAudioForPipeline } from "@/lib/ai/stt";
 import { ConversationSourceType, ConversationStatus } from "@prisma/client";
-import { preprocessTranscriptWithSegments } from "@/lib/transcript/preprocess";
+import { preprocessTranscript, preprocessTranscriptWithSegments } from "@/lib/transcript/preprocess";
 import { prisma } from "@/lib/db";
 import { enqueueConversationJobs, processAllConversationJobs } from "@/lib/jobs/conversationJobs";
 import type { ConversationQualityMeta } from "@/lib/types/conversation";
@@ -42,7 +42,7 @@ export async function POST(request: Request) {
     });
 
     const sttStart = Date.now();
-    const stt = await transcribeAudioVerbose({
+    const stt = await transcribeAudioForPipeline({
       buffer,
       filename: file.name,
       mimeType: file.type,
@@ -60,7 +60,10 @@ export async function POST(request: Request) {
       segmentsCount: stt.segments?.length ?? 0,
     });
     const preprocessStart = Date.now();
-    const pre = preprocessTranscriptWithSegments(stt.rawTextOriginal, stt.segments ?? []);
+    const pre =
+      stt.segments.length > 0
+        ? preprocessTranscriptWithSegments(stt.rawTextOriginal, stt.segments ?? [])
+        : preprocessTranscript(stt.rawTextOriginal);
     const preprocessSeconds = Math.round((Date.now() - preprocessStart) / 1000);
     console.log("[POST /api/audio] Preprocessing complete:", {
       originalLength: pre.rawTextOriginal.length,
@@ -82,6 +85,9 @@ export async function POST(request: Request) {
       const qualityMeta: ConversationQualityMeta = {
         sttSeconds,
         preprocessSeconds,
+        sttModel: stt.meta.model,
+        sttResponseFormat: stt.meta.responseFormat,
+        sttFallbackUsed: stt.meta.fallbackUsed,
         promptVersion: getPromptVersion(),
         generatedAt: new Date().toISOString(),
       };

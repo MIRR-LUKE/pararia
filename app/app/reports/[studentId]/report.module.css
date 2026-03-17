@@ -1,82 +1,196 @@
-.form {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  align-items: center;
-}
-
-.select {
-  padding: 10px 12px;
-  border-radius: 12px;
-  border: 1px solid var(--border);
-  background: #fff;
-  color: var(--text);
-}
-
-.textarea {
-  width: 100%;
-  min-height: 240px;
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  padding: 14px;
-  background: #fff;
-}
-
-.grid {
+.page {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 14px;
+  gap: 18px;
 }
 
-.card {
+.breadcrumb {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.breadcrumb a {
+  color: var(--text);
+  font-weight: 700;
+}
+
+.error {
+  padding: 14px 16px;
+  border-radius: 18px;
   border: 1px solid var(--border);
-  border-radius: 14px;
-  padding: 14px;
-  background: #fff;
+  background: color-mix(in srgb, var(--surface) 84%, #c9a6a6 16%);
+}
+
+.summaryRow {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.summaryCard {
+  min-height: 96px;
+  padding: 18px;
+  border-radius: 22px;
+  border: 1px solid var(--border);
+  background: var(--surface);
   display: grid;
   gap: 8px;
 }
 
-.title {
-  font-weight: 800;
-  margin: 0;
+.summaryCard strong {
+  font-size: 28px;
 }
 
-.table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 13px;
-}
-
-.table th,
-.table td {
-  border: 1px solid var(--border);
-  padding: 8px;
-  text-align: left;
-}
-
-.pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 8px;
-  border-radius: 10px;
-  background: #e0f2fe;
-  color: #075985;
+.summaryLabel,
+.sectionLabel,
+.metaText {
+  font-size: 12px;
   font-weight: 700;
+  color: var(--muted);
 }
 
-.timeline {
+.layout {
+  display: grid;
+  grid-template-columns: minmax(320px, 1.05fr) minmax(340px, 1fr) minmax(280px, 0.86fr);
+  gap: 18px;
+  align-items: start;
+}
+
+.columnStack,
+.issueList,
+.actionStack {
+  display: grid;
+  gap: 12px;
+}
+
+.logCard,
+.previewCard,
+.issueCard,
+.qualityBox {
+  padding: 14px;
+  border-radius: 18px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+}
+
+.logCardSelected {
+  border-color: var(--border-strong);
+  background: var(--surface);
+}
+
+.logCardHead,
+.badgeRow,
+.issueHead,
+.generatedFooter {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.checkboxWrap {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.badgeRow {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.logBody,
+.logSection,
+.qualityGrid {
   display: grid;
   gap: 10px;
 }
 
-.event {
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 10px;
-  background: #f8fafc;
+.qualityGrid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.logSection p,
+.issueCard p,
+.qualityBox p {
+  margin: 0;
+  line-height: 1.6;
+}
+
+.logFooterMeta {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.previewText {
+  margin: 0;
+  white-space: pre-wrap;
+  font: inherit;
+  line-height: 1.7;
+}
+
+.generatedPreview {
+  min-height: 320px;
+  max-height: 64vh;
+  overflow: auto;
+  padding: 18px;
+  border-radius: 18px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  white-space: pre-wrap;
+  line-height: 1.8;
+}
+
+.suggestionButton {
+  min-height: 44px;
+  padding: 0 14px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  text-align: left;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.suggestionButton:hover {
+  border-color: var(--border-strong);
+}
+
+.empty {
+  min-height: 180px;
+  border-radius: 18px;
+  border: 1px dashed var(--border-strong);
+  background: var(--surface-2);
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  text-align: center;
+  color: var(--muted);
+}
+
+@media (max-width: 1200px) {
+  .layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 720px) {
+  .summaryRow,
+  .qualityGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .logCardHead,
+  .badgeRow,
+  .issueHead,
+  .generatedFooter {
+    flex-direction: column;
+  }
 }

@@ -1,25 +1,46 @@
 "use client";
 
 import { FormEvent, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
+import { signIn } from "next-auth/react";
 import styles from "./login.module.css";
 import { Button } from "@/components/ui/Button";
 
 export default function LoginPage() {
   const router = useRouter();
-  const [email, setEmail] = useState("demo@pararia.app");
-  const [password, setPassword] = useState("password");
+  const searchParams = useSearchParams();
+  const callbackUrl = searchParams.get("callbackUrl") || "/app/dashboard";
+  const [email, setEmail] = useState("admin@demo.com");
+  const [password, setPassword] = useState("demo123");
+  const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
 
-  const onSubmit = (e: FormEvent) => {
+  const onSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    router.push("/app/dashboard");
+    setSubmitting(true);
+    setError(null);
+    const result = await signIn("credentials", {
+      email,
+      password,
+      redirect: false,
+      callbackUrl,
+    });
+    setSubmitting(false);
+
+    if (result?.error) {
+      setError("ログインに失敗しました。メールアドレスとパスワードを確認してください。");
+      return;
+    }
+
+    router.push(result?.url || callbackUrl);
+    router.refresh();
   };
 
   return (
     <div className={styles.page}>
       <div className={styles.card}>
-        <h1 className={styles.title}>PARARIA AI</h1>
-        <p className={styles.subtitle}>学習塾向け AIダッシュボード（デモ）</p>
+        <h1 className={styles.title}>PARARIA</h1>
+        <p className={styles.subtitle}>面談と指導報告を、次の会話に使える運用データへ。</p>
         <form onSubmit={onSubmit}>
           <div className={styles.field}>
             <label className={styles.label}>メールアドレス</label>
@@ -41,16 +62,10 @@ export default function LoginPage() {
               required
             />
           </div>
+          {error && <p className={styles.subtitle} style={{ color: "#b91c1c" }}>{error}</p>}
           <div className={styles.actions}>
-            <Button type="submit" variant="primary">
-              ログイン
-            </Button>
-            <Button
-              type="button"
-              variant="secondary"
-              onClick={() => router.push("/app/dashboard")}
-            >
-              デモを見る
+            <Button type="submit" variant="primary" disabled={submitting}>
+              {submitting ? "ログイン中..." : "ログイン"}
             </Button>
           </div>
         </form>

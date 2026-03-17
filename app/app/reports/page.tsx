@@ -1,228 +1,263 @@
-"use client";
+﻿"use client";
 
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useMemo, useState } from "react";
 import { AppHeader } from "@/components/layout/AppHeader";
-import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
-import { Button } from "@/components/ui/Button";
-import {
-  getConversationsByStudentId,
-  getProfileCompleteness,
-  getReportByStudentId,
-  students,
-} from "@/lib/mockData";
+import { Card } from "@/components/ui/Card";
 import styles from "./reportDashboard.module.css";
 
-type ReportCard = {
+type SessionSummary = {
   id: string;
-  name: string;
-  grade: string;
-  teacher: string;
-  lastSent?: string;
-  total: number;
-  lastConversation?: string;
-  conversationCount?: number;
-  completeness?: number;
+  status: string;
+  type: "INTERVIEW" | "LESSON_REPORT";
+  sessionDate: string;
+  heroStateLabel?: string | null;
+  heroOneLiner?: string | null;
+  latestSummary?: string | null;
+  pendingEntityCount: number;
+  conversation?: { id: string } | null;
 };
 
-type CycleOption = { label: string; days: number };
+type ReportSummary = {
+  id: string;
+  status: string;
+  createdAt: string;
+  sentAt?: string | null;
+};
 
-const cycleOptions: CycleOption[] = [
-  { label: "2週間ごと", days: 14 },
-  { label: "3週間ごと", days: 21 },
-  { label: "4週間ごと", days: 28 },
-];
+type StudentRow = {
+  id: string;
+  name: string;
+  grade?: string | null;
+  course?: string | null;
+  sessions?: SessionSummary[];
+  reports?: ReportSummary[];
+  _count?: { sessions: number; reports: number };
+};
 
-function analyzeStatus(lastSent: string | undefined, cycleDays: number) {
-  if (!lastSent) {
-    return {
-      statusLabel: "未送信",
-      tone: "high" as const,
-      nextDueLabel: "すぐ送付",
-      overdue: true,
-      dueSoon: true,
-    };
-  }
-  const last = new Date(lastSent);
-  const now = new Date();
-  const diffDays = Math.floor((now.getTime() - last.getTime()) / (1000 * 60 * 60 * 24));
-  const nextDue = new Date(last);
-  nextDue.setDate(nextDue.getDate() + cycleDays);
-  const nextDueLabel = nextDue.toISOString().slice(0, 10);
-  const remaining = cycleDays - diffDays;
-  if (remaining <= 0) {
-    return {
-      statusLabel: "送付遅延",
-      tone: "high" as const,
-      nextDueLabel: `期限: ${nextDueLabel}`,
-      overdue: true,
-      dueSoon: false,
-    };
-  }
-  if (remaining <= 5) {
-    return {
-      statusLabel: "もうすぐ送付",
-      tone: "medium" as const,
-      nextDueLabel: `期限: ${nextDueLabel}`,
-      overdue: false,
-      dueSoon: true,
-    };
-  }
-  return {
-    statusLabel: "送付済",
-    tone: "low" as const,
-    nextDueLabel: `次回目安: ${nextDueLabel}`,
-    overdue: false,
-    dueSoon: false,
-  };
+function reportStatusLabel(status?: string | null) {
+  if (!status) return "未生成";
+  if (status === "DRAFT") return "下書きあり";
+  if (status === "REVIEWED") return "確認済み";
+  if (status === "SENT") return "送付済み";
+  return status;
+}
+
+function toneFromStatus(status?: string | null): "neutral" | "low" | "medium" | "high" {
+  if (!status) return "medium";
+  if (status === "SENT") return "low";
+  if (status === "DRAFT") return "medium";
+  return "neutral";
 }
 
 export default function ReportDashboardPage() {
-  const [cycle, setCycle] = useState<CycleOption>(cycleOptions[1]);
+  const [students, setStudents] = useState<StudentRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [filter, setFilter] = useState<"pending" | "review" | "sent">("pending");
 
-  const cards: ReportCard[] = students.map((s) => {
-    const reports = getReportByStudentId(s.id);
-    const lastSent = reports[0]?.date;
-    const logs = getConversationsByStudentId(s.id).sort((a, b) =>
-      a.date < b.date ? 1 : -1
-    );
-    const lastLog = logs[0];
-    return {
-      id: s.id,
-      name: s.name,
-      grade: s.grade,
-      teacher: s.teacher,
-      lastSent,
-      total: reports.length,
-      lastConversation: lastLog?.date,
-      conversationCount: logs.length,
-      completeness: getProfileCompleteness(s.profile),
+  useEffect(() => {
+    const load = async () => {
+      setLoading(true);
+      try {
+        const res = await fetch("/api/students", { cache: "no-store" });
+        const body = await res.json();
+        if (res.ok) setStudents(body.students ?? []);
+      } finally {
+        setLoading(false);
+      }
     };
-  });
 
-  const enriched = useMemo(
-    () =>
-      cards.map((card) => {
-        const status = analyzeStatus(card.lastSent, cycle.days);
-        return { ...card, status };
-      }),
-    [cards, cycle.days]
-  );
+    void load();
+  }, []);
 
-  const unsent = enriched.filter((c) => c.status.overdue).length;
-  const dueSoon = enriched.filter((c) => c.status.dueSoon && !c.status.overdue).length;
-  const sentThisMonth = enriched.filter((c) => c.lastSent?.startsWith("2025-11")).length;
+  const rows = useMemo(() => {
+    return students
+      .map((student) => {
+        const latestReport = student.reports?.[0] ?? null;
+        const latestSession = student.sessions?.[0] ?? null;
+        return {
+          ...student,
+          latestReport,
+          latestSession,
+          pendingEntities: latestSession?.pendingEntityCount ?? 0,
+          statusLabel: reportStatusLabel(latestReport?.status ?? null),
+          oneLiner:
+            latestSession?.heroOneLiner ?? latestSession?.latestSummary ?? "今月の会話データから下書きを確認できます。",
+        };
+      })
+      .filter((student) => {
+        if (filter === "pending") return !student.latestReport || student.latestReport.status !== "SENT";
+        if (filter === "review") return Boolean(student.pendingEntities > 0 || !student.latestReport || student.latestReport.status === "DRAFT");
+        return Boolean(student.latestReport?.status === "SENT");
+      });
+  }, [filter, students]);
+
+  const reviewQueue = useMemo(() => {
+    return students
+      .map((student) => {
+        const latestSession = student.sessions?.[0] ?? null;
+        const latestReport = student.reports?.[0] ?? null;
+        const pendingEntities = latestSession?.pendingEntityCount ?? 0;
+        const needsCheckout = latestSession?.status === "COLLECTING";
+
+        if (!latestSession || (!pendingEntities && !needsCheckout)) {
+          return null;
+        }
+
+        return {
+          id: student.id,
+          name: student.name,
+          grade: student.grade,
+          latestSession,
+          latestReport,
+          pendingEntities,
+          label: needsCheckout ? "授業が途中です" : "要確認があります",
+          description: needsCheckout
+            ? "check-in まで完了しています。授業後のチェックアウトで指導報告を完成させます。"
+            : `${pendingEntities} 件の固有名詞候補を確認できます。`,
+          href: needsCheckout
+            ? `/app/students/${student.id}`
+            : latestSession.conversation?.id
+              ? `/app/logs/${latestSession.conversation.id}`
+              : `/app/students/${student.id}`,
+          cta: needsCheckout ? "チェックアウトを録る" : "根拠を確認する",
+        };
+      })
+      .filter(Boolean) as Array<{
+      id: string;
+      name: string;
+      grade?: string | null;
+      latestSession: SessionSummary;
+      latestReport: ReportSummary | null;
+      pendingEntities: number;
+      label: string;
+      description: string;
+      href: string;
+      cta: string;
+    }>;
+  }, [students]);
+
+  const counts = useMemo(() => {
+    const pending = students.filter((student) => !student.reports?.[0] || student.reports[0].status !== "SENT").length;
+    const review = students.filter((student) => (student.sessions?.[0]?.pendingEntityCount ?? 0) > 0).length;
+    const sent = students.filter((student) => student.reports?.[0]?.status === "SENT").length;
+    return { pending, review, sent };
+  }, [students]);
 
   return (
     <div className={styles.page}>
       <AppHeader
-        title="保護者レポートダッシュボード"
-        subtitle="前回レポ以降のログを自動選択し、ワンタッチでMarkdownを生成"
+        title="送付前レビュー"
+        subtitle="ここはレポートを作る場所ではなく、送る前の確認を最小コストで回す確認キューです。"
       />
 
-      <div className={styles.controlRow}>
-        <div className={styles.controlLabel}>レポート送信サイクル</div>
-        <select
-          className={styles.select}
-          value={cycle.days}
-          onChange={(e) => {
-            const days = Number(e.target.value);
-            const option = cycleOptions.find((c) => c.days === days) ?? cycleOptions[1];
-            setCycle(option);
-          }}
-        >
-          {cycleOptions.map((opt) => (
-            <option key={opt.days} value={opt.days}>
-              {opt.label}
-            </option>
-          ))}
-        </select>
-        <div className={styles.controlNote}>設定したサイクルで「遅延／要送付」を自動判定</div>
-      </div>
+      <section className={styles.summaryRow}>
+        <div className={styles.summaryCard}>
+          <span className={styles.summaryLabel}>送付待ち</span>
+          <strong>{counts.pending}</strong>
+        </div>
+        <div className={styles.summaryCard}>
+          <span className={styles.summaryLabel}>要確認あり</span>
+          <strong>{counts.review}</strong>
+        </div>
+        <div className={styles.summaryCard}>
+          <span className={styles.summaryLabel}>送付済み</span>
+          <strong>{counts.sent}</strong>
+        </div>
+      </section>
 
-      <div className={styles.statsRow}>
-        <Card>
-          <div className={styles.statLabel}>対象生徒</div>
-          <div className={styles.statValue}>{cards.length}名</div>
-        </Card>
-        <Card>
-          <div className={styles.statLabel}>遅延・未送信</div>
-          <div className={styles.statValue} style={{ color: "#dc2626" }}>
-            {unsent}名
-          </div>
-        </Card>
-        <Card>
-          <div className={styles.statLabel}>送付期限が近い</div>
-          <div className={styles.statValue} style={{ color: "#f59e0b" }}>
-            {dueSoon}名
-          </div>
-        </Card>
-        <Card>
-          <div className={styles.statLabel}>今月送付済み</div>
-          <div className={styles.statValue} style={{ color: "#2563eb" }}>
-            {sentThisMonth}名
-          </div>
-        </Card>
-      </div>
+      <section className={styles.filterRow}>
+        {[
+          { key: "pending", label: "送付待ち" },
+          { key: "review", label: "要確認あり" },
+          { key: "sent", label: "送付済み" },
+        ].map((item) => (
+          <button
+            key={item.key}
+            type="button"
+            className={`${styles.filterChip} ${filter === item.key ? styles.filterChipActive : ""}`}
+            onClick={() => setFilter(item.key as typeof filter)}
+          >
+            {item.label}
+          </button>
+        ))}
+      </section>
 
-      <Card title="📋 生徒別レポート状況" subtitle="カードをクリックすると作成・編集ページへ">
-        <div className={styles.grid}>
-          {enriched.map((card) => (
-            <Link key={card.id} href={`/app/reports/${card.id}`} className={styles.linkCard}>
-              <div className={styles.cardHeader}>
-                <div className={styles.headerMain}>
-                  <div className={styles.name}>{card.name}</div>
-                  <div className={styles.meta}>
-                    {card.grade} / 担当: {card.teacher}
+      <Card title="送付待ちレポート" subtitle="ドラフトは product が先に用意し、ここでは確認と最終判断だけをします。">
+        {loading ? (
+          <div className={styles.empty}>読み込み中です。</div>
+        ) : rows.length === 0 ? (
+          <div className={styles.empty}>この条件に当てはまるレポートはありません。</div>
+        ) : (
+          <div className={styles.grid}>
+            {rows.map((student) => (
+              <Link key={student.id} href={`/app/reports/${student.id}`} className={styles.linkCard}>
+                <div className={styles.cardHeader}>
+                  <div>
+                    <div className={styles.name}>{student.name}</div>
+                    <div className={styles.meta}>{student.grade ?? "学年未設定"}</div>
+                  </div>
+                  <Badge label={student.statusLabel} tone={toneFromStatus(student.latestReport?.status ?? null)} />
+                </div>
+
+                <p className={styles.oneLiner}>{student.oneLiner}</p>
+
+                <div className={styles.metricGrid}>
+                  <div className={styles.metricItem}>
+                    <span className={styles.metricLabel}>更新元セッション</span>
+                    <strong>{student._count?.sessions ?? 0} 件</strong>
+                  </div>
+                  <div className={styles.metricItem}>
+                    <span className={styles.metricLabel}>要確認</span>
+                    <strong>{student.pendingEntities} 件</strong>
                   </div>
                 </div>
-                <div className={styles.headerSide}>
-                  <Badge label={card.status.statusLabel} tone={card.status.tone} />
-                  <div className={styles.smallMuted}>{card.status.nextDueLabel}</div>
-                </div>
-              </div>
 
-              <div className={styles.metricGrid}>
-                <div className={styles.metricItem}>
-                  <div className={styles.metricLabel}>最終会話</div>
-                  <div className={styles.metricValue}>{card.lastConversation ?? "未会話"}</div>
+                <div className={styles.footer}>
+                  <span className={styles.footerLabel}>確認する</span>
                 </div>
-                <div className={styles.metricItem}>
-                  <div className={styles.metricLabel}>会話ログ</div>
-                  <div className={styles.metricValue}>{card.conversationCount ?? 0}件</div>
-                </div>
-                <div className={styles.metricItem}>
-                  <div className={styles.metricLabel}>カルテ充実度</div>
-                  <div className={styles.metricValue}>{card.completeness ?? 0}%</div>
-                </div>
-                <div className={styles.metricItem}>
-                  <div className={styles.metricLabel}>累計レポート</div>
-                  <div className={styles.metricValue}>{card.total}件</div>
-                </div>
-              </div>
+              </Link>
+            ))}
+          </div>
+        )}
+      </Card>
 
-              <div className={styles.cardFooter}>
-                <div className={styles.footerLeft}>
-                  <span className={styles.cyclePill}>{cycle.label}</span>
-                  {card.lastSent ? (
-                    <span className={styles.smallMuted}>前回: {card.lastSent}</span>
-                  ) : (
-                    <span className={styles.smallMuted}>前回: 未送信</span>
-                  )}
+      <Card title="その他の確認キュー" subtitle="レポート以外でも、事故につながる確認待ちはここに寄せます。">
+        {reviewQueue.length === 0 ? (
+          <div className={styles.empty}>いま優先して確認する項目はありません。</div>
+        ) : (
+          <div className={styles.grid}>
+            {reviewQueue.map((item) => (
+              <Link key={item.id} href={item.href} className={styles.linkCard}>
+                <div className={styles.cardHeader}>
+                  <div>
+                    <div className={styles.name}>{item.name}</div>
+                    <div className={styles.meta}>{item.grade ?? "学年未設定"}</div>
+                  </div>
+                  <Badge label={item.label} tone="medium" />
                 </div>
-                <div className={styles.footerRight}>
-                  {(card.status.overdue || card.status.dueSoon || card.total === 0) && (
-                    <span className={styles.alert}>
-                      {card.total === 0 ? "未送信" : card.status.statusLabel}
-                    </span>
-                  )}
-                  <span className={styles.primaryCta}>ワンタッチ生成 →</span>
+
+                <p className={styles.oneLiner}>{item.description}</p>
+
+                <div className={styles.metricGrid}>
+                  <div className={styles.metricItem}>
+                    <span className={styles.metricLabel}>セッション種別</span>
+                    <strong>{item.latestSession.type === "LESSON_REPORT" ? "指導報告" : "面談"}</strong>
+                  </div>
+                  <div className={styles.metricItem}>
+                    <span className={styles.metricLabel}>要確認</span>
+                    <strong>{item.pendingEntities} 件</strong>
+                  </div>
                 </div>
-              </div>
-            </Link>
-          ))}
-        </div>
+
+                <div className={styles.footer}>
+                  <span className={styles.footerLabel}>{item.cta}</span>
+                </div>
+              </Link>
+            ))}
+          </div>
+        )}
       </Card>
     </div>
   );

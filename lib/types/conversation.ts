@@ -1,3 +1,13 @@
+import type {
+  EntityCandidate,
+  LessonReportArtifact,
+  ObservationEvent,
+  ProfileSection,
+  QuickQuestion,
+  RecommendedTopic,
+  StudentStateCard,
+} from "./session";
+
 export type TimelineSection = {
   title: string;
   what_happened: string;
@@ -84,6 +94,13 @@ export type FinalizeResult = {
   nextActions: NextAction[];
   profileDelta: ProfileDelta;
   parentPack: ParentPack;
+  studentState: StudentStateCard;
+  recommendedTopics: RecommendedTopic[];
+  quickQuestions: QuickQuestion[];
+  profileSections: ProfileSection[];
+  entityCandidates: EntityCandidate[];
+  observationEvents: ObservationEvent[];
+  lessonReport: LessonReportArtifact | null;
 };
 
 export type ConversationQualityMeta = {
@@ -96,6 +113,9 @@ export type ConversationQualityMeta = {
   todoCount?: number;
   quotesCountTotal?: number;
   sttSeconds?: number;
+  sttModel?: string;
+  sttResponseFormat?: string;
+  sttFallbackUsed?: boolean;
   preprocessSeconds?: number;
   jobSecondsAnalyze?: number;
   jobSecondsReduce?: number;
