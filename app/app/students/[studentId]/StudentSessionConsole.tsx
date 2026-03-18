@@ -1,6 +1,5 @@
 "use client";
 
-import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { StudentRecorder } from "./StudentRecorder";
 import { LessonReportComposer } from "./LessonReportComposer";
@@ -18,7 +17,6 @@ type Props = {
   onLessonPartChange: (part: SessionConsoleLessonPart) => void;
   onRefresh: () => void;
   onOpenProof: (logId: string) => void;
-  onOpenReport: (sessionId?: string) => void;
 };
 
 const MODE_COPY: Record<SessionConsoleMode, { title: string; subtitle: string; bullets: string[] }> = {
@@ -55,7 +53,6 @@ export function StudentSessionConsole({
   onLessonPartChange,
   onRefresh,
   onOpenProof,
-  onOpenReport,
 }: Props) {
   const copy = MODE_COPY[mode];
 
@@ -76,7 +73,7 @@ export function StudentSessionConsole({
           onClick={() => onModeChange("LESSON_REPORT")}
         >
           <span className={styles.modeLabel}>授業を始める</span>
-          <span className={styles.modeHint}>check-in / check-out を束ねる</span>
+          <span className={styles.modeHint}>授業前後の記録を束ねる</span>
         </button>
       </div>
 
@@ -84,7 +81,12 @@ export function StudentSessionConsole({
         <div>
           <div className={styles.consoleEyebrow}>Session Console</div>
           <h3 className={styles.consoleTitle}>{copy.title}</h3>
-          <p className={styles.consoleSubtitle}>{copy.subtitle}</p>
+          <p className={styles.consoleSubtitle}>
+            {copy.subtitle}
+            {mode === "INTERVIEW"
+              ? " 録音を終えると、そのまま処理進行の確認に進みます。"
+              : " 授業前後の記録を同じ文脈のまま扱い、1コマ分の記録に束ねます。"}
+          </p>
         </div>
         <Badge label={mode === "INTERVIEW" ? "最大60分" : "各10分"} tone="neutral" />
       </div>
@@ -115,9 +117,6 @@ export function StudentSessionConsole({
               チェックアウト
             </button>
           </div>
-          <Button variant="ghost" size="small" onClick={() => onOpenReport()}>
-            レポ素材へ進む
-          </Button>
         </div>
       ) : null}
 
@@ -136,7 +135,6 @@ export function StudentSessionConsole({
             preferredPartType={lessonPart}
             onCompleted={onRefresh}
             onOpenProof={onOpenProof}
-            onReportFromSession={(sessionId) => onOpenReport(sessionId)}
           />
         )}
       </div>

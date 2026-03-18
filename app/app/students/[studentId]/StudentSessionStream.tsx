@@ -13,7 +13,6 @@ type Props = {
   selectedSessionIds: string[];
   onSelectedSessionIdsChange: (ids: string[]) => void;
   onOpenProof: (logId: string) => void;
-  onOpenReport: () => void;
 };
 
 const FILTERS: Array<{ key: FilterType; label: string }> = [
@@ -28,7 +27,7 @@ function statusLabel(status?: string | null) {
   if (!status) return "未設定";
   if (status === "READY") return "確認可能";
   if (status === "PROCESSING") return "生成中";
-  if (status === "COLLECTING") return "check-out 待ち";
+  if (status === "COLLECTING") return "チェックアウト待ち";
   if (status === "DONE") return "完了";
   if (status === "ERROR") return "エラー";
   return status;
@@ -46,7 +45,6 @@ export function StudentSessionStream({
   selectedSessionIds,
   onSelectedSessionIdsChange,
   onOpenProof,
-  onOpenReport,
 }: Props) {
   const [filter, setFilter] = useState<FilterType>("ALL");
 
@@ -67,16 +65,18 @@ export function StudentSessionStream({
       ? selectedSessionIds.filter((id) => id !== sessionId)
       : [...selectedSessionIds, sessionId];
     onSelectedSessionIdsChange(next);
-    if (next.length > 0) onOpenReport();
   };
 
   return (
     <section className={styles.stream} aria-label="会話ログ一覧">
       <div className={styles.streamHeader}>
         <div>
-          <div className={styles.eyebrow}>Session Stream</div>
-          <h3 className={styles.title}>中央の共通素材面</h3>
-          <p className={styles.subtitle}>読む、根拠を見る、親レポ素材を選ぶ。この 3 つをここに集約します。</p>
+          <div className={styles.eyebrow}>会話ログ一覧</div>
+          <h3 className={styles.title}>会話ログを読みながら素材を選ぶ</h3>
+          <p className={styles.subtitle}>
+            会話ログを読む、根拠を見る、親レポ素材として選ぶ。この 3 つをここに集約します。
+            選択しただけでは右の作業面は切り替わりません。
+          </p>
         </div>
         <div className={styles.filterRow}>
           {FILTERS.map((item) => (
@@ -93,6 +93,11 @@ export function StudentSessionStream({
       </div>
 
       <div className={styles.list}>
+        {selectedSessionIds.length > 0 ? (
+          <div className={styles.empty}>
+            選択中のログは {selectedSessionIds.length} 件です。保護者レポートを作ると、右側で束ね品質と送付前確認を続けて行えます。
+          </div>
+        ) : null}
         {filteredSessions.length === 0 ? (
           <div className={styles.empty}>この条件に合う会話ログはまだありません。</div>
         ) : (
@@ -153,7 +158,7 @@ export function StudentSessionStream({
 
                 <div className={styles.rowFooter}>
                   <div className={styles.metaRow}>
-                    <span>未確認 entity {session.pendingEntityCount} 件</span>
+                    <span>未確認の固有名詞 {session.pendingEntityCount} 件</span>
                     <span>選択中 {selected ? "はい" : "いいえ"}</span>
                   </div>
                   <div className={styles.actions}>
@@ -163,7 +168,7 @@ export function StudentSessionStream({
                       </Button>
                     ) : null}
                     <Button size="small" onClick={() => toggleSession(session.id)}>
-                      {selected ? "レポ素材から外す" : "レポ素材に追加"}
+                      {selected ? "選択済み" : "選択する"}
                     </Button>
                   </div>
                 </div>

@@ -7,9 +7,9 @@ import { signOut, useSession } from "next-auth/react";
 import styles from "./Sidebar.module.css";
 
 const navItems = [
-  { label: "Today", href: "/app/dashboard" },
-  { label: "Students", href: "/app/students" },
-  { label: "Admin", href: "/app/settings" },
+  { label: "今日", href: "/app/dashboard" },
+  { label: "生徒", href: "/app/students" },
+  { label: "管理", href: "/app/settings" },
 ];
 
 type StudentSummary = {
@@ -66,7 +66,7 @@ export function Sidebar() {
         <div className={styles.brandMark}>P</div>
         <div>
           <div className={styles.brandName}>PARARIA</div>
-          <div className={styles.brandSub}>Teaching OS</div>
+          <div className={styles.brandSub}>指導運用OS</div>
         </div>
       </div>
 
@@ -90,10 +90,15 @@ export function Sidebar() {
         ))}
       </nav>
 
-      <Link href="/app/reports" className={styles.queueCard}>
+      <div className={styles.queueCard}>
         <div className={styles.queueHead}>
-          <div className={styles.queueTitle}>Queue</div>
-          <span className={styles.queueLink}>確認面</span>
+          <div>
+            <div className={styles.queueTitle}>進行状況</div>
+            <div className={styles.queueLink}>補助確認面</div>
+          </div>
+          <Link href="/app/reports" className={styles.queueAction}>
+            開く
+          </Link>
         </div>
         <div className={styles.queueMetrics}>
           <div>
@@ -109,12 +114,12 @@ export function Sidebar() {
             <strong>{queueSummary.pending}</strong>
           </div>
         </div>
-      </Link>
+      </div>
 
       <div className={styles.footer}>
         <div className={styles.userBlock}>
-          <div className={styles.userName}>{session?.user?.name ?? "Staff"}</div>
-          <div className={styles.userMeta}>{(session?.user as any)?.role ?? "TEACHER"}</div>
+          <div className={styles.userName}>{session?.user?.name ?? "担当者"}</div>
+          <div className={styles.userMeta}>{(session?.user as any)?.role ?? "講師"}</div>
         </div>
         <button
           type="button"

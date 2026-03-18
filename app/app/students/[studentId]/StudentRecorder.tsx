@@ -418,7 +418,7 @@ export function StudentRecorder({ studentName, studentId, onLogCreated, onOpenPr
         {state === "success" && logId ? (
           <div className={styles.successState}>
             <h4 className={styles.processingTitle}>面談ログを更新しました</h4>
-            <p className={styles.hint}>Student Room とログ詳細に、要点と次の行動が反映されています。</p>
+            <p className={styles.hint}>生徒ルームと会話ログ詳細に、要点と次の行動が反映されています。</p>
             <div className={styles.inlineActions}>
               {onOpenProof ? (
                 <Button onClick={() => onOpenProof(logId)}>根拠を見る</Button>

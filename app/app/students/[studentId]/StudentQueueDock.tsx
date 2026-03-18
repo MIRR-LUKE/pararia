@@ -9,8 +9,9 @@ type Props = {
   sessions: SessionItem[];
   reports: ReportItem[];
   onOpenProof: (logId: string) => void;
-  onOpenReport: () => void;
+  onOpenReport: (options?: { sendReady?: boolean }) => void;
   onOpenRecording: (mode: "INTERVIEW" | "LESSON_REPORT", part?: "CHECK_IN" | "CHECK_OUT") => void;
+  onOpenProcessing: () => void;
 };
 
 type QueueItem = {
@@ -22,7 +23,14 @@ type QueueItem = {
   onAction: () => void;
 };
 
-export function StudentQueueDock({ sessions, reports, onOpenProof, onOpenReport, onOpenRecording }: Props) {
+export function StudentQueueDock({
+  sessions,
+  reports,
+  onOpenProof,
+  onOpenReport,
+  onOpenRecording,
+  onOpenProcessing,
+}: Props) {
   const items: QueueItem[] = [];
   const processingSessions = sessions.filter((session) => session.status === "PROCESSING");
   const collectingSession = sessions.find((session) => session.status === "COLLECTING");
@@ -33,7 +41,7 @@ export function StudentQueueDock({ sessions, reports, onOpenProof, onOpenReport,
   if (collectingSession) {
     items.push({
       id: `collecting-${collectingSession.id}`,
-      label: "check-out 待ち",
+      label: "チェックアウト待ち",
       detail: "授業前のチェックインまで完了しています。授業後の録音で 1 コマ分の指導報告が完成します。",
       tone: "medium",
       actionLabel: "チェックアウトを始める",
@@ -48,14 +56,14 @@ export function StudentQueueDock({ sessions, reports, onOpenProof, onOpenReport,
       detail: `${processingSessions.length} 件のセッションで文字起こしまたは要約処理が進行中です。`,
       tone: "neutral",
       actionLabel: "進行を見る",
-      onAction: () => onOpenRecording(processingSessions[0]?.type === "LESSON_REPORT" ? "LESSON_REPORT" : "INTERVIEW"),
+      onAction: onOpenProcessing,
     });
   }
 
   if (pendingEntities > 0 && readyProof?.conversation?.id) {
     items.push({
       id: "entities",
-      label: "entity 確認",
+      label: "固有名詞の確認",
       detail: `${pendingEntities} 件の固有名詞候補があります。送付前にここだけ確認すれば事故を止められます。`,
       tone: "high",
       actionLabel: "根拠を見る",
@@ -70,27 +78,20 @@ export function StudentQueueDock({ sessions, reports, onOpenProof, onOpenReport,
       detail: "下書きはできています。送付前の確認だけをこの場で終えられます。",
       tone: "medium",
       actionLabel: "レポを確認",
-      onAction: onOpenReport,
+      onAction: () => onOpenReport({ sendReady: true }),
     });
   }
 
   if (items.length === 0) {
-    items.push({
-      id: "clear",
-      label: "待ちなし",
-      detail: "この生徒について、今すぐ止めるべき確認待ちはありません。必要ならここから面談か授業を始められます。",
-      tone: "low",
-      actionLabel: "面談を始める",
-      onAction: () => onOpenRecording("INTERVIEW"),
-    });
+    return null;
   }
 
   return (
     <section className={styles.queueDock} aria-label="生徒ごとの進行状況">
       <div className={styles.queueDockHeader}>
         <div>
-          <div className={styles.eyebrow}>Student Queue</div>
-          <h3 className={styles.workbenchTitle}>この生徒で今止めないこと</h3>
+          <div className={styles.eyebrow}>この生徒の進行</div>
+          <h3 className={styles.workbenchTitle}>今止めないことだけを見る</h3>
         </div>
         <Badge label={`${items.length} 件`} tone={items.some((item) => item.tone === "high") ? "high" : "neutral"} />
       </div>

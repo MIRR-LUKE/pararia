@@ -119,6 +119,20 @@
   color: var(--muted);
 }
 
+.queueAction {
+  min-height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 700;
+}
+
 .queueMetrics > div {
   display: grid;
   gap: 4px;
@@ -172,14 +186,36 @@
 }
 
 @media (max-width: 720px) {
+  .sidebar {
+    gap: 12px;
+    padding: 12px;
+  }
+
+  .switcher,
+  .footer {
+    display: none;
+  }
+
+  .brandSub {
+    display: none;
+  }
+
   .menu,
   .queueMetrics {
     grid-template-columns: 1fr;
     display: grid;
   }
 
+  .queueCard {
+    padding: 12px;
+  }
+
   .queueHead {
     flex-direction: column;
     align-items: flex-start;
+  }
+
+  .queueAction {
+    min-height: 40px;
   }
 }

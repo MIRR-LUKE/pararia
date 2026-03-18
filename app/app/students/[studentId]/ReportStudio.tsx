@@ -4,10 +4,11 @@ import { useEffect, useMemo, useState } from "react";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { buildBundlePreview, buildBundleQualityEval, type ReportBundleLog } from "@/lib/operational-log";
-import type { ReportItem, SessionItem } from "./roomTypes";
+import type { ReportItem, SessionItem, WorkbenchPanel } from "./roomTypes";
 import styles from "./studentWorkbench.module.css";
 
 type Props = {
+  panel: Extract<WorkbenchPanel, "report_selection" | "report_generated" | "send_ready">;
   studentId: string;
   studentName: string;
   sessions: SessionItem[];
@@ -16,6 +17,7 @@ type Props = {
   onSelectedSessionIdsChange: (ids: string[]) => void;
   onRefresh: () => void;
   onOpenProof: (logId: string) => void;
+  onOpenGenerated: () => void;
   onSendReady: () => void;
 };
 
@@ -56,6 +58,7 @@ function splitParagraphs(markdown?: string | null) {
 }
 
 export function ReportStudio({
+  panel,
   studentId,
   studentName,
   sessions,
@@ -64,6 +67,7 @@ export function ReportStudio({
   onSelectedSessionIdsChange,
   onRefresh,
   onOpenProof,
+  onOpenGenerated,
   onSendReady,
 }: Props) {
   const [content, setContent] = useState("");
@@ -98,6 +102,8 @@ export function ReportStudio({
     () => candidateSessions.filter((session) => bundleQuality.suggestedLogIds.includes(session.id)),
     [bundleQuality.suggestedLogIds, candidateSessions]
   );
+  const showGenerated = panel === "report_generated" || panel === "send_ready";
+  const showSendChecklist = panel === "send_ready";
   const structurePreview = useMemo(() => {
     return [
       { label: "今回の様子", state: bundleLogs.length > 0 ? "出せる" : "不足" },
@@ -135,7 +141,7 @@ export function ReportStudio({
       if (!res.ok) throw new Error(body?.error ?? "保護者レポートの生成に失敗しました。");
       setContent(body.report?.reportMarkdown ?? "");
       await onRefresh();
-      onSendReady();
+      onOpenGenerated();
     } catch (nextError: any) {
       setError(nextError?.message ?? "保護者レポートの生成に失敗しました。");
     } finally {
@@ -169,9 +175,21 @@ export function ReportStudio({
     <section className={styles.workbenchSection} aria-label="保護者レポートのワークベンチ">
       <div className={styles.workbenchHeader}>
         <div>
-          <div className={styles.eyebrow}>Report Studio</div>
-          <h3 className={styles.workbenchTitle}>ログを見ながら右でレポを組む</h3>
-          <p className={styles.mutedText}>選択ログのまとまりを先に確認してから生成します。作文画面ではなく、講師判断を整える面です。</p>
+          <div className={styles.eyebrow}>保護者レポート</div>
+          <h3 className={styles.workbenchTitle}>
+            {panel === "report_selection"
+              ? "ログを見ながら右でレポを組む"
+              : panel === "report_generated"
+                ? "生成済みドラフトを確認する"
+                : "送付前の確認だけを終える"}
+          </h3>
+          <p className={styles.mutedText}>
+            {panel === "report_selection"
+              ? "選択ログのまとまりを先に確認してから生成します。作文画面ではなく、講師判断を整える面です。"
+              : panel === "report_generated"
+                ? "段落ごとの根拠を見ながら、講師判断が通っているかを確認します。"
+                : "未確認の固有名詞と警告だけを止めて、送付の事故を防ぎます。"}
+          </p>
         </div>
         <Badge label={`${selectedSessionIds.length} 件選択`} tone={selectedSessionIds.length > 0 ? "neutral" : "medium"} />
       </div>
@@ -182,7 +200,7 @@ export function ReportStudio({
           <strong>{bundleQuality.periodLabel}</strong>
         </div>
         <div className={styles.metricCard}>
-          <span className={styles.metricLabel}>未確認 entity</span>
+          <span className={styles.metricLabel}>未確認の固有名詞</span>
           <strong>{pendingEntityCount} 件</strong>
         </div>
         <div className={styles.metricCard}>
@@ -193,51 +211,55 @@ export function ReportStudio({
 
       {error ? <div className={styles.inlineError}>{error}</div> : null}
 
-      <div className={styles.structureList}>
-        {structurePreview.map((item) => (
-          <div key={item.label} className={styles.structureItem}>
-            <span>{item.label}</span>
-            <Badge label={item.state} tone={item.state === "弱い" || item.state === "不足" || item.state === "薄い" ? "medium" : "low"} />
-          </div>
-        ))}
-      </div>
-
-      <div className={styles.previewPanel}>
-        <pre className={styles.previewText}>{buildBundlePreview(bundleQuality)}</pre>
-      </div>
-
-      <div className={styles.qualityColumns}>
-        <div className={styles.qualityCard}>
-          <div className={styles.sectionLabel}>強い要素</div>
-          {(bundleQuality.strongElements.length > 0 ? bundleQuality.strongElements : ["まだ強い軸が足りません。"]).map((item) => (
-            <p key={item}>{item}</p>
-          ))}
-        </div>
-        <div className={styles.qualityCard}>
-          <div className={styles.sectionLabel}>弱い要素</div>
-          {(bundleQuality.weakElements.length > 0 ? bundleQuality.weakElements : ["この選び方なら大きな欠落はありません。"]).map((item) => (
-            <p key={item}>{item}</p>
-          ))}
-        </div>
-      </div>
-
-      {suggestedSessions.length > 0 ? (
-        <div className={styles.issueCard}>
-          <div className={styles.sectionLabel}>追加候補</div>
-          <div className={styles.inlineActions}>
-            {suggestedSessions.map((session) => (
-              <Button key={session.id} size="small" variant="secondary" onClick={() => toggleSession(session.id)}>
-                {new Date(session.sessionDate).toLocaleDateString("ja-JP")} / {session.type === "LESSON_REPORT" ? "指導報告" : "面談"}
-              </Button>
+      {panel === "report_selection" ? (
+        <>
+          <div className={styles.structureList}>
+            {structurePreview.map((item) => (
+              <div key={item.label} className={styles.structureItem}>
+                <span>{item.label}</span>
+                <Badge label={item.state} tone={item.state === "弱い" || item.state === "不足" || item.state === "薄い" ? "medium" : "low"} />
+              </div>
             ))}
           </div>
-        </div>
+
+          <div className={styles.previewPanel}>
+            <pre className={styles.previewText}>{buildBundlePreview(bundleQuality)}</pre>
+          </div>
+
+          <div className={styles.qualityColumns}>
+            <div className={styles.qualityCard}>
+              <div className={styles.sectionLabel}>強い要素</div>
+              {(bundleQuality.strongElements.length > 0 ? bundleQuality.strongElements : ["まだ強い軸が足りません。"]).map((item) => (
+                <p key={item}>{item}</p>
+              ))}
+            </div>
+            <div className={styles.qualityCard}>
+              <div className={styles.sectionLabel}>弱い要素</div>
+              {(bundleQuality.weakElements.length > 0 ? bundleQuality.weakElements : ["この選び方なら大きな欠落はありません。"]).map((item) => (
+                <p key={item}>{item}</p>
+              ))}
+            </div>
+          </div>
+
+          {suggestedSessions.length > 0 ? (
+            <div className={styles.issueCard}>
+              <div className={styles.sectionLabel}>追加候補</div>
+              <div className={styles.inlineActions}>
+                {suggestedSessions.map((session) => (
+                  <Button key={session.id} size="small" variant="secondary" onClick={() => toggleSession(session.id)}>
+                    {new Date(session.sessionDate).toLocaleDateString("ja-JP")} / {session.type === "LESSON_REPORT" ? "指導報告" : "面談"}
+                  </Button>
+                ))}
+              </div>
+            </div>
+          ) : null}
+        </>
       ) : null}
 
       <div className={styles.issueCard}>
-        <div className={styles.sectionLabel}>送付前チェック</div>
+        <div className={styles.sectionLabel}>{showSendChecklist ? "送付前チェック" : "品質警告"}</div>
         <div className={styles.issueList}>
-          <p>未確認 entity: {pendingEntityCount} 件</p>
+          <p>未確認の固有名詞: {pendingEntityCount} 件</p>
           {(bundleQuality.warnings.length > 0 ? bundleQuality.warnings : ["この選択なら送付前の大きな警告はありません。"]).map((item) => (
             <p key={item}>{item}</p>
           ))}
@@ -245,44 +267,53 @@ export function ReportStudio({
       </div>
 
       <div className={styles.actionStack}>
-        <Button onClick={generate} disabled={generating || selectedSessionIds.length === 0}>
-          {generating ? "保護者レポートを生成中..." : "この選択で保護者レポートを生成"}
-        </Button>
-        {latestReport && latestReport.status !== "SENT" ? (
-          <Button variant="secondary" disabled={pendingEntityCount > 0 || sending} onClick={markAsSent}>
-            {pendingEntityCount > 0 ? "entity 確認後に送付" : sending ? "送付状態を更新中..." : "送付準備完了にする"}
+        {panel === "report_selection" ? (
+          <Button onClick={generate} disabled={generating || selectedSessionIds.length === 0}>
+            {generating ? "保護者レポートを生成中..." : "この選択で保護者レポートを生成"}
+          </Button>
+        ) : null}
+        {showGenerated && latestReport && latestReport.status !== "SENT" ? (
+          <Button variant="secondary" onClick={onSendReady}>
+            送付前確認へ進む
+          </Button>
+        ) : null}
+        {showSendChecklist && latestReport && latestReport.status !== "SENT" ? (
+          <Button disabled={pendingEntityCount > 0 || sending} onClick={markAsSent}>
+            {pendingEntityCount > 0 ? "固有名詞の確認後に送付" : sending ? "送付状態を更新中..." : "送付準備完了にする"}
           </Button>
         ) : null}
       </div>
 
-      <div className={styles.reportBlocks}>
-        <div className={styles.sectionLabel}>生成後ドラフト</div>
-        {previewParagraphs.length === 0 ? (
-          <div className={styles.emptyWorkbench}>まだドラフトはありません。左の会話ログを選んで生成します。</div>
-        ) : (
-          previewParagraphs.map((block, index) => (
-            <article key={`${index}-${block.slice(0, 20)}`} className={styles.reportBlock}>
-              <div className={styles.reportBlockHead}>
-                <strong>{index === 0 ? `${studentName} への報告文` : `段落 ${index + 1}`}</strong>
-                <div className={styles.inlineActions}>
-                  <Badge label={`根拠ログ ${selectedSessionIds.length} 件`} tone="neutral" />
-                  <Button
-                    size="small"
-                    variant="ghost"
-                    onClick={() => {
-                      const firstProof = selectedSessions[index]?.conversation?.id ?? selectedSessions[0]?.conversation?.id;
-                      if (firstProof) onOpenProof(firstProof);
-                    }}
-                  >
-                    根拠を見る
-                  </Button>
+      {showGenerated ? (
+        <div className={styles.reportBlocks}>
+          <div className={styles.sectionLabel}>生成後ドラフト</div>
+          {previewParagraphs.length === 0 ? (
+            <div className={styles.emptyWorkbench}>まだドラフトはありません。左の会話ログを選んで生成します。</div>
+          ) : (
+            previewParagraphs.map((block, index) => (
+              <article key={`${index}-${block.slice(0, 20)}`} className={styles.reportBlock}>
+                <div className={styles.reportBlockHead}>
+                  <strong>{index === 0 ? `${studentName} への報告文` : `段落 ${index + 1}`}</strong>
+                  <div className={styles.inlineActions}>
+                    <Badge label={`根拠ログ ${selectedSessionIds.length} 件`} tone="neutral" />
+                    <Button
+                      size="small"
+                      variant="ghost"
+                      onClick={() => {
+                        const firstProof = selectedSessions[index]?.conversation?.id ?? selectedSessions[0]?.conversation?.id;
+                        if (firstProof) onOpenProof(firstProof);
+                      }}
+                    >
+                      根拠を見る
+                    </Button>
+                  </div>
                 </div>
-              </div>
-              <p className={styles.reportParagraph}>{block.replace(/^#+\s*/gm, "")}</p>
-            </article>
-          ))
-        )}
-      </div>
+                <p className={styles.reportParagraph}>{block.replace(/^#+\s*/gm, "")}</p>
+              </article>
+            ))
+          )}
+        </div>
+      ) : null}
     </section>
   );
 }

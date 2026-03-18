@@ -125,6 +125,7 @@ export type RoomResponse = {
 export type WorkbenchPanel =
   | "idle"
   | "recording"
+  | "processing"
   | "proof"
   | "report_selection"
   | "report_generated"

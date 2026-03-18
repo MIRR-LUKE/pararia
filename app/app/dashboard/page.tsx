@@ -153,7 +153,7 @@ export default function DashboardPage() {
         if (!res.ok) throw new Error(body?.error ?? "生徒情報の取得に失敗しました。");
         setStudents(body.students ?? []);
       } catch (err: any) {
-        setError(err?.message ?? "Today の読み込みに失敗しました。");
+        setError(err?.message ?? "今日の優先キューの読み込みに失敗しました。");
       } finally {
         setLoading(false);
       }
@@ -194,7 +194,7 @@ export default function DashboardPage() {
   return (
     <div className={styles.page}>
       <AppHeader
-        title="Today"
+        title="今日の優先キュー"
         subtitle="今すぐ対応が必要な生徒だけを前に出します。ここでは読むより先に、動き始めることを優先します。"
       />
 
@@ -222,7 +222,7 @@ export default function DashboardPage() {
           <strong>{stats.interview}</strong>
         </div>
         <div className={styles.statusItem}>
-          <span className={styles.statusLabel}>check-out 待ち</span>
+          <span className={styles.statusLabel}>チェックアウト待ち</span>
           <strong>{stats.lesson}</strong>
         </div>
         <div className={styles.statusItem}>

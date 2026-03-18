@@ -204,7 +204,7 @@ export default function StudentsPage() {
   return (
     <div className={styles.page}>
       <AppHeader
-        title="Students"
+        title="生徒一覧"
         subtitle="ここは全生徒ディレクトリです。探して入り、状態を見て、必要ならそのまま面談や授業へ進みます。"
         actions={
           <Button variant="secondary" onClick={() => setShowCreate((prev) => !prev)}>

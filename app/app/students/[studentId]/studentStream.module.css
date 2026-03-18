@@ -78,6 +78,7 @@
   border-radius: 24px;
   border: 1px solid var(--border);
   background: var(--surface);
+  min-width: 0;
 }
 
 .rowSelected {
@@ -209,6 +210,10 @@
   color: var(--muted);
 }
 
+.actions > * {
+  min-height: 44px;
+}
+
 @media (max-width: 920px) {
   .grid,
   .qualityColumns,
@@ -228,5 +233,20 @@
   .queueDockHeader,
   .workbenchHeader {
     flex-direction: column;
+  }
+
+  .row {
+    padding: 14px;
+    border-radius: 18px;
+  }
+
+  .actions {
+    display: grid;
+    width: 100%;
+  }
+
+  .actions > * {
+    width: 100%;
+    min-height: 44px;
   }
 }

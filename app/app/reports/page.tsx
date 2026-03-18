@@ -114,7 +114,7 @@ export default function ReportDashboardPage() {
           pendingEntities,
           label: needsCheckout ? "授業が途中です" : "要確認があります",
           description: needsCheckout
-            ? "check-in まで完了しています。授業後のチェックアウトで指導報告を完成させます。"
+            ? "チェックインまで完了しています。授業後のチェックアウトで指導報告を完成させます。"
             : `${pendingEntities} 件の固有名詞候補を確認できます。`,
           href: needsCheckout
             ? `/app/students/${student.id}?panel=recording&mode=LESSON_REPORT&part=CHECK_OUT`

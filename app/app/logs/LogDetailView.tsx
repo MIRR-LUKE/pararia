@@ -122,7 +122,7 @@ type Props = {
 const TAB_LABELS: Array<{ key: TabKey; label: string }> = [
   { key: "summary", label: "要点" },
   { key: "evidence", label: "根拠" },
-  { key: "entities", label: "要確認 entity" },
+  { key: "entities", label: "要確認の固有名詞" },
   { key: "transcript", label: "文字起こし" },
 ];
 
@@ -392,13 +392,13 @@ export function LogDetailView({ logId, showHeader = true, onBack }: Props) {
 
           if (!res.ok) {
             const body = await res.json().catch(() => ({}));
-            throw new Error(body?.error ?? "entity確認の反映に失敗しました。");
+            throw new Error(body?.error ?? "固有名詞確認の反映に失敗しました。");
           }
         })
       );
       await fetchLog();
     } catch (applyError: any) {
-      setEntityError(applyError?.message ?? "entity確認の反映に失敗しました。");
+      setEntityError(applyError?.message ?? "固有名詞確認の反映に失敗しました。");
     } finally {
       setEntityBusy(false);
     }
@@ -415,10 +415,10 @@ export function LogDetailView({ logId, showHeader = true, onBack }: Props) {
         body: JSON.stringify({ action: "ignore" }),
       });
       const body = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(body?.error ?? "entityの無視に失敗しました。");
+      if (!res.ok) throw new Error(body?.error ?? "固有名詞の除外に失敗しました。");
       await fetchLog();
     } catch (ignoreError: any) {
-      setEntityError(ignoreError?.message ?? "entityの無視に失敗しました。");
+      setEntityError(ignoreError?.message ?? "固有名詞の除外に失敗しました。");
     } finally {
       setEntityBusy(false);
     }
@@ -478,7 +478,7 @@ export function LogDetailView({ logId, showHeader = true, onBack }: Props) {
                 {regenerating ? "再生成中..." : "再生成"}
               </Button>
               <Button size="small" variant="ghost" onClick={() => router.push(`/app/students/${log.studentId}`)}>
-                Student Roomへ
+                生徒ルームへ
               </Button>
               <Button size="small" variant="ghost" onClick={handleDelete}>
                 削除
@@ -557,7 +557,7 @@ export function LogDetailView({ logId, showHeader = true, onBack }: Props) {
           </Card>
 
           <div className={styles.twoCol}>
-            <Card title="今回の変化" subtitle="Student Room に出す状態ラベルと一言です。">
+            <Card title="今回の変化" subtitle="生徒ルームに出す状態ラベルと一言です。">
               {log.studentStateJson ? (
                 <div className={styles.stateCard}>
                   <div className={styles.stateTop}>
@@ -607,6 +607,36 @@ export function LogDetailView({ logId, showHeader = true, onBack }: Props) {
             </Card>
           </div>
 
+          <Card title="プロフィール差分" subtitle="学習 / 学校 / 生活 / 進路の更新案です。">
+            {log.profileSectionsJson?.length ? (
+              <div className={styles.profileGrid}>
+                {log.profileSectionsJson.map((section) => (
+                  <div key={section.category} className={styles.profileCard}>
+                    <div className={styles.listHead}>
+                      <strong>{section.category}</strong>
+                      <Badge label={section.status} tone="neutral" />
+                    </div>
+                    <div className={styles.profilePoints}>
+                      {(section.highlights ?? []).map((item) => (
+                        <div key={`${item.label}-${item.value}`} className={styles.profilePoint}>
+                          <div className={styles.profilePointHeader}>
+                            <span>{item.label}</span>
+                            {item.isNew ? <span className={styles.profileTag}>NEW</span> : null}
+                            {item.isUpdated ? <span className={styles.profileTag}>UPDATE</span> : null}
+                          </div>
+                          <p>{item.value}</p>
+                        </div>
+                      ))}
+                    </div>
+                    <div className={styles.reason}>次に確認すること: {section.nextQuestion}</div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className={styles.subtext}>プロフィール差分はまだありません。</div>
+            )}
+          </Card>
+
           {log.lessonReportJson ? (
             <Card title="指導報告書ドラフト" subtitle="授業運用と講師間引き継ぎのための要点です。">
               <div className={styles.list}>
@@ -633,6 +663,23 @@ export function LogDetailView({ logId, showHeader = true, onBack }: Props) {
               </div>
             </Card>
           ) : null}
+
+          <Card title="再利用ブロック" subtitle="親レポや次回準備に再利用しやすい単位で並べます。">
+            {log.reuseBlocks?.length ? (
+              <div className={styles.list}>
+                {log.reuseBlocks.map((block, index) => (
+                  <div key={`${block.type}-${index}`} className={styles.listItem}>
+                    <div className={styles.listHead}>
+                      <strong>{block.text}</strong>
+                      <Badge label={block.type} tone="neutral" />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className={styles.subtext}>再利用ブロックはまだありません。</div>
+            )}
+          </Card>
         </div>
       ) : null}
 
@@ -665,62 +712,13 @@ export function LogDetailView({ logId, showHeader = true, onBack }: Props) {
               <div className={styles.subtext}>根拠として表示できるタイムラインはまだありません。</div>
             )}
           </Card>
-
-          <div className={styles.twoCol}>
-            <Card title="プロフィール差分" subtitle="学習 / 学校 / 生活 / 進路の更新案です。">
-              {log.profileSectionsJson?.length ? (
-                <div className={styles.profileGrid}>
-                  {log.profileSectionsJson.map((section) => (
-                    <div key={section.category} className={styles.profileCard}>
-                      <div className={styles.listHead}>
-                        <strong>{section.category}</strong>
-                        <Badge label={section.status} tone="neutral" />
-                      </div>
-                      <div className={styles.profilePoints}>
-                        {(section.highlights ?? []).map((item) => (
-                          <div key={`${item.label}-${item.value}`} className={styles.profilePoint}>
-                            <div className={styles.profilePointHeader}>
-                              <span>{item.label}</span>
-                              {item.isNew ? <span className={styles.profileTag}>NEW</span> : null}
-                              {item.isUpdated ? <span className={styles.profileTag}>UPDATE</span> : null}
-                            </div>
-                            <p>{item.value}</p>
-                          </div>
-                        ))}
-                      </div>
-                      <div className={styles.reason}>次に確認すること: {section.nextQuestion}</div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className={styles.subtext}>プロフィール差分はまだありません。</div>
-              )}
-            </Card>
-
-            <Card title="再利用ブロック" subtitle="親レポや次回準備に再利用しやすい単位で並べます。">
-              {log.reuseBlocks?.length ? (
-                <div className={styles.list}>
-                  {log.reuseBlocks.map((block, index) => (
-                    <div key={`${block.type}-${index}`} className={styles.listItem}>
-                      <div className={styles.listHead}>
-                        <strong>{block.text}</strong>
-                        <Badge label={block.type} tone="neutral" />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className={styles.subtext}>再利用ブロックはまだありません。</div>
-              )}
-            </Card>
-          </div>
         </div>
       ) : null}
 
       {tab === "entities" ? (
         <div className={styles.stack}>
           <Card
-            title="要確認 entity"
+            title="要確認の固有名詞"
             subtitle="学校名・教材名・模試名・数値などの確認をここで反映します。"
             action={
               <Button
@@ -771,7 +769,7 @@ export function LogDetailView({ logId, showHeader = true, onBack }: Props) {
                 ))}
               </div>
             ) : (
-              <div className={styles.subtext}>未確認の entity はありません。</div>
+              <div className={styles.subtext}>未確認の固有名詞はありません。</div>
             )}
           </Card>
         </div>
