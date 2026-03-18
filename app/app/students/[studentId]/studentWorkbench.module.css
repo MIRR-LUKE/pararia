@@ -1,51 +1,15 @@
-.queueDock,
-.workbenchSection {
+﻿.workbenchSection {
   display: grid;
-  gap: 16px;
-  min-width: 0;
+  gap: 18px;
 }
 
-.queueDockHeader,
-.queueItemHead,
 .workbenchHeader,
-.reportBlockHead {
+.reportBlockHead,
+.structureItem {
   display: flex;
   justify-content: space-between;
   gap: 12px;
   align-items: flex-start;
-}
-
-.queueList,
-.actionStack,
-.reportBlocks,
-.structureList,
-.issueList {
-  display: grid;
-  gap: 10px;
-}
-
-.queueItem,
-.metricCard,
-.previewPanel,
-.qualityCard,
-.issueCard,
-.reportBlock,
-.structureItem {
-  padding: 14px;
-  border-radius: 18px;
-  border: 1px solid var(--border);
-  background: var(--surface-2);
-}
-
-.metricGrid,
-.qualityColumns {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.qualityColumns {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .eyebrow,
@@ -55,13 +19,13 @@
   color: var(--muted);
   font-weight: 800;
   letter-spacing: 0.04em;
-  text-transform: uppercase;
 }
 
 .workbenchTitle {
   margin: 6px 0 0;
-  font-size: 22px;
-  letter-spacing: -0.02em;
+  font-size: 26px;
+  line-height: 1.2;
+  letter-spacing: -0.03em;
 }
 
 .mutedText,
@@ -74,31 +38,59 @@
   line-height: 1.7;
 }
 
-.previewText {
-  margin: 0;
-  white-space: pre-wrap;
-  font: inherit;
-  color: var(--text);
+.metricGrid,
+.qualityColumns {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.qualityColumns {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.metricCard,
+.qualityCard,
+.issueCard,
+.previewPanel,
+.reportBlock {
+  padding: 16px;
+  border-radius: 20px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
 }
 
 .metricCard strong {
   display: block;
-  margin-top: 8px;
-  font-size: 16px;
+  margin-top: 10px;
+  font-size: 18px;
+}
+
+.structureList,
+.issueList,
+.actionStack,
+.reportBlocks {
+  display: grid;
+  gap: 10px;
 }
 
 .structureItem {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  align-items: center;
+  padding: 12px 14px;
+  border-radius: 16px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+}
+
+.previewText {
+  margin: 0;
+  white-space: pre-wrap;
+  font: inherit;
 }
 
 .inlineActions {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
-  align-items: center;
 }
 
 .inlineError {
@@ -109,19 +101,15 @@
 }
 
 .emptyWorkbench {
-  min-height: 140px;
-  border-radius: 18px;
-  border: 1px dashed var(--border-strong);
-  background: var(--surface-2);
+  min-height: 160px;
   display: grid;
   place-items: center;
   text-align: center;
-  padding: 18px;
+  border-radius: 20px;
+  border: 1px dashed var(--border);
+  background: var(--surface-2);
   color: var(--muted);
-}
-
-.actionStack > * {
-  width: 100%;
+  padding: 20px;
 }
 
 @media (max-width: 920px) {
@@ -132,31 +120,9 @@
 }
 
 @media (max-width: 720px) {
-  .queueItem,
-  .metricCard,
-  .previewPanel,
-  .qualityCard,
-  .issueCard,
-  .reportBlock,
-  .structureItem {
-    padding: 12px;
-    border-radius: 16px;
-  }
-
-  .queueDockHeader,
-  .queueItemHead,
   .workbenchHeader,
   .reportBlockHead,
   .structureItem {
     flex-direction: column;
-    align-items: flex-start;
-  }
-
-  .inlineActions {
-    width: 100%;
-  }
-
-  .inlineActions > * {
-    width: 100%;
   }
 }

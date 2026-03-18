@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useMemo, useState } from "react";
 import { Badge } from "@/components/ui/Badge";
@@ -6,38 +6,56 @@ import { Button } from "@/components/ui/Button";
 import type { SessionItem } from "./roomTypes";
 import styles from "./studentStream.module.css";
 
-type FilterType = "ALL" | "INTERVIEW" | "LESSON_REPORT" | "PARENT" | "ENTITY";
-
 type Props = {
   sessions: SessionItem[];
   selectedSessionIds: string[];
   onSelectedSessionIdsChange: (ids: string[]) => void;
   onOpenProof: (logId: string) => void;
+  onOpenReportBuilder: () => void;
 };
 
-const FILTERS: Array<{ key: FilterType; label: string }> = [
-  { key: "ALL", label: "すべて" },
-  { key: "INTERVIEW", label: "面談" },
-  { key: "LESSON_REPORT", label: "指導報告" },
-  { key: "PARENT", label: "親共有向き" },
-  { key: "ENTITY", label: "要確認あり" },
-];
+type FilterKey = "all" | "interview" | "lesson" | "pending";
 
-function statusLabel(status?: string | null) {
-  if (!status) return "未設定";
-  if (status === "READY") return "確認可能";
-  if (status === "PROCESSING") return "生成中";
-  if (status === "COLLECTING") return "チェックアウト待ち";
-  if (status === "DONE") return "完了";
-  if (status === "ERROR") return "エラー";
-  return status;
+function modeLabel(session: SessionItem) {
+  return session.type === "LESSON_REPORT" ? "指導報告" : "面談";
 }
 
-function statusTone(status?: string | null): "neutral" | "low" | "medium" | "high" {
-  if (status === "DONE" || status === "READY") return "low";
-  if (status === "ERROR") return "high";
-  if (status === "PROCESSING" || status === "COLLECTING") return "medium";
+function partLabel(session: SessionItem) {
+  if (session.type !== "LESSON_REPORT") return "通し録音";
+  const partTypes = session.parts.map((part) => part.partType);
+  if (partTypes.includes("CHECK_IN") && partTypes.includes("CHECK_OUT")) return "チェックイン + チェックアウト";
+  if (partTypes.includes("CHECK_OUT")) return "チェックアウト";
+  if (partTypes.includes("CHECK_IN")) return "チェックイン";
+  return "指導報告";
+}
+
+function statusTone(session: SessionItem): "neutral" | "low" | "medium" | "high" {
+  if (session.pendingEntityCount > 0) return "high";
+  if (session.status === "PROCESSING" || session.status === "COLLECTING") return "medium";
+  if (session.status === "DONE" || session.status === "READY") return "low";
   return "neutral";
+}
+
+function statusLabel(session: SessionItem) {
+  if (session.pendingEntityCount > 0) return `未確認 ${session.pendingEntityCount} 件`;
+  if (session.status === "COLLECTING") return "記録途中";
+  if (session.status === "PROCESSING") return "生成中";
+  if (session.status === "READY" || session.status === "DONE") return "確認可能";
+  return session.status;
+}
+
+function formatDateLabel(date: string) {
+  return new Date(date).toLocaleString("ja-JP", {
+    month: "numeric",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function sliceOrFallback(items: string[] | undefined, fallback: string) {
+  if (!items || items.length === 0) return [fallback];
+  return items.slice(0, 2);
 }
 
 export function StudentSessionStream({
@@ -45,131 +63,160 @@ export function StudentSessionStream({
   selectedSessionIds,
   onSelectedSessionIdsChange,
   onOpenProof,
+  onOpenReportBuilder,
 }: Props) {
-  const [filter, setFilter] = useState<FilterType>("ALL");
+  const [filter, setFilter] = useState<FilterKey>("all");
 
-  const filteredSessions = useMemo(() => {
+  const visibleSessions = useMemo(() => {
     return sessions.filter((session) => {
-      if (!session.conversation?.operationalLog) return false;
-      if (filter === "ALL") return true;
-      if (filter === "INTERVIEW") return session.type === "INTERVIEW";
-      if (filter === "LESSON_REPORT") return session.type === "LESSON_REPORT";
-      if (filter === "PARENT") return (session.conversation.operationalLog.parentShare.length ?? 0) > 0;
-      if (filter === "ENTITY") return session.pendingEntityCount > 0;
-      return true;
+      if (filter === "all") return true;
+      if (filter === "interview") return session.type === "INTERVIEW";
+      if (filter === "lesson") return session.type === "LESSON_REPORT";
+      return session.pendingEntityCount > 0;
     });
   }, [filter, sessions]);
 
-  const toggleSession = (sessionId: string) => {
-    const next = selectedSessionIds.includes(sessionId)
-      ? selectedSessionIds.filter((id) => id !== sessionId)
-      : [...selectedSessionIds, sessionId];
-    onSelectedSessionIdsChange(next);
+  const selectedCount = selectedSessionIds.length;
+
+  const toggleSelection = (sessionId: string) => {
+    onSelectedSessionIdsChange(
+      selectedSessionIds.includes(sessionId)
+        ? selectedSessionIds.filter((id) => id !== sessionId)
+        : [...selectedSessionIds, sessionId]
+    );
   };
 
   return (
-    <section className={styles.stream} aria-label="会話ログ一覧">
+    <section className={styles.stream} aria-label="コミュニケーション履歴">
       <div className={styles.streamHeader}>
         <div>
-          <div className={styles.eyebrow}>会話ログ一覧</div>
-          <h3 className={styles.title}>会話ログを読みながら素材を選ぶ</h3>
+          <div className={styles.eyebrow}>コミュニケーション履歴</div>
+          <h3 className={styles.title}>会話ログを読みながら、親レポ用の素材を選ぶ</h3>
           <p className={styles.subtitle}>
-            会話ログを読む、根拠を見る、親レポ素材として選ぶ。この 3 つをここに集約します。
-            選択しただけでは右の作業面は切り替わりません。
+            チェックしただけでは何も始まりません。必要なログを選んだあとで、明示的に保護者レポートを生成します。
           </p>
         </div>
-        <div className={styles.filterRow}>
-          {FILTERS.map((item) => (
-            <button
-              key={item.key}
-              type="button"
-              className={`${styles.filterChip} ${filter === item.key ? styles.filterChipActive : ""}`}
-              onClick={() => setFilter(item.key)}
-            >
-              {item.label}
-            </button>
-          ))}
+
+        <div className={styles.actions}>
+          <div className={styles.selectionSummary}>選択中 {selectedCount} 件</div>
+          <Button onClick={onOpenReportBuilder} disabled={selectedCount === 0}>
+            保護者レポートを生成
+          </Button>
         </div>
       </div>
 
+      <div className={styles.filterRow}>
+        {[
+          { key: "all", label: "すべて" },
+          { key: "interview", label: "面談のみ" },
+          { key: "lesson", label: "指導報告のみ" },
+          { key: "pending", label: "要確認あり" },
+        ].map((item) => (
+          <button
+            key={item.key}
+            type="button"
+            className={`${styles.filterChip} ${filter === item.key ? styles.filterChipActive : ""}`}
+            onClick={() => setFilter(item.key as FilterKey)}
+          >
+            {item.label}
+          </button>
+        ))}
+      </div>
+
       <div className={styles.list}>
-        {selectedSessionIds.length > 0 ? (
-          <div className={styles.empty}>
-            選択中のログは {selectedSessionIds.length} 件です。保護者レポートを作ると、右側で束ね品質と送付前確認を続けて行えます。
-          </div>
-        ) : null}
-        {filteredSessions.length === 0 ? (
-          <div className={styles.empty}>この条件に合う会話ログはまだありません。</div>
+        {visibleSessions.length === 0 ? (
+          <div className={styles.emptyState}>条件に合う会話ログがありません。</div>
         ) : (
-          filteredSessions.map((session) => {
-            const operational = session.conversation?.operationalLog;
-            if (!operational) return null;
-            const selected = selectedSessionIds.includes(session.id);
+          visibleSessions.map((session) => {
+            const operationalLog = session.conversation?.operationalLog;
+            const isSelected = selectedSessionIds.includes(session.id);
+            const isSelectable = Boolean(operationalLog);
+            const theme = operationalLog?.theme ?? session.heroOneLiner ?? session.latestSummary ?? "生成中のため、要点はまだ準備中です。";
 
             return (
-              <article key={session.id} className={`${styles.row} ${selected ? styles.rowSelected : ""}`}>
-                <div className={styles.rowTop}>
-                  <label className={styles.checkboxWrap}>
+              <article key={session.id} className={`${styles.card} ${isSelected ? styles.cardSelected : ""}`}>
+                <div className={styles.cardTop}>
+                  <div>
+                    <div className={styles.metaRow}>
+                      <span>{formatDateLabel(session.sessionDate)}</span>
+                      <span>{modeLabel(session)}</span>
+                      <span>{partLabel(session)}</span>
+                    </div>
+                    <h4 className={styles.cardTitle}>{theme}</h4>
+                  </div>
+                  <div className={styles.badgeRow}>
+                    <Badge label={statusLabel(session)} tone={statusTone(session)} />
+                    <Badge label={`${session.pendingEntityCount} 件`} tone={session.pendingEntityCount > 0 ? "high" : "neutral"} />
+                  </div>
+                </div>
+
+                <div className={styles.summaryGrid}>
+                  <div className={styles.infoCard}>
+                    <div className={styles.sectionLabel}>事実</div>
+                    {sliceOrFallback(operationalLog?.facts, "まだ要点化されていません。").map((item) => (
+                      <p key={item}>{item}</p>
+                    ))}
+                  </div>
+                  <div className={styles.infoCard}>
+                    <div className={styles.sectionLabel}>変化</div>
+                    {sliceOrFallback(operationalLog?.changes, "前回との差分は次の生成で補います。").map((item) => (
+                      <p key={item}>{item}</p>
+                    ))}
+                  </div>
+                  <div className={styles.infoCard}>
+                    <div className={styles.sectionLabel}>見立て</div>
+                    {sliceOrFallback(operationalLog?.assessment, "講師の見立てはまだ整っていません。").map((item) => (
+                      <p key={item}>{item}</p>
+                    ))}
+                  </div>
+                  <div className={styles.infoCard}>
+                    <div className={styles.sectionLabel}>次に確認すること</div>
+                    {sliceOrFallback(operationalLog?.nextChecks, "次の確認事項はこれから整います。").map((item) => (
+                      <p key={item}>{item}</p>
+                    ))}
+                  </div>
+                </div>
+
+                <div className={styles.parentShareCard}>
+                  <div className={styles.sectionLabel}>親共有に向く要素</div>
+                  {sliceOrFallback(operationalLog?.parentShare, "このログ単体では親共有向けの素材はまだ薄めです。").map((item) => (
+                    <p key={item}>{item}</p>
+                  ))}
+                </div>
+
+                <div className={styles.cardActions}>
+                  <label className={styles.checkboxLabel}>
                     <input
                       type="checkbox"
-                      checked={selected}
-                      onChange={() => toggleSession(session.id)}
+                      checked={isSelected}
+                      disabled={!isSelectable}
+                      onChange={() => toggleSelection(session.id)}
                     />
-                    <div>
-                      <div className={styles.nameRow}>
-                        <strong>{session.type === "LESSON_REPORT" ? "指導報告" : "面談"}</strong>
-                        <Badge label={statusLabel(session.status)} tone={statusTone(session.status)} />
-                      </div>
-                      <p className={styles.meta}>{new Date(session.sessionDate).toLocaleDateString("ja-JP")}</p>
-                    </div>
+                    <span>{isSelected ? "選択中" : "レポ素材に追加"}</span>
                   </label>
-                  <div className={styles.badgeRow}>
-                    {session.pendingEntityCount > 0 ? <Badge label={`要確認 ${session.pendingEntityCount} 件`} tone="high" /> : null}
-                    <Badge label={session.type === "LESSON_REPORT" ? "指導報告" : "面談"} tone="neutral" />
-                  </div>
-                </div>
 
-                <div className={styles.grid}>
-                  <div className={styles.block}>
-                    <div className={styles.blockLabel}>今回の会話テーマ</div>
-                    <p>{operational.theme}</p>
-                  </div>
-                  <div className={styles.block}>
-                    <div className={styles.blockLabel}>事実</div>
-                    <p>{operational.facts.join(" ")}</p>
-                  </div>
-                  <div className={styles.block}>
-                    <div className={styles.blockLabel}>変化</div>
-                    <p>{operational.changes.join(" ")}</p>
-                  </div>
-                  <div className={styles.block}>
-                    <div className={styles.blockLabel}>見立て</div>
-                    <p>{operational.assessment.join(" ")}</p>
-                  </div>
-                  <div className={styles.block}>
-                    <div className={styles.blockLabel}>次に確認すること</div>
-                    <p>{operational.nextChecks.join(" / ")}</p>
-                  </div>
-                  <div className={styles.block}>
-                    <div className={styles.blockLabel}>親共有に向く要素</div>
-                    <p>{operational.parentShare.join(" / ") || "まだ親共有向けの抜き出しはありません。"}</p>
-                  </div>
-                </div>
-
-                <div className={styles.rowFooter}>
-                  <div className={styles.metaRow}>
-                    <span>未確認の固有名詞 {session.pendingEntityCount} 件</span>
-                    <span>選択中 {selected ? "はい" : "いいえ"}</span>
-                  </div>
-                  <div className={styles.actions}>
-                    {session.conversation?.id ? (
-                      <Button size="small" variant="secondary" onClick={() => onOpenProof(session.conversation!.id)}>
-                        詳細を見る
+                  <div className={styles.actionButtons}>
+                    <Button
+                      size="small"
+                      variant="secondary"
+                      disabled={!session.conversation?.id}
+                      onClick={() => session.conversation?.id && onOpenProof(session.conversation.id)}
+                    >
+                      詳細を見る
+                    </Button>
+                    <Button
+                      size="small"
+                      variant="ghost"
+                      disabled={!session.conversation?.id}
+                      onClick={() => session.conversation?.id && onOpenProof(session.conversation.id)}
+                    >
+                      根拠に固定
+                    </Button>
+                    {isSelected ? (
+                      <Button size="small" variant="ghost" onClick={() => toggleSelection(session.id)}>
+                        除外
                       </Button>
                     ) : null}
-                    <Button size="small" onClick={() => toggleSession(session.id)}>
-                      {selected ? "選択済み" : "選択する"}
-                    </Button>
                   </div>
                 </div>
               </article>

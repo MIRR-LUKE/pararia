@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { Badge } from "@/components/ui/Badge";
 import { StudentRecorder } from "./StudentRecorder";
@@ -19,10 +19,10 @@ type Props = {
   onOpenProof: (logId: string) => void;
 };
 
-const MODE_COPY: Record<SessionConsoleMode, { title: string; subtitle: string; bullets: string[] }> = {
+const MODE_COPY: Record<SessionConsoleMode, { title: string; subtitle: string; bullets: string[]; limit: string }> = {
   INTERVIEW: {
     title: "面談モード",
-    subtitle: "生徒理解を深く更新し、次の会話と保護者共有の材料を作ります。",
+    subtitle: "長めの会話をそのまま会話ログ、プロフィール更新、次に聞くことへ変換します。",
     bullets: [
       "会話ログに残る",
       "プロフィール更新に使う",
@@ -30,17 +30,19 @@ const MODE_COPY: Record<SessionConsoleMode, { title: string; subtitle: string; b
       "指導報告書は作らない",
       "最大60分",
     ],
+    limit: "最大60分",
   },
   LESSON_REPORT: {
     title: "指導報告モード",
-    subtitle: "授業前後の短い会話を束ねて、1コマ分の指導報告へ変換します。",
+    subtitle: "授業前後の短い会話を 1 セッションとして束ね、指導報告書まで自動で作ります。",
     bullets: [
       "会話ログに残る",
       "プロフィール更新に使う",
       "保護者レポート素材に使う",
       "指導報告書を作る",
-      "各パート最大10分",
+      "1回10分まで",
     ],
+    limit: "1回10分",
   },
 };
 
@@ -64,31 +66,26 @@ export function StudentSessionConsole({
           className={`${styles.modeButton} ${mode === "INTERVIEW" ? styles.modeButtonActive : ""}`}
           onClick={() => onModeChange("INTERVIEW")}
         >
-          <span className={styles.modeLabel}>面談を録音</span>
-          <span className={styles.modeHint}>生徒理解と次の会話を作る</span>
+          <span className={styles.modeLabel}>面談モード</span>
+          <span className={styles.modeHint}>深めの会話を残す</span>
         </button>
         <button
           type="button"
           className={`${styles.modeButton} ${mode === "LESSON_REPORT" ? styles.modeButtonActive : ""}`}
           onClick={() => onModeChange("LESSON_REPORT")}
         >
-          <span className={styles.modeLabel}>授業を始める</span>
-          <span className={styles.modeHint}>授業前後の記録を束ねる</span>
+          <span className={styles.modeLabel}>指導報告モード</span>
+          <span className={styles.modeHint}>授業前後を 1 セッションにする</span>
         </button>
       </div>
 
       <div className={styles.consoleHeader}>
         <div>
-          <div className={styles.consoleEyebrow}>Session Console</div>
+          <div className={styles.consoleEyebrow}>録音開始</div>
           <h3 className={styles.consoleTitle}>{copy.title}</h3>
-          <p className={styles.consoleSubtitle}>
-            {copy.subtitle}
-            {mode === "INTERVIEW"
-              ? " 録音を終えると、そのまま処理進行の確認に進みます。"
-              : " 授業前後の記録を同じ文脈のまま扱い、1コマ分の記録に束ねます。"}
-          </p>
+          <p className={styles.consoleSubtitle}>{copy.subtitle}</p>
         </div>
-        <Badge label={mode === "INTERVIEW" ? "最大60分" : "各10分"} tone="neutral" />
+        <Badge label={copy.limit} tone="neutral" />
       </div>
 
       <div className={styles.bulletGrid}>
@@ -101,7 +98,8 @@ export function StudentSessionConsole({
 
       {mode === "LESSON_REPORT" ? (
         <div className={styles.lessonToolbar}>
-          <div className={styles.segmented} role="tablist" aria-label="指導報告の進行">
+          <div className={styles.toolbarLabel}>記録するタイミング</div>
+          <div className={styles.segmented} role="tablist" aria-label="指導報告のサブタイプ">
             <button
               type="button"
               className={`${styles.segmentButton} ${lessonPart === "CHECK_IN" ? styles.segmentButtonActive : ""}`}

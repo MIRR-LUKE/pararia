@@ -1,46 +1,46 @@
-.stream {
+﻿.stream {
   display: grid;
-  gap: 16px;
+  gap: 18px;
 }
 
 .streamHeader {
-  display: grid;
-  gap: 12px;
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
 }
 
 .eyebrow,
-.blockLabel,
-.metricLabel,
-.sectionLabel {
+.sectionLabel,
+.metaRow {
   font-size: 12px;
   color: var(--muted);
   font-weight: 800;
   letter-spacing: 0.04em;
-  text-transform: uppercase;
 }
 
 .title {
   margin: 6px 0 0;
-  font-size: 24px;
+  font-size: 28px;
+  line-height: 1.15;
   letter-spacing: -0.03em;
 }
 
 .subtitle,
-.meta,
-.metaRow,
-.mutedText {
+.selectionSummary,
+.emptyState {
   margin: 8px 0 0;
   color: var(--muted);
-  line-height: 1.6;
+  line-height: 1.7;
 }
 
+.actions,
 .filterRow,
 .badgeRow,
-.actions,
-.metaRow,
-.inlineActions {
+.cardActions,
+.actionButtons {
   display: flex;
-  gap: 8px;
+  gap: 10px;
   flex-wrap: wrap;
   align-items: center;
 }
@@ -61,192 +61,118 @@
   color: var(--surface);
 }
 
-.filterChip:focus-visible {
-  outline: 2px solid var(--text);
-  outline-offset: 2px;
-}
-
 .list {
   display: grid;
   gap: 14px;
 }
 
-.row {
+.card {
   display: grid;
-  gap: 14px;
+  gap: 16px;
   padding: 18px;
   border-radius: 24px;
   border: 1px solid var(--border);
   background: var(--surface);
-  min-width: 0;
 }
 
-.rowSelected {
+.cardSelected {
   border-color: var(--text);
-  background: color-mix(in srgb, var(--surface) 82%, var(--surface-2));
+  background: color-mix(in srgb, var(--surface) 86%, var(--surface-2));
 }
 
-.rowTop,
-.rowFooter,
-.checkboxWrap,
-.nameRow,
-.issueHead,
-.reportBlockHead,
-.queueItemHead,
-.queueDockHeader,
-.workbenchHeader {
+.cardTop,
+.topicHead,
+.checkboxLabel {
   display: flex;
   justify-content: space-between;
   gap: 12px;
   align-items: flex-start;
 }
 
-.checkboxWrap {
-  justify-content: flex-start;
+.cardTitle {
+  margin: 8px 0 0;
+  font-size: 22px;
+  line-height: 1.3;
+  letter-spacing: -0.02em;
 }
 
-.checkboxWrap input {
-  width: 18px;
-  height: 18px;
-  margin-top: 4px;
+.metaRow {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
 }
 
-.grid,
-.qualityColumns {
+.summaryGrid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
 }
 
-.block,
-.metricCard,
-.qualityCard,
-.issueCard,
-.previewPanel,
-.reportBlock,
-.queueItem {
+.infoCard,
+.parentShareCard {
   padding: 14px;
   border-radius: 18px;
   border: 1px solid var(--border);
   background: var(--surface-2);
 }
 
-.block p,
-.qualityCard p,
-.issueList p,
-.reportParagraph {
+.infoCard p,
+.parentShareCard p {
   margin: 8px 0 0;
   line-height: 1.7;
 }
 
-.queueDock,
-.workbenchSection {
-  display: grid;
-  gap: 16px;
+.checkboxLabel {
+  justify-content: flex-start;
+  font-weight: 700;
 }
 
-.queueList,
-.actionStack,
-.reportBlocks,
-.structureList {
-  display: grid;
-  gap: 10px;
+.checkboxLabel input {
+  width: 18px;
+  height: 18px;
+  margin-top: 3px;
 }
 
-.structureItem,
-.issueHead,
-.reportBlockHead,
-.queueItemHead {
-  display: flex;
-  justify-content: space-between;
-  gap: 10px;
-  align-items: flex-start;
-}
-
-.previewText {
-  margin: 0;
-  white-space: pre-wrap;
-  font: inherit;
-  line-height: 1.7;
-}
-
-.metricGrid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.metricCard strong {
-  display: block;
-  margin-top: 8px;
-  font-size: 16px;
-}
-
-.generatedFooter {
-  display: flex;
-  justify-content: space-between;
-  gap: 10px;
-  align-items: center;
-}
-
-.inlineError {
-  padding: 12px 14px;
-  border-radius: 16px;
-  border: 1px solid color-mix(in srgb, var(--text) 18%, transparent);
-  background: color-mix(in srgb, var(--surface) 90%, var(--surface-2));
-  color: var(--text);
-}
-
-.empty,
-.emptyWorkbench {
+.emptyState {
   min-height: 140px;
-  border-radius: 18px;
-  border: 1px dashed var(--border-strong);
-  background: var(--surface-2);
   display: grid;
   place-items: center;
-  text-align: center;
-  padding: 18px;
-  color: var(--muted);
-}
-
-.actions > * {
-  min-height: 44px;
+  border-radius: 20px;
+  border: 1px dashed var(--border);
+  background: var(--surface-2);
 }
 
 @media (max-width: 920px) {
-  .grid,
-  .qualityColumns,
-  .metricGrid {
+  .summaryGrid {
     grid-template-columns: 1fr;
   }
 }
 
 @media (max-width: 720px) {
-  .rowTop,
-  .rowFooter,
-  .checkboxWrap,
-  .nameRow,
-  .issueHead,
-  .reportBlockHead,
-  .queueItemHead,
-  .queueDockHeader,
-  .workbenchHeader {
+  .streamHeader,
+  .cardTop,
+  .checkboxLabel {
     flex-direction: column;
   }
 
-  .row {
+  .card {
     padding: 14px;
     border-radius: 18px;
   }
 
   .actions {
-    display: grid;
     width: 100%;
   }
 
   .actions > * {
     width: 100%;
-    min-height: 44px;
+  }
+
+  .actionButtons {
+    width: 100%;
+  }
+
+  .actionButtons > * {
+    flex: 1 1 auto;
   }
 }

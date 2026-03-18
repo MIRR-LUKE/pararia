@@ -1,6 +1,6 @@
-.console {
+﻿.console {
   display: grid;
-  gap: 16px;
+  gap: 18px;
   min-width: 0;
 }
 
@@ -12,7 +12,7 @@
 
 .modeButton,
 .segmentButton {
-  min-height: 52px;
+  min-height: 56px;
   border-radius: 18px;
   border: 1px solid var(--border);
   background: var(--surface);
@@ -22,18 +22,6 @@
   gap: 4px;
   text-align: left;
   cursor: pointer;
-}
-
-.modeButton:hover,
-.segmentButton:hover {
-  border-color: var(--border-strong);
-  background: var(--surface-2);
-}
-
-.modeButton:focus-visible,
-.segmentButton:focus-visible {
-  outline: 2px solid var(--text);
-  outline-offset: 2px;
 }
 
 .modeButtonActive,
@@ -49,13 +37,11 @@
 }
 
 .modeHint,
-.consoleEyebrow {
+.consoleEyebrow,
+.toolbarLabel {
   font-size: 12px;
   color: var(--muted);
-}
-
-.modeButtonActive .modeHint {
-  color: color-mix(in srgb, var(--surface) 78%, transparent);
+  font-weight: 700;
 }
 
 .consoleHeader {
@@ -67,14 +53,14 @@
 
 .consoleTitle {
   margin: 6px 0 0;
-  font-size: 22px;
-  letter-spacing: -0.02em;
+  font-size: 24px;
+  letter-spacing: -0.03em;
 }
 
 .consoleSubtitle {
   margin: 8px 0 0;
   color: var(--muted);
-  line-height: 1.6;
+  line-height: 1.7;
 }
 
 .bulletGrid {
@@ -96,23 +82,19 @@
 }
 
 .lessonToolbar {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  align-items: center;
+  display: grid;
+  gap: 10px;
 }
 
 .segmented {
-  display: inline-grid;
+  display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
-  width: 100%;
 }
 
 .embeddedSurface {
+  padding-top: 8px;
   border-top: 1px solid var(--border);
-  padding-top: 6px;
-  min-width: 0;
 }
 
 @media (max-width: 720px) {
@@ -122,19 +104,7 @@
     grid-template-columns: 1fr;
   }
 
-  .lessonToolbar,
   .consoleHeader {
     flex-direction: column;
-    align-items: stretch;
-  }
-
-  .modeButton,
-  .segmentButton {
-    min-height: 56px;
-  }
-
-  .bulletItem {
-    min-height: 44px;
-    padding: 10px 12px;
   }
 }

@@ -54,9 +54,8 @@ function summarize(student: StudentRow) {
   if (!latestSession) {
     return {
       state: "未開始",
-      oneLiner: "まだ会話データがありません。最初の面談から始めます。",
-      nextAction: "最初の面談を録音",
-      href: `/app/students/${student.id}?panel=recording&mode=INTERVIEW`,
+      oneLiner: "まだ会話データがありません。最初の面談から始められる状態です。",
+      nextAction: "最初の面談を始める",
       view: "interview" as const,
     };
   }
@@ -65,9 +64,8 @@ function summarize(student: StudentRow) {
     return {
       state: latestSession.heroStateLabel ?? "授業途中",
       oneLiner:
-        latestSession.heroOneLiner ?? "授業前の記録だけ保存されています。授業後の録音で完了します。",
-      nextAction: "チェックアウトを録る",
-      href: `/app/students/${student.id}?panel=recording&mode=LESSON_REPORT&part=CHECK_OUT`,
+        latestSession.heroOneLiner ?? "授業前の記録だけ保存されています。授業後の記録で 1 セッションが完了します。",
+      nextAction: "授業後の記録を入れる",
       view: "all" as const,
     };
   }
@@ -76,8 +74,7 @@ function summarize(student: StudentRow) {
     return {
       state: latestSession.heroStateLabel ?? "要確認",
       oneLiner: latestSession.heroOneLiner ?? latestSession.latestSummary ?? "確認が必要な固有名詞があります。",
-      nextAction: "要確認を開く",
-      href: `/app/students/${student.id}`,
+      nextAction: "詳細で確認する",
       view: "review" as const,
     };
   }
@@ -86,8 +83,7 @@ function summarize(student: StudentRow) {
     return {
       state: latestSession.heroStateLabel ?? "確認待ち",
       oneLiner: latestSession.heroOneLiner ?? latestSession.latestSummary ?? "保護者レポートの確認待ちがあります。",
-      nextAction: "レポを確認",
-      href: `/app/students/${student.id}?panel=report`,
+      nextAction: "詳細で確認する",
       view: "report" as const,
     };
   }
@@ -96,8 +92,7 @@ function summarize(student: StudentRow) {
     state: latestSession.heroStateLabel ?? "更新済み",
     oneLiner:
       latestSession.heroOneLiner ?? latestSession.latestSummary ?? "次の会話に向けた材料が揃っています。",
-    nextAction: "生徒ルームへ",
-    href: `/app/students/${student.id}`,
+    nextAction: "生徒詳細を開く",
     view: "all" as const,
   };
 }
@@ -145,7 +140,7 @@ export default function StudentsPage() {
         state: summary.state,
         oneLiner: summary.oneLiner,
         nextAction: summary.nextAction,
-        href: summary.href,
+        href: `/app/students/${student.id}`,
         viewKey: summary.view,
       };
     });
@@ -205,7 +200,7 @@ export default function StudentsPage() {
     <div className={styles.page}>
       <AppHeader
         title="生徒一覧"
-        subtitle="ここは全生徒ディレクトリです。探して入り、状態を見て、必要ならそのまま面談や授業へ進みます。"
+        subtitle="生徒を選んで詳細に入り、録音や確認は生徒ページの中で進めます。"
         actions={
           <Button variant="secondary" onClick={() => setShowCreate((prev) => !prev)}>
             生徒を追加
@@ -240,7 +235,7 @@ export default function StudentsPage() {
       </section>
 
       {showCreate && (
-        <Card title="新しい生徒を追加" subtitle="最小限の情報だけ入れて、あとから会話でプロフィールを育てます。">
+        <Card title="新しい生徒を追加" subtitle="最小限の情報だけ入れて、あとの理解は会話の中で育てます。">
           <div className={styles.formGrid}>
             <input
               value={newStudent.name}
@@ -277,7 +272,7 @@ export default function StudentsPage() {
         </Card>
       )}
 
-      <Card title="生徒ディレクトリ" subtitle="今日の緊急度ではなく、探しやすさと次の行動の分かりやすさを優先します。">
+      <Card title="生徒ディレクトリ" subtitle="一覧では状態だけを見て、操作は生徒詳細ページの中で落ち着いて進めます。">
         {error && <div className={styles.error}>{error}</div>}
         {loading ? (
           <div className={styles.empty}>読み込み中です。</div>
@@ -322,7 +317,7 @@ export default function StudentsPage() {
                 </div>
 
                 <div className={styles.rowAction}>
-                  <Button>{student.nextAction}</Button>
+                  <Button>生徒詳細へ</Button>
                 </div>
               </Link>
             ))}

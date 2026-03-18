@@ -12,6 +12,8 @@ type Props = {
 export function AppHeader({ title, subtitle, actions }: Props) {
   const { data: session } = useSession();
   const initials = (session?.user?.name || "P").slice(0, 1).toUpperCase();
+  const role = (session?.user as any)?.role;
+  const roleLabel = role === "ADMIN" ? "管理者" : role === "TEACHER" ? "講師" : "担当者";
 
   return (
     <header className={styles.header}>
@@ -25,9 +27,7 @@ export function AppHeader({ title, subtitle, actions }: Props) {
           <div className={styles.avatar}>{initials}</div>
           <div>
             <div style={{ fontWeight: 700 }}>{session?.user?.name ?? "Staff"}</div>
-            <div style={{ fontSize: 12, color: "var(--muted)" }}>
-              {(session?.user as any)?.role ?? "TEACHER"}
-            </div>
+            <div style={{ fontSize: 12, color: "var(--muted)" }}>{roleLabel}</div>
           </div>
         </div>
       </div>

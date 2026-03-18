@@ -1,17 +1,16 @@
-"use client";
+﻿"use client";
 
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import type { ReportItem, SessionItem } from "./roomTypes";
-import styles from "./studentWorkbench.module.css";
+import styles from "./studentDetail.module.css";
 
 type Props = {
   sessions: SessionItem[];
   reports: ReportItem[];
   onOpenProof: (logId: string) => void;
-  onOpenReport: (options?: { sendReady?: boolean }) => void;
+  onOpenReport: () => void;
   onOpenRecording: (mode: "INTERVIEW" | "LESSON_REPORT", part?: "CHECK_IN" | "CHECK_OUT") => void;
-  onOpenProcessing: () => void;
 };
 
 type QueueItem = {
@@ -23,93 +22,74 @@ type QueueItem = {
   onAction: () => void;
 };
 
-export function StudentQueueDock({
-  sessions,
-  reports,
-  onOpenProof,
-  onOpenReport,
-  onOpenRecording,
-  onOpenProcessing,
-}: Props) {
+export function StudentQueueDock({ sessions, reports, onOpenProof, onOpenReport, onOpenRecording }: Props) {
   const items: QueueItem[] = [];
-  const processingSessions = sessions.filter((session) => session.status === "PROCESSING");
   const collectingSession = sessions.find((session) => session.status === "COLLECTING");
-  const readyProof = sessions.find((session) => session.conversation?.id && session.status === "READY");
-  const pendingEntities = sessions.reduce((acc, session) => acc + session.pendingEntityCount, 0);
-  const latestDraftReport = reports.find((report) => report.status !== "SENT") ?? null;
+  const processingSession = sessions.find((session) => session.status === "PROCESSING");
+  const proofSession = sessions.find((session) => session.pendingEntityCount > 0 && session.conversation?.id);
+  const draftReport = reports.find((report) => report.status !== "SENT");
 
   if (collectingSession) {
     items.push({
       id: `collecting-${collectingSession.id}`,
-      label: "チェックアウト待ち",
-      detail: "授業前のチェックインまで完了しています。授業後の録音で 1 コマ分の指導報告が完成します。",
+      label: "授業後の記録待ち",
+      detail: "授業前だけ保存されています。授業後を追加すると指導報告がまとまります。",
       tone: "medium",
       actionLabel: "チェックアウトを始める",
       onAction: () => onOpenRecording("LESSON_REPORT", "CHECK_OUT"),
     });
   }
 
-  if (processingSessions.length > 0) {
+  if (processingSession) {
     items.push({
-      id: "processing",
+      id: `processing-${processingSession.id}`,
       label: "生成中",
-      detail: `${processingSessions.length} 件のセッションで文字起こしまたは要約処理が進行中です。`,
+      detail: "文字起こしと要点整理が進行中です。完了後はそのまま詳細で確認できます。",
       tone: "neutral",
-      actionLabel: "進行を見る",
-      onAction: onOpenProcessing,
+      actionLabel: "生成結果を見る",
+      onAction: () => {
+        if (processingSession.conversation?.id) onOpenProof(processingSession.conversation.id);
+      },
     });
   }
 
-  if (pendingEntities > 0 && readyProof?.conversation?.id) {
+  if (proofSession?.conversation?.id) {
     items.push({
-      id: "entities",
+      id: `entity-${proofSession.id}`,
       label: "固有名詞の確認",
-      detail: `${pendingEntities} 件の固有名詞候補があります。送付前にここだけ確認すれば事故を止められます。`,
+      detail: `${proofSession.pendingEntityCount} 件の固有名詞が未確認です。送付前にここを先に整えます。`,
       tone: "high",
       actionLabel: "根拠を見る",
-      onAction: () => onOpenProof(readyProof.conversation!.id),
+      onAction: () => onOpenProof(proofSession.conversation!.id),
     });
   }
 
-  if (latestDraftReport) {
+  if (draftReport) {
     items.push({
-      id: `report-${latestDraftReport.id}`,
-      label: "レポ確認待ち",
-      detail: "下書きはできています。送付前の確認だけをこの場で終えられます。",
+      id: `report-${draftReport.id}`,
+      label: "今月の保護者レポート",
+      detail: "下書きがあります。内容と未確認項目を見てから送付前確認に進めます。",
       tone: "medium",
-      actionLabel: "レポを確認",
-      onAction: () => onOpenReport({ sendReady: true }),
+      actionLabel: "送付前確認",
+      onAction: onOpenReport,
     });
   }
 
-  if (items.length === 0) {
-    return null;
-  }
+  if (items.length === 0) return null;
 
   return (
-    <section className={styles.queueDock} aria-label="生徒ごとの進行状況">
-      <div className={styles.queueDockHeader}>
-        <div>
-          <div className={styles.eyebrow}>この生徒の進行</div>
-          <h3 className={styles.workbenchTitle}>今止めないことだけを見る</h3>
-        </div>
-        <Badge label={`${items.length} 件`} tone={items.some((item) => item.tone === "high") ? "high" : "neutral"} />
-      </div>
-
-      <div className={styles.queueList}>
-        {items.map((item) => (
-          <div key={item.id} className={styles.queueItem}>
-            <div className={styles.queueItemHead}>
-              <strong>{item.label}</strong>
-              <Badge label={item.label} tone={item.tone} />
-            </div>
-            <p className={styles.mutedText}>{item.detail}</p>
+    <div className={styles.queueStrip}>
+      {items.map((item) => (
+        <div key={item.id} className={styles.queueItemCompact}>
+          <div className={styles.queueItemHeadCompact}>
+            <Badge label={item.label} tone={item.tone} />
             <Button size="small" variant={item.tone === "high" ? "primary" : "secondary"} onClick={item.onAction}>
               {item.actionLabel}
             </Button>
           </div>
-        ))}
-      </div>
-    </section>
+          <p>{item.detail}</p>
+        </div>
+      ))}
+    </div>
   );
 }
