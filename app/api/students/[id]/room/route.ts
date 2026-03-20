@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
+import { auth } from "@/auth";
 import { prisma } from "@/lib/db";
 import { buildOperationalLog, renderOperationalSummaryMarkdown } from "@/lib/operational-log";
+import { getRecordingLockView } from "@/lib/recording/lockService";
 
 export async function GET(
   _request: Request,
@@ -175,12 +177,19 @@ export async function GET(
         }
       : null;
 
+    const authSession = await auth();
+    const recordingLock = await getRecordingLockView({
+      studentId: student.id,
+      viewerUserId: authSession?.user?.id ?? null,
+    });
+
     return NextResponse.json({
       student,
       latestConversation: latestConversationWithDerived,
       latestProfile: student.profiles[0] ?? null,
       sessions,
       reports: student.reports,
+      recordingLock,
     });
   } catch (error: any) {
     console.error("[GET /api/students/[id]/room] Error:", error);

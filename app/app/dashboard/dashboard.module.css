@@ -1,4 +1,4 @@
-﻿.page {
+.page {
   display: grid;
   gap: 18px;
 }
@@ -226,4 +226,22 @@
   .heroTitle {
     font-size: 26px;
   }
+}
+
+.inviteRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+}
+
+.inviteInput {
+  flex: 1;
+  min-width: 220px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: inherit;
+  font: inherit;
 }

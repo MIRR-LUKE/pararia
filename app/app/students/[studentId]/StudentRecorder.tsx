@@ -1,8 +1,10 @@
-﻿"use client";
+"use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/Button";
+import { RECORDING_LOCK_HEARTBEAT_MS } from "@/lib/recording/lockConstants";
+import type { RecordingLockInfo } from "./roomTypes";
 import styles from "./studentRecorder.module.css";
 
 type Props = {
@@ -11,6 +13,8 @@ type Props = {
   fallbackLogId?: string;
   onLogCreated?: () => void;
   onOpenProof?: (logId: string) => void;
+  /** 他ユーザーが録音ロック保持中のとき（サーバー基準） */
+  recordingLock?: RecordingLockInfo;
 };
 
 type RecordingState = "idle" | "recording" | "processing" | "success" | "error";
@@ -27,7 +31,7 @@ function formatBytes(bytes: number) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-export function StudentRecorder({ studentName, studentId, onLogCreated, onOpenProof }: Props) {
+export function StudentRecorder({ studentName, studentId, onLogCreated, onOpenProof, recordingLock }: Props) {
   const [state, setState] = useState<RecordingState>("idle");
   const [seconds, setSeconds] = useState(0);
   const [levels, setLevels] = useState([8, 18, 12, 20, 10, 16, 22]);
@@ -45,6 +49,65 @@ export function StudentRecorder({ studentName, studentId, onLogCreated, onOpenPr
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const chunksRef = useRef<BlobPart[]>([]);
+  const lockTokenRef = useRef<string | null>(null);
+  const heartbeatRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const foreignHeld =
+    recordingLock?.active &&
+    recordingLock.lock &&
+    !recordingLock.lock.isHeldByViewer;
+  const foreignLabel = foreignHeld
+    ? `${recordingLock!.lock!.lockedByName} さんが${
+        recordingLock!.lock!.mode === "LESSON_REPORT" ? "指導報告モード" : "面談モード"
+      }で録音中です。閲覧はできますが、新しい録音はできません。`
+    : null;
+
+  const stopHeartbeat = () => {
+    if (heartbeatRef.current) {
+      clearInterval(heartbeatRef.current);
+      heartbeatRef.current = null;
+    }
+  };
+
+  const startHeartbeat = (token: string) => {
+    stopHeartbeat();
+    heartbeatRef.current = setInterval(() => {
+      void fetch(`/api/students/${studentId}/recording-lock`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ lockToken: token }),
+      });
+    }, RECORDING_LOCK_HEARTBEAT_MS);
+  };
+
+  const acquireInterviewLock = async () => {
+    const res = await fetch(`/api/students/${studentId}/recording-lock`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mode: "INTERVIEW" }),
+    });
+    const body = await res.json();
+    if (!res.ok) {
+      throw new Error(body?.error ?? "録音ロックの取得に失敗しました。");
+    }
+    return body.lockToken as string;
+  };
+
+  const releaseLockClient = useCallback(async (token: string) => {
+    await fetch(`/api/students/${studentId}/recording-lock`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ lockToken: token }),
+    }).catch(() => {});
+  }, [studentId]);
+
+  const ensureLockTokenForUpload = async () => {
+    if (lockTokenRef.current) return lockTokenRef.current;
+    const token = await acquireInterviewLock();
+    lockTokenRef.current = token;
+    startHeartbeat(token);
+    return token;
+  };
 
   useEffect(() => {
     if (state !== "recording") return;
@@ -75,8 +138,12 @@ export function StudentRecorder({ studentName, studentId, onLogCreated, onOpenPr
         // ignore cleanup errors
       }
       stopTracks(mediaStreamRef.current);
+      stopHeartbeat();
+      const t = lockTokenRef.current;
+      lockTokenRef.current = null;
+      if (t) void releaseLockClient(t);
     };
-  }, []);
+  }, [studentId, releaseLockClient]);
 
   const timeLabel = useMemo(() => {
     const m = Math.floor(seconds / 60).toString().padStart(2, "0");
@@ -152,6 +219,17 @@ export function StudentRecorder({ studentName, studentId, onLogCreated, onOpenPr
     setLogId(null);
     setError(null);
 
+    let uploadLockToken: string | null = null;
+    try {
+      uploadLockToken = await ensureLockTokenForUpload();
+    } catch (e: any) {
+      setError(e?.message ?? "録音ロックの取得に失敗しました。");
+      setState("error");
+      stopHeartbeat();
+      lockTokenRef.current = null;
+      return;
+    }
+
     try {
       const createRes = await fetch("/api/sessions", {
         method: "POST",
@@ -170,6 +248,7 @@ export function StudentRecorder({ studentName, studentId, onLogCreated, onOpenPr
       const form = new FormData();
       form.append("partType", "FULL");
       form.append("file", file);
+      form.append("lockToken", uploadLockToken);
 
       setStageLabel("文字起こしを開始しています...");
       const progressTimer = setInterval(() => {
@@ -205,6 +284,9 @@ export function StudentRecorder({ studentName, studentId, onLogCreated, onOpenPr
       setTranscriptionProgress(0);
       setAiGenerationProgress(0);
       setStageLabel("");
+    } finally {
+      stopHeartbeat();
+      lockTokenRef.current = null;
     }
   };
 
@@ -214,6 +296,22 @@ export function StudentRecorder({ studentName, studentId, onLogCreated, onOpenPr
     setLogId(null);
     setSeconds(0);
     setEstimatedSize("-");
+
+    if (foreignHeld) {
+      setError(foreignLabel ?? "ほかのユーザーが録音中です。");
+      setState("error");
+      return;
+    }
+
+    try {
+      const token = await acquireInterviewLock();
+      lockTokenRef.current = token;
+      startHeartbeat(token);
+    } catch (e: any) {
+      setError(e?.message ?? "録音ロックの取得に失敗しました。");
+      setState("error");
+      return;
+    }
 
     try {
       if (typeof window === "undefined") return;
@@ -266,6 +364,10 @@ export function StudentRecorder({ studentName, studentId, onLogCreated, onOpenPr
       recorder.onerror = () => {
         setError("録音中にエラーが発生しました。");
         setState("error");
+        stopHeartbeat();
+        const t = lockTokenRef.current;
+        lockTokenRef.current = null;
+        if (t) void releaseLockClient(t);
       };
 
       recorder.onstop = async () => {
@@ -295,6 +397,10 @@ export function StudentRecorder({ studentName, studentId, onLogCreated, onOpenPr
       mediaStreamRef.current = null;
       mediaRecorderRef.current = null;
       chunksRef.current = [];
+      stopHeartbeat();
+      const t = lockTokenRef.current;
+      lockTokenRef.current = null;
+      if (t) void releaseLockClient(t);
     }
   };
 
@@ -308,6 +414,11 @@ export function StudentRecorder({ studentName, studentId, onLogCreated, onOpenPr
   };
 
   const handleFileSelect = (file: File) => {
+    if (foreignHeld) {
+      setError(foreignLabel ?? "ほかのユーザーが録音中です。");
+      setState("error");
+      return;
+    }
     if (file.type.startsWith("audio/") || file.name.match(/\.(webm|ogg|mp3|wav|m4a)$/i)) {
       setUploadedFileName(file.name);
       void uploadAudioFile(file);
@@ -334,6 +445,12 @@ export function StudentRecorder({ studentName, studentId, onLogCreated, onOpenPr
       </div>
 
       <div className={styles.content}>
+        {foreignLabel ? (
+          <p className={styles.hint} role="status">
+            {foreignLabel}
+          </p>
+        ) : null}
+
         {state === "idle" ? (
           <div
             className={`${styles.idleState} ${isDragging ? styles.dragging : ""}`}
@@ -349,13 +466,13 @@ export function StudentRecorder({ studentName, studentId, onLogCreated, onOpenPr
             }}
             onDragLeave={() => setIsDragging(false)}
           >
-            <button type="button" className={styles.recordButton} onClick={startRecording}>
+            <button type="button" className={styles.recordButton} onClick={startRecording} disabled={!!foreignHeld}>
               <div className={styles.recordButtonInner} />
               <span className={styles.recordButtonLabel}>面談を録音</span>
             </button>
             <p className={styles.hint}>録音を止めたら、自動で文字起こしと要点生成を始めます。</p>
             <div className={styles.inlineActions}>
-              <Button variant="secondary" onClick={() => fileInputRef.current?.click()}>
+              <Button variant="secondary" onClick={() => fileInputRef.current?.click()} disabled={!!foreignHeld}>
                 音声ファイルを選ぶ
               </Button>
             </div>

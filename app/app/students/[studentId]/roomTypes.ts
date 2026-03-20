@@ -96,6 +96,18 @@ export type ReportItem = {
   } | null;
 };
 
+export type RecordingLockInfo = {
+  active: boolean;
+  lock: null | {
+    lockedByUserId: string;
+    lockedByName: string;
+    lockedByEmail?: string;
+    mode: "INTERVIEW" | "LESSON_REPORT";
+    expiresAt: string;
+    isHeldByViewer: boolean;
+  };
+};
+
 export type RoomResponse = {
   student: {
     id: string;
@@ -120,6 +132,7 @@ export type RoomResponse = {
   latestProfile?: { profileData?: any } | null;
   sessions: SessionItem[];
   reports: ReportItem[];
+  recordingLock?: RecordingLockInfo;
 };
 
 export type WorkbenchPanel =

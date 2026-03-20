@@ -1,6 +1,7 @@
-﻿"use client";
+"use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useSession } from "next-auth/react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { Badge } from "@/components/ui/Badge";
@@ -119,6 +120,7 @@ export default function StudentDetailPage({ params }: { params: { studentId: str
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const { data: session } = useSession();
 
   const [room, setRoom] = useState<RoomResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -257,6 +259,17 @@ export default function StudentDetailPage({ params }: { params: { studentId: str
     [room?.sessions]
   );
   const firstInitial = room?.student.name?.slice(0, 1) ?? "生";
+
+  const recordingLockBanner =
+    room?.recordingLock?.active && room.recordingLock.lock && !room.recordingLock.lock.isHeldByViewer
+      ? {
+          holder: room.recordingLock.lock.lockedByName,
+          modeJa: room.recordingLock.lock.mode === "LESSON_REPORT" ? "指導報告" : "面談",
+        }
+      : null;
+
+  const userRole = (session?.user as { role?: string } | undefined)?.role;
+  const canForceRecordingLock = userRole === "ADMIN" || userRole === "MANAGER";
 
   const updateSelectedSessions = useCallback(
     (ids: string[]) => {
@@ -458,6 +471,45 @@ export default function StudentDetailPage({ params }: { params: { studentId: str
           </div>
         }
       />
+
+      {recordingLockBanner ? (
+        <div
+          role="status"
+          style={{
+            margin: "0 0 1rem",
+            padding: "0.75rem 1rem",
+            borderRadius: 12,
+            background: "rgba(251, 191, 36, 0.15)",
+            border: "1px solid rgba(217, 119, 6, 0.35)",
+            display: "flex",
+            flexWrap: "wrap",
+            gap: "0.75rem",
+            alignItems: "center",
+            justifyContent: "space-between",
+          }}
+        >
+          <span>
+            <strong>{recordingLockBanner.holder}</strong> さんが{recordingLockBanner.modeJa}
+            モードで録音中です。閲覧はできますが、新しい録音は開始できません。
+          </span>
+          {canForceRecordingLock ? (
+            <Button
+              size="small"
+              variant="secondary"
+              onClick={async () => {
+                await fetch(`/api/students/${params.studentId}/recording-lock`, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ forceRelease: true, reason: "UI から強制解除" }),
+                });
+                void refresh();
+              }}
+            >
+              ロックを強制解除（管理者）
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
 
       <section className={styles.summaryBlock}>
         <div className={styles.summaryHeader}>
@@ -692,6 +744,7 @@ export default function StudentDetailPage({ params }: { params: { studentId: str
                   onLessonPartChange={setLessonPart}
                   onRefresh={refresh}
                   onOpenProof={openProof}
+                  recordingLock={room.recordingLock}
                 />
               ) : null}
 

@@ -1,6 +1,7 @@
-﻿"use client";
+"use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useSession } from "next-auth/react";
 import Link from "next/link";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { Badge } from "@/components/ui/Badge";
@@ -36,6 +37,7 @@ type StudentRow = {
   sessions?: SessionSummary[];
   reports?: ReportSummary[];
   _count?: { sessions: number; reports: number };
+  recordingLock?: { mode: string; lockedByName: string } | null;
 };
 
 type QueueKind = "interview" | "lesson" | "report" | "review" | "room";
@@ -139,9 +141,15 @@ function summarize(student: StudentRow) {
 }
 
 export default function DashboardPage() {
+  const { data: session } = useSession();
   const [students, setStudents] = useState<StudentRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [inviteBusy, setInviteBusy] = useState(false);
+  const [inviteMessage, setInviteMessage] = useState<string | null>(null);
+  const userRole = (session?.user as { role?: string } | undefined)?.role;
+  const canInvite = userRole === "ADMIN" || userRole === "MANAGER";
 
   useEffect(() => {
     const load = async () => {
@@ -235,6 +243,55 @@ export default function DashboardPage() {
         </div>
       </section>
 
+      {canInvite ? (
+        <Card
+          title="ユーザーを招待"
+          subtitle="公開サインアップはありません。管理者・室長が招待リンクを発行し、相手に初回パスワードを設定してもらいます。"
+        >
+          <div className={styles.inviteRow}>
+            <input
+              className={styles.inviteInput}
+              type="email"
+              placeholder="招待するメールアドレス"
+              value={inviteEmail}
+              onChange={(e) => setInviteEmail(e.target.value)}
+            />
+            <Button
+              onClick={async () => {
+                setInviteBusy(true);
+                setInviteMessage(null);
+                try {
+                  const res = await fetch("/api/invitations", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ email: inviteEmail, role: "TEACHER" }),
+                  });
+                  const body = await res.json();
+                  if (!res.ok) {
+                    setInviteMessage(body?.error ?? "招待の作成に失敗しました。");
+                    return;
+                  }
+                  setInviteMessage(`招待 URL を発行しました。相手にそのまま共有してください。\n${body.inviteUrl ?? ""}`);
+                  setInviteEmail("");
+                } catch {
+                  setInviteMessage("通信に失敗しました。");
+                } finally {
+                  setInviteBusy(false);
+                }
+              }}
+              disabled={inviteBusy || !inviteEmail.trim()}
+            >
+              {inviteBusy ? "作成中..." : "招待リンクを作成"}
+            </Button>
+          </div>
+          {inviteMessage ? (
+            <p className={styles.inviteMessage} style={{ whiteSpace: "pre-wrap", marginTop: "0.75rem" }}>
+              {inviteMessage}
+            </p>
+          ) : null}
+        </Card>
+      ) : null}
+
       <Card
         title="今日の優先キュー"
         subtitle="最初の 5〜8 件だけ見れば、その日の主要な仕事を始められる状態にします。"
@@ -259,6 +316,12 @@ export default function DashboardPage() {
                     <strong className={styles.queueName}>{item.name}</strong>
                     {item.grade ? <span className={styles.queueMeta}>{item.grade}</span> : null}
                     <Badge label={item.state} tone={item.queue.kind === "review" ? "high" : "medium"} />
+                    {item.recordingLock ? (
+                      <Badge
+                        label={`${item.recordingLock.lockedByName} 録音中`}
+                        tone="high"
+                      />
+                    ) : null}
                   </div>
                   <p className={styles.queueOneLiner}>{item.oneLiner}</p>
                 </div>

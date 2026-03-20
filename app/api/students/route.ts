@@ -12,6 +12,7 @@ export async function GET(request: Request) {
     const limitRaw = searchParams.get("limit");
     const limit = limitRaw ? Math.max(1, Math.min(200, Number(limitRaw))) : undefined;
 
+    const now = new Date();
     const students = await prisma.student.findMany({
       where: {
         ...(organizationId ? { organizationId } : {}),
@@ -80,8 +81,35 @@ export async function GET(request: Request) {
       orderBy: { createdAt: "desc" },
     });
 
+    const studentIds = students.map((s) => s.id);
+    const activeLocks =
+      studentIds.length === 0
+        ? []
+        : await prisma.studentRecordingLock.findMany({
+            where: {
+              studentId: { in: studentIds },
+              expiresAt: { gt: now },
+            },
+            select: {
+              studentId: true,
+              mode: true,
+              lockedBy: { select: { name: true } },
+            },
+          });
+    const lockByStudent = new Map(activeLocks.map((l) => [l.studentId, l]));
+
+    const studentsOut = students.map((s) => ({
+      ...s,
+      recordingLock: lockByStudent.has(s.id)
+        ? {
+            mode: lockByStudent.get(s.id)!.mode,
+            lockedByName: lockByStudent.get(s.id)!.lockedBy.name,
+          }
+        : null,
+    }));
+
     return NextResponse.json(
-      { students },
+      { students: studentsOut },
       {
         headers: {
           "Cache-Control": "no-store, max-age=0",

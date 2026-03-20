@@ -1,6 +1,7 @@
-﻿"use client";
+"use client";
 
 import { Badge } from "@/components/ui/Badge";
+import type { RecordingLockInfo } from "./roomTypes";
 import { StudentRecorder } from "./StudentRecorder";
 import { LessonReportComposer } from "./LessonReportComposer";
 import styles from "./studentSessionConsole.module.css";
@@ -17,6 +18,7 @@ type Props = {
   onLessonPartChange: (part: SessionConsoleLessonPart) => void;
   onRefresh: () => void;
   onOpenProof: (logId: string) => void;
+  recordingLock?: RecordingLockInfo;
 };
 
 const MODE_COPY: Record<SessionConsoleMode, { title: string; subtitle: string; bullets: string[]; limit: string }> = {
@@ -55,6 +57,7 @@ export function StudentSessionConsole({
   onLessonPartChange,
   onRefresh,
   onOpenProof,
+  recordingLock,
 }: Props) {
   const copy = MODE_COPY[mode];
 
@@ -125,6 +128,7 @@ export function StudentSessionConsole({
             studentId={studentId}
             onLogCreated={onRefresh}
             onOpenProof={onOpenProof}
+            recordingLock={recordingLock}
           />
         ) : (
           <LessonReportComposer
@@ -133,6 +137,7 @@ export function StudentSessionConsole({
             preferredPartType={lessonPart}
             onCompleted={onRefresh}
             onOpenProof={onOpenProof}
+            recordingLock={recordingLock}
           />
         )}
       </div>

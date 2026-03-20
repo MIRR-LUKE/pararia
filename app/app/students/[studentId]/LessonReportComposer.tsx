@@ -1,8 +1,10 @@
-﻿"use client";
+"use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/Button";
+import { RECORDING_LOCK_HEARTBEAT_MS } from "@/lib/recording/lockConstants";
+import type { RecordingLockInfo } from "./roomTypes";
 import styles from "./studentRecorder.module.css";
 
 type Props = {
@@ -12,6 +14,7 @@ type Props = {
   onReportFromSession?: (sessionId: string) => void;
   onOpenProof?: (logId: string) => void;
   preferredPartType?: PartType;
+  recordingLock?: RecordingLockInfo;
 };
 
 type PartType = "CHECK_IN" | "CHECK_OUT";
@@ -79,6 +82,7 @@ export function LessonReportComposer({
   onReportFromSession,
   onOpenProof,
   preferredPartType = "CHECK_IN",
+  recordingLock,
 }: Props) {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [conversationId, setConversationId] = useState<string | null>(null);
@@ -97,6 +101,63 @@ export function LessonReportComposer({
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const chunksRef = useRef<BlobPart[]>([]);
   const mimeTypeRef = useRef<string>("audio/webm");
+  const lockTokenRef = useRef<string | null>(null);
+  const heartbeatRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const foreignHeld =
+    recordingLock?.active && recordingLock.lock && !recordingLock.lock.isHeldByViewer;
+  const foreignLabel = foreignHeld
+    ? `${recordingLock!.lock!.lockedByName} さんが${
+        recordingLock!.lock!.mode === "INTERVIEW" ? "面談モード" : "指導報告モード"
+      }で録音中です。音声の録音・アップロードはできません（テキスト入力は可能です）。`
+    : null;
+
+  const stopHeartbeat = () => {
+    if (heartbeatRef.current) {
+      clearInterval(heartbeatRef.current);
+      heartbeatRef.current = null;
+    }
+  };
+
+  const startHeartbeat = (token: string) => {
+    stopHeartbeat();
+    heartbeatRef.current = setInterval(() => {
+      void fetch(`/api/students/${studentId}/recording-lock`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ lockToken: token }),
+      });
+    }, RECORDING_LOCK_HEARTBEAT_MS);
+  };
+
+  const acquireLessonLock = async () => {
+    const res = await fetch(`/api/students/${studentId}/recording-lock`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mode: "LESSON_REPORT" }),
+    });
+    const body = await res.json();
+    if (!res.ok) {
+      throw new Error(body?.error ?? "録音ロックの取得に失敗しました。");
+    }
+    return body.lockToken as string;
+  };
+
+  const releaseLockClient = useCallback(async (token: string) => {
+    await fetch(`/api/students/${studentId}/recording-lock`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ lockToken: token }),
+    }).catch(() => {});
+  }, [studentId]);
+
+  const ensureLockForAudio = async () => {
+    if (lockTokenRef.current) return lockTokenRef.current;
+    const token = await acquireLessonLock();
+    lockTokenRef.current = token;
+    startHeartbeat(token);
+    return token;
+  };
 
   useEffect(() => {
     if (!recordingPartType) return;
@@ -136,8 +197,12 @@ export function LessonReportComposer({
         // ignore cleanup errors
       }
       stopTracks(mediaStreamRef.current);
+      stopHeartbeat();
+      const t = lockTokenRef.current;
+      lockTokenRef.current = null;
+      if (t) void releaseLockClient(t);
     };
-  }, []);
+  }, [studentId, releaseLockClient]);
 
   const timeLabel = useMemo(() => {
     const minutes = Math.floor(seconds / 60).toString().padStart(2, "0");
@@ -236,11 +301,20 @@ export function LessonReportComposer({
     }));
     setGlobalMessage("");
 
+    let audioToken: string | null = null;
     try {
+      if (file) {
+        if (foreignHeld) {
+          throw new Error(foreignLabel ?? "ほかのユーザーが録音中です。");
+        }
+        audioToken = await ensureLockForAudio();
+      }
+
       const form = new FormData();
       form.append("partType", partType);
       if (file) {
         form.append("file", file);
+        form.append("lockToken", audioToken!);
       } else {
         form.append("transcript", transcript);
       }
@@ -278,6 +352,11 @@ export function LessonReportComposer({
         message: error?.message ?? "パートの保存に失敗しました。",
       }));
       setProcessing(false);
+    } finally {
+      if (file) {
+        stopHeartbeat();
+        lockTokenRef.current = null;
+      }
     }
   };
 
@@ -289,6 +368,28 @@ export function LessonReportComposer({
     setSeconds(0);
     setLevels(initialLevels);
     setEstimatedSize("-");
+
+    if (foreignHeld) {
+      setPartState(partType, (prev) => ({
+        ...prev,
+        status: "error",
+        message: foreignLabel ?? "ほかのユーザーが録音中です。",
+      }));
+      return;
+    }
+
+    try {
+      const token = await acquireLessonLock();
+      lockTokenRef.current = token;
+      startHeartbeat(token);
+    } catch (error: any) {
+      setPartState(partType, (prev) => ({
+        ...prev,
+        status: "error",
+        message: error?.message ?? "録音ロックの取得に失敗しました。",
+      }));
+      return;
+    }
 
     try {
       if (typeof window === "undefined") return;
@@ -352,6 +453,10 @@ export function LessonReportComposer({
         mediaStreamRef.current = null;
         mediaRecorderRef.current = null;
         chunksRef.current = [];
+        stopHeartbeat();
+        const t = lockTokenRef.current;
+        lockTokenRef.current = null;
+        if (t) void releaseLockClient(t);
       };
 
       recorder.onstop = async () => {
@@ -396,6 +501,10 @@ export function LessonReportComposer({
       mediaStreamRef.current = null;
       mediaRecorderRef.current = null;
       chunksRef.current = [];
+      stopHeartbeat();
+      const t = lockTokenRef.current;
+      lockTokenRef.current = null;
+      if (t) void releaseLockClient(t);
     }
   };
 
@@ -415,6 +524,14 @@ export function LessonReportComposer({
 
   const handleFileSelect = (partType: PartType, file: File | null) => {
     if (!file) return;
+    if (foreignHeld) {
+      setPartState(partType, (prev) => ({
+        ...prev,
+        status: "error",
+        message: foreignLabel ?? "ほかのユーザーが録音中です。",
+      }));
+      return;
+    }
     if (!file.type.startsWith("audio/") && !file.name.match(/\.(webm|ogg|mp3|wav|m4a)$/i)) {
       setPartState(partType, (prev) => ({
         ...prev,
@@ -489,12 +606,19 @@ export function LessonReportComposer({
 
         <p className={styles.hint}>完了 {readyCount}/2 パート</p>
 
+        {foreignLabel ? (
+          <p className={styles.hint} role="status">
+            {foreignLabel}
+          </p>
+        ) : null}
+
         <div className={styles.partGrid}>
           {partConfigs.map(({ partType, state, fileInputRef }) => {
             const copy = PART_COPY[partType];
             const isRecording = recordingPartType === partType;
             const hasActiveRecorder = recordingPartType !== null && recordingPartType !== partType;
-            const disableActions = processing || hasActiveRecorder || state.status === "uploading";
+            const disableCore = processing || hasActiveRecorder || state.status === "uploading";
+            const disableAudio = disableCore || !!foreignHeld;
 
             return (
               <div key={partType} className={styles.partCard}>
@@ -532,14 +656,14 @@ export function LessonReportComposer({
                         type="button"
                         className={styles.recordButton}
                         onClick={() => void startRecording(partType)}
-                        disabled={disableActions}
+                        disabled={disableAudio}
                       >
                         <div className={styles.recordButtonInner} />
                         <span className={styles.recordButtonLabel}>{copy.label}を録音</span>
                       </button>
 
                       <div className={styles.uploadBlock}>
-                        <Button variant="secondary" onClick={() => fileInputRef.current?.click()} disabled={disableActions}>
+                        <Button variant="secondary" onClick={() => fileInputRef.current?.click()} disabled={disableAudio}>
                           音声ファイルを選ぶ
                         </Button>
                         <input
@@ -569,7 +693,7 @@ export function LessonReportComposer({
 
                     <div className={styles.inlineActions}>
                       <Button
-                        disabled={disableActions || !state.transcript.trim()}
+                        disabled={disableCore || !state.transcript.trim()}
                         onClick={() => void uploadPart(partType, { transcript: state.transcript })}
                       >
                         テキストを保存

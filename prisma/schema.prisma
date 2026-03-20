@@ -14,11 +14,13 @@ model Organization {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  users         User[]
-  students      Student[]
-  conversations ConversationLog[]
-  reports       Report[]
-  Session       Session[]
+  users              User[]
+  students           Student[]
+  conversations      ConversationLog[]
+  reports            Report[]
+  Session            Session[]
+  recordingLocks     StudentRecordingLock[]
+  invitations        OrganizationInvitation[]
 }
 
 model User {
@@ -29,10 +31,12 @@ model User {
   name           String
   role           UserRole @default(TEACHER)
 
-  organization  Organization      @relation(fields: [organizationId], references: [id])
-  conversations ConversationLog[]
-  sessions      Session[]
-  reportsSent   Report[]          @relation("ReportSentBy")
+  organization       Organization           @relation(fields: [organizationId], references: [id])
+  conversations      ConversationLog[]
+  sessions           Session[]
+  reportsSent        Report[]               @relation("ReportSentBy")
+  recordingLocksHeld StudentRecordingLock[] @relation("RecordingLockHolder")
+  invitationsCreated OrganizationInvitation[] @relation("InvitationCreator")
 }
 
 model Student {
@@ -55,8 +59,48 @@ model Student {
   profiles      StudentProfile[]
   reports       Report[]
   SessionEntity SessionEntity[]
+  recordingLock StudentRecordingLock?
 
   @@index([organizationId, createdAt])
+}
+
+/// 1 生徒につき同時 1 録音のみ（heartbeat + 自動失効）
+model StudentRecordingLock {
+  studentId       String            @id
+  organizationId  String
+  lockedByUserId  String
+  lockTokenHash   String
+  mode            RecordingLockMode
+  lastHeartbeatAt DateTime          @default(now())
+  expiresAt       DateTime
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  student      Student      @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  lockedBy     User         @relation("RecordingLockHolder", fields: [lockedByUserId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([expiresAt])
+}
+
+/// 公開サインアップなし — 管理者が発行する招待
+model OrganizationInvitation {
+  id              String    @id @default(cuid())
+  organizationId  String
+  email           String
+  role            UserRole  @default(TEACHER)
+  tokenHash       String    @unique
+  invitedByUserId String?
+  expiresAt       DateTime
+  acceptedAt      DateTime?
+  createdAt       DateTime  @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  invitedBy    User?        @relation("InvitationCreator", fields: [invitedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, acceptedAt])
+  @@index([email, organizationId])
 }
 
 model StudentProfile {
@@ -279,6 +323,11 @@ enum UserRole {
   MANAGER
   TEACHER
   INSTRUCTOR
+}
+
+enum RecordingLockMode {
+  INTERVIEW
+  LESSON_REPORT
 }
 
 enum ConversationSourceType {
