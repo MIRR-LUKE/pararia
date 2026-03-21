@@ -1,4 +1,4 @@
-import type { OperationalLog } from "@/lib/operational-log";
+﻿import type { OperationalLog } from "@/lib/operational-log";
 
 export type TopicCard = {
   category: string;
@@ -46,6 +46,14 @@ export type LessonReportArtifact = {
   homework?: string[];
   nextLessonFocus?: string[];
   parentShare?: string;
+  coachMemo?: string;
+};
+
+export type SessionPartItem = {
+  id: string;
+  partType: string;
+  status: string;
+  fileName?: string | null;
 };
 
 export type SessionItem = {
@@ -58,7 +66,7 @@ export type SessionItem = {
   heroOneLiner?: string | null;
   latestSummary?: string | null;
   pendingEntityCount: number;
-  parts: Array<{ id: string; partType: string; status: string; fileName?: string | null }>;
+  parts: SessionPartItem[];
   entities: SessionEntity[];
   conversation?: {
     id: string;
@@ -92,8 +100,10 @@ export type ReportItem = {
       weakElements?: string[];
       parentPoints?: string[];
       warnings?: string[];
+      suggestedLogIds?: string[];
     };
   } | null;
+  sourceLogIds?: string[] | null;
 };
 
 export type RecordingLockInfo = {
@@ -135,12 +145,4 @@ export type RoomResponse = {
   recordingLock?: RecordingLockInfo;
 };
 
-export type WorkbenchPanel =
-  | "idle"
-  | "recording"
-  | "processing"
-  | "proof"
-  | "report_selection"
-  | "report_generated"
-  | "send_ready"
-  | "error";
+export type ReportStudioView = "selection" | "generated" | "send";

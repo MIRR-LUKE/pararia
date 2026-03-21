@@ -1,171 +1,238 @@
-.sidebar {
+﻿.sidebar {
   width: var(--sidebar-width);
   min-width: var(--sidebar-width);
   height: 100vh;
   position: fixed;
   inset: 0 auto 0 0;
-  padding: 22px 18px;
+  padding: 20px;
+  background: #222222;
+  z-index: 30;
+}
+
+.shell {
+  height: 100%;
+  border-radius: 10px;
+  border: 1px solid #353535;
+  background: #2f2f2f;
+  padding: 16px 12px 18px;
   display: flex;
   flex-direction: column;
-  gap: 20px;
-  background: color-mix(in srgb, var(--surface) 92%, transparent);
-  border-right: 1px solid var(--border);
-  backdrop-filter: blur(16px);
-  z-index: 20;
+  justify-content: space-between;
+  gap: 24px;
 }
 
-.brandBlock {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.brandMark {
-  width: 42px;
-  height: 42px;
+.topSection {
   display: grid;
-  place-items: center;
-  border-radius: 14px;
-  background: var(--text);
-  color: var(--surface);
-  font-weight: 800;
+  gap: 28px;
 }
 
-.brandName {
-  font-size: 15px;
-  font-weight: 800;
-  color: var(--text);
-}
-
-.brandSub,
-.switcherLabel,
-.queueLabel,
-.userMeta {
-  font-size: 12px;
-  color: var(--muted);
-}
-
-.switcher {
-  display: grid;
-  gap: 8px;
-}
-
-.switcherButton {
-  min-height: 44px;
+.brandRow {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  border-radius: 16px;
-  border: 1px solid var(--border);
-  background: var(--surface-2);
-  padding: 0 14px;
+  gap: 12px;
+}
+
+.brandBubble {
+  width: 25px;
+  height: 25px;
+  border-radius: 12px;
+  background: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+}
+
+.brandBubble span {
+  width: 3px;
+  height: 3px;
+  border-radius: 999px;
+  background: #222222;
+}
+
+.campusButton {
+  min-height: 25px;
+  padding: 0 8px 0 10px;
+  border: none;
+  border-radius: 5px;
+  background: #693ac8;
+  color: #ffffff;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
   font-weight: 700;
+}
+
+.campusArrow {
+  font-size: 10px;
+}
+
+.searchBox {
+  min-height: 36px;
+  border-radius: 5px;
+  border: 1px solid #525252;
+  background: transparent;
+  padding: 0 11px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.searchIcon {
+  width: 12px;
+  height: 12px;
+  border: 1.5px solid rgba(255, 255, 255, 0.35);
+  border-radius: 999px;
+  position: relative;
+  flex-shrink: 0;
+}
+
+.searchIcon::after {
+  content: "";
+  position: absolute;
+  width: 5px;
+  height: 1.5px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.35);
+  right: -4px;
+  bottom: -1px;
+  transform: rotate(45deg);
+}
+
+.searchPlaceholder {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.3);
 }
 
 .menu {
   display: grid;
-  gap: 8px;
+  gap: 12px;
 }
 
 .item {
   min-height: 48px;
-  display: flex;
+  padding: 0 11px;
+  border-radius: 5px;
+  display: inline-flex;
   align-items: center;
-  padding: 0 14px;
-  border-radius: 16px;
-  border: 1px solid transparent;
-  color: var(--muted-strong);
+  gap: 8px;
+  color: #ffffff;
+  font-size: 14px;
   font-weight: 700;
-  transition: background 0.16s ease, border-color 0.16s ease, color 0.16s ease, transform 0.16s ease;
+  transition: background 0.16s ease;
 }
 
 .item:hover {
-  background: var(--surface-2);
-  border-color: var(--border);
-  color: var(--text);
+  background: rgba(0, 0, 0, 0.18);
 }
 
 .active {
-  background: var(--text);
-  border-color: var(--text);
-  color: var(--surface);
+  background: #222222;
 }
 
-.queueCard {
-  display: grid;
-  gap: 14px;
-  padding: 16px;
-  border-radius: 18px;
-  border: 1px solid var(--border);
-  background: var(--surface-2);
+.itemIcon {
+  width: 14px;
+  height: 14px;
+  position: relative;
+  flex-shrink: 0;
 }
 
-.queueHead,
-.queueMetrics {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
+.dashboardIcon::before,
+.studentsIcon::before,
+.settingsIcon::before,
+.settingsIcon::after,
+.dashboardIcon::after,
+.studentsIcon::after {
+  content: "";
+  position: absolute;
 }
 
-.queueTitle {
-  font-size: 14px;
-  font-weight: 800;
-  color: var(--text);
+.dashboardIcon::before {
+  inset: 1px;
+  border: 1.5px solid rgba(255, 255, 255, 0.95);
+  border-radius: 3px;
 }
 
-.queueLink {
-  font-size: 12px;
-  font-weight: 700;
-  color: var(--muted);
+.dashboardIcon::after {
+  left: 3px;
+  right: 3px;
+  top: 6px;
+  height: 1.5px;
+  background: rgba(255, 255, 255, 0.95);
 }
 
-.queueAction {
-  min-height: 36px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0 12px;
+.studentsIcon::before {
+  left: 1px;
+  top: 2px;
+  width: 5px;
+  height: 5px;
   border-radius: 999px;
-  border: 1px solid var(--border);
-  background: var(--surface);
-  color: var(--text);
-  font-size: 12px;
-  font-weight: 700;
+  border: 1.5px solid rgba(255, 255, 255, 0.95);
 }
 
-.queueMetrics > div {
-  display: grid;
-  gap: 4px;
+.studentsIcon::after {
+  right: 1px;
+  bottom: 1px;
+  width: 8px;
+  height: 5px;
+  border-radius: 999px 999px 6px 6px;
+  border: 1.5px solid rgba(255, 255, 255, 0.95);
 }
 
-.queueMetrics strong {
-  font-size: 18px;
+.settingsIcon::before {
+  inset: 3px;
+  border-radius: 999px;
+  border: 1.5px solid rgba(255, 255, 255, 0.95);
 }
 
-.footer {
-  margin-top: auto;
-  display: grid;
+.settingsIcon::after {
+  inset: 0;
+  border-radius: 999px;
+  border: 1px dashed rgba(255, 255, 255, 0.55);
+}
+
+.userCard {
+  min-height: 51px;
+  border-radius: 5px;
+  border: 1px solid #525252;
+  padding: 10px 12px;
+  display: flex;
+  align-items: center;
   gap: 12px;
-  padding-top: 16px;
-  border-top: 1px solid var(--border);
 }
 
-.userBlock {
+.userAvatar {
+  width: 30px;
+  height: 30px;
+  border-radius: 999px;
+  background: #38d2c8;
+  color: #ffffff;
   display: grid;
-  gap: 2px;
+  place-items: center;
+  font-size: 10px;
+  font-weight: 800;
+  flex-shrink: 0;
+}
+
+.userText {
+  min-width: 0;
 }
 
 .userName {
   font-size: 14px;
-  font-weight: 800;
+  font-weight: 700;
+  color: #ffffff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.signOut {
-  min-height: 44px;
-  border-radius: 14px;
-  border: 1px solid var(--border);
-  background: var(--surface);
-  font-weight: 700;
+.userMeta {
+  margin-top: 2px;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.5);
 }
 
 @media (max-width: 1080px) {
@@ -175,47 +242,30 @@
     height: auto;
     position: sticky;
     inset: 0;
-    border-right: none;
-    border-bottom: 1px solid var(--border);
-    padding: 16px;
+    padding: 12px;
+  }
+
+  .shell {
+    height: auto;
+    gap: 16px;
   }
 
   .menu {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
+
+  .item {
+    justify-content: center;
+    min-height: 42px;
+  }
 }
 
 @media (max-width: 720px) {
-  .sidebar {
-    gap: 12px;
-    padding: 12px;
-  }
-
-  .switcher,
-  .footer {
-    display: none;
-  }
-
-  .brandSub {
-    display: none;
-  }
-
-  .menu,
-  .queueMetrics {
+  .menu {
     grid-template-columns: 1fr;
-    display: grid;
   }
 
-  .queueCard {
-    padding: 12px;
-  }
-
-  .queueHead {
-    flex-direction: column;
-    align-items: flex-start;
-  }
-
-  .queueAction {
-    min-height: 40px;
+  .userCard {
+    display: none;
   }
 }

@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useSession } from "next-auth/react";
 import styles from "./AppHeader.module.css";
@@ -9,25 +9,32 @@ type Props = {
   actions?: React.ReactNode;
 };
 
+function roleLabel(role?: string) {
+  if (role === "ADMIN") return "管理者";
+  if (role === "MANAGER") return "マネージャー";
+  if (role === "TEACHER") return "講師";
+  if (role === "INSTRUCTOR") return "担当者";
+  return "スタッフ";
+}
+
 export function AppHeader({ title, subtitle, actions }: Props) {
   const { data: session } = useSession();
   const initials = (session?.user?.name || "P").slice(0, 1).toUpperCase();
   const role = (session?.user as any)?.role;
-  const roleLabel = role === "ADMIN" ? "管理者" : role === "TEACHER" ? "講師" : "担当者";
 
   return (
     <header className={styles.header}>
-      <div>
+      <div className={styles.copy}>
         <h1 className={styles.title}>{title}</h1>
-        {subtitle && <p className={styles.subtitle}>{subtitle}</p>}
+        {subtitle ? <p className={styles.subtitle}>{subtitle}</p> : null}
       </div>
       <div className={styles.actions}>
         {actions}
         <div className={styles.user}>
           <div className={styles.avatar}>{initials}</div>
           <div>
-            <div style={{ fontWeight: 700 }}>{session?.user?.name ?? "Staff"}</div>
-            <div style={{ fontSize: 12, color: "var(--muted)" }}>{roleLabel}</div>
+            <div className={styles.userName}>{session?.user?.name ?? "PARARIA スタッフ"}</div>
+            <div className={styles.userMeta}>{roleLabel(role)}</div>
           </div>
         </div>
       </div>

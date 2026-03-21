@@ -21,22 +21,11 @@ export async function POST(
 
     const current = await prisma.report.findUnique({
       where: { id: params.id },
-      select: {
-        id: true,
-        qualityChecksJson: true,
-      },
+      select: { id: true },
     });
 
     if (!current) {
       return NextResponse.json({ error: "report not found" }, { status: 404 });
-    }
-
-    const pendingEntityCount = Number((current.qualityChecksJson as any)?.pendingEntityCount ?? 0);
-    if (pendingEntityCount > 0) {
-      return NextResponse.json(
-        { error: "未確認の entity が残っているため、送付できません。" },
-        { status: 409 }
-      );
     }
 
     const report = await prisma.report.update({

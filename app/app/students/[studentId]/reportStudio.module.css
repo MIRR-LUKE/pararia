@@ -1,0 +1,140 @@
+﻿.workbenchSection {
+  display: grid;
+  gap: 18px;
+}
+
+.workbenchHeader,
+.metricGrid,
+.qualityColumns,
+.inlineActions,
+.actionStack,
+.reportBlockHead {
+  display: flex;
+  gap: 12px;
+}
+
+.workbenchHeader,
+.reportBlockHead {
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+.eyebrow,
+.metricLabel,
+.sectionLabel {
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.workbenchTitle {
+  margin: 8px 0 0;
+  font-size: 24px;
+  line-height: 1.15;
+  letter-spacing: -0.03em;
+}
+
+.mutedText {
+  margin: 10px 0 0;
+  color: var(--muted);
+  line-height: 1.7;
+}
+
+.inlineError,
+.metricCard,
+.previewPanel,
+.qualityCard,
+.issueCard,
+.reportBlock,
+.emptyWorkbench {
+  border-radius: 20px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+}
+
+.inlineError,
+.metricCard,
+.qualityCard,
+.issueCard,
+.reportBlock,
+.emptyWorkbench {
+  padding: 16px 18px;
+}
+
+.metricGrid {
+  flex-wrap: wrap;
+}
+
+.metricCard {
+  flex: 1 1 180px;
+  display: grid;
+  gap: 10px;
+}
+
+.metricCard strong {
+  font-size: 20px;
+}
+
+.previewPanel {
+  padding: 16px 18px;
+}
+
+.previewText {
+  margin: 0;
+  white-space: pre-wrap;
+  line-height: 1.75;
+  color: var(--muted-strong);
+}
+
+.qualityColumns {
+  flex-wrap: wrap;
+}
+
+.qualityCard {
+  flex: 1 1 280px;
+}
+
+.qualityCard p,
+.issueList p,
+.reportParagraph {
+  margin: 8px 0 0;
+  color: var(--muted);
+  line-height: 1.75;
+}
+
+.issueList,
+.reportBlocks {
+  display: grid;
+  gap: 10px;
+}
+
+.inlineActions {
+  flex-wrap: wrap;
+}
+
+.actionStack {
+  flex-wrap: wrap;
+}
+
+.reportBlocks {
+  display: grid;
+  gap: 14px;
+}
+
+.reportParagraph {
+  margin-top: 10px;
+}
+
+@media (max-width: 720px) {
+  .workbenchHeader,
+  .reportBlockHead,
+  .actionStack {
+    flex-direction: column;
+  }
+
+  .inlineActions :global(button),
+  .actionStack :global(button) {
+    width: 100%;
+  }
+}
