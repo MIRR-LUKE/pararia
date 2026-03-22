@@ -54,7 +54,6 @@ export async function GET(request: Request) {
             heroStateLabel: true,
             heroOneLiner: true,
             latestSummary: true,
-            pendingEntityCount: true,
             conversation: {
               select: {
                 id: true,

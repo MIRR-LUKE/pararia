@@ -48,28 +48,6 @@ export type ProfileSection = {
   nextQuestion: string;
 };
 
-export type EntityKind =
-  | "SCHOOL"
-  | "TARGET_SCHOOL"
-  | "MATERIAL"
-  | "EXAM"
-  | "CRAM_SCHOOL"
-  | "TEACHER"
-  | "METRIC"
-  | "OTHER";
-
-export type EntityReviewStatus = "PENDING" | "CONFIRMED" | "IGNORED";
-
-export type EntityCandidate = {
-  id?: string;
-  kind: EntityKind;
-  rawValue: string;
-  canonicalValue?: string | null;
-  confidence: number;
-  status: EntityReviewStatus;
-  context?: string;
-};
-
 export type ObservationEvent = {
   sourceType: "INTERVIEW" | "LESSON_REPORT";
   category: ProfileCategory;

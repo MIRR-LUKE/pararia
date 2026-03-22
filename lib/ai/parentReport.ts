@@ -33,7 +33,6 @@ type ReportInput = {
     studentState?: any;
     profileSections?: any;
     quickQuestions?: any;
-    entityCandidates?: any;
     lessonReport?: any;
   }>;
   allLogsForSuggestions?: Array<{
@@ -49,7 +48,6 @@ type ReportInput = {
     studentState?: any;
     profileSections?: any;
     quickQuestions?: any;
-    entityCandidates?: any;
     lessonReport?: any;
   }>;
 };
@@ -277,7 +275,6 @@ export function buildReportBundle(input: ReportInput) {
       studentState: log.studentState,
       profileSections: log.profileSections,
       quickQuestions: log.quickQuestions,
-      entityCandidates: log.entityCandidates,
       lessonReport: log.lessonReport,
     })
   );
@@ -297,7 +294,6 @@ export function buildReportBundle(input: ReportInput) {
       studentState: log.studentState,
       profileSections: log.profileSections,
       quickQuestions: log.quickQuestions,
-      entityCandidates: log.entityCandidates,
       lessonReport: log.lessonReport,
     })
   );
@@ -332,7 +328,7 @@ export async function generateParentReport(input: ReportInput): Promise<ParentRe
 - 情報が弱い点は、断定せず慎重に書く
 - 本文・見出し・要約はすべて日本語で書く
 - 英語の見出し、英語の定型句、英語逃げは禁止
-- 固有名詞としてローマ字を残す場合も、日本語文の中で説明する
+- 英字表記を残す場合も、日本語文の中で意味が分かるように説明する
 
 JSON schema:
 {
@@ -364,7 +360,6 @@ JSON schema:
         `assessment: ${JSON.stringify(log.operationalLog.assessment)}`,
         `nextChecks: ${JSON.stringify(log.operationalLog.nextChecks)}`,
         `parentShare: ${JSON.stringify(log.operationalLog.parentShare)}`,
-        `entities: ${JSON.stringify(log.operationalLog.entities)}`,
       ].join("\n")
     )
     .join("\n\n");
@@ -418,7 +413,6 @@ export function buildReportCandidateSummary(input: Omit<ReportInput["logs"][numb
     studentState: input.studentState,
     profileSections: input.profileSections,
     quickQuestions: input.quickQuestions,
-    entityCandidates: input.entityCandidates,
     lessonReport: input.lessonReport,
   });
 }

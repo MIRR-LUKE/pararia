@@ -826,7 +826,7 @@ export async function normalizeTranscriptKanji(
 目的: 文字起こしテキストの漢字変換を正確にする（かな→漢字変換の改善）。
 禁止: 要約/省略/言い換え/意味変更/勝手な補足。
 必須: 改行・句読点・話者の区切りは維持。出力は本文のみ。
-固有名詞はそのまま維持（例: ${studentLabel}, ${teacherLabel}）。`;
+名称はそのまま維持（例: ${studentLabel}, ${teacherLabel}）。`;
 
   const user = `以下のテキストを、意味は変えずに漢字変換だけ高精度に整えてください。
 曖昧で自信がない箇所はそのまま残すこと。

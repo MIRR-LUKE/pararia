@@ -109,7 +109,6 @@ export async function POST(request: Request) {
         studentState: log.studentStateJson ?? {},
         profileSections: log.profileSectionsJson ?? [],
         quickQuestions: log.quickQuestionsJson ?? [],
-        entityCandidates: log.entityCandidatesJson ?? [],
         lessonReport: log.lessonReportJson ?? null,
       })),
       allLogsForSuggestions: allCandidateLogs.map((log) => ({
@@ -124,17 +123,8 @@ export async function POST(request: Request) {
         studentState: log.studentStateJson ?? {},
         profileSections: log.profileSectionsJson ?? [],
         quickQuestions: log.quickQuestionsJson ?? [],
-        entityCandidates: log.entityCandidatesJson ?? [],
         lessonReport: log.lessonReportJson ?? null,
       })),
-    });
-
-    const pendingEntityCount = await prisma.sessionEntity.count({
-      where: {
-        studentId,
-        sessionId: { in: logs.map((log) => log.sessionId).filter(Boolean) as string[] },
-        status: "PENDING",
-      },
     });
 
     const report = await prisma.report.create({
@@ -148,7 +138,6 @@ export async function POST(request: Request) {
         periodFrom: from ?? undefined,
         periodTo: to ?? new Date(),
         qualityChecksJson: {
-          pendingEntityCount,
           generatedFromSessions: logs.map((log) => log.sessionId).filter(Boolean),
           bundleQualityEval,
         } as any,

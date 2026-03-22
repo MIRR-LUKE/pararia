@@ -17,7 +17,6 @@ type SessionSummary = {
   heroStateLabel?: string | null;
   heroOneLiner?: string | null;
   latestSummary?: string | null;
-  pendingEntityCount: number;
   conversation?: { id: string } | null;
 };
 
@@ -40,7 +39,7 @@ type StudentRow = {
   recordingLock?: { mode: string; lockedByName: string } | null;
 };
 
-type QueueKind = "interview" | "lesson" | "report" | "review" | "room";
+type QueueKind = "interview" | "lesson" | "report" | "share" | "room";
 
 type QueueItem = {
   student: StudentRow;
@@ -93,17 +92,17 @@ function summarize(student: StudentRow) {
     };
   }
 
-  if (latestSession.pendingEntityCount > 0) {
+  if (latestSession.conversation?.id && !latestReport) {
     return {
-      state: latestSession.heroStateLabel ?? "要確認",
+      state: latestSession.heroStateLabel ?? "レポート作成待ち",
       oneLiner:
-        latestSession.heroOneLiner ?? latestSession.latestSummary ?? "要確認の固有名詞があります。",
+        latestSession.heroOneLiner ?? latestSession.latestSummary ?? "ログは生成済みです。必要なログを選んで保護者レポートを作成できます。",
       queue: {
-        kind: "review" as const,
-        title: "要確認あり",
-        reason: `固有名詞の確認が ${latestSession.pendingEntityCount} 件残っています。`,
-        cta: "確認する",
-        href: `/app/students/${student.id}`,
+        kind: "report" as const,
+        title: "レポートを作る",
+        reason: "会話ログはそろっています。保護者レポートをまだ作っていません。",
+        cta: "ログを選ぶ",
+        href: `/app/students/${student.id}?panel=report`,
         score: 88,
       },
     };
@@ -111,14 +110,14 @@ function summarize(student: StudentRow) {
 
   if (latestReport && latestReport.status !== "SENT") {
     return {
-      state: latestSession.heroStateLabel ?? "確認待ち",
+      state: latestSession.heroStateLabel ?? "共有待ち",
       oneLiner:
-        latestSession.heroOneLiner ?? latestSession.latestSummary ?? "保護者レポートの確認待ちがあります。",
+        latestSession.heroOneLiner ?? latestSession.latestSummary ?? "保護者レポートは下書き済みです。確認して共有まで進められます。",
       queue: {
-        kind: "report" as const,
-        title: "レポ確認待ち",
-        reason: "保護者に送る前の確認が必要です。",
-        cta: "レポ確認",
+        kind: "share" as const,
+        title: "共有待ち",
+        reason: "保護者レポートは作成済みです。共有まで完了させます。",
+        cta: "共有を進める",
         href: `/app/students/${student.id}?panel=report`,
         score: 82,
       },
@@ -192,8 +191,8 @@ export default function DashboardPage() {
     const interview = enriched.filter((item) => item.queue.kind === "interview").length;
     const lesson = enriched.filter((item) => item.queue.kind === "lesson").length;
     const report = enriched.filter((item) => item.queue.kind === "report").length;
-    const review = enriched.filter((item) => item.queue.kind === "review").length;
-    return { interview, lesson, report, review };
+    const share = enriched.filter((item) => item.queue.kind === "share").length;
+    return { interview, lesson, report, share };
   }, [enriched]);
 
   const interviewHref = queue.find((item) => item.queue.kind === "interview")?.queue.href ?? "/app/students";
@@ -234,12 +233,12 @@ export default function DashboardPage() {
           <strong>{stats.lesson}</strong>
         </div>
         <div className={styles.statusItem}>
-          <span className={styles.statusLabel}>レポ確認待ち</span>
+          <span className={styles.statusLabel}>レポート未作成</span>
           <strong>{stats.report}</strong>
         </div>
         <div className={styles.statusItem}>
-          <span className={styles.statusLabel}>要確認</span>
-          <strong>{stats.review}</strong>
+          <span className={styles.statusLabel}>共有待ち</span>
+          <strong>{stats.share}</strong>
         </div>
       </section>
 
@@ -311,7 +310,7 @@ export default function DashboardPage() {
                   <div className={styles.queueNameRow}>
                     <strong className={styles.queueName}>{item.name}</strong>
                     {item.grade ? <span className={styles.queueMeta}>{item.grade}</span> : null}
-                    <Badge label={item.state} tone={item.queue.kind === "review" ? "high" : "medium"} />
+                    <Badge label={item.state} tone={item.queue.kind === "share" ? "high" : "medium"} />
                     {item.recordingLock ? (
                       <Badge
                         label={`${item.recordingLock.lockedByName} 録音中`}
@@ -351,12 +350,12 @@ export default function DashboardPage() {
               <span>{stats.lesson} 人</span>
             </div>
             <div className={styles.miniItem}>
-              <strong>レポート確認待ち</strong>
+              <strong>レポート未作成</strong>
               <span>{stats.report} 人</span>
             </div>
             <div className={styles.miniItem}>
-              <strong>固有名詞などの要確認</strong>
-              <span>{stats.review} 人</span>
+              <strong>共有待ち</strong>
+              <span>{stats.share} 人</span>
             </div>
           </div>
         </Card>

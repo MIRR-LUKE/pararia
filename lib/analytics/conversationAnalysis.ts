@@ -48,7 +48,6 @@ export async function createStructuredConversationLog({
       studentState: result.studentState as any,
       profileSections: result.profileSections as any,
       quickQuestions: result.quickQuestions as any,
-      entityCandidates: result.entityCandidates as any,
       lessonReport: result.lessonReport as any,
     })
   );

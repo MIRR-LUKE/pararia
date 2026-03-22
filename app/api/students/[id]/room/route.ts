@@ -36,9 +36,6 @@ export async function GET(
               },
               orderBy: { createdAt: "asc" },
             },
-            entities: {
-              orderBy: [{ status: "asc" }, { confidence: "desc" }],
-            },
             conversation: {
               select: {
                 id: true,
@@ -52,7 +49,6 @@ export async function GET(
                 nextActionsJson: true,
                 profileSectionsJson: true,
                 lessonReportJson: true,
-                entityCandidatesJson: true,
                 createdAt: true,
               },
             },
@@ -85,7 +81,6 @@ export async function GET(
         nextActionsJson: true,
         profileSectionsJson: true,
         lessonReportJson: true,
-        entityCandidatesJson: true,
         createdAt: true,
       },
     });
@@ -105,7 +100,6 @@ export async function GET(
             nextActionsJson: session.conversation.nextActionsJson as any,
             profileSectionsJson: session.conversation.profileSectionsJson as any,
             lessonReportJson: session.conversation.lessonReportJson as any,
-            entityCandidatesJson: session.conversation.entityCandidatesJson as any,
             studentStateJson: session.conversation.studentStateJson as any,
             operationalLog: buildOperationalLog({
               sessionType: session.type,
@@ -117,9 +111,7 @@ export async function GET(
               studentState: session.conversation.studentStateJson as any,
               profileSections: session.conversation.profileSectionsJson as any,
               quickQuestions: quickQuestionsJson,
-              entityCandidates: session.conversation.entityCandidatesJson as any,
               lessonReport: session.conversation.lessonReportJson as any,
-              sessionEntities: session.entities as any,
             }),
             operationalSummaryMarkdown: renderOperationalSummaryMarkdown(
               buildOperationalLog({
@@ -132,9 +124,7 @@ export async function GET(
                 studentState: session.conversation.studentStateJson as any,
                 profileSections: session.conversation.profileSectionsJson as any,
                 quickQuestions: quickQuestionsJson,
-                entityCandidates: session.conversation.entityCandidatesJson as any,
                 lessonReport: session.conversation.lessonReportJson as any,
-                sessionEntities: session.entities as any,
               })
             ),
           }
@@ -157,7 +147,6 @@ export async function GET(
           nextActionsJson: latestConversation.nextActionsJson as any,
           profileSectionsJson: latestConversation.profileSectionsJson as any,
           lessonReportJson: latestConversation.lessonReportJson as any,
-          entityCandidatesJson: latestConversation.entityCandidatesJson as any,
           studentStateJson: latestConversation.studentStateJson as any,
           operationalLog: buildOperationalLog({
             createdAt: latestConversation.createdAt,
@@ -168,7 +157,6 @@ export async function GET(
             studentState: latestConversation.studentStateJson as any,
             profileSections: latestConversation.profileSectionsJson as any,
             quickQuestions: sanitizeQuickQuestions(latestConversation.quickQuestionsJson),
-            entityCandidates: latestConversation.entityCandidatesJson as any,
             lessonReport: latestConversation.lessonReportJson as any,
           }),
           operationalSummaryMarkdown: renderOperationalSummaryMarkdown(
@@ -181,7 +169,6 @@ export async function GET(
               studentState: latestConversation.studentStateJson as any,
               profileSections: latestConversation.profileSectionsJson as any,
               quickQuestions: sanitizeQuickQuestions(latestConversation.quickQuestionsJson),
-              entityCandidates: latestConversation.entityCandidatesJson as any,
               lessonReport: latestConversation.lessonReportJson as any,
             })
           ),

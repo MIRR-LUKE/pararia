@@ -55,10 +55,8 @@ model Student {
   organization  Organization      @relation(fields: [organizationId], references: [id])
   conversations ConversationLog[]
   sessions      Session[]
-  entities      StudentEntity[]
   profiles      StudentProfile[]
   reports       Report[]
-  SessionEntity SessionEntity[]
   recordingLock StudentRecordingLock?
 
   @@index([organizationId, createdAt])
@@ -145,7 +143,6 @@ model ConversationLog {
   quickQuestionsJson   Json?
   profileSectionsJson  Json?
   observationJson      Json?
-  entityCandidatesJson Json?
   lessonReportJson     Json?
   formattedTranscript  String?
   chunkAnalysisJson    Json?
@@ -158,7 +155,6 @@ model ConversationLog {
   user         User?             @relation(fields: [userId], references: [id])
   session      Session?          @relation(fields: [sessionId], references: [id])
   jobs         ConversationJob[]
-  entities     SessionEntity[]
 
   @@index([studentId, createdAt])
   @@index([organizationId, createdAt])
@@ -236,7 +232,6 @@ model Session {
   heroStateLabel     String?
   heroOneLiner       String?
   latestSummary      String?
-  pendingEntityCount Int           @default(0)
   completedAt        DateTime?
   createdAt          DateTime      @default(now())
   updatedAt          DateTime      @updatedAt
@@ -245,7 +240,6 @@ model Session {
   student      Student          @relation(fields: [studentId], references: [id])
   user         User?            @relation(fields: [userId], references: [id])
   parts        SessionPart[]
-  entities     SessionEntity[]
   conversation ConversationLog?
 
   @@index([studentId, sessionDate])
@@ -275,47 +269,6 @@ model SessionPart {
 
   @@unique([sessionId, partType])
   @@index([sessionId, status])
-}
-
-model StudentEntity {
-  id            String     @id @default(cuid())
-  studentId     String
-  kind          EntityKind
-  canonicalName String
-  aliasesJson   Json?
-  createdAt     DateTime   @default(now())
-  updatedAt     DateTime   @updatedAt
-
-  student      Student         @relation(fields: [studentId], references: [id], onDelete: Cascade)
-  sessionLinks SessionEntity[]
-
-  @@unique([studentId, kind, canonicalName])
-  @@index([studentId, kind])
-}
-
-model SessionEntity {
-  id              String       @id @default(cuid())
-  sessionId       String
-  conversationId  String?
-  studentId       String
-  studentEntityId String?
-  kind            EntityKind
-  rawValue        String
-  canonicalValue  String?
-  confidence      Int          @default(50)
-  status          EntityStatus @default(PENDING)
-  occurrencesJson Json?
-  sourceJson      Json?
-  createdAt       DateTime     @default(now())
-  updatedAt       DateTime     @updatedAt
-
-  session       Session          @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  conversation  ConversationLog? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
-  student       Student          @relation(fields: [studentId], references: [id], onDelete: Cascade)
-  studentEntity StudentEntity?   @relation(fields: [studentEntityId], references: [id], onDelete: SetNull)
-
-  @@index([sessionId, status])
-  @@index([studentId, kind])
 }
 
 enum UserRole {
@@ -383,23 +336,6 @@ enum SessionPartStatus {
   TRANSCRIBING
   READY
   ERROR
-}
-
-enum EntityKind {
-  SCHOOL
-  TARGET_SCHOOL
-  MATERIAL
-  EXAM
-  CRAM_SCHOOL
-  TEACHER
-  METRIC
-  OTHER
-}
-
-enum EntityStatus {
-  PENDING
-  CONFIRMED
-  IGNORED
 }
 
 enum ReportStatus {

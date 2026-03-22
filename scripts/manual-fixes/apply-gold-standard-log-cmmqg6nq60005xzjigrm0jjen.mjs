@@ -350,48 +350,6 @@ const observationJson = [
   },
 ];
 
-const entityCandidatesJson = [
-  {
-    kind: "EXAM",
-    status: "PENDING",
-    rawValue: "共通テスト",
-    canonicalValue: "共通テスト",
-    confidence: 88,
-    context: "共通テスト型演習の入れ方と切り替え時期を相談している。",
-  },
-  {
-    kind: "EXAM",
-    status: "PENDING",
-    rawValue: "センター試験",
-    canonicalValue: "センター試験",
-    confidence: 74,
-    context: "共通テストとの形式差を説明する文脈で言及。",
-  },
-  {
-    kind: "MATERIAL",
-    status: "PENDING",
-    rawValue: "過去問",
-    canonicalValue: "過去問",
-    confidence: 86,
-    context: "模試後の演習と復習の中心教材として言及。",
-  },
-  {
-    kind: "MATERIAL",
-    status: "PENDING",
-    rawValue: "共通テスト予想問題集",
-    canonicalValue: "共通テスト予想問題集",
-    confidence: 82,
-    context: "共通テスト型の演習量を補う候補として話題に出ている。",
-  },
-  {
-    kind: "MATERIAL",
-    status: "PENDING",
-    rawValue: "弱点補強用問題集",
-    canonicalValue: "問題集",
-    confidence: 68,
-    context: "確率など毎回崩れやすい単元の補強用として言及。",
-  },
-];
 
 async function main() {
   const existing = await prisma.conversationLog.findUnique({
@@ -424,7 +382,6 @@ async function main() {
       quickQuestionsJson,
       profileSectionsJson,
       observationJson,
-      entityCandidatesJson,
       qualityMetaJson,
     },
     select: {

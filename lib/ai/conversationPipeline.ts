@@ -12,7 +12,6 @@ import type {
   ProfileDeltaItem,
 } from "@/lib/types/conversation";
 import type {
-  EntityCandidate,
   LessonReportArtifact,
   ObservationEvent,
   ProfileCategory,
@@ -396,55 +395,6 @@ function normalizeProfileSections(items: ProfileSection[] | null | undefined): P
     }))
     .filter((item) => item.highlights.length > 0 || (item.nextQuestion && !hasBadUserFacingText(item.nextQuestion)))
     .slice(0, 4);
-}
-
-function normalizeEntityKind(value: unknown): EntityCandidate["kind"] {
-  const text = String(value ?? "").trim().toUpperCase();
-  return [
-    "SCHOOL",
-    "TARGET_SCHOOL",
-    "MATERIAL",
-    "EXAM",
-    "CRAM_SCHOOL",
-    "TEACHER",
-    "METRIC",
-    "OTHER",
-  ].includes(text)
-    ? (text as EntityCandidate["kind"])
-    : "OTHER";
-}
-
-function normalizeEntityStatus(value: unknown): EntityCandidate["status"] {
-  const text = String(value ?? "").trim().toUpperCase();
-  return ["PENDING", "CONFIRMED", "IGNORED"].includes(text)
-    ? (text as EntityCandidate["status"])
-    : "PENDING";
-}
-
-function normalizeEntityCandidates(items: EntityCandidate[] | null | undefined): EntityCandidate[] {
-  const seen = new Set<string>();
-  const normalized: EntityCandidate[] = [];
-  for (const item of items ?? []) {
-    const rawValue = maskSensitiveText(String(item?.rawValue ?? "").trim());
-    if (!rawValue) continue;
-    if (hasBadUserFacingText(rawValue)) continue;
-    const key = `${normalizeEntityKind(item?.kind)}::${rawValue.toLowerCase()}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    const canonicalValue = item?.canonicalValue ? maskSensitiveText(String(item.canonicalValue).trim()) : null;
-    const context = item?.context ? sanitizeUserFacingSentence(item.context, { maxLength: 120 }) : undefined;
-    normalized.push({
-      id: item?.id,
-      kind: normalizeEntityKind(item?.kind),
-      rawValue,
-      canonicalValue: canonicalValue && !hasBadUserFacingText(canonicalValue) ? canonicalValue : null,
-      confidence: Math.max(0, Math.min(100, Number(item?.confidence ?? 60))),
-      status: normalizeEntityStatus(item?.status),
-      context,
-    });
-    if (normalized.length >= 8) break;
-  }
-  return normalized;
 }
 
 function normalizeObservationEvents(items: ObservationEvent[] | null | undefined): ObservationEvent[] {
@@ -1748,7 +1698,6 @@ function buildFinalizePrompt(input: {
   minSummaryChars: number;
   minTimelineSections?: number;
   sessionType?: "INTERVIEW" | "LESSON_REPORT";
-  entityDictionary?: Array<{ kind: string; canonicalName: string; aliases?: string[] }>;
 }): { system: string; user: string } {
   const studentLabel = formatStudentLabel(input.studentName);
   const teacherLabel = formatTeacherLabel(input.teacherName);
@@ -1775,8 +1724,6 @@ function buildFinalizePrompt(input: {
   const user = `生徒: ${studentLabel}
 講師: ${teacherLabel}
 セッション種別: ${sessionType}
-既知の固有名詞辞書: ${compactJson(input.entityDictionary ?? [])}
-
 Reduced evidence JSON:
 ${compactJson(reducedCompact)}
 
@@ -1847,16 +1794,6 @@ ${compactJson(reducedCompact)}
         { "label": "...", "value": "...", "isNew": true, "isUpdated": false }
       ],
       "nextQuestion": "..."
-    }
-  ],
-  "entityCandidates": [
-    {
-      "kind": "SCHOOL|TARGET_SCHOOL|MATERIAL|EXAM|CRAM_SCHOOL|TEACHER|METRIC|OTHER",
-      "rawValue": "...",
-      "canonicalValue": "...",
-      "confidence": 0-100,
-      "status": "PENDING",
-      "context": "..."
     }
   ],
   "observationEvents": [
@@ -2010,9 +1947,6 @@ function applyFinalizeHeuristicFallbacks(
           recommendedTopics: recommendedTopicsFallback,
           sessionType,
         });
-  const entityCandidates = normalizeEntityCandidates(result.entityCandidates ?? []);
-  const entityCandidatesFallback =
-    entityCandidates.length > 0 ? entityCandidates : buildEntityCandidatesFallback([summaryMarkdown, ...parentPack.evidence_quotes].join("\n"));
   const lessonReport =
     normalizeLessonReport(result.lessonReport) ??
     buildLessonReportFallback({
@@ -2040,7 +1974,6 @@ function applyFinalizeHeuristicFallbacks(
     recommendedTopics: recommendedTopicsFallback,
     quickQuestions: quickQuestionsFallback,
     profileSections: profileSectionsFallback,
-    entityCandidates: entityCandidatesFallback,
     observationEvents: observationEventsFallback,
     lessonReport,
   };
@@ -2139,7 +2072,6 @@ async function repairFinalizeOutput(params: {
   minSummaryChars: number;
   minTimelineSections: number;
   sessionType?: "INTERVIEW" | "LESSON_REPORT";
-  entityDictionary?: Array<{ kind: string; canonicalName: string; aliases?: string[] }>;
 }): Promise<FinalizeResult> {
   const { system } = buildFinalizePrompt({
     studentName: params.studentName,
@@ -2148,7 +2080,6 @@ async function repairFinalizeOutput(params: {
     minSummaryChars: params.minSummaryChars,
     minTimelineSections: params.minTimelineSections,
     sessionType: params.sessionType,
-    entityDictionary: params.entityDictionary,
   });
 
   const repairSystem = `${system}
@@ -2566,35 +2497,6 @@ function buildObservationEventsFallback(input: {
   );
 }
 
-function buildEntityCandidatesFallback(transcript: string): EntityCandidate[] {
-  const matches = new Set<string>();
-  const candidates: EntityCandidate[] = [];
-  const patterns: Array<[RegExp, EntityCandidate["kind"]]> = [
-    [/([^\s、。]{1,20}(高校|中学|大学))/g, "SCHOOL"],
-    [/([^\s、。]{1,20}(模試|試験|英検|漢検))/g, "EXAM"],
-    [/([^\s、。]{1,20}(単語帳|教材|テキスト|問題集|参考書))/g, "MATERIAL"],
-  ];
-  for (const [pattern, kind] of patterns) {
-    const found = transcript.matchAll(pattern);
-    for (const match of found) {
-      const rawValue = String(match[1] ?? "").trim();
-      if (!rawValue || matches.has(`${kind}:${rawValue}`)) continue;
-      matches.add(`${kind}:${rawValue}`);
-      candidates.push({
-        kind,
-        rawValue,
-        canonicalValue: rawValue,
-        confidence: 56,
-        status: "PENDING",
-        context: `会話中に ${rawValue} への言及あり`,
-      });
-      if (candidates.length >= 8) break;
-    }
-    if (candidates.length >= 8) break;
-  }
-  return normalizeEntityCandidates(candidates);
-}
-
 function buildLessonReportFallback(input: {
   transcript: string;
   nextActions: NextAction[];
@@ -2700,9 +2602,6 @@ function applySinglePassHeuristicFallbacks(
           recommendedTopics: recommendedTopicsFallback,
           sessionType,
         });
-  const entityCandidates = normalizeEntityCandidates(result.entityCandidates ?? []);
-  const entityCandidatesFallback =
-    entityCandidates.length > 0 ? entityCandidates : buildEntityCandidatesFallback(transcript);
   const lessonReport =
     normalizeLessonReport(result.lessonReport) ??
     buildLessonReportFallback({
@@ -2730,7 +2629,6 @@ function applySinglePassHeuristicFallbacks(
     recommendedTopics: recommendedTopicsFallback,
     quickQuestions: quickQuestionsFallback,
     profileSections: profileSectionsFallback,
-    entityCandidates: entityCandidatesFallback,
     observationEvents: observationEventsFallback,
     lessonReport,
   };
@@ -2793,7 +2691,6 @@ function buildSinglePassPrompt(input: {
   minSummaryChars: number;
   minTimelineSections: number;
   sessionType?: "INTERVIEW" | "LESSON_REPORT";
-  entityDictionary?: Array<{ kind: string; canonicalName: string; aliases?: string[] }>;
 }) {
   const studentLabel = formatStudentLabel(input.studentName);
   const teacherLabel = formatTeacherLabel(input.teacherName);
@@ -2819,8 +2716,6 @@ function buildSinglePassPrompt(input: {
   const user = `生徒: ${studentLabel}
 講師: ${teacherLabel}
 セッション種別: ${sessionType}
-既知の固有名詞辞書: ${compactJson(input.entityDictionary ?? [])}
-
 文字起こし:
 ${input.transcript}
 
@@ -2893,16 +2788,6 @@ ${input.transcript}
       "nextQuestion": "..."
     }
   ],
-  "entityCandidates": [
-    {
-      "kind": "SCHOOL|TARGET_SCHOOL|MATERIAL|EXAM|CRAM_SCHOOL|TEACHER|METRIC|OTHER",
-      "rawValue": "...",
-      "canonicalValue": "...",
-      "confidence": 0-100,
-      "status": "PENDING",
-      "context": "..."
-    }
-  ],
   "observationEvents": [
     {
       "sourceType": "${sessionType}",
@@ -2944,7 +2829,6 @@ async function repairSinglePassOutput(params: {
   minSummaryChars: number;
   minTimelineSections: number;
   sessionType?: "INTERVIEW" | "LESSON_REPORT";
-  entityDictionary?: Array<{ kind: string; canonicalName: string; aliases?: string[] }>;
 }): Promise<FinalizeResult> {
   const { system } = buildSinglePassPrompt({
     transcript: params.transcript,
@@ -2953,7 +2837,6 @@ async function repairSinglePassOutput(params: {
     minSummaryChars: params.minSummaryChars,
     minTimelineSections: params.minTimelineSections,
     sessionType: params.sessionType,
-    entityDictionary: params.entityDictionary,
   });
 
   const repairUser = `現在の JSON:
@@ -2990,7 +2873,6 @@ export async function generateConversationArtifactsSinglePass(input: {
   minSummaryChars: number;
   minTimelineSections?: number;
   sessionType?: "INTERVIEW" | "LESSON_REPORT";
-  entityDictionary?: Array<{ kind: string; canonicalName: string; aliases?: string[] }>;
 }): Promise<{ result: FinalizeResult; model: string; apiCalls: number; repaired: boolean }> {
   const minTimelineSections = input.minTimelineSections ?? 2;
   const model = getFinalModel();
@@ -3001,7 +2883,6 @@ export async function generateConversationArtifactsSinglePass(input: {
     minSummaryChars: input.minSummaryChars,
     minTimelineSections,
     sessionType: input.sessionType,
-    entityDictionary: input.entityDictionary,
   });
 
   const { contentText, raw } = await callChatCompletions({
@@ -3042,7 +2923,6 @@ export async function generateConversationArtifactsSinglePass(input: {
     recommendedTopics: normalizeRecommendedTopics(parsed.recommendedTopics ?? []),
     quickQuestions: normalizeQuickQuestions(parsed.quickQuestions ?? []),
     profileSections: normalizeProfileSections(parsed.profileSections ?? []),
-    entityCandidates: normalizeEntityCandidates(parsed.entityCandidates ?? []),
     observationEvents: normalizeObservationEvents(parsed.observationEvents ?? []),
     lessonReport: normalizeLessonReport(parsed.lessonReport),
   };
@@ -3074,7 +2954,6 @@ export async function generateConversationArtifactsSinglePass(input: {
       minSummaryChars: input.minSummaryChars,
       minTimelineSections,
       sessionType: input.sessionType,
-      entityDictionary: input.entityDictionary,
     });
     apiCalls += 1;
     repaired = true;
@@ -3088,7 +2967,6 @@ export async function generateConversationArtifactsSinglePass(input: {
       recommendedTopics: normalizeRecommendedTopics(repairedOutput.recommendedTopics ?? result.recommendedTopics),
       quickQuestions: normalizeQuickQuestions(repairedOutput.quickQuestions ?? result.quickQuestions),
       profileSections: normalizeProfileSections(repairedOutput.profileSections ?? result.profileSections),
-      entityCandidates: normalizeEntityCandidates(repairedOutput.entityCandidates ?? result.entityCandidates),
       observationEvents: normalizeObservationEvents(repairedOutput.observationEvents ?? result.observationEvents),
       lessonReport: normalizeLessonReport(repairedOutput.lessonReport ?? result.lessonReport),
     };
@@ -3114,7 +2992,6 @@ export async function finalizeConversationArtifacts(input: {
   minSummaryChars: number;
   minTimelineSections?: number;
   sessionType?: "INTERVIEW" | "LESSON_REPORT";
-  entityDictionary?: Array<{ kind: string; canonicalName: string; aliases?: string[] }>;
 }): Promise<{ result: FinalizeResult; model: string; apiCalls: number; repaired: boolean }> {
   const minTimelineSections = input.minTimelineSections ?? 3;
   const model = getFinalModel();
@@ -3157,7 +3034,6 @@ export async function finalizeConversationArtifacts(input: {
     recommendedTopics: normalizeRecommendedTopics(parsed.recommendedTopics ?? []),
     quickQuestions: normalizeQuickQuestions(parsed.quickQuestions ?? []),
     profileSections: normalizeProfileSections(parsed.profileSections ?? []),
-    entityCandidates: normalizeEntityCandidates(parsed.entityCandidates ?? []),
     observationEvents: normalizeObservationEvents(parsed.observationEvents ?? []),
     lessonReport: normalizeLessonReport(parsed.lessonReport),
   };
@@ -3189,7 +3065,6 @@ export async function finalizeConversationArtifacts(input: {
       minSummaryChars: input.minSummaryChars,
       minTimelineSections,
       sessionType: input.sessionType,
-      entityDictionary: input.entityDictionary,
     });
     apiCalls += 1;
     repaired = true;
@@ -3204,7 +3079,6 @@ export async function finalizeConversationArtifacts(input: {
       recommendedTopics: normalizeRecommendedTopics(repairedOutput.recommendedTopics ?? result.recommendedTopics),
       quickQuestions: normalizeQuickQuestions(repairedOutput.quickQuestions ?? result.quickQuestions),
       profileSections: normalizeProfileSections(repairedOutput.profileSections ?? result.profileSections),
-      entityCandidates: normalizeEntityCandidates(repairedOutput.entityCandidates ?? result.entityCandidates),
       observationEvents: normalizeObservationEvents(repairedOutput.observationEvents ?? result.observationEvents),
       lessonReport: normalizeLessonReport(repairedOutput.lessonReport ?? result.lessonReport),
     };

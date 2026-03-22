@@ -1,545 +1,352 @@
-# PARARIA vNext 画面別改善ドキュメント
-
-更新日: 2026-03-22
-
-## 1. 一言定義
-
-> PARARIAは、授業・面談の会話を、次回指導・保護者共有・教室運営に変換する Teaching OS。
-
-## 2. このプロダクトの主導線
-
-- 講師は `Student Room` で会話を確認する。
-- 講師は `Student Room` で entity を確認し、レポートを整える。
-- 講師は `Student Room` で保護者共有を完了する。
-- 管理者は `Dashboard` で review待ち、entity block、共有遅延、送信失敗を朝いちで把握する。
-- `Reports` と `Logs` は参照面として残すが、主導線には戻さない。
-- `Settings / Admin` は共有運用を安全に始めるための管理画面にする。
-- `DB / 状態定義 / Delivery / Audit / Trust` は共通土台として支える。
-
-## 3. 画面マップ
-
-- 主役画面: `Student Room`
-- 管理画面: `Dashboard`
-- 補助画面: `Reports`, `Logs`
-- 設定画面: `Settings / Admin`
-- 画面ではない共通土台: `State`, `Delivery`, `Evidence`, `Audit`, `Trust`
-- 後回し: `Campus 比較`, `LINE 第二チャネル`, `週次レビュー装飾`, `opened / clicked の詳細イベント`
-
-## 4. 画面別改善方針
-
-## Student Room
-
-### 役割
-
-講師が、会話確認から保護者共有完了までを 1 画面で閉じる主画面。
-
-### 誰が使うか
-
-Tutor
-
-### ファーストビュー
-
-画面上部に `生徒名 / 今日の状態 / レポート状態 / 共有状態 / 次にやること` がすぐ見える状態にする。
-
-### 最初に取る行動
-
-講師はまず `今日のレポートが送信可能か` を確認し、必要なら `entity確認` か `送信` に進む。
-
-### Before
-
-共有状態、再送、手動共有、根拠、失敗時の次アクションが分散していて、講師が「今どこまで終わっているか」を瞬時に判断しづらい。
-
-### After
-
-`レポート確認 -> 送信 -> 失敗時の分岐 -> 共有履歴確認` が Student Room 内のブロックとしてつながり、shared までの導線が一本化される。
-
-### UIブロック構成
-
-1. `Header`
-2. `Student Summary`
-3. `Session Status Banner`
-4. `Conversation Summary`
-5. `Entity Check`
-6. `Report Card`
-7. `Delivery Status`
-8. `Share History`
-9. `Evidence Panel`
-10. `Next Actions`
-
-### 今回追加・変更すること
-
-- [ ] [Student Room / Session Status Banner] `レビュー待ち / 送信可能 / 送信済み / 配達済み / 失敗 / 手動共有` を見えるようにする
-- [ ] [Student Room / Report Card] レポートの確認状態と共有可否を同じ場所で表示する
-- [ ] [Student Room / Entity Check] `entity pending` があると送信できない理由を明示する
-- [ ] [Student Room / Delivery Status] `送信 / 再送 / 手動共有記録` をこのブロックで完結させる
-- [ ] [Student Room / Delivery Status] 送信失敗時に `再送 / 宛先修正 / 手動共有` の3分岐を出す
-- [ ] [Student Room / Share History] `送信済み / 配達済み / 失敗 / 手動共有` を時系列で見せる
-- [ ] [Student Room / Evidence Panel] section単位で `どの会話ログ由来か` を最低限見せる
-- [ ] [Student Room / Evidence Panel] `regenerate reason` と `manual edit 有無` を見せる
-- [ ] [Student Room / Next Actions] 今の状態に応じた次の行動を1つだけ強く出す
-
-### 状態一覧
-
-- `処理中`
-- `レビュー待ち`
-- `送信可能`
-- `送信済み`
-- `配達済み`
-- `失敗`
-- `手動共有`
-
-### エラー・空状態
-
-- `entity pending`: 送信ボタンを無効化し、確認すべき固有名詞にスクロールできるようにする
-- `guardian未設定`: 送信の代わりに `連絡先を設定する` を出す
-- `送信失敗`: `再送 / 宛先修正 / 手動共有` を同じ場所で出す
-- `共有履歴なし`: `まだ共有していません` と最初の送信導線を出す
-- `根拠なし`: `根拠が弱い可能性があります` を warning で出す
-
-### 完了条件
-
-- [ ] Tutor が Student Room だけで共有完了まで進める
-- [ ] 送信可能な状態なら 3 クリック以内で送信まで進める
-- [ ] 送信失敗時に `再送 / 宛先修正 / 手動共有` の3分岐が必ず出る
-- [ ] 共有状態を 3 秒以内に見分けられる
-
-### 関連する基盤
-
-- `ReportStatus`
-- `ReportDelivery`
-- `ReportDeliveryEvent`
-- `GuardianContact`
-- `AuditLog`
-- `/api/reports/[id]/send`
-
-## Dashboard
-
-### 役割
-
-教室長・管理者が、朝いちで止まりと要介入を見つける管理画面。
-
-### 誰が使うか
-
-Manager
-
-### ファーストビュー
-
-最上段に 4 つの KPI カードを並べ、その下に `止まっている対象一覧` が続く構成にする。
-
-### 最初に取る行動
-
-管理者はまず `review待ち件数` と `failed / bounced件数` を見て、最も危険なカードから drill-in する。
-
-### Before
-
-いまは「今日の優先キュー」はあるが、止まりの種類が広く、どれを最初に見るべきかがすぐ分からない。
-
-### After
-
-朝の判断に必要な 4 指標がファーストビューに固定され、1クリックで対象生徒や対象レポートへ降りられる。
-
-### UIブロック構成
-
-1. `Header`
-2. `KPI Cards`
-3. `Drill-in Table`
-4. `Queue Summary`
-5. `Quick Actions`
-
-### 今回追加・変更すること
-
-- [ ] [Dashboard / KPI Cards] 初版の指標を `review待ち件数 / blocked_by_entity件数 / 平均time-to-share / failed・bounced件数` の4つに絞る
-- [ ] [Dashboard / KPI Cards] 危険度の高い順にカードの強弱を付ける
-- [ ] [Dashboard / Drill-in Table] KPIカードを押すと対象の生徒・レポート一覧が出るようにする
-- [ ] [Dashboard / Drill-in Table] `誰が / 何で / 何日止まっているか` を見せる
-- [ ] [Dashboard / Queue Summary] 既存の優先キューは補助情報として下段に残す
-- [ ] [Dashboard / Quick Actions] `招待` は補助面に下げて主役から外す
-
-### 状態一覧
-
-- `レビュー待ち`
-- `固有名詞確認待ち`
-- `共有遅延`
-- `送信失敗`
-- `配達失敗`
-
-### エラー・空状態
-
-- `止まりなし`: `今日は大きな滞留がありません` を出す
-- `データ少ない`: onboarding 導線やデモデータ導線を出す
-- `集計失敗`: `再読み込み` と fallback テキストを出す
-
-### 完了条件
-
-- [ ] Manager が 5 秒以内に `review待ち件数` と `failed件数` を視認できる
-- [ ] 最重要カードから 1 クリックで対象一覧に進める
-- [ ] 朝見れば何が止まっているか迷わない
-
-### 関連する基盤
-
-- `ReportStatus`
-- `SessionStatus`
-- `ReportDeliveryEvent`
-- `enteredAt / time-to-share`
-- dashboard 集計 route
-
-## Reports
-
-### 役割
-
-レポート一覧と検索のための補助画面。
-
-### 誰が使うか
-
-Tutor / Manager
-
-### ファーストビュー
-
-検索条件と状態フィルタ、その下にレポート一覧が見える構成にする。
-
-### 最初に取る行動
-
-ユーザーは `失敗` や `共有済み` などの状態で絞り込み、対象レポートを開く。
-
-### Before
-
-状態表示が新しい運用モデルに追いつかず、一覧から shared の進み具合を読み取りにくい。
-
-### After
-
-レポートはここで作業するのではなく、状態確認と検索に使う画面として整理される。
-
-### UIブロック構成
-
-1. `Header`
-2. `Filters`
-3. `Report List`
-4. `Status Chips`
-5. `Open in Student Room`
-
-### 今回追加・変更すること
-
-- [ ] [Reports / Filters] `レビュー待ち / 送信済み / 配達済み / 失敗 / 手動共有` で絞れるようにする
-- [ ] [Reports / Report List] 共有状態を新定義に合わせて表示する
-- [ ] [Reports / Open in Student Room] 主作業は Student Room へ戻す導線を強くする
-
-### 状態一覧
-
-- `レビュー待ち`
-- `送信可能`
-- `送信済み`
-- `配達済み`
-- `失敗`
-- `手動共有`
-
-### エラー・空状態
-
-- `該当なし`: 条件に合うレポートがないことを明示する
-- `データなし`: まず Student Room でレポート作成を促す
-
-### 完了条件
-
-- [ ] レポート一覧で shared の進み具合を誤解なく見られる
-- [ ] 主作業をここで始めず、必要時に Student Room へ戻れる
-
-### 関連する基盤
-
-- `ReportStatus`
-- `ReportDeliveryEvent`
-
-## Logs
-
-### 役割
-
-会話ログの参照と根拠確認のための補助画面。
-
-### 誰が使うか
-
-Tutor / Manager
-
-### ファーストビュー
-
-会話の要点、entity状態、関連レポートへの導線がすぐ見える構成にする。
-
-### 最初に取る行動
-
-ユーザーは `このログが何に使われたか` と `どこが弱いか` を確認する。
-
-### Before
-
-会話ログは見られるが、レポート根拠や regenerate 理由とのつながりが弱い。
-
-### After
-
-Logs は「ただ読む画面」ではなく、`なぜこのレポートになったか` を補助的に確認する画面になる。
-
-### UIブロック構成
-
-1. `Header`
-2. `Conversation Summary`
-3. `Entity Status`
-4. `Evidence Links`
-5. `Regenerate Info`
-6. `Open Related Report`
-
-### 今回追加・変更すること
-
-- [ ] [Logs / Evidence Links] 関連レポートと根拠のつながりを見やすくする
-- [ ] [Logs / Regenerate Info] `regenerate reason` と `manual edit 有無` を見られるようにする
-- [ ] [Logs / Entity Status] `entity pending` や `low evidence` を読みやすくする
-
-### 状態一覧
-
-- `要点あり`
-- `entity確認待ち`
-- `根拠弱め`
-- `再生成あり`
-
-### エラー・空状態
-
-- `ログなし`: まだ会話ログがないことを明示する
-- `根拠リンクなし`: まだレポートへ使われていないことを示す
-
-### 完了条件
-
-- [ ] `なぜこのレポートになったか` を補助画面として十分追える
-- [ ] 主導線を Logs に戻さずに済む
-
-### 関連する基盤
-
-- `ConversationLog`
-- `AuditLog`
-- `sourceConversationLogIds`
-
-## Settings / Admin
-
-### 役割
-
-共有運用を安全に始めるための管理画面。
-
-### 誰が使うか
-
-Manager / Admin
-
-### ファーストビュー
-
-`連絡先設定 / 送信設定 / 権限 / 保存方針` の4ブロックが最初に見える構成にする。
-
-### 最初に取る行動
-
-管理者は `guardian 連絡先` と `メール送信設定` が整っているかを確認する。
-
-### Before
-
-guardian 連絡先、Webhook、権限、保存方針がまだ運用画面として揃っていない。
-
-### After
-
-「共有を始めてよいか」をこの画面で判断できるようになる。
-
-### UIブロック構成
-
-1. `Header`
-2. `Guardian Contacts`
-3. `Sending Config`
-4. `Role Permissions`
-5. `Consent & Retention`
-6. `Webhook Health`
-
-### 今回追加・変更すること
-
-- [ ] [Settings / Guardian Contacts] guardian 連絡先の最小管理 UI を作る
-- [ ] [Settings / Sending Config] メール送信設定を確認できるようにする
-- [ ] [Settings / Webhook Health] Webhook 署名検証の状態を見えるようにする
-- [ ] [Settings / Role Permissions] `誰がレビュー / 送信 / override できるか` を見直す
-- [ ] [Settings / Consent & Retention] consent / notice / 保存期間の最低限を見える化する
-
-### 状態一覧
-
-- `設定済み`
-- `未設定`
-- `要確認`
-- `エラー`
-
-### エラー・空状態
-
-- `連絡先なし`: Student Room から設定へ戻す導線を出す
-- `Webhook異常`: 再確認手順を出す
-- `権限不足`: 誰に依頼すべきかを出す
-
-### 完了条件
-
-- [ ] Manager が共有運用を始める条件をこの画面で確認できる
-- [ ] Student Room の送信ブロックがこの画面の設定不足で止まる場合、戻り先が明確になる
-
-### 関連する基盤
-
-- `GuardianContact`
-- `UserRole`
-- `AuditLog`
-- retention 方針
-
-## 共通基盤
-
-### 役割
-
-全画面が同じ意味で動くための土台。
-
-### 誰が使うか
-
-画面としては見えないが、効く先は Student Room / Dashboard / Reports / Logs / Settings の全部。
-
-### Before
-
-状態名、shared 定義、根拠、Delivery、監査、保存方針がまだ画面単位で完全には揃っていない。
-
-### After
-
-UI表示、KPI、送信履歴、監査線が同じ state 定義で動く。
-
-### 今回追加・変更すること
-
-- [ ] [共通基盤 / State] `reviewed / shared / sent / delivered / manually_confirmed / failed / bounced` の定義を固定する
-- [ ] [共通基盤 / State] `ReportStatus` と `Delivery event` を UI 表示名に合わせて再設計する
-- [ ] [共通基盤 / Time] `enteredAt` 相当と `time-to-share` を計測できるようにする
-- [ ] [共通基盤 / Evidence] section 単位の `sourceConversationLogIds` を持たせる
-- [ ] [共通基盤 / Evidence] `sourceSpans` は後回しにする
-- [ ] [共通基盤 / Audit] `reviewer / sender / override actor / regenerate reason` を残す
-- [ ] [共通基盤 / Trust] guardian 連絡先、保存期間、Webhook 署名検証、role 制御の最小版を入れる
-
-### 状態一覧
-
-- `レビュー待ち`
-- `送信可能`
-- `送信済み`
-- `配達済み`
-- `失敗`
-- `手動共有`
-
-### エラー・空状態
-
-- `状態未定義`: UI に出す状態名を増やさない
-- `Delivery event 不足`: Dashboard と Student Room の表示差を出さない
-
-### 完了条件
-
-- [ ] Student Room と Dashboard が同じ state 定義で動く
-- [ ] shared 率と time-to-share を同じルールで計測できる
-- [ ] 根拠と監査線を最低限辿れる
-
-### 関連する基盤
-
-- `prisma/schema.prisma`
-- `AuditLog`
-- `ReportStatus`
-- `ReportDeliveryEvent`
-
-## 5. P0
-
-### P0 / 共通基盤
-
-- [ ] [共通基盤 / State] `shared / sent / delivered / manually_confirmed` を固定する
-- [ ] [共通基盤 / Source Of Truth] `Session / ConversationLog / Report / Delivery / Risk` の責務を固定する
-- [ ] [共通基盤 / State] `ReportStatus` を UI 表示に合わせて再設計する
-- [ ] [共通基盤 / Time] `time-to-share` を計測できるようにする
-- [ ] [共通基盤 / Evidence] `sourceConversationLogIds` と `regenerate reason` を持たせる
-- [ ] [共通基盤 / Audit] reviewer / sender / override actor を残す
-- [ ] [共通基盤 / Trust] guardian 連絡先、保存期間、Webhook 署名検証、role 制御の最小版を入れる
-
-### P0 / Student Room
-
-- [ ] [Student Room / Session Status Banner] 共有状態を新表示へ統一する
-- [ ] [Student Room / Report Card] `送信可能かどうか` を見えるようにする
-- [ ] [Student Room / Delivery Status] `送信 / 再送 / 手動共有記録` を完結させる
-- [ ] [Student Room / Delivery Status] 失敗時の3分岐を出す
-- [ ] [Student Room / Share History] 最小の共有履歴を出す
-- [ ] [Student Room / Evidence Panel] section単位の根拠を出す
-
-### P0 / Dashboard
-
-- [ ] [Dashboard / KPI Cards] `review待ち件数` を出す
-- [ ] [Dashboard / KPI Cards] `blocked_by_entity件数` を出す
-- [ ] [Dashboard / KPI Cards] `平均time-to-share` を出す
-- [ ] [Dashboard / KPI Cards] `failed / bounced件数` を出す
-- [ ] [Dashboard / Drill-in Table] KPI から対象一覧へ降りられるようにする
-
-### P0 / Settings / Admin
-
-- [ ] [Settings / Guardian Contacts] 連絡先管理を作る
-- [ ] [Settings / Sending Config] メール送信設定を出す
-- [ ] [Settings / Webhook Health] Webhook 状態を出す
-- [ ] [Settings / Role Permissions] role と override を見直す
-- [ ] [Settings / Consent & Retention] 最低限の trust 情報を出す
-
-## 6. P1
-
-### P1 / Student Room
-
-- [ ] [Student Room / Share History] delivery timeline を強化する
-- [ ] [Student Room / Evidence Panel] `sourceSpans` を使った根拠表示へ拡張する
-- [ ] [Student Room / Next Actions] 前回共有内容と今回共有内容をつなぐ
-
-### P1 / Dashboard
-
-- [ ] [Dashboard / Today’s Stuck] 正式ブロック化する
-- [ ] [Dashboard / Today’s Risk] 共有遅延と面談空白を見る
-- [ ] [Dashboard / Tutor Quality] reviewed率、regenerate率、manual edit率を見る
-- [ ] [Dashboard / Guardian Delivery] sent率、delivered率、failed率を見る
-
-### P1 / 補助画面
-
-- [ ] [Reports / Filters] 共有状態と失敗状態で検索しやすくする
-- [ ] [Reports / Report List] 新状態表示へ寄せる
-- [ ] [Logs / Evidence Links] 根拠参照を見やすくする
-- [ ] [Logs / Regenerate Info] regenerate 理由を見やすくする
-
-### P1 / 共通基盤
-
-- [ ] [共通基盤 / Activation] 初回セットアップウィザードを整える
-- [ ] [共通基盤 / Activation] デモデータ導線を整える
-- [ ] [共通基盤 / Audit] audit export の要否を決める
-- [ ] [共通基盤 / Trust] retention と deletion request を正式化する
-
-## 7. P2
-
-- [ ] [後回し / Dashboard] Campus 比較を追加する
-- [ ] [後回し / 共通基盤] Campus 正規モデルを作る
-- [ ] [後回し / Dashboard] 週次レビュー card / reminder / digest を整える
-- [ ] [後回し / Settings] LINE 第二チャネルを追加する
-
-## 8. 依存関係
-
-- [ ] [共通基盤 / State] `shared / sent / delivered` 定義の固定が先。これがないと Student Room と Dashboard の数字が揃わない
-- [ ] [共通基盤 / State] `ReportStatus` 再設計が先。これがないと Reports と Student Room の表示が揃わない
-- [ ] [Settings / Guardian Contacts] 連絡先管理が先。これがないと Student Room の送信導線が閉じない
-- [ ] [共通基盤 / Delivery] `ReportDeliveryEvent` が先。これがないと Dashboard で failed / bounced を出せない
-- [ ] [共通基盤 / Audit] `AuditLog` 拡張が先。これがないと override や manual share を追えない
-- [ ] [Settings / Webhook Health] 署名検証が先。これがないと本番で delivery event を信頼できない
-
-## 9. 実装順
-
-1. [ ] [共通基盤 / State] `Teaching OS` 定義、North Star、Activation を固定する
-2. [ ] [共通基盤 / State] `shared / sent / delivered / manually_confirmed` を固定する
-3. [ ] [共通基盤 / Source Of Truth] `Session / ConversationLog / Report / Delivery / Risk` を固める
-4. [ ] [共通基盤 / Evidence・Audit・Trust] 最小版を入れる
-5. [ ] [Settings / Guardian Contacts・Sending Config・Webhook Health] 最小版を入れる
-6. [ ] [Student Room / Delivery Status・Share History] shared まで 1 画面で閉じる
-7. [ ] [Dashboard / KPI Cards・Drill-in Table] 4 指標の初版を出す
-8. [ ] [Student Room / Share History・Evidence Panel] 共有履歴と根拠を強める
-9. [ ] [Dashboard / Today’s Risk・Tutor Quality・Guardian Delivery] 管理画面を広げる
-10. [ ] [共通基盤 / Activation・Retention] 本設計に進む
-11. [ ] [Reports / Logs] 新状態に合わせる
-12. [ ] [後回し] Campus / LINE / 週次レビューへ進む
-
-## 10. 画面別サマリー表
-
-| 画面 | 誰が使うか | この画面でやること | 今回増えるUIブロック | 重要操作 | 見るべき状態 | P0完了条件 |
-| --- | --- | --- | --- | --- | --- | --- |
-| Student Room | Tutor | 会話確認から共有完了までを閉じる | Session Status Banner, Delivery Status, Share History, Evidence Panel, Next Actions | 送信, 再送, 手動共有, entity確認 | レビュー待ち, 送信可能, 送信済み, 配達済み, 失敗, 手動共有 | Student Room だけで shared まで完了できる |
-| Dashboard | Manager | 朝の止まりを見つけて対象へ降りる | KPI Cards, Drill-in Table | KPI確認, drill-in | レビュー待ち, 固有名詞確認待ち, 共有遅延, 送信失敗 | 5秒以内に止まりを認識できる |
-| Reports | Tutor / Manager | レポート状態を検索・参照する | Filters, Status Chips, Open in Student Room | 状態で絞る, Student Roomへ戻る | 送信済み, 配達済み, 失敗, 手動共有 | 新状態で一覧を誤解なく読める |
-| Logs | Tutor / Manager | 会話ログの根拠と再生成理由を参照する | Evidence Links, Regenerate Info | 根拠確認, 関連レポートへ移動 | entity確認待ち, 根拠弱め, 再生成あり | レポート根拠を補助面として追える |
-| Settings / Admin | Manager / Admin | 共有運用を安全に始める | Guardian Contacts, Sending Config, Role Permissions, Consent & Retention, Webhook Health | 連絡先設定, 権限確認, Webhook確認 | 設定済み, 未設定, 要確認, エラー | 共有運用に必要な設定をここで確認できる |
-| 共通基盤 | 全画面に効く | 状態、Delivery、Audit、Trust を揃える | 画面追加ではなく全画面の表示を統一する土台 | state定義, time計測, event保存 | レビュー待ち, 送信可能, 送信済み, 配達済み, 失敗, 手動共有 | 全画面が同じ意味で動く |
-
-この文書を見れば、ルウクがどの画面のどのブロックを、どの順で作るか一目で分かる状態にする。
+# PARARIA vNext Issue Backlog
+
+更新日: 2026-03-22  
+前提: 旧確認フローは廃止済み。以後の issue はすべて `面談モード / 指導報告モード / ログ選択型の保護者レポート生成` を前提にする。
+親 issue: [#13 PARARIA vNext 実装バックログ (2026-03-22)](https://github.com/MIRR-LUKE/pararia/issues/13)
+
+## 0. いまの基準線
+
+- 主導線は `Student Room`
+- 録音は `面談モード` と `指導報告モード`
+- 生成物は `面談ログ` と `指導報告ログ`
+- `保護者レポート` は選択したログだけから都度生成する
+- `/logs` と `/reports` は補助面のまま
+- 旧 `entity review` 系の UI / API / schema / seed は削除済み
+
+## 1. 実装順
+
+1. `P0-01` Student Room のモード別主導線を完成させる
+2. `P0-02` Student Room のログ選択型レポート生成を常設化する
+3. `P0-03` 共有状態と送信履歴の最小ループを作る
+4. `P0-04` Dashboard を朝の判断画面にする
+5. `P0-05` Reports / Logs を補助面として整える
+6. `P0-06` Settings / Admin に共有運用の最低限を入れる
+7. `P0-07` Delivery / status / source trace の共通基盤を入れる
+8. `P1-01` Student Room の履歴と次アクションを強くする
+9. `P1-02` Manager 向け drill-in と運用品質を見える化する
+10. `P1-03` Onboarding / demo data / activation を整える
+11. `P1-04` Audit / retention / trust を正式化する
+12. `P2-01` Campus / LINE / weekly digest に進む
+
+## 2. P0
+
+### Issue P0-01 | Student Room のモード別主導線を完成させる
+
+- GitHub: [#1](https://github.com/MIRR-LUKE/pararia/issues/1)
+
+- ラベル:
+  - `priority/P0`
+  - `area/student-room`
+  - `type/ux`
+- 目的:
+  - Tutor が `面談モード / 指導報告モード` を見失わずに録音へ入れるようにする
+- 画面:
+  - `Student Room`
+- 変更するブロック:
+  - `Mode Selector`
+  - `Recording / Capture Block`
+  - `Session Status Banner`
+- やること:
+  - [ ] モード切替を常設する
+  - [ ] モードごとに録音開始文言と補助説明を分ける
+  - [ ] `CHECK_IN / CHECK_OUT` の進行状況を指導報告モードで明示する
+  - [ ] 録音後に `面談ログ生成中 / 指導報告ログ生成中` を見せる
+- 完了条件:
+  - [ ] Tutor が 3 秒以内に現在モードを認識できる
+  - [ ] 指導報告モードで `CHECK_IN / CHECK_OUT` のどちらを録るか迷わない
+  - [ ] 録音後の次状態が画面上で分かる
+- 依存:
+  - なし
+
+### Issue P0-02 | Student Room のログ選択型レポート生成を常設化する
+
+- GitHub: [#2](https://github.com/MIRR-LUKE/pararia/issues/2)
+
+- ラベル:
+  - `priority/P0`
+  - `area/student-room`
+  - `area/reports`
+  - `type/flow`
+- 目的:
+  - `ログ生成 -> ログ選択 -> 保護者レポート生成` を Student Room で閉じる
+- 画面:
+  - `Student Room`
+- 変更するブロック:
+  - `面談ログセクション`
+  - `指導報告ログセクション`
+  - `保護者レポート作成セクション`
+- やること:
+  - [ ] 面談ログと指導報告ログを UI 上で明確に分ける
+  - [ ] 保護者レポート候補ログを選択できるようにする
+  - [ ] 選択件数と選択中ログをその場で確認できるようにする
+  - [ ] `保護者レポートを生成` を主 CTA にする
+- 完了条件:
+  - [ ] Tutor が Student Room だけでレポート生成まで進める
+  - [ ] 未選択ログが勝手に使われない
+  - [ ] `どのログを使って作るか` が視覚的に分かる
+- 依存:
+  - `P0-01`
+
+### Issue P0-03 | 共有状態と送信履歴の最小ループを作る
+
+- GitHub: [#3](https://github.com/MIRR-LUKE/pararia/issues/3)
+
+- ラベル:
+  - `priority/P0`
+  - `area/student-room`
+  - `area/delivery`
+  - `type/ops`
+- 目的:
+  - レポート生成後の `確認 -> 共有` を止めない
+- 画面:
+  - `Student Room`
+- 変更するブロック:
+  - `Delivery Status`
+  - `Share History`
+- やること:
+  - [ ] 現在の共有状態を見えるようにする
+  - [ ] `送信済みにする` の導線を分かりやすくする
+  - [ ] 共有履歴を最小限で表示する
+  - [ ] 手動共有の記録を履歴に残せるようにする
+- 完了条件:
+  - [ ] Tutor が共有済みか未共有かをすぐ見分けられる
+  - [ ] 最新の共有アクションが Student Room で追える
+  - [ ] レポート生成後に別画面へ逃がさなくてよい
+- 依存:
+  - `P0-02`
+
+### Issue P0-04 | Dashboard を朝の判断画面にする
+
+- GitHub: [#4](https://github.com/MIRR-LUKE/pararia/issues/4)
+
+- ラベル:
+  - `priority/P0`
+  - `area/dashboard`
+  - `type/ux`
+- 目的:
+  - Manager が朝いちで `何が止まっているか` を分かるようにする
+- 画面:
+  - `Dashboard`
+- 変更するブロック:
+  - `KPI Cards`
+  - `Drill-in Table`
+  - `Delayed Share Queue`
+- やること:
+  - [ ] `review待ち件数` を出す
+  - [ ] `保護者レポート未生成件数` を出す
+  - [ ] `共有遅延件数` を出す
+  - [ ] `failed / bounced件数` を出す
+  - [ ] KPI から対象生徒一覧に降りられるようにする
+- 完了条件:
+  - [ ] Manager が 5 秒以内に主要な止まりを把握できる
+  - [ ] 最重要項目から Student Room へ 1 クリックで降りられる
+- 依存:
+  - `P0-03`
+  - `P0-07`
+
+### Issue P0-05 | Reports / Logs を補助面として整える
+
+- GitHub: [#5](https://github.com/MIRR-LUKE/pararia/issues/5)
+
+- ラベル:
+  - `priority/P0`
+  - `area/reports`
+  - `area/logs`
+  - `type/ux`
+- 目的:
+  - 補助画面を主役に戻さず、確認用として使いやすくする
+- 画面:
+  - `Reports`
+  - `Logs`
+- 変更するブロック:
+  - `Filters`
+  - `Selected Logs Summary`
+  - `Mode Filter`
+  - `Related Reports`
+- やること:
+  - [ ] Reports で `未作成 / 下書き / 送付済み` を追いやすくする
+  - [ ] Logs で `面談ログ / 指導報告ログ` を見分けやすくする
+  - [ ] どのログがどの保護者レポートに使われたかを見せる
+  - [ ] Student Room に戻る導線を強くする
+- 完了条件:
+  - [ ] 補助画面だけ見ていても現在地を見失わない
+  - [ ] 主作業を Student Room に戻せる
+- 依存:
+  - `P0-02`
+  - `P0-07`
+
+### Issue P0-06 | Settings / Admin に共有運用の最低限を入れる
+
+- GitHub: [#6](https://github.com/MIRR-LUKE/pararia/issues/6)
+
+- ラベル:
+  - `priority/P0`
+  - `area/settings`
+  - `type/admin`
+- 目的:
+  - 共有を始める前の最低限の設定確認を 1 画面に寄せる
+- 画面:
+  - `Settings / Admin`
+- 変更するブロック:
+  - `Guardian Contacts`
+  - `Sending Config`
+  - `Role Permissions`
+  - `Consent & Retention`
+- やること:
+  - [ ] guardian 連絡先の最小管理 UI を作る
+  - [ ] メール送信設定の状態を見せる
+  - [ ] 役割ごとの共有権限を見直す
+  - [ ] 保持方針の最低限を明示する
+- 完了条件:
+  - [ ] Manager が「共有を始めてよいか」を判断できる
+  - [ ] Student Room から設定不足へ戻す導線がある
+- 依存:
+  - `P0-03`
+
+### Issue P0-07 | Delivery / state / source trace の共通基盤を入れる
+
+- GitHub: [#7](https://github.com/MIRR-LUKE/pararia/issues/7)
+
+- ラベル:
+  - `priority/P0`
+  - `area/platform`
+  - `area/delivery`
+  - `type/backend`
+- 目的:
+  - 画面ごとに状態の意味がずれないようにする
+- 対象:
+  - `Report`
+  - `sourceLogIds`
+  - delivery event 設計
+  - audit の最小版
+- やること:
+  - [ ] 保護者レポートと `sourceLogIds` の追跡を正式な基準にする
+  - [ ] `送信 / 再送 / 手動共有` を event として持てる形にする
+  - [ ] Dashboard と Student Room が同じ意味で状態を見られるようにする
+  - [ ] 将来の `failed / bounced / delivered` に耐えるデータ構造にする
+- 完了条件:
+  - [ ] ログ選択型レポート生成の根拠が追える
+  - [ ] 共有イベントをあとから UI に出せる
+  - [ ] 画面ごとに状態定義がぶれない
+- 依存:
+  - なし
+
+## 3. P1
+
+### Issue P1-01 | Student Room の履歴と次アクションを強くする
+
+- GitHub: [#8](https://github.com/MIRR-LUKE/pararia/issues/8)
+
+- ラベル:
+  - `priority/P1`
+  - `area/student-room`
+  - `type/ux`
+- 目的:
+  - Tutor が「前回までの流れ」と「次の一手」を同じ画面で掴めるようにする
+- やること:
+  - [ ] `Communication Timeline` を入れる
+  - [ ] `Next Actions` を強くする
+  - [ ] 前回共有内容と今回共有内容をつなぐ
+- 完了条件:
+  - [ ] 共有履歴と次の確認事項が 1 画面で読める
+- 依存:
+  - `P0-03`
+
+### Issue P1-02 | Manager 向け drill-in と運用品質を見える化する
+
+- GitHub: [#9](https://github.com/MIRR-LUKE/pararia/issues/9)
+
+- ラベル:
+  - `priority/P1`
+  - `area/dashboard`
+  - `type/analytics`
+- 目的:
+  - 共有運用のボトルネックを Manager が追えるようにする
+- やること:
+  - [ ] `average time-to-share` を主要指標に入れる
+  - [ ] `再送発生件数` と `手動共有件数` を出す
+  - [ ] `誰が / どのログから / 何日止まっているか` を drill-in で見せる
+- 完了条件:
+  - [ ] Manager が止まり方の傾向を説明できる
+- 依存:
+  - `P0-04`
+  - `P0-07`
+
+### Issue P1-03 | Onboarding / demo data / activation を整える
+
+- GitHub: [#10](https://github.com/MIRR-LUKE/pararia/issues/10)
+
+- ラベル:
+  - `priority/P1`
+  - `area/onboarding`
+  - `type/product`
+- 目的:
+  - 初回導入で最初の 1 人を end-to-end で完了しやすくする
+- やること:
+  - [ ] 初回セットアップ導線を整える
+  - [ ] seed / demo data を現行 UX に合わせる
+  - [ ] Tutor 向けの最短導線を作る
+- 完了条件:
+  - [ ] 新規環境で最初の Student Room 体験が迷わない
+- 依存:
+  - `P0-01`
+  - `P0-02`
+
+### Issue P1-04 | Audit / retention / trust を正式化する
+
+- GitHub: [#11](https://github.com/MIRR-LUKE/pararia/issues/11)
+
+- ラベル:
+  - `priority/P1`
+  - `area/platform`
+  - `area/settings`
+  - `type/trust`
+- 目的:
+  - 教育データと共有履歴を扱う前提を運用上も明確にする
+- やること:
+  - [ ] retention を正式化する
+  - [ ] deletion request の扱いを決める
+  - [ ] audit export の要否を決める
+  - [ ] webhook / send 記録の監査方針を決める
+- 完了条件:
+  - [ ] README と Settings が同じ trust 前提で説明できる
+- 依存:
+  - `P0-06`
+  - `P0-07`
+
+## 4. P2
+
+### Issue P2-01 | Campus / LINE / weekly digest に進む
+
+- GitHub: [#12](https://github.com/MIRR-LUKE/pararia/issues/12)
+
+- ラベル:
+  - `priority/P2`
+  - `area/expansion`
+- 目的:
+  - Teaching OS の核を保ったまま拡張する
+- やること:
+  - [ ] Campus 比較
+  - [ ] Campus 正規モデル
+  - [ ] LINE 第二チャネル
+  - [ ] weekly digest / reminder
+- 完了条件:
+  - [ ] P0 / P1 が安定したあとに着手する
+- 依存:
+  - `P0` と `P1` の完了
+
+## 5. 非目標
+
+- 出欠
+- 請求
+- 会計
+- 時間割
+- 広い SIS 化
+
+## 6. Issue 化するときの共通ルール
+
+- タイトルは `P0-01 | Student Room ...` 形式で統一する
+- 1 issue 1 outcome にする
+- 受け入れ条件は必ず画面で検証できる文にする
+- DB / API 名は本文末尾の補足に下げる
+- 旧確認フローを前提にしたタスクは今後追加しない

@@ -16,7 +16,7 @@ type SessionSummary = {
   heroStateLabel?: string | null;
   heroOneLiner?: string | null;
   latestSummary?: string | null;
-  pendingEntityCount: number;
+  conversation?: { id: string } | null;
 };
 
 type ReportSummary = {
@@ -39,7 +39,7 @@ type StudentRow = {
   _count?: { sessions: number; reports: number };
 };
 
-type ViewKey = "all" | "interview" | "review" | "report";
+type ViewKey = "all" | "interview" | "log" | "report";
 
 function completeness(profileData?: any) {
   const basic = Array.isArray(profileData?.basic) ? profileData.basic.length : 0;
@@ -70,20 +70,20 @@ function summarize(student: StudentRow) {
     };
   }
 
-  if (latestSession.pendingEntityCount > 0) {
+  if (latestSession.conversation?.id && !latestReport) {
     return {
-      state: latestSession.heroStateLabel ?? "要確認",
-      oneLiner: latestSession.heroOneLiner ?? latestSession.latestSummary ?? "確認が必要な固有名詞があります。",
-      nextAction: "詳細で確認する",
-      view: "review" as const,
+      state: latestSession.heroStateLabel ?? "レポート作成待ち",
+      oneLiner: latestSession.heroOneLiner ?? latestSession.latestSummary ?? "ログは生成済みです。必要なログを選んで保護者レポートを作れます。",
+      nextAction: "ログを選んでレポートを作る",
+      view: "report" as const,
     };
   }
 
   if (latestReport && latestReport.status !== "SENT") {
     return {
-      state: latestSession.heroStateLabel ?? "確認待ち",
-      oneLiner: latestSession.heroOneLiner ?? latestSession.latestSummary ?? "保護者レポートの確認待ちがあります。",
-      nextAction: "詳細で確認する",
+      state: latestSession.heroStateLabel ?? "共有待ち",
+      oneLiner: latestSession.heroOneLiner ?? latestSession.latestSummary ?? "保護者レポートの確認と共有がまだ残っています。",
+      nextAction: "共有を完了する",
       view: "report" as const,
     };
   }
@@ -92,9 +92,9 @@ function summarize(student: StudentRow) {
     state: latestSession.heroStateLabel ?? "更新済み",
     oneLiner:
       latestSession.heroOneLiner ?? latestSession.latestSummary ?? "次の会話に向けた材料が揃っています。",
-    nextAction: "生徒詳細を開く",
-    view: "all" as const,
-  };
+      nextAction: "生徒詳細を開く",
+      view: "log" as const,
+    };
 }
 
 export default function StudentsPage() {
@@ -156,9 +156,9 @@ export default function StudentsPage() {
           ? true
           : view === "interview"
             ? !latestSession
-            : view === "review"
-              ? (latestSession?.pendingEntityCount ?? 0) > 0
-              : Boolean(latestReport && latestReport.status !== "SENT");
+            : view === "log"
+              ? Boolean(latestSession?.conversation?.id) && !latestReport
+              : Boolean((latestSession?.conversation?.id && !latestReport) || (latestReport && latestReport.status !== "SENT"));
 
       if (!matchesView) return false;
       if (!lowered) return true;
@@ -219,8 +219,8 @@ export default function StudentsPage() {
           {[
             { key: "all", label: "すべて" },
             { key: "interview", label: "面談待ち" },
-            { key: "review", label: "要確認" },
-            { key: "report", label: "レポ待ち" },
+            { key: "log", label: "ログあり" },
+            { key: "report", label: "共有待ち" },
           ].map((item) => (
             <button
               key={item.key}
@@ -289,7 +289,7 @@ export default function StudentsPage() {
                   <div className={styles.rowTop}>
                     <strong className={styles.rowName}>{student.name}</strong>
                     {student.grade ? <span className={styles.meta}>{student.grade}</span> : null}
-                    <Badge label={student.state} tone={student.sessions?.[0]?.pendingEntityCount ? "high" : "medium"} />
+                    <Badge label={student.state} tone={student.viewKey === "report" ? "high" : "medium"} />
                   </div>
                   <p className={styles.oneLiner}>{student.oneLiner}</p>
                 </div>

@@ -13,7 +13,7 @@ import { applyProfileDelta } from "@/lib/profile";
 import { DEFAULT_TEACHER_FULL_NAME } from "@/lib/constants";
 import type { ConversationQualityMeta, ChunkAnalysis, ReducedAnalysis } from "@/lib/types/conversation";
 import { preprocessTranscript, preprocessTranscriptWithSegments } from "@/lib/transcript/preprocess";
-import { getEntityDictionary, syncSessionAfterConversation } from "@/lib/session-service";
+import { syncSessionAfterConversation } from "@/lib/session-service";
 import { buildOperationalLog, renderOperationalSummaryMarkdown } from "@/lib/operational-log";
 
 const DEFAULT_JOB_TYPES: ConversationJobType[] = [
@@ -65,13 +65,11 @@ type ConversationPayload = {
   quickQuestionsJson?: any;
   profileSectionsJson?: any;
   observationJson?: any;
-  entityCandidatesJson?: any;
   lessonReportJson?: any;
   studentName?: string | null;
   teacherName?: string | null;
   qualityMetaJson?: ConversationQualityMeta | null;
   chunkAnalysisJson?: any;
-  entityDictionary?: Array<{ kind: string; canonicalName: string; aliases?: string[] }>;
 };
 
 export async function enqueueConversationJobs(
@@ -281,7 +279,6 @@ async function executeAnalyzeJob(job: JobPayload, convo: ConversationPayload) {
       minSummaryChars,
       minTimelineSections,
       sessionType: convo.sessionType === SessionType.LESSON_REPORT ? "LESSON_REPORT" : "INTERVIEW",
-      entityDictionary: convo.entityDictionary,
     });
     const duration = Date.now() - start;
     const quotesCountTotal =
@@ -300,7 +297,6 @@ async function executeAnalyzeJob(job: JobPayload, convo: ConversationPayload) {
         studentState: result.studentState as any,
         profileSections: result.profileSections as any,
         quickQuestions: result.quickQuestions as any,
-        entityCandidates: result.entityCandidates as any,
         lessonReport: result.lessonReport as any,
       })
     );
@@ -318,7 +314,6 @@ async function executeAnalyzeJob(job: JobPayload, convo: ConversationPayload) {
         quickQuestionsJson: result.quickQuestions as any,
         profileSectionsJson: result.profileSections as any,
         observationJson: result.observationEvents as any,
-        entityCandidatesJson: result.entityCandidates as any,
         lessonReportJson: result.lessonReport as any,
         qualityMetaJson: {
           ...(convo.qualityMetaJson ?? {}),
@@ -581,7 +576,6 @@ async function executeFinalizeJob(job: JobPayload, convo: ConversationPayload) {
     const quickQuestions = (Array.isArray(convo.quickQuestionsJson) ? convo.quickQuestionsJson : []) as any[];
     const profileSections = (Array.isArray(convo.profileSectionsJson) ? convo.profileSectionsJson : []) as any[];
     const observationEvents = (Array.isArray(convo.observationJson) ? convo.observationJson : []) as any[];
-    const entityCandidates = (Array.isArray(convo.entityCandidatesJson) ? convo.entityCandidatesJson : []) as any[];
     const lessonReport = (convo.lessonReportJson as any) ?? null;
     const summaryMarkdown = renderOperationalSummaryMarkdown(
       buildOperationalLog({
@@ -594,7 +588,6 @@ async function executeFinalizeJob(job: JobPayload, convo: ConversationPayload) {
         studentState: studentState as any,
         profileSections: profileSections as any,
         quickQuestions: quickQuestions as any,
-        entityCandidates: entityCandidates as any,
         lessonReport: lessonReport as any,
       })
     );
@@ -686,7 +679,6 @@ async function executeFinalizeJob(job: JobPayload, convo: ConversationPayload) {
         recommendedTopics: recommendedTopics as any,
         quickQuestions: quickQuestions as any,
         profileSections: profileSections as any,
-        entityCandidates: entityCandidates as any,
         observationEvents: observationEvents as any,
         lessonReport: lessonReport as any,
       },
@@ -716,7 +708,6 @@ async function executeFinalizeJob(job: JobPayload, convo: ConversationPayload) {
     minSummaryChars,
     minTimelineSections,
     sessionType: convo.sessionType === SessionType.LESSON_REPORT ? "LESSON_REPORT" : "INTERVIEW",
-    entityDictionary: convo.entityDictionary,
   });
   const duration = Date.now() - start;
 
@@ -736,7 +727,6 @@ async function executeFinalizeJob(job: JobPayload, convo: ConversationPayload) {
       studentState: result.studentState as any,
       profileSections: result.profileSections as any,
       quickQuestions: result.quickQuestions as any,
-      entityCandidates: result.entityCandidates as any,
       lessonReport: result.lessonReport as any,
     })
   );
@@ -769,7 +759,6 @@ async function executeFinalizeJob(job: JobPayload, convo: ConversationPayload) {
       quickQuestionsJson: result.quickQuestions as any,
       profileSectionsJson: result.profileSections as any,
       observationJson: result.observationEvents as any,
-      entityCandidatesJson: result.entityCandidates as any,
       lessonReportJson: result.lessonReport as any,
       qualityMetaJson: qualityMeta as any,
     },
@@ -923,13 +912,11 @@ async function executeJob(job: JobPayload) {
     quickQuestionsJson: convo.quickQuestionsJson as any,
     profileSectionsJson: convo.profileSectionsJson as any,
     observationJson: convo.observationJson as any,
-    entityCandidatesJson: convo.entityCandidatesJson as any,
     lessonReportJson: convo.lessonReportJson as any,
     studentName: convo.student?.name ?? null,
     teacherName: convo.user?.name ?? DEFAULT_TEACHER_FULL_NAME,
     qualityMetaJson: (convo.qualityMetaJson as ConversationQualityMeta) ?? null,
     chunkAnalysisJson: (convo.chunkAnalysisJson as any) ?? null,
-    entityDictionary: await getEntityDictionary(convo.studentId),
   };
 
   if (job.type === ConversationJobType.CHUNK_ANALYZE) return executeAnalyzeJob(job, payload);

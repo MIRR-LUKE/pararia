@@ -1,5 +1,4 @@
 import type {
-  EntityCandidate,
   LessonReportArtifact,
   ObservationEvent,
   ProfileSection,
@@ -98,7 +97,6 @@ export type FinalizeResult = {
   recommendedTopics: RecommendedTopic[];
   quickQuestions: QuickQuestion[];
   profileSections: ProfileSection[];
-  entityCandidates: EntityCandidate[];
   observationEvents: ObservationEvent[];
   lessonReport: LessonReportArtifact | null;
 };

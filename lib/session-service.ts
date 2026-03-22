@@ -8,7 +8,6 @@ import {
   SessionType,
 } from "@prisma/client";
 import { prisma } from "./db";
-import type { EntityCandidate } from "./types/session";
 
 type SessionPartLike = {
   id: string;
@@ -111,7 +110,6 @@ export async function ensureConversationForSession(sessionId: string) {
         quickQuestionsJson: Prisma.DbNull,
         profileSectionsJson: Prisma.DbNull,
         observationJson: Prisma.DbNull,
-        entityCandidatesJson: Prisma.DbNull,
         lessonReportJson: Prisma.DbNull,
         chunkAnalysisJson: Prisma.DbNull,
         formattedTranscript: null,
@@ -127,18 +125,6 @@ export async function ensureConversationForSession(sessionId: string) {
     select: { id: true },
   });
   return conversation.id;
-}
-
-export async function getEntityDictionary(studentId: string) {
-  const entities = await prisma.studentEntity.findMany({
-    where: { studentId },
-    orderBy: [{ kind: "asc" }, { canonicalName: "asc" }],
-  });
-  return entities.map((entity) => ({
-    kind: entity.kind,
-    canonicalName: entity.canonicalName,
-    aliases: Array.isArray(entity.aliasesJson) ? (entity.aliasesJson as string[]) : [],
-  }));
 }
 
 function mapConversationToSessionStatus(status: ConversationStatus): SessionStatus {
@@ -157,38 +143,9 @@ export async function syncSessionAfterConversation(conversationId: string) {
       status: true,
       summaryMarkdown: true,
       studentStateJson: true,
-      entityCandidatesJson: true,
     },
   });
   if (!conversation?.sessionId) return;
-
-  const entityCandidates = (Array.isArray(conversation.entityCandidatesJson)
-    ? conversation.entityCandidatesJson
-    : []) as EntityCandidate[];
-
-  await prisma.sessionEntity.deleteMany({
-    where: { sessionId: conversation.sessionId },
-  });
-
-  if (entityCandidates.length > 0) {
-    await prisma.sessionEntity.createMany({
-      data: entityCandidates.map((candidate) => ({
-        sessionId: conversation.sessionId!,
-        conversationId: conversation.id,
-        studentId: conversation.studentId,
-        kind: candidate.kind,
-        rawValue: candidate.rawValue,
-        canonicalValue: candidate.canonicalValue ?? candidate.rawValue,
-        confidence: candidate.confidence,
-        status: candidate.status,
-        sourceJson: candidate.context ? ({ context: candidate.context } as any) : Prisma.DbNull,
-      })),
-    });
-  }
-
-  const pendingEntityCount = await prisma.sessionEntity.count({
-    where: { sessionId: conversation.sessionId, status: "PENDING" },
-  });
 
   const studentState = (conversation.studentStateJson ?? {}) as { label?: string; oneLiner?: string };
 
@@ -199,7 +156,6 @@ export async function syncSessionAfterConversation(conversationId: string) {
       heroStateLabel: studentState.label ?? undefined,
       heroOneLiner: studentState.oneLiner ?? undefined,
       latestSummary: conversation.summaryMarkdown ?? undefined,
-      pendingEntityCount,
       completedAt: conversation.status === ConversationStatus.DONE ? new Date() : null,
     },
   });

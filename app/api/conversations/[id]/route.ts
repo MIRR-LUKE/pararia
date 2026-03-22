@@ -73,7 +73,6 @@ export async function GET(
             type: true,
             status: true,
             sessionDate: true,
-            pendingEntityCount: true,
           },
         },
         jobs: {
@@ -85,16 +84,6 @@ export async function GET(
             startedAt: true,
             finishedAt: true,
             lastError: true,
-          },
-        },
-        entities: {
-          select: {
-            id: true,
-            kind: true,
-            rawValue: true,
-            canonicalValue: true,
-            confidence: true,
-            status: true,
           },
         },
       },
@@ -121,7 +110,6 @@ export async function GET(
         quickQuestionsJson,
         profileSectionsJson: conversation.profileSectionsJson as any,
         observationJson: conversation.observationJson as any,
-        entityCandidatesJson: conversation.entityCandidatesJson as any,
         lessonReportJson: conversation.lessonReportJson as any,
         qualityMetaJson: conversation.qualityMetaJson as any,
         operationalLog: buildOperationalLog({
@@ -134,9 +122,7 @@ export async function GET(
           studentState: conversation.studentStateJson as any,
           profileSections: conversation.profileSectionsJson as any,
           quickQuestions: quickQuestionsJson,
-          entityCandidates: conversation.entityCandidatesJson as any,
           lessonReport: conversation.lessonReportJson as any,
-          sessionEntities: conversation.entities as any,
         }),
         operationalSummaryMarkdown: renderOperationalSummaryMarkdown(
           buildOperationalLog({
@@ -149,9 +135,7 @@ export async function GET(
             studentState: conversation.studentStateJson as any,
             profileSections: conversation.profileSectionsJson as any,
             quickQuestions: quickQuestionsJson,
-            entityCandidates: conversation.entityCandidatesJson as any,
             lessonReport: conversation.lessonReportJson as any,
-            sessionEntities: conversation.entities as any,
           })
         ),
         reuseBlocks: buildReuseBlocks(
@@ -165,9 +149,7 @@ export async function GET(
             studentState: conversation.studentStateJson as any,
             profileSections: conversation.profileSectionsJson as any,
             quickQuestions: quickQuestionsJson,
-            entityCandidates: conversation.entityCandidatesJson as any,
             lessonReport: conversation.lessonReportJson as any,
-            sessionEntities: conversation.entities as any,
           })
         ),
       },
@@ -201,7 +183,7 @@ export async function DELETE(
     if (conversation.sessionId) {
       await prisma.session.update({
         where: { id: conversation.sessionId },
-        data: { status: "DRAFT", pendingEntityCount: 0 },
+        data: { status: "DRAFT" },
       });
     }
 
@@ -237,7 +219,6 @@ export async function PATCH(
       quickQuestionsJson,
       profileSectionsJson,
       observationJson,
-      entityCandidatesJson,
       lessonReportJson,
     } = body ?? {};
 
@@ -252,7 +233,6 @@ export async function PATCH(
     if (quickQuestionsJson !== undefined) updateData.quickQuestionsJson = quickQuestionsJson;
     if (profileSectionsJson !== undefined) updateData.profileSectionsJson = profileSectionsJson;
     if (observationJson !== undefined) updateData.observationJson = observationJson;
-    if (entityCandidatesJson !== undefined) updateData.entityCandidatesJson = entityCandidatesJson;
     if (lessonReportJson !== undefined) updateData.lessonReportJson = lessonReportJson;
 
     const updated = await prisma.conversationLog.update({
@@ -273,7 +253,6 @@ export async function PATCH(
         quickQuestionsJson: updated.quickQuestionsJson as any,
         profileSectionsJson: updated.profileSectionsJson as any,
         observationJson: updated.observationJson as any,
-        entityCandidatesJson: updated.entityCandidatesJson as any,
         lessonReportJson: updated.lessonReportJson as any,
         qualityMetaJson: updated.qualityMetaJson as any,
       },

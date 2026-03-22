@@ -15,7 +15,6 @@ type SessionSummary = {
   heroStateLabel?: string | null;
   heroOneLiner?: string | null;
   latestSummary?: string | null;
-  pendingEntityCount: number;
   conversation?: { id: string } | null;
 };
 
@@ -54,7 +53,7 @@ function toneFromStatus(status?: string | null): "neutral" | "low" | "medium" | 
 export default function ReportDashboardPage() {
   const [students, setStudents] = useState<StudentRow[]>([]);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState<"pending" | "review" | "sent">("pending");
+  const [filter, setFilter] = useState<"draft" | "share" | "sent">("draft");
 
   useEffect(() => {
     const load = async () => {
@@ -80,15 +79,14 @@ export default function ReportDashboardPage() {
           ...student,
           latestReport,
           latestSession,
-          pendingEntities: latestSession?.pendingEntityCount ?? 0,
           statusLabel: reportStatusLabel(latestReport?.status ?? null),
           oneLiner:
             latestSession?.heroOneLiner ?? latestSession?.latestSummary ?? "今月の会話データから下書きを確認できます。",
         };
       })
       .filter((student) => {
-        if (filter === "pending") return !student.latestReport || student.latestReport.status !== "SENT";
-        if (filter === "review") return Boolean(student.pendingEntities > 0 || !student.latestReport || student.latestReport.status === "DRAFT");
+        if (filter === "draft") return Boolean(student.latestSession?.conversation?.id) && !student.latestReport;
+        if (filter === "share") return Boolean(student.latestReport && student.latestReport.status !== "SENT");
         return Boolean(student.latestReport?.status === "SENT");
       });
   }, [filter, students]);
@@ -98,10 +96,10 @@ export default function ReportDashboardPage() {
       .map((student) => {
         const latestSession = student.sessions?.[0] ?? null;
         const latestReport = student.reports?.[0] ?? null;
-        const pendingEntities = latestSession?.pendingEntityCount ?? 0;
         const needsCheckout = latestSession?.status === "COLLECTING";
+        const needsReport = Boolean(latestSession?.conversation?.id) && !latestReport;
 
-        if (!latestSession || (!pendingEntities && !needsCheckout)) {
+        if (!latestSession || (!needsCheckout && !needsReport)) {
           return null;
         }
 
@@ -111,17 +109,14 @@ export default function ReportDashboardPage() {
           grade: student.grade,
           latestSession,
           latestReport,
-          pendingEntities,
-          label: needsCheckout ? "授業が途中です" : "要確認があります",
+          label: needsCheckout ? "授業が途中です" : "レポート未作成です",
           description: needsCheckout
             ? "チェックインまで完了しています。授業後のチェックアウトで指導報告を完成させます。"
-            : `${pendingEntities} 件の固有名詞候補を確認できます。`,
+            : "ログは生成済みです。必要なログを選んで保護者レポートを作成できます。",
           href: needsCheckout
             ? `/app/students/${student.id}?panel=recording&mode=LESSON_REPORT&part=CHECK_OUT`
-            : latestSession.conversation?.id
-              ? `/app/students/${student.id}?panel=proof&logId=${latestSession.conversation.id}`
-              : `/app/students/${student.id}`,
-          cta: needsCheckout ? "チェックアウトを録る" : "根拠を確認する",
+            : `/app/students/${student.id}?panel=report`,
+          cta: needsCheckout ? "チェックアウトを録る" : "レポートを作る",
         };
       })
       .filter(Boolean) as Array<{
@@ -130,7 +125,6 @@ export default function ReportDashboardPage() {
       grade?: string | null;
       latestSession: SessionSummary;
       latestReport: ReportSummary | null;
-      pendingEntities: number;
       label: string;
       description: string;
       href: string;
@@ -139,10 +133,10 @@ export default function ReportDashboardPage() {
   }, [students]);
 
   const counts = useMemo(() => {
-    const pending = students.filter((student) => !student.reports?.[0] || student.reports[0].status !== "SENT").length;
-    const review = students.filter((student) => (student.sessions?.[0]?.pendingEntityCount ?? 0) > 0).length;
+    const draft = students.filter((student) => Boolean(student.sessions?.[0]?.conversation?.id) && !student.reports?.[0]).length;
+    const share = students.filter((student) => student.reports?.[0] && student.reports[0].status !== "SENT").length;
     const sent = students.filter((student) => student.reports?.[0]?.status === "SENT").length;
-    return { pending, review, sent };
+    return { draft, share, sent };
   }, [students]);
 
   return (
@@ -154,12 +148,12 @@ export default function ReportDashboardPage() {
 
       <section className={styles.summaryRow}>
         <div className={styles.summaryCard}>
-          <span className={styles.summaryLabel}>送付待ち</span>
-          <strong>{counts.pending}</strong>
+          <span className={styles.summaryLabel}>レポート未作成</span>
+          <strong>{counts.draft}</strong>
         </div>
         <div className={styles.summaryCard}>
-          <span className={styles.summaryLabel}>要確認あり</span>
-          <strong>{counts.review}</strong>
+          <span className={styles.summaryLabel}>共有待ち</span>
+          <strong>{counts.share}</strong>
         </div>
         <div className={styles.summaryCard}>
           <span className={styles.summaryLabel}>送付済み</span>
@@ -169,8 +163,8 @@ export default function ReportDashboardPage() {
 
       <section className={styles.filterRow}>
         {[
-          { key: "pending", label: "送付待ち" },
-          { key: "review", label: "要確認あり" },
+          { key: "draft", label: "レポート未作成" },
+          { key: "share", label: "共有待ち" },
           { key: "sent", label: "送付済み" },
         ].map((item) => (
           <button
@@ -184,7 +178,7 @@ export default function ReportDashboardPage() {
         ))}
       </section>
 
-      <Card title="送付待ちレポート" subtitle="ドラフトは product が先に用意し、ここでは確認と最終判断だけをします。">
+      <Card title="保護者レポート確認キュー" subtitle="ここでは状態確認と Student Room への戻り先だけを揃えます。主作業は Student Room で進めます。">
         {loading ? (
           <div className={styles.empty}>読み込み中です。</div>
         ) : rows.length === 0 ? (
@@ -209,8 +203,8 @@ export default function ReportDashboardPage() {
                     <strong>{student._count?.sessions ?? 0} 件</strong>
                   </div>
                   <div className={styles.metricItem}>
-                    <span className={styles.metricLabel}>要確認</span>
-                    <strong>{student.pendingEntities} 件</strong>
+                    <span className={styles.metricLabel}>共有状態</span>
+                    <strong>{student.latestReport?.status === "SENT" ? "送付済み" : student.latestReport ? "共有待ち" : "未作成"}</strong>
                   </div>
                 </div>
 
@@ -223,7 +217,7 @@ export default function ReportDashboardPage() {
         )}
       </Card>
 
-      <Card title="その他の確認キュー" subtitle="レポート以外でも、事故につながる確認待ちはここに寄せます。">
+      <Card title="その他の運用キュー" subtitle="授業途中やログ生成後未共有など、止まりやすい項目だけをここに寄せます。">
         {reviewQueue.length === 0 ? (
           <div className={styles.empty}>いま優先して確認する項目はありません。</div>
         ) : (
@@ -246,8 +240,8 @@ export default function ReportDashboardPage() {
                     <strong>{item.latestSession.type === "LESSON_REPORT" ? "指導報告" : "面談"}</strong>
                   </div>
                   <div className={styles.metricItem}>
-                    <span className={styles.metricLabel}>要確認</span>
-                    <strong>{item.pendingEntities} 件</strong>
+                    <span className={styles.metricLabel}>次にやること</span>
+                    <strong>{item.cta}</strong>
                   </div>
                 </div>
 

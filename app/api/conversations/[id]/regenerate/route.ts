@@ -48,7 +48,6 @@ export async function POST(
         quickQuestionsJson: Prisma.DbNull,
         profileSectionsJson: Prisma.DbNull,
         observationJson: Prisma.DbNull,
-        entityCandidatesJson: Prisma.DbNull,
         lessonReportJson: Prisma.DbNull,
         formattedTranscript: null,
       },
@@ -59,7 +58,7 @@ export async function POST(
     if (conversation.sessionId) {
       await prisma.session.update({
         where: { id: conversation.sessionId },
-        data: { status: "PROCESSING", pendingEntityCount: 0 },
+        data: { status: "PROCESSING" },
       });
     }
 

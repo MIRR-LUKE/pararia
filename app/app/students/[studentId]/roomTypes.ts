@@ -30,15 +30,6 @@ export type StudentState = {
   confidence: number;
 };
 
-export type SessionEntity = {
-  id: string;
-  kind: string;
-  rawValue: string;
-  canonicalValue?: string | null;
-  confidence: number;
-  status: string;
-};
-
 export type LessonReportArtifact = {
   goal?: string;
   did?: string[];
@@ -65,9 +56,7 @@ export type SessionItem = {
   heroStateLabel?: string | null;
   heroOneLiner?: string | null;
   latestSummary?: string | null;
-  pendingEntityCount: number;
   parts: SessionPartItem[];
-  entities: SessionEntity[];
   conversation?: {
     id: string;
     status: string;
@@ -91,7 +80,6 @@ export type ReportItem = {
   createdAt: string;
   sentAt?: string | null;
   qualityChecksJson?: {
-    pendingEntityCount?: number;
     bundleQualityEval?: {
       periodLabel?: string;
       logCount?: number;

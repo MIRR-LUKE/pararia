@@ -1,12 +1,3 @@
-export type OperationalEntity = {
-  id?: string;
-  kind?: string | null;
-  rawValue: string;
-  canonicalValue?: string | null;
-  confidence?: number;
-  status?: string | null;
-};
-
 export type OperationalLogInput = {
   sessionType?: string | null;
   createdAt?: string | Date | null;
@@ -46,8 +37,6 @@ export type OperationalLogInput = {
     nextQuestion?: string;
   }> | null;
   quickQuestions?: Array<{ question?: string; reason?: string; category?: string }> | null;
-  entityCandidates?: Array<OperationalEntity> | null;
-  sessionEntities?: Array<OperationalEntity> | null;
   lessonReport?: {
     todayGoal?: string;
     covered?: string[];
@@ -65,7 +54,6 @@ export type OperationalLog = {
   assessment: string[];
   nextChecks: string[];
   parentShare: string[];
-  entities: OperationalEntity[];
 };
 
 export type ReportBundleLog = {
@@ -99,7 +87,7 @@ const SUMMARY_DUMP_PATTERNS = [
   /confidence\s*\d+/i,
 ];
 
-const SECTION_ALIASES: Record<keyof Omit<OperationalLog, "entities">, string[]> = {
+const SECTION_ALIASES: Record<keyof OperationalLog, string[]> = {
   theme: ["今回の会話テーマ", "会話テーマ", "今回のテーマ"],
   facts: ["事実として分かったこと", "会話で確認できた事実", "面談で確認した事実"],
   changes: ["変化として見えたこと", "今回の変化", "今週の変化"],
@@ -202,11 +190,11 @@ function takeLines(values: Array<string | null | undefined>, limit: number, fall
 }
 
 function parseSummarySections(markdown?: string | null) {
-  if (!markdown) return {} as Partial<Record<keyof Omit<OperationalLog, "entities">, string[]>>;
+  if (!markdown) return {} as Partial<Record<keyof OperationalLog, string[]>>;
 
   const lines = markdown.replace(/\r/g, "").split("\n");
-  const buckets: Partial<Record<keyof Omit<OperationalLog, "entities">, string[]>> = {};
-  let currentKey: keyof Omit<OperationalLog, "entities"> | null = null;
+  const buckets: Partial<Record<keyof OperationalLog, string[]>> = {};
+  let currentKey: keyof OperationalLog | null = null;
 
   for (const rawLine of lines) {
     const line = rawLine.trim();
@@ -217,7 +205,7 @@ function parseSummarySections(markdown?: string | null) {
       currentKey =
         (Object.entries(SECTION_ALIASES).find(([, aliases]) =>
           aliases.some((alias) => normalizeKey(alias) === heading)
-        )?.[0] as keyof Omit<OperationalLog, "entities"> | undefined) ?? null;
+        )?.[0] as keyof OperationalLog | undefined) ?? null;
       continue;
     }
 
@@ -230,7 +218,7 @@ function parseSummarySections(markdown?: string | null) {
   return buckets;
 }
 
-function deriveTheme(input: OperationalLogInput, parsed: Partial<Record<keyof Omit<OperationalLog, "entities">, string[]>>) {
+function deriveTheme(input: OperationalLogInput, parsed: Partial<Record<keyof OperationalLog, string[]>>) {
   const existing = dedupeLines(parsed.theme ?? []);
   if (existing.length > 0) return ensureSentence(existing.join(" "));
 
@@ -261,7 +249,7 @@ function deriveTheme(input: OperationalLogInput, parsed: Partial<Record<keyof Om
   return "今回の会話では、学習状況と今後の進め方を中心に確認した。";
 }
 
-function deriveFacts(input: OperationalLogInput, parsed: Partial<Record<keyof Omit<OperationalLog, "entities">, string[]>>) {
+function deriveFacts(input: OperationalLogInput, parsed: Partial<Record<keyof OperationalLog, string[]>>) {
   return takeLines(
     [
       ...(parsed.facts ?? []),
@@ -277,7 +265,7 @@ function deriveFacts(input: OperationalLogInput, parsed: Partial<Record<keyof Om
   ).map(ensureSentence);
 }
 
-function deriveChanges(input: OperationalLogInput, parsed: Partial<Record<keyof Omit<OperationalLog, "entities">, string[]>>) {
+function deriveChanges(input: OperationalLogInput, parsed: Partial<Record<keyof OperationalLog, string[]>>) {
   return takeLines(
     [
       ...(parsed.changes ?? []),
@@ -291,7 +279,7 @@ function deriveChanges(input: OperationalLogInput, parsed: Partial<Record<keyof 
   ).map(ensureSentence);
 }
 
-function deriveAssessment(input: OperationalLogInput, parsed: Partial<Record<keyof Omit<OperationalLog, "entities">, string[]>>) {
+function deriveAssessment(input: OperationalLogInput, parsed: Partial<Record<keyof OperationalLog, string[]>>) {
   const lessonAssessment = input.lessonReport?.nextLessonFocus?.map(
     (item) => `次回は ${item} を重点的に確認する必要がある`
   );
@@ -309,7 +297,7 @@ function deriveAssessment(input: OperationalLogInput, parsed: Partial<Record<key
   ).map(ensureSentence);
 }
 
-function deriveNextChecks(input: OperationalLogInput, parsed: Partial<Record<keyof Omit<OperationalLog, "entities">, string[]>>) {
+function deriveNextChecks(input: OperationalLogInput, parsed: Partial<Record<keyof OperationalLog, string[]>>) {
   return takeLines(
     [
       ...(parsed.nextChecks ?? []),
@@ -329,7 +317,7 @@ function deriveNextChecks(input: OperationalLogInput, parsed: Partial<Record<key
   ).map(ensureSentence);
 }
 
-function deriveParentShare(input: OperationalLogInput, parsed: Partial<Record<keyof Omit<OperationalLog, "entities">, string[]>>) {
+function deriveParentShare(input: OperationalLogInput, parsed: Partial<Record<keyof OperationalLog, string[]>>) {
   return takeLines(
     [
       ...(parsed.parentShare ?? []),
@@ -342,28 +330,6 @@ function deriveParentShare(input: OperationalLogInput, parsed: Partial<Record<ke
     4,
     ["保護者共有に向く具体ポイントは、今回の会話内容から引き続き整理していく。"]
   ).map(ensureSentence);
-}
-
-function deriveEntities(input: OperationalLogInput) {
-  const source = [...(input.sessionEntities ?? []), ...(input.entityCandidates ?? [])];
-  const seen = new Set<string>();
-  const result: OperationalEntity[] = [];
-  for (const entity of source) {
-    const rawValue = sanitizeLine(entity?.canonicalValue ?? entity?.rawValue);
-    if (!rawValue) continue;
-    const key = `${entity?.kind ?? "OTHER"}:${rawValue}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    result.push({
-      id: entity.id,
-      kind: entity.kind,
-      rawValue: sanitizeLine(entity.rawValue) ?? rawValue,
-      canonicalValue: sanitizeLine(entity.canonicalValue ?? rawValue) ?? rawValue,
-      confidence: entity.confidence,
-      status: entity.status,
-    });
-  }
-  return result.slice(0, 8);
 }
 
 function formatDate(value: string | Date) {
@@ -412,7 +378,6 @@ export function buildOperationalLog(input: OperationalLogInput): OperationalLog 
     assessment: deriveAssessment(input, parsed),
     nextChecks: deriveNextChecks(input, parsed),
     parentShare: deriveParentShare(input, parsed),
-    entities: deriveEntities(input),
   };
 }
 
@@ -439,17 +404,6 @@ export function renderOperationalSummaryMarkdown(log: OperationalLog) {
   for (const [index, item] of log.parentShare.entries()) {
     lines.push(`${index + 1}. ${item}`);
   }
-  lines.push("");
-  lines.push("## 要確認 entity");
-  if (log.entities.length === 0) {
-    lines.push("現時点で未確認の固有名詞はありません。");
-  } else {
-    for (const entity of log.entities) {
-      const kind = sanitizeLine(entity.kind ?? "その他") ?? "その他";
-      const canonical = sanitizeLine(entity.canonicalValue ?? entity.rawValue) ?? entity.rawValue;
-      lines.push(`- ${kind}: ${canonical}`);
-    }
-  }
   return lines.join("\n").trim();
 }
 
@@ -463,7 +417,6 @@ export function buildBundleQualityEval(selectedLogs: ReportBundleLog[], allLogs:
   const parentPoints = distinct(selectedLogs.flatMap((log) => log.operationalLog.parentShare)).slice(0, 4);
   const assessmentCount = selectedLogs.reduce((acc, log) => acc + log.operationalLog.assessment.length, 0);
   const nextCheckCount = selectedLogs.reduce((acc, log) => acc + log.operationalLog.nextChecks.length, 0);
-  const entitiesCount = selectedLogs.reduce((acc, log) => acc + log.operationalLog.entities.length, 0);
   const includesInterview = selectedLogs.some((log) => log.mode === "INTERVIEW");
   const includesLesson = selectedLogs.some((log) => log.mode === "LESSON_REPORT");
   const coverage = inferCategoryCoverage(selectedLogs);
@@ -473,7 +426,6 @@ export function buildBundleQualityEval(selectedLogs: ReportBundleLog[], allLogs:
   const strongElements: string[] = [];
   if (assessmentCount > 0) strongElements.push("講師としての見立てが入っており、方針の理由まで説明しやすい");
   if (nextCheckCount >= selectedLogs.length) strongElements.push("次回までの確認事項が具体的で、次の行動に落とし込みやすい");
-  if (entitiesCount > 0) strongElements.push("教材名・試験名・学校名などの具体名が入っている");
   if (includesInterview && includesLesson) strongElements.push("面談と指導報告が混ざっており、会話と授業の両面から経過を説明できる");
 
   const weakElements: string[] = [];
@@ -577,7 +529,6 @@ export function buildProcessingSteps(mode: "INTERVIEW" | "LESSON_REPORT") {
     "アップロード完了",
     "文字起こし中",
     "内容整理中",
-    "entity抽出中",
     "会話ログ要約作成中",
     "プロフィール更新案作成中",
     "確認待ち",

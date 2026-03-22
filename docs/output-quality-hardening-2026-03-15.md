@@ -29,9 +29,9 @@
 - `confidence`
 - `priority`
 - `canonical:`
-- `PENDING / CONFIRMED / IGNORED`
+- `面談モード / 指導報告モード` に紐づく状態名の一部
 - `STUDENT / COACH`
-- `parts / pending entities / status`
+- `parts / report status / share status`
 
 ### 3. 保険文の埋め方が summary をさらに悪くしていた
 `min chars` を満たすための補助文が generic で、重複を増やしていました。
@@ -99,14 +99,14 @@
 - `confidence` -> `信頼度`
 - `priority` -> `優先度`
 - `canonical:` -> `確定名:`
-- action owner / entity kind / entity status を日本語化
+- action owner / ログ種別 / 共有状態を日本語化
 
 該当箇所:
 
 - タブ定義: `app/app/logs/LogDetailView.tsx:148`
 - owner ラベル: `app/app/logs/LogDetailView.tsx:155`
-- entity status ラベル: `app/app/logs/LogDetailView.tsx:188`
-- 固有名詞 badge 反映: `app/app/logs/LogDetailView.tsx:611`
+- 共有状態ラベル: `app/app/logs/LogDetailView.tsx:188`
+- ログ種別 badge 反映: `app/app/logs/LogDetailView.tsx:611`
 
 #### Student Room
 ファイル: `app/app/students/[studentId]/page.tsx`
@@ -114,9 +114,9 @@
 対応内容:
 
 - session status / part type / part status / report status を日本語化
-- `parts / pending entities / status` を日本語に変更
+- `parts / report status / share status` を日本語に変更
 - next actions の owner 表示を日本語化
-- entity kind の表示を日本語化
+- 面談ログ / 指導報告ログ の表示を日本語化
 - report 状態の表示を日本語化
 
 該当箇所:

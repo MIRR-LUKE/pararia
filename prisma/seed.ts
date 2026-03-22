@@ -1,8 +1,6 @@
 import {
   ConversationSourceType,
   ConversationStatus,
-  EntityKind,
-  EntityStatus,
   PrismaClient,
   ReportStatus,
   SessionPartStatus,
@@ -63,12 +61,10 @@ async function cleanup(studentIds: string[]) {
   await prisma.conversationJob.deleteMany({
     where: { conversationId: { in: conversations.map((item) => item.id) } },
   });
-  await prisma.sessionEntity.deleteMany({ where: { studentId: { in: studentIds } } });
   await prisma.report.deleteMany({ where: { studentId: { in: studentIds } } });
   await prisma.conversationLog.deleteMany({ where: { studentId: { in: studentIds } } });
   await prisma.sessionPart.deleteMany({ where: { session: { studentId: { in: studentIds } } } });
   await prisma.session.deleteMany({ where: { studentId: { in: studentIds } } });
-  await prisma.studentEntity.deleteMany({ where: { studentId: { in: studentIds } } });
   await prisma.studentProfile.deleteMany({ where: { studentId: { in: studentIds } } });
   await prisma.student.deleteMany({ where: { id: { in: studentIds } } });
 }
@@ -113,13 +109,6 @@ async function createHana() {
     },
   });
 
-  await prisma.studentEntity.createMany({
-    data: [
-      { studentId, kind: EntityKind.SCHOOL, canonicalName: "青山高校", aliasesJson: [] as any },
-      { studentId, kind: EntityKind.TARGET_SCHOOL, canonicalName: "早稲田大学", aliasesJson: ["早稲田"] as any },
-    ],
-  });
-
   await prisma.session.create({
     data: {
       id: "session-demo-1-interview",
@@ -133,7 +122,6 @@ async function createHana() {
       heroStateLabel: "前進中",
       heroOneLiner: "英語の手応えは出てきた。次は睡眠リズムを整えたい。",
       latestSummary: "英語は安定してきたが、睡眠の乱れが点数の振れ幅を生んでいる。",
-      pendingEntityCount: 1,
       completedAt: new Date(interviewDate),
       createdAt: new Date(interviewDate),
     },
@@ -241,36 +229,9 @@ async function createHana() {
           weight: 0.9,
         },
       ] as any,
-      entityCandidatesJson: [
-        {
-          id: "entity-demo-1-pending",
-          kind: "TARGET_SCHOOL",
-          rawValue: "早稲田",
-          canonicalValue: "早稲田大学",
-          confidence: 88,
-          status: "PENDING",
-          context: "志望校の話題で言及",
-        },
-      ] as any,
       formattedTranscript:
         "## 面談\n講師: 長文は前より止まりにくくなったね。\n生徒: 前より読みやすいです。\n講師: ただ寝る時間が遅い日はミスが増えるね。",
       qualityMetaJson: { seeded: true, modelFinal: "gpt-5.4", modelFast: "gpt-5-mini" } as any,
-      createdAt: new Date(interviewDate),
-    },
-  });
-
-  await prisma.sessionEntity.create({
-    data: {
-      id: "entity-demo-1-pending",
-      sessionId: "session-demo-1-interview",
-      conversationId: "conversation-demo-1-interview",
-      studentId,
-      kind: EntityKind.TARGET_SCHOOL,
-      rawValue: "早稲田",
-      canonicalValue: "早稲田大学",
-      confidence: 88,
-      status: EntityStatus.PENDING,
-      sourceJson: { context: "志望校の話題で言及" } as any,
       createdAt: new Date(interviewDate),
     },
   });
@@ -288,7 +249,6 @@ async function createHana() {
       heroStateLabel: "集中維持",
       heroOneLiner: "授業中の集中は高い。宿題の着手だけ整えたい。",
       latestSummary: "授業中の集中は安定しているが、宿題の着手がまだ重い。",
-      pendingEntityCount: 0,
       completedAt: new Date(lessonDate),
       createdAt: new Date(lessonDate),
     },
@@ -362,7 +322,6 @@ async function createHana() {
       quickQuestionsJson: [] as any,
       profileSectionsJson: [] as any,
       observationJson: [] as any,
-      entityCandidatesJson: [] as any,
       lessonReportJson: {
         todayGoal: "復習確認と長文1本の演習",
         covered: ["前回内容の確認テスト", "長文1本の演習"],
@@ -386,7 +345,7 @@ async function createHana() {
         "## 今月の大きな変化\n英語長文の安定感が上がってきました。\n\n## 学習面\n授業中の集中は維持できており、読解手順の再現性も高まっています。\n\n## 生活面\n次の焦点は睡眠リズムを整えて、点数の振れ幅を減らすことです。",
       reportJson: { seeded: true } as any,
       status: ReportStatus.DRAFT,
-      qualityChecksJson: { pendingEntityCount: 1, seeded: true } as any,
+      qualityChecksJson: { seeded: true } as any,
       periodFrom: plusDays(interviewDate, -30),
       periodTo: new Date("2026-03-13T01:00:00.000Z"),
       sourceLogIds: ["conversation-demo-1-interview", "conversation-demo-1-lesson"] as any,
@@ -441,7 +400,6 @@ async function createAoi() {
       heroStateLabel: "思考安定",
       heroOneLiner: "数学の粘りはある。最初の一手に型を持たせたい。",
       latestSummary: "本当の詰まりどころは、難問で最初の一手が出ないこと。",
-      pendingEntityCount: 0,
       completedAt: new Date(sessionDate),
       createdAt: new Date(sessionDate),
     },
@@ -500,7 +458,6 @@ async function createAoi() {
       quickQuestionsJson: [] as any,
       profileSectionsJson: [] as any,
       observationJson: [] as any,
-      entityCandidatesJson: [] as any,
       formattedTranscript: "## 面談\n数学は丁寧に取り組めているが、難問になると最初の一手で止まりやすい。",
       qualityMetaJson: { seeded: true, modelFinal: "gpt-5.4", modelFast: "gpt-5-mini" } as any,
       createdAt: new Date(sessionDate),
@@ -519,7 +476,7 @@ async function createAoi() {
       sentAt: new Date("2026-03-11T09:00:00.000Z"),
       sentByUserId: "user-demo-teacher",
       deliveryChannel: "manual",
-      qualityChecksJson: { pendingEntityCount: 0, seeded: true } as any,
+      qualityChecksJson: { seeded: true } as any,
       periodFrom: plusDays(sessionDate, -30),
       periodTo: new Date("2026-03-11T08:00:00.000Z"),
       sourceLogIds: ["conversation-demo-2-interview"] as any,
