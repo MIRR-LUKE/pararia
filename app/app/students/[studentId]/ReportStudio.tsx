@@ -1,9 +1,10 @@
-﻿"use client";
+"use client";
 
 import { useEffect, useMemo, useState } from "react";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { buildBundlePreview, buildBundleQualityEval, type ReportBundleLog } from "@/lib/operational-log";
+import { reportStatusLabel } from "@/lib/report-delivery";
 import type { ReportItem, ReportStudioView, SessionItem } from "./roomTypes";
 import styles from "./reportStudio.module.css";
 
@@ -32,20 +33,24 @@ function toBundleLogs(sessions: SessionItem[]): ReportBundleLog[] {
     }));
 }
 
-function reportStatusLabel(status?: string | null) {
-  if (!status) return "未生成";
-  if (status === "DRAFT") return "下書き";
-  if (status === "REVIEWED") return "確認済み";
-  if (status === "SENT") return "送付済み";
-  return "状態確認中";
-}
-
 function splitParagraphs(markdown?: string | null) {
   if (!markdown) return [];
   return markdown
     .split(/\n\s*\n/g)
     .map((block) => block.replace(/\r/g, "").trim())
     .filter(Boolean);
+}
+
+function formatHistoryDate(value?: string | null) {
+  if (!value) return "時刻未記録";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "時刻未記録";
+  return date.toLocaleString("ja-JP", {
+    month: "numeric",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
 export function ReportStudio({
@@ -74,6 +79,9 @@ export function ReportStudio({
     [candidateSessions, selectedSessionIds]
   );
   const latestReport = reports[0] ?? null;
+  const shareHistory = latestReport?.history ?? [];
+  const workflowLabel = latestReport?.workflowStatusLabel ?? reportStatusLabel(latestReport?.status ?? null);
+  const deliveryLabel = latestReport?.deliveryStateLabel ?? workflowLabel;
 
   useEffect(() => {
     if (!draftMarkdown && latestReport?.reportMarkdown) {
@@ -120,7 +128,10 @@ export function ReportStudio({
     }
   };
 
-  const markAsSent = async () => {
+  const recordReportAction = async (
+    action: "review" | "sent" | "failed" | "bounced" | "manual_share" | "resent",
+    deliveryChannel?: string
+  ) => {
     if (!latestReport) return;
     setIsSending(true);
     setError(null);
@@ -128,15 +139,21 @@ export function ReportStudio({
       const res = await fetch(`/api/reports/${latestReport.id}/send`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ deliveryChannel: "manual" }),
+        body: JSON.stringify({
+          action,
+          deliveryChannel,
+        }),
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
-        throw new Error(body?.error ?? "送付状態の更新に失敗しました。");
+        throw new Error(body?.error ?? "共有状態の更新に失敗しました。");
       }
       await onRefresh();
+      if (action === "review") {
+        onViewChange("send");
+      }
     } catch (nextError: any) {
-      setError(nextError?.message ?? "送付状態の更新に失敗しました。");
+      setError(nextError?.message ?? "共有状態の更新に失敗しました。");
     } finally {
       setIsSending(false);
     }
@@ -156,13 +173,16 @@ export function ReportStudio({
               ? "選択した会話ログからレポートを作る"
               : view === "generated"
                 ? "生成した下書きを確認する"
-                : "送付前の最終確認をする"}
+                : "共有前後の状態を記録する"}
           </h3>
           <p className={styles.mutedText}>
             未選択ログは使いません。追加候補は提案だけで、自動追加はしません。
           </p>
         </div>
-        <Badge label={`${selectedSessionIds.length} 件選択中`} tone={selectedSessionIds.length > 0 ? "medium" : "neutral"} />
+        <Badge
+          label={`${selectedSessionIds.length} 件選択中`}
+          tone={selectedSessionIds.length > 0 ? "medium" : "neutral"}
+        />
       </div>
 
       {error ? <div className={styles.inlineError}>{error}</div> : null}
@@ -173,8 +193,12 @@ export function ReportStudio({
           <strong>{quality.periodLabel}</strong>
         </div>
         <div className={styles.metricCard}>
-          <span className={styles.metricLabel}>ドラフト状態</span>
-          <strong>{reportStatusLabel(latestReport?.status ?? null)}</strong>
+          <span className={styles.metricLabel}>ワークフロー</span>
+          <strong>{workflowLabel}</strong>
+        </div>
+        <div className={styles.metricCard}>
+          <span className={styles.metricLabel}>共有状態</span>
+          <strong>{deliveryLabel}</strong>
         </div>
         <div className={styles.metricCard}>
           <span className={styles.metricLabel}>選択ログ</span>
@@ -185,12 +209,20 @@ export function ReportStudio({
       <div className={styles.issueCard}>
         <div className={styles.sectionLabel}>選択中のログ</div>
         {selectedSessions.length === 0 ? (
-          <div className={styles.emptyWorkbench}>コミュニケーション履歴タブでログを選ぶと、ここにまとまりが出ます。</div>
+          <div className={styles.emptyWorkbench}>
+            コミュニケーション履歴タブでログを選ぶと、ここにまとまりが出ます。
+          </div>
         ) : (
           <div className={styles.inlineActions}>
             {selectedSessions.map((session) => (
-              <Button key={session.id} size="small" variant="secondary" onClick={() => removeSelectedSession(session.id)}>
-                {new Date(session.sessionDate).toLocaleDateString("ja-JP")} / {session.type === "LESSON_REPORT" ? "指導報告" : "面談"} ×
+              <Button
+                key={session.id}
+                size="small"
+                variant="secondary"
+                onClick={() => removeSelectedSession(session.id)}
+              >
+                {new Date(session.sessionDate).toLocaleDateString("ja-JP")} /{" "}
+                {session.type === "LESSON_REPORT" ? "指導報告" : "面談"} ×
               </Button>
             ))}
           </div>
@@ -206,13 +238,19 @@ export function ReportStudio({
           <div className={styles.qualityColumns}>
             <div className={styles.qualityCard}>
               <div className={styles.sectionLabel}>強い要素</div>
-              {(quality.strongElements.length > 0 ? quality.strongElements : ["まだ強い要素は十分にそろっていません。"]).map((item) => (
+              {(quality.strongElements.length > 0
+                ? quality.strongElements
+                : ["まだ強い要素は十分にそろっていません。"]
+              ).map((item) => (
                 <p key={item}>{item}</p>
               ))}
             </div>
             <div className={styles.qualityCard}>
               <div className={styles.sectionLabel}>弱い要素</div>
-              {(quality.weakElements.length > 0 ? quality.weakElements : ["この選択でも生成はできますが、もう 1 本足すと厚みが出ます。"]).map((item) => (
+              {(quality.weakElements.length > 0
+                ? quality.weakElements
+                : ["この選択でも生成はできますが、もう 1 本足すと厚みが出ます。"]
+              ).map((item) => (
                 <p key={item}>{item}</p>
               ))}
             </div>
@@ -229,7 +267,8 @@ export function ReportStudio({
                     variant="secondary"
                     onClick={() => onSelectedSessionIdsChange([...selectedSessionIds, session.id])}
                   >
-                    {new Date(session.sessionDate).toLocaleDateString("ja-JP")} / {session.type === "LESSON_REPORT" ? "指導報告" : "面談"}
+                    {new Date(session.sessionDate).toLocaleDateString("ja-JP")} /{" "}
+                    {session.type === "LESSON_REPORT" ? "指導報告" : "面談"}
                   </Button>
                 ))}
               </div>
@@ -241,7 +280,8 @@ export function ReportStudio({
             <div className={styles.issueList}>
               {(quality.warnings.length > 0
                 ? quality.warnings
-                : ["この選択で大きな警告はありません。生成内容を読んで送付可否を判断できます。"]).map((item) => (
+                : ["この選択で大きな警告はありません。生成内容を読んで共有可否を判断できます。"]
+              ).map((item) => (
                 <p key={item}>{item}</p>
               ))}
             </div>
@@ -260,22 +300,79 @@ export function ReportStudio({
           <div className={styles.issueCard}>
             <div className={styles.sectionLabel}>送付前チェック</div>
             <div className={styles.issueList}>
-              {(quality.warnings.length > 0 ? quality.warnings : ["本文の流れと表現だけ最後に確認してください。"]).map((item) => (
+              {(quality.warnings.length > 0
+                ? quality.warnings
+                : ["本文の流れと表現だけ最後に確認してください。"]
+              ).map((item) => (
                 <p key={item}>{item}</p>
               ))}
             </div>
           </div>
 
+          <div className={styles.issueCard}>
+            <div className={styles.sectionLabel}>共有履歴</div>
+            {shareHistory.length === 0 ? (
+              <div className={styles.emptyWorkbench}>まだ共有履歴はありません。レビューや共有の操作を行うとここに残ります。</div>
+            ) : (
+              <div className={styles.issueList}>
+                {shareHistory
+                  .slice()
+                  .reverse()
+                  .map((item) => (
+                    <p key={`${item.eventType}-${item.createdAt}-${item.id ?? "history"}`}>
+                      <strong>{item.label}</strong>
+                      {" / "}
+                      {formatHistoryDate(item.createdAt)}
+                      {item.actor?.name ? ` / ${item.actor.name}` : ""}
+                      {item.deliveryChannel ? ` / ${item.deliveryChannel}` : ""}
+                      {item.note ? ` / ${item.note}` : ""}
+                    </p>
+                  ))}
+              </div>
+            )}
+          </div>
+
           <div className={styles.actionStack}>
-            {view === "generated" && latestReport && latestReport.status !== "SENT" ? (
-              <Button variant="secondary" onClick={() => onViewChange("send")}>
-                送付前確認へ進む
+            {view === "generated" && latestReport?.needsReview ? (
+              <Button onClick={() => void recordReportAction("review")} disabled={isSending}>
+                {isSending ? "レビュー状態を更新中..." : "確認済みにする"}
               </Button>
             ) : null}
-            {view === "send" && latestReport && latestReport.status !== "SENT" ? (
-              <Button onClick={markAsSent} disabled={isSending}>
-                {isSending ? "送付状態を更新中..." : "送付済みにする"}
+
+            {view === "generated" && latestReport ? (
+              <Button variant="secondary" onClick={() => onViewChange("send")}>
+                共有ステータスを記録する
               </Button>
+            ) : null}
+
+            {view === "send" && latestReport ? (
+              <>
+                <Button onClick={() => void recordReportAction("manual_share", "manual")} disabled={isSending}>
+                  {isSending ? "共有状態を更新中..." : "手動共有として記録"}
+                </Button>
+                <Button
+                  variant="secondary"
+                  onClick={() =>
+                    void recordReportAction(
+                      latestReport.deliveryState === "failed" || latestReport.deliveryState === "bounced"
+                        ? "resent"
+                        : "sent",
+                      "email"
+                    )
+                  }
+                  disabled={isSending}
+                >
+                  {latestReport.deliveryState === "failed" || latestReport.deliveryState === "bounced"
+                    ? "再送済みとして記録"
+                    : "送信済みとして記録"}
+                </Button>
+                <Button variant="ghost" onClick={() => void recordReportAction("failed", "email")} disabled={isSending}>
+                  送信失敗を記録
+                </Button>
+                <Button variant="ghost" onClick={() => void recordReportAction("bounced", "email")} disabled={isSending}>
+                  宛先エラーを記録
+                </Button>
+              </>
             ) : null}
           </div>
 
@@ -292,7 +389,8 @@ export function ReportStudio({
                       size="small"
                       variant="ghost"
                       onClick={() => {
-                        const proofId = selectedSessions[index]?.conversation?.id ?? selectedSessions[0]?.conversation?.id;
+                        const proofId =
+                          selectedSessions[index]?.conversation?.id ?? selectedSessions[0]?.conversation?.id;
                         if (proofId) onOpenProof(proofId);
                       }}
                     >

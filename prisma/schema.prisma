@@ -18,6 +18,7 @@ model Organization {
   students           Student[]
   conversations      ConversationLog[]
   reports            Report[]
+  reportDeliveryEvents ReportDeliveryEvent[]
   Session            Session[]
   recordingLocks     StudentRecordingLock[]
   invitations        OrganizationInvitation[]
@@ -35,6 +36,7 @@ model User {
   conversations      ConversationLog[]
   sessions           Session[]
   reportsSent        Report[]               @relation("ReportSentBy")
+  reportDeliveryEventsActed ReportDeliveryEvent[] @relation("ReportDeliveryEventActor")
   recordingLocksHeld StudentRecordingLock[] @relation("RecordingLockHolder")
   invitationsCreated OrganizationInvitation[] @relation("InvitationCreator")
 }
@@ -57,6 +59,7 @@ model Student {
   sessions      Session[]
   profiles      StudentProfile[]
   reports       Report[]
+  reportDeliveryEvents ReportDeliveryEvent[]
   recordingLock StudentRecordingLock?
 
   @@index([organizationId, createdAt])
@@ -204,12 +207,35 @@ model Report {
   organization Organization @relation(fields: [organizationId], references: [id])
   student      Student      @relation(fields: [studentId], references: [id])
   sentBy       User?        @relation("ReportSentBy", fields: [sentByUserId], references: [id])
+  deliveryEvents ReportDeliveryEvent[]
 
   previousReport Report?  @relation("ReportPrevious", fields: [previousReportId], references: [id])
   nextReports    Report[] @relation("ReportPrevious")
 
   @@index([studentId, createdAt])
   @@index([organizationId, createdAt])
+}
+
+model ReportDeliveryEvent {
+  id              String                  @id @default(cuid())
+  reportId        String
+  organizationId  String
+  studentId       String
+  actorUserId     String?
+  eventType       ReportDeliveryEventType
+  deliveryChannel String?
+  note            String?
+  eventMetaJson   Json?
+  createdAt       DateTime                @default(now())
+
+  report        Report        @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  organization  Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  student       Student       @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  actor         User?         @relation("ReportDeliveryEventActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([reportId, createdAt])
+  @@index([organizationId, createdAt])
+  @@index([studentId, createdAt])
 }
 
 model AuditLog {
@@ -342,4 +368,15 @@ enum ReportStatus {
   DRAFT
   REVIEWED
   SENT
+}
+
+enum ReportDeliveryEventType {
+  DRAFT_CREATED
+  REVIEWED
+  SENT
+  DELIVERED
+  FAILED
+  BOUNCED
+  MANUAL_SHARED
+  RESENT
 }

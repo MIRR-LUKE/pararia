@@ -6,6 +6,7 @@ import { AppHeader } from "@/components/layout/AppHeader";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
+import { buildReportDeliverySummary } from "@/lib/report-delivery";
 import styles from "./students.module.css";
 
 type SessionSummary = {
@@ -21,9 +22,18 @@ type SessionSummary = {
 
 type ReportSummary = {
   id: string;
-  status: string;
+  status: "DRAFT" | "REVIEWED" | "SENT" | string;
   createdAt: string;
+  reviewedAt?: string | null;
   sentAt?: string | null;
+  deliveryChannel?: string | null;
+  sourceLogIds?: string[] | null;
+  deliveryEvents?: Array<{
+    id?: string;
+    eventType: string;
+    createdAt: string;
+    deliveryChannel?: string | null;
+  }>;
 };
 
 type StudentRow = {
@@ -39,7 +49,7 @@ type StudentRow = {
   _count?: { sessions: number; reports: number };
 };
 
-type ViewKey = "all" | "interview" | "log" | "report";
+type ViewKey = "all" | "interview" | "report" | "review" | "share" | "sent";
 
 function completeness(profileData?: any) {
   const basic = Array.isArray(profileData?.basic) ? profileData.basic.length : 0;
@@ -49,7 +59,8 @@ function completeness(profileData?: any) {
 
 function summarize(student: StudentRow) {
   const latestSession = student.sessions?.[0];
-  const latestReport = student.reports?.[0];
+  const latestReport = student.reports?.[0] ?? null;
+  const latestReportSummary = latestReport ? buildReportDeliverySummary(latestReport) : null;
 
   if (!latestSession) {
     return {
@@ -66,7 +77,7 @@ function summarize(student: StudentRow) {
       oneLiner:
         latestSession.heroOneLiner ?? "授業前の記録だけ保存されています。授業後の記録で 1 セッションが完了します。",
       nextAction: "授業後の記録を入れる",
-      view: "all" as const,
+      view: "report" as const,
     };
   }
 
@@ -79,12 +90,39 @@ function summarize(student: StudentRow) {
     };
   }
 
-  if (latestReport && latestReport.status !== "SENT") {
+  if (latestReportSummary?.deliveryState === "draft") {
     return {
-      state: latestSession.heroStateLabel ?? "共有待ち",
+      state: latestReportSummary.deliveryStateLabel,
       oneLiner: latestSession.heroOneLiner ?? latestSession.latestSummary ?? "保護者レポートの確認と共有がまだ残っています。",
+      nextAction: "レポートを開く",
+      view: "review" as const,
+    };
+  }
+
+  if (latestReportSummary?.deliveryState === "reviewed") {
+    return {
+      state: latestReportSummary.deliveryStateLabel,
+      oneLiner: latestSession.heroOneLiner ?? latestSession.latestSummary ?? "保護者レポートは共有待ちです。",
       nextAction: "共有を完了する",
-      view: "report" as const,
+      view: "share" as const,
+    };
+  }
+
+  if (latestReportSummary && ["failed", "bounced"].includes(latestReportSummary.deliveryState)) {
+    return {
+      state: latestReportSummary.deliveryStateLabel,
+      oneLiner: latestSession.heroOneLiner ?? latestSession.latestSummary ?? "保護者共有に失敗しています。再送が必要です。",
+      nextAction: "再送を確認",
+      view: "share" as const,
+    };
+  }
+
+  if (latestReportSummary && ["sent", "delivered", "resent", "manual_shared"].includes(latestReportSummary.deliveryState)) {
+    return {
+      state: latestReportSummary.deliveryStateLabel,
+      oneLiner: latestSession.heroOneLiner ?? latestSession.latestSummary ?? "保護者共有は完了しています。",
+      nextAction: "生徒詳細を開く",
+      view: "sent" as const,
     };
   }
 
@@ -92,9 +130,9 @@ function summarize(student: StudentRow) {
     state: latestSession.heroStateLabel ?? "更新済み",
     oneLiner:
       latestSession.heroOneLiner ?? latestSession.latestSummary ?? "次の会話に向けた材料が揃っています。",
-      nextAction: "生徒詳細を開く",
-      view: "log" as const,
-    };
+    nextAction: "生徒詳細を開く",
+    view: "all" as const,
+  };
 }
 
 export default function StudentsPage() {
@@ -150,15 +188,21 @@ export default function StudentsPage() {
     const lowered = query.trim().toLowerCase();
     return rows.filter((student) => {
       const latestSession = student.sessions?.[0];
-      const latestReport = student.reports?.[0];
+      const latestReport = student.reports?.[0] ?? null;
+      const latestReportSummary = latestReport ? buildReportDeliverySummary(latestReport) : null;
+      const reportState = latestReportSummary?.deliveryState;
       const matchesView =
         view === "all"
           ? true
           : view === "interview"
             ? !latestSession
-            : view === "log"
+            : view === "report"
               ? Boolean(latestSession?.conversation?.id) && !latestReport
-              : Boolean((latestSession?.conversation?.id && !latestReport) || (latestReport && latestReport.status !== "SENT"));
+              : view === "review"
+                ? reportState === "draft"
+                : view === "share"
+                  ? reportState === "reviewed" || reportState === "failed" || reportState === "bounced"
+                  : reportState === "sent" || reportState === "delivered" || reportState === "resent" || reportState === "manual_shared";
 
       if (!matchesView) return false;
       if (!lowered) return true;
@@ -219,8 +263,10 @@ export default function StudentsPage() {
           {[
             { key: "all", label: "すべて" },
             { key: "interview", label: "面談待ち" },
-            { key: "log", label: "ログあり" },
-            { key: "report", label: "共有待ち" },
+            { key: "report", label: "ログあり" },
+            { key: "review", label: "レビュー待ち" },
+            { key: "share", label: "共有待ち" },
+            { key: "sent", label: "送付済み" },
           ].map((item) => (
             <button
               key={item.key}

@@ -12,9 +12,6 @@ export async function GET(
         parts: {
           orderBy: { createdAt: "asc" },
         },
-        entities: {
-          orderBy: [{ status: "asc" }, { confidence: "desc" }, { createdAt: "asc" }],
-        },
         conversation: {
           include: {
             jobs: {

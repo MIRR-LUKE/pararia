@@ -139,8 +139,8 @@ PARARIA は、塾・個別指導・学習コーチング向けの `Teaching OS` 
 
 注意:
 
-- ここはまだ運用下書き UI が中心
-- `guardian 連絡先` や `送信設定` の本設計は `task.md` 側で管理
+- `Settings / Admin` では、組織名更新、guardian 連絡先カバレッジ確認、未入力生徒の guardianNames 補完、送信設定サマリー、権限人数、保存期間ポリシーを確認できます
+- 詳細な送信プロバイダ設定や LINE 連携の編集 UI は、引き続き `task.md` の P0/P1 で拡張します
 
 ## 5. データモデル
 
@@ -245,8 +245,8 @@ UI 上では主に次で見せています。
 
 補足:
 
-- `failed / bounced / delivered / manually_confirmed` のような詳細 delivery event は **まだ実装していません**
-- その issue 化と優先順は `task.md` にまとめています
+- `failed / bounced / delivered / manually_confirmed / resent / draft_created` の delivery event は実装済みです
+- Student Room / Reports / Logs は最新 event をもとに共有状態を表示します。Dashboard では `average time-to-share` まで確認でき、Settings では guardianNames 補完まで進められます
 
 ### 7.3 生成から共有まで
 

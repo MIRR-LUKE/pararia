@@ -9,42 +9,25 @@
   gap: 18px;
 }
 
-.foundationGrid,
-.policyList {
+.policyList,
+.metricGrid,
+.listBlock {
   display: grid;
   gap: 12px;
 }
 
-.foundationCard,
-.policyItem {
-  padding: 16px;
+.policyItem,
+.metricCard,
+.successBox,
+.readOnlyBanner,
+.studentEditor,
+.listRow {
+  padding: 14px 16px;
   border-radius: var(--card-radius);
   border: 1px solid var(--border);
   background: var(--surface-2);
-  display: grid;
-  gap: 8px;
 }
 
-.foundationSwatch {
-  width: 100%;
-  height: 44px;
-  border-radius: 7px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-}
-
-.canvasSwatch {
-  background: linear-gradient(135deg, #222222, #2b2b2b);
-}
-
-.panelSwatch {
-  background: linear-gradient(135deg, #262626, #303030);
-}
-
-.accentSwatch {
-  background: linear-gradient(90deg, #dbff4b 0%, #38d2c8 48%, #693ac8 100%);
-}
-
-.foundationTitle,
 .label {
   font-size: 14px;
   font-weight: 700;
@@ -56,11 +39,30 @@
   line-height: 1.7;
 }
 
-.policyItem p {
+.policyItem {
+  display: grid;
+  gap: 8px;
+}
+
+.policyItem p,
+.readOnlyBanner p {
   margin: 0;
   color: var(--muted);
-  font-size: 13px;
   line-height: 1.7;
+}
+
+.metricGrid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.metricCard {
+  display: grid;
+  gap: 6px;
+}
+
+.metricLabel {
+  color: var(--muted);
+  font-size: 12px;
 }
 
 .field {
@@ -73,8 +75,76 @@
   width: 100%;
 }
 
+.buttonRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.listRow {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.inlineLink {
+  color: var(--text);
+  text-decoration: none;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.inlineLink:hover {
+  text-decoration: underline;
+}
+
+.errorBox {
+  padding: 18px;
+  border-radius: var(--card-radius);
+  border: 1px solid rgba(255, 99, 99, 0.28);
+  background: rgba(255, 99, 99, 0.08);
+  display: grid;
+  gap: 8px;
+}
+
+.errorBox p {
+  margin: 0;
+  color: var(--muted);
+}
+
+.successBox {
+  color: var(--muted-strong);
+}
+
+.readOnlyBanner {
+  border-style: dashed;
+  display: grid;
+  gap: 6px;
+}
+
+.studentEditor {
+  display: grid;
+  gap: 10px;
+}
+
+.studentHeader {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: start;
+}
+
 @media (max-width: 980px) {
   .grid {
     grid-template-columns: 1fr;
+  }
+
+  .metricGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .studentHeader {
+    flex-direction: column;
   }
 }

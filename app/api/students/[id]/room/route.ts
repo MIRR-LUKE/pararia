@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/db";
 import { buildOperationalLog, renderOperationalSummaryMarkdown } from "@/lib/operational-log";
+import { buildReportDeliverySummary } from "@/lib/report-delivery";
 import { getRecordingLockView } from "@/lib/recording/lockService";
 import {
   sanitizeQuickQuestions,
@@ -58,6 +59,20 @@ export async function GET(
         reports: {
           orderBy: { createdAt: "desc" },
           take: 6,
+          include: {
+            deliveryEvents: {
+              orderBy: { createdAt: "asc" },
+              include: {
+                actor: {
+                  select: {
+                    id: true,
+                    name: true,
+                    email: true,
+                  },
+                },
+              },
+            },
+          },
         },
       },
     });
@@ -189,6 +204,7 @@ export async function GET(
       reports: student.reports.map((report) => ({
         ...report,
         reportMarkdown: sanitizeReportMarkdown(report.reportMarkdown),
+        ...buildReportDeliverySummary(report),
       })),
       recordingLock,
     });

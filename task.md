@@ -1,352 +1,150 @@
 # PARARIA vNext Issue Backlog
 
-更新日: 2026-03-22  
-前提: 旧確認フローは廃止済み。以後の issue はすべて `面談モード / 指導報告モード / ログ選択型の保護者レポート生成` を前提にする。
-親 issue: [#13 PARARIA vNext 実装バックログ (2026-03-22)](https://github.com/MIRR-LUKE/pararia/issues/13)
+最終更新: 2026-03-22
 
-## 0. いまの基準線
+## 読み方
+- `[x]` は、この round で完了条件まで閉じた項目です。
+- `[ ]` は、まだ残っている項目です。
+- issue のタイトルは GitHub と揃えています。実装順もこの順で追えば大丈夫です。
+- UI が未確定の項目は、backend と共通基盤だけ先に進めています。
 
-- 主導線は `Student Room`
-- 録音は `面談モード` と `指導報告モード`
-- 生成物は `面談ログ` と `指導報告ログ`
-- `保護者レポート` は選択したログだけから都度生成する
-- `/logs` と `/reports` は補助面のまま
-- 旧 `entity review` 系の UI / API / schema / seed は削除済み
+親 issue: [#13 PARARIA vNext 実装バックログ](https://github.com/MIRR-LUKE/pararia/issues/13)
 
-## 1. 実装順
+## 今回ここまで終わったこと
+- [x] 旧 `entity / 固有名詞確認` 前提の docs・API・schema・seed を撤去した
+- [x] `20260322000100_remove_entity_review_legacy` を DB に適用した
+- [x] `ReportDeliveryEvent` と `20260322000200_report_delivery_events` を追加し、DB に適用した
+- [x] `generate-report` で `sourceLogIds` と `DRAFT_CREATED` を保存するようにした
+- [x] `reports/[id]/send` で `review / sent / delivered / failed / bounced / manual_share / resent` を event として記録できるようにした
+- [x] Student Room API が最新 delivery history と派生状態を返すようにした
+- [x] Reports / Logs が source trace と latest delivery state を表示するようにした
+- [x] Settings / Admin に最小の運用設定画面を入れた
+- [x] Dashboard / 生徒一覧 を delivery event 基準の状態表示に揃えた
+- [x] Dashboard に `average time-to-share` を追加した
+- [x] Settings から guardianNames を更新できるようにした
+- [x] `scripts/verify-report-delivery.ts` を追加し、smoke check を通した
 
-1. `P0-01` Student Room のモード別主導線を完成させる
-2. `P0-02` Student Room のログ選択型レポート生成を常設化する
-3. `P0-03` 共有状態と送信履歴の最小ループを作る
-4. `P0-04` Dashboard を朝の判断画面にする
-5. `P0-05` Reports / Logs を補助面として整える
-6. `P0-06` Settings / Admin に共有運用の最低限を入れる
-7. `P0-07` Delivery / status / source trace の共通基盤を入れる
-8. `P1-01` Student Room の履歴と次アクションを強くする
-9. `P1-02` Manager 向け drill-in と運用品質を見える化する
-10. `P1-03` Onboarding / demo data / activation を整える
-11. `P1-04` Audit / retention / trust を正式化する
-12. `P2-01` Campus / LINE / weekly digest に進む
+## 完了済み issue
 
-## 2. P0
+### [#7 P0-07 | Delivery / status / source trace の共通基盤を入れる](https://github.com/MIRR-LUKE/pararia/issues/7)
+現在地: backend と基盤は完了。画面ごとの深い集計だけ残り。
 
-### Issue P0-01 | Student Room のモード別主導線を完成させる
+- [x] `ReportDeliveryEvent` model / migration を追加した
+- [x] DB に migration を適用した
+- [x] `sourceLogIds` を report 生成時に保存するようにした
+- [x] `draft_created / review / sent / delivered / failed / bounced / manual_share / resent` を event として保存できるようにした
+- [x] Student Room API が history と latest event を返すようにした
+- [x] smoke check script を追加し、主要状態遷移を検証できるようにした
+- [x] Dashboard / 生徒一覧 を event 基準で統一した
+- [ ] Settings 側で delivery / trust summary をさらに広げる
+- [ ] `failed / bounced / delivered` を使った深い運用集計を manager view に出す
 
-- GitHub: [#1](https://github.com/MIRR-LUKE/pararia/issues/1)
+### [#3 P0-03 | 共有状態と送信履歴の最小ループを作る](https://github.com/MIRR-LUKE/pararia/issues/3)
+現在地: backend は通った。最終 UI polish が残り。
 
-- ラベル:
-  - `priority/P0`
-  - `area/student-room`
-  - `type/ux`
-- 目的:
-  - Tutor が `面談モード / 指導報告モード` を見失わずに録音へ入れるようにする
-- 画面:
-  - `Student Room`
-- 変更するブロック:
-  - `Mode Selector`
-  - `Recording / Capture Block`
-  - `Session Status Banner`
-- やること:
-  - [ ] モード切替を常設する
-  - [ ] モードごとに録音開始文言と補助説明を分ける
-  - [ ] `CHECK_IN / CHECK_OUT` の進行状況を指導報告モードで明示する
-  - [ ] 録音後に `面談ログ生成中 / 指導報告ログ生成中` を見せる
-- 完了条件:
-  - [ ] Tutor が 3 秒以内に現在モードを認識できる
-  - [ ] 指導報告モードで `CHECK_IN / CHECK_OUT` のどちらを録るか迷わない
-  - [ ] 録音後の次状態が画面上で分かる
-- 依存:
-  - なし
+- [x] Student Room で `review / sent / failed / bounced / manual_share / resent` を記録できるようにした
+- [x] 最新の共有状態を Student Room に返すようにした
+- [x] Share History を event ベースで表示できるようにした
+- [ ] 送信失敗時の次アクション UI を Figma 確定版に合わせて整える
+- [ ] 宛先修正導線を Student Room から自然につなぐ
 
-### Issue P0-02 | Student Room のログ選択型レポート生成を常設化する
+### [#5 P0-05 | Reports / Logs を補助面として整える](https://github.com/MIRR-LUKE/pararia/issues/5)
+現在地: 補助面としての役割は作れた。相互遷移の polish が残り。
 
-- GitHub: [#2](https://github.com/MIRR-LUKE/pararia/issues/2)
+- [x] Reports が `未作成 / レビュー待ち / 共有待ち / 共有済み / 手動共有 / 共有遅延` を見分けられるようにした
+- [x] Reports が source trace 件数と sourceLogIds を表示できるようにした
+- [x] Logs が `面談ログ / 指導報告ログ` と関連レポートを辿れるようにした
+- [ ] Reports から Student Room への戻り導線をもう一段わかりやすくする
+- [ ] Logs から選択済みレポート作成フローへ飛ぶ導線を調整する
 
-- ラベル:
-  - `priority/P0`
-  - `area/student-room`
-  - `area/reports`
-  - `type/flow`
-- 目的:
-  - `ログ生成 -> ログ選択 -> 保護者レポート生成` を Student Room で閉じる
-- 画面:
-  - `Student Room`
-- 変更するブロック:
-  - `面談ログセクション`
-  - `指導報告ログセクション`
-  - `保護者レポート作成セクション`
-- やること:
-  - [ ] 面談ログと指導報告ログを UI 上で明確に分ける
-  - [ ] 保護者レポート候補ログを選択できるようにする
-  - [ ] 選択件数と選択中ログをその場で確認できるようにする
-  - [ ] `保護者レポートを生成` を主 CTA にする
-- 完了条件:
-  - [ ] Tutor が Student Room だけでレポート生成まで進める
-  - [ ] 未選択ログが勝手に使われない
-  - [ ] `どのログを使って作るか` が視覚的に分かる
-- 依存:
-  - `P0-01`
+### [#6 P0-06 | Settings / Admin に共有運用の最低限を入れる](https://github.com/MIRR-LUKE/pararia/issues/6)
+現在地: 最小版は着手済み。編集系が残り。
 
-### Issue P0-03 | 共有状態と送信履歴の最小ループを作る
+- [x] `/api/settings` を追加した
+- [x] 組織名更新をできるようにした
+- [x] guardian 連絡先カバレッジ、送信設定サマリー、権限人数、保存期間を見える化した
+- [x] guardian 連絡先の編集 UI を入れた
+- [x] 送信設定を参照専用として分かる形に整えた
+- [ ] 送信プロバイダ設定の編集 UI を入れる
+- [ ] 権限ごとの共有運用ガードを UI でも明示する
 
-- GitHub: [#3](https://github.com/MIRR-LUKE/pararia/issues/3)
+## P0
 
-- ラベル:
-  - `priority/P0`
-  - `area/student-room`
-  - `area/delivery`
-  - `type/ops`
-- 目的:
-  - レポート生成後の `確認 -> 共有` を止めない
-- 画面:
-  - `Student Room`
-- 変更するブロック:
-  - `Delivery Status`
-  - `Share History`
-- やること:
-  - [ ] 現在の共有状態を見えるようにする
-  - [ ] `送信済みにする` の導線を分かりやすくする
-  - [ ] 共有履歴を最小限で表示する
-  - [ ] 手動共有の記録を履歴に残せるようにする
-- 完了条件:
-  - [ ] Tutor が共有済みか未共有かをすぐ見分けられる
-  - [ ] 最新の共有アクションが Student Room で追える
-  - [ ] レポート生成後に別画面へ逃がさなくてよい
-- 依存:
-  - `P0-02`
+### [#1 P0-01 | Student Room のモード別主導線を完成させる](https://github.com/MIRR-LUKE/pararia/issues/1)
+現在地: 実装途中。最終 UI は Figma 確定待ち。
 
-### Issue P0-04 | Dashboard を朝の判断画面にする
+- [ ] `Mode Selector` を最終 UI に合わせて確定する
+- [ ] `面談モード / 指導報告モード` のファーストビュー差分を整える
+- [ ] `CHECK_IN / CHECK_OUT` の見せ方を指導報告モード側で磨く
+- [ ] 録音後に `面談ログ生成中 / 指導報告ログ生成中` を明確に表示する
 
-- GitHub: [#4](https://github.com/MIRR-LUKE/pararia/issues/4)
+### [#2 P0-02 | Student Room のログ選択型レポート生成を常設化する](https://github.com/MIRR-LUKE/pararia/issues/2)
+現在地: backend は通った。常設 UI の詰めが残り。
 
-- ラベル:
-  - `priority/P0`
-  - `area/dashboard`
-  - `type/ux`
-- 目的:
-  - Manager が朝いちで `何が止まっているか` を分かるようにする
-- 画面:
-  - `Dashboard`
-- 変更するブロック:
-  - `KPI Cards`
-  - `Drill-in Table`
-  - `Delayed Share Queue`
-- やること:
-  - [ ] `review待ち件数` を出す
-  - [ ] `保護者レポート未生成件数` を出す
-  - [ ] `共有遅延件数` を出す
-  - [ ] `failed / bounced件数` を出す
-  - [ ] KPI から対象生徒一覧に降りられるようにする
-- 完了条件:
-  - [ ] Manager が 5 秒以内に主要な止まりを把握できる
-  - [ ] 最重要項目から Student Room へ 1 クリックで降りられる
-- 依存:
-  - `P0-03`
-  - `P0-07`
+- [x] 選択ログで保護者レポートを生成する API を整理した
+- [x] 生成時に `sourceLogIds` を保存するようにした
+- [ ] `面談ログセクション / 指導報告ログセクション` を UI で分けて見せる
+- [ ] 保護者レポート作成セクションを常設化する
+- [ ] ログ未選択時の空状態を整える
+- [ ] どのログを使って生成するかを Tutor が迷わず選べる UI にする
 
-### Issue P0-05 | Reports / Logs を補助面として整える
+### [#4 P0-04 | Dashboard を朝の判断画面にする](https://github.com/MIRR-LUKE/pararia/issues/4)
+現在地: 表示の言葉合わせは進んだ。event 基準の深掘りが残り。
 
-- GitHub: [#5](https://github.com/MIRR-LUKE/pararia/issues/5)
+- [x] `未生成 / レビュー待ち / 共有待ち / 共有済み` を主導線ベースに整理した
+- [x] 今日の優先キューを `ログ生成 -> レビュー -> 共有` の流れに合わせた
+- [x] `failed / bounced / resent / manual_shared` を KPI と queue に反映した
+- [x] `average time-to-share` を出した
+- [ ] drill-in から Student Room に 1 click で戻れるようにする
 
-- ラベル:
-  - `priority/P0`
-  - `area/reports`
-  - `area/logs`
-  - `type/ux`
-- 目的:
-  - 補助画面を主役に戻さず、確認用として使いやすくする
-- 画面:
-  - `Reports`
-  - `Logs`
-- 変更するブロック:
-  - `Filters`
-  - `Selected Logs Summary`
-  - `Mode Filter`
-  - `Related Reports`
-- やること:
-  - [ ] Reports で `未作成 / 下書き / 送付済み` を追いやすくする
-  - [ ] Logs で `面談ログ / 指導報告ログ` を見分けやすくする
-  - [ ] どのログがどの保護者レポートに使われたかを見せる
-  - [ ] Student Room に戻る導線を強くする
-- 完了条件:
-  - [ ] 補助画面だけ見ていても現在地を見失わない
-  - [ ] 主作業を Student Room に戻せる
-- 依存:
-  - `P0-02`
-  - `P0-07`
+## P1
 
-### Issue P0-06 | Settings / Admin に共有運用の最低限を入れる
+### [#8 P1-01 | Student Room の履歴と次アクションを強くする](https://github.com/MIRR-LUKE/pararia/issues/8)
+- [ ] `Communication Timeline` を整える
+- [ ] `Next Actions` を整える
+- [ ] 前回共有内容と次回共有候補を 1 画面で読めるようにする
 
-- GitHub: [#6](https://github.com/MIRR-LUKE/pararia/issues/6)
+### [#9 P1-02 | Manager 向け drill-in と運用品質を見える化する](https://github.com/MIRR-LUKE/pararia/issues/9)
+- [ ] `average time-to-share` を drill-in に入れる
+- [ ] `共有遅延件数 / failed件数 / bounced件数 / 再送件数` を見える化する
+- [ ] `誰の / どのログから / どこで止まっているか` を manager が追えるようにする
 
-- ラベル:
-  - `priority/P0`
-  - `area/settings`
-  - `type/admin`
-- 目的:
-  - 共有を始める前の最低限の設定確認を 1 画面に寄せる
-- 画面:
-  - `Settings / Admin`
-- 変更するブロック:
-  - `Guardian Contacts`
-  - `Sending Config`
-  - `Role Permissions`
-  - `Consent & Retention`
-- やること:
-  - [ ] guardian 連絡先の最小管理 UI を作る
-  - [ ] メール送信設定の状態を見せる
-  - [ ] 役割ごとの共有権限を見直す
-  - [ ] 保持方針の最低限を明示する
-- 完了条件:
-  - [ ] Manager が「共有を始めてよいか」を判断できる
-  - [ ] Student Room から設定不足へ戻す導線がある
-- 依存:
-  - `P0-03`
+### [#10 P1-03 | Onboarding / demo data / activation を整える](https://github.com/MIRR-LUKE/pararia/issues/10)
+- [ ] 初回セットアップ導線を整える
+- [ ] seed / demo data を onboarding UX に合わせる
+- [ ] Tutor 向けの最短導線を作る
 
-### Issue P0-07 | Delivery / state / source trace の共通基盤を入れる
+### [#11 P1-04 | Audit / retention / trust を正式化する](https://github.com/MIRR-LUKE/pararia/issues/11)
+- [x] audit helper を追加した
+- [x] report generate / delivery event / settings update の監査ログを記録するようにした
+- [ ] retention を正式化する
+- [ ] deletion request の扱いを決める
+- [ ] audit export の導線を決める
+- [ ] webhook / send 設定の署名検証ポリシーを決める
+- [ ] README と Settings に trust 運用を反映する
 
-- GitHub: [#7](https://github.com/MIRR-LUKE/pararia/issues/7)
+## P2
 
-- ラベル:
-  - `priority/P0`
-  - `area/platform`
-  - `area/delivery`
-  - `type/backend`
-- 目的:
-  - 画面ごとに状態の意味がずれないようにする
-- 対象:
-  - `Report`
-  - `sourceLogIds`
-  - delivery event 設計
-  - audit の最小版
-- やること:
-  - [ ] 保護者レポートと `sourceLogIds` の追跡を正式な基準にする
-  - [ ] `送信 / 再送 / 手動共有` を event として持てる形にする
-  - [ ] Dashboard と Student Room が同じ意味で状態を見られるようにする
-  - [ ] 将来の `failed / bounced / delivered` に耐えるデータ構造にする
-- 完了条件:
-  - [ ] ログ選択型レポート生成の根拠が追える
-  - [ ] 共有イベントをあとから UI に出せる
-  - [ ] 画面ごとに状態定義がぶれない
-- 依存:
-  - なし
+### [#12 P2-01 | Campus / LINE / weekly digest に進む](https://github.com/MIRR-LUKE/pararia/issues/12)
+- [ ] Campus 比較
+- [ ] Campus 正規モデル
+- [ ] LINE 第二チャネル
+- [ ] weekly digest / reminder
 
-## 3. P1
+## 今は後回し
+- [ ] `opened / clicked` のような細かい配信イベント
+- [ ] Campus 比較 UI の作り込み
+- [ ] LINE の本実装
+- [ ] weekly digest の装飾
 
-### Issue P1-01 | Student Room の履歴と次アクションを強くする
+## この round で同期したもの
+- [x] `Dashboard / 生徒一覧` の event 基準表示合わせ
+- [x] `README` の実装同期
+- [x] GitHub issue への進捗反映
 
-- GitHub: [#8](https://github.com/MIRR-LUKE/pararia/issues/8)
-
-- ラベル:
-  - `priority/P1`
-  - `area/student-room`
-  - `type/ux`
-- 目的:
-  - Tutor が「前回までの流れ」と「次の一手」を同じ画面で掴めるようにする
-- やること:
-  - [ ] `Communication Timeline` を入れる
-  - [ ] `Next Actions` を強くする
-  - [ ] 前回共有内容と今回共有内容をつなぐ
-- 完了条件:
-  - [ ] 共有履歴と次の確認事項が 1 画面で読める
-- 依存:
-  - `P0-03`
-
-### Issue P1-02 | Manager 向け drill-in と運用品質を見える化する
-
-- GitHub: [#9](https://github.com/MIRR-LUKE/pararia/issues/9)
-
-- ラベル:
-  - `priority/P1`
-  - `area/dashboard`
-  - `type/analytics`
-- 目的:
-  - 共有運用のボトルネックを Manager が追えるようにする
-- やること:
-  - [ ] `average time-to-share` を主要指標に入れる
-  - [ ] `再送発生件数` と `手動共有件数` を出す
-  - [ ] `誰が / どのログから / 何日止まっているか` を drill-in で見せる
-- 完了条件:
-  - [ ] Manager が止まり方の傾向を説明できる
-- 依存:
-  - `P0-04`
-  - `P0-07`
-
-### Issue P1-03 | Onboarding / demo data / activation を整える
-
-- GitHub: [#10](https://github.com/MIRR-LUKE/pararia/issues/10)
-
-- ラベル:
-  - `priority/P1`
-  - `area/onboarding`
-  - `type/product`
-- 目的:
-  - 初回導入で最初の 1 人を end-to-end で完了しやすくする
-- やること:
-  - [ ] 初回セットアップ導線を整える
-  - [ ] seed / demo data を現行 UX に合わせる
-  - [ ] Tutor 向けの最短導線を作る
-- 完了条件:
-  - [ ] 新規環境で最初の Student Room 体験が迷わない
-- 依存:
-  - `P0-01`
-  - `P0-02`
-
-### Issue P1-04 | Audit / retention / trust を正式化する
-
-- GitHub: [#11](https://github.com/MIRR-LUKE/pararia/issues/11)
-
-- ラベル:
-  - `priority/P1`
-  - `area/platform`
-  - `area/settings`
-  - `type/trust`
-- 目的:
-  - 教育データと共有履歴を扱う前提を運用上も明確にする
-- やること:
-  - [ ] retention を正式化する
-  - [ ] deletion request の扱いを決める
-  - [ ] audit export の要否を決める
-  - [ ] webhook / send 記録の監査方針を決める
-- 完了条件:
-  - [ ] README と Settings が同じ trust 前提で説明できる
-- 依存:
-  - `P0-06`
-  - `P0-07`
-
-## 4. P2
-
-### Issue P2-01 | Campus / LINE / weekly digest に進む
-
-- GitHub: [#12](https://github.com/MIRR-LUKE/pararia/issues/12)
-
-- ラベル:
-  - `priority/P2`
-  - `area/expansion`
-- 目的:
-  - Teaching OS の核を保ったまま拡張する
-- やること:
-  - [ ] Campus 比較
-  - [ ] Campus 正規モデル
-  - [ ] LINE 第二チャネル
-  - [ ] weekly digest / reminder
-- 完了条件:
-  - [ ] P0 / P1 が安定したあとに着手する
-- 依存:
-  - `P0` と `P1` の完了
-
-## 5. 非目標
-
-- 出欠
-- 請求
-- 会計
-- 時間割
-- 広い SIS 化
-
-## 6. Issue 化するときの共通ルール
-
-- タイトルは `P0-01 | Student Room ...` 形式で統一する
-- 1 issue 1 outcome にする
-- 受け入れ条件は必ず画面で検証できる文にする
-- DB / API 名は本文末尾の補足に下げる
-- 旧確認フローを前提にしたタスクは今後追加しない
+## 実装時の優先順
+1. `P0-07` の残りを閉じて、状態表示を画面横断で揃える
+2. `P0-02` と `P0-03` の Student Room 常設導線を Figma 確定版に合わせる
+3. `P0-04` の manager view を実データで固める
+4. `P0-06` の settings 編集系を足す
+5. その後に `P1` へ進む

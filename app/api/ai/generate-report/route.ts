@@ -1,10 +1,14 @@
 import { NextResponse } from "next/server";
+import { ReportDeliveryEventType } from "@prisma/client";
+import { auth } from "@/auth";
+import { writeAuditLog } from "@/lib/audit";
 import { prisma } from "@/lib/db";
 import { generateParentReport } from "@/lib/ai/parentReport";
 import { sanitizeReportMarkdownForReuse } from "@/lib/user-facing-japanese";
 
 export async function POST(request: Request) {
   try {
+    const session = await auth();
     const body = await request.json();
     const { studentId, fromDate, toDate, logIds, sessionIds, usePreviousReport } = body ?? {};
 
@@ -127,20 +131,52 @@ export async function POST(request: Request) {
       })),
     });
 
-    const report = await prisma.report.create({
-      data: {
+    const report = await prisma.$transaction(async (tx) => {
+      const created = await tx.report.create({
+        data: {
+          studentId,
+          organizationId: student.organizationId,
+          reportMarkdown: markdown,
+          reportJson: reportJson as any,
+          sourceLogIds: logs.map((log) => log.id),
+          previousReportId: previousReport?.id ?? undefined,
+          periodFrom: from ?? undefined,
+          periodTo: to ?? new Date(),
+          qualityChecksJson: {
+            generatedFromSessions: logs.map((log) => log.sessionId).filter(Boolean),
+            generatedFromLogIds: logs.map((log) => log.id),
+            generatedFromModes: logs.map((log) =>
+              log.session?.type === "LESSON_REPORT" ? "LESSON_REPORT" : "INTERVIEW"
+            ),
+            bundleQualityEval,
+          } as any,
+        },
+      });
+
+      await tx.reportDeliveryEvent.create({
+        data: {
+          reportId: created.id,
+          organizationId: student.organizationId,
+          studentId,
+          actorUserId: session?.user?.id ?? undefined,
+          eventType: ReportDeliveryEventType.DRAFT_CREATED,
+          eventMetaJson: {
+            sourceLogIds: logs.map((log) => log.id),
+            sourceSessionIds: logs.map((log) => log.sessionId).filter(Boolean),
+          } as any,
+        },
+      });
+
+      return created;
+    });
+
+    await writeAuditLog({
+      userId: session?.user?.id,
+      action: "report.generate",
+      detail: {
+        reportId: report.id,
         studentId,
-        organizationId: student.organizationId,
-        reportMarkdown: markdown,
-        reportJson: reportJson as any,
-        sourceLogIds: logs.map((log) => log.id),
-        previousReportId: previousReport?.id ?? undefined,
-        periodFrom: from ?? undefined,
-        periodTo: to ?? new Date(),
-        qualityChecksJson: {
-          generatedFromSessions: logs.map((log) => log.sessionId).filter(Boolean),
-          bundleQualityEval,
-        } as any,
+        sourceLogCount: logs.length,
       },
     });
 

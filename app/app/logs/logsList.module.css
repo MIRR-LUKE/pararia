@@ -107,6 +107,42 @@
   color: var(--muted);
 }
 
+.tracePanel {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border-radius: var(--card-radius);
+  border: 1px solid var(--border);
+  background: var(--surface-3);
+}
+
+.traceLabel {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.traceEmpty {
+  margin: 0;
+  color: var(--muted);
+}
+
+.traceChips {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.traceChip {
+  padding: 8px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 700;
+}
+
 .empty,
 .error {
   min-height: 220px;

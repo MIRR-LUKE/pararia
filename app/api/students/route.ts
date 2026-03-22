@@ -67,8 +67,20 @@ export async function GET(request: Request) {
           select: {
             id: true,
             status: true,
+            reviewedAt: true,
             createdAt: true,
             sentAt: true,
+            deliveryChannel: true,
+            sourceLogIds: true,
+            deliveryEvents: {
+              select: {
+                eventType: true,
+                createdAt: true,
+                deliveryChannel: true,
+              },
+              orderBy: { createdAt: "desc" },
+              take: 1,
+            },
           },
           orderBy: { createdAt: "desc" },
           take: 1,

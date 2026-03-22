@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useMemo, useState } from "react";
 import { useSession } from "next-auth/react";
@@ -7,6 +7,11 @@ import { AppHeader } from "@/components/layout/AppHeader";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
+import {
+  buildReportDeliverySummary,
+  deriveReportDeliveryState,
+  reportDeliveryStateLabel,
+} from "@/lib/report-delivery";
 import styles from "./dashboard.module.css";
 
 type SessionSummary = {
@@ -22,9 +27,18 @@ type SessionSummary = {
 
 type ReportSummary = {
   id: string;
-  status: string;
+  status: "DRAFT" | "REVIEWED" | "SENT" | string;
   createdAt: string;
+  reviewedAt?: string | null;
   sentAt?: string | null;
+  deliveryChannel?: string | null;
+  sourceLogIds?: string[] | null;
+  deliveryEvents?: Array<{
+    id?: string;
+    eventType: string;
+    createdAt: string;
+    deliveryChannel?: string | null;
+  }>;
 };
 
 type StudentRow = {
@@ -39,7 +53,7 @@ type StudentRow = {
   recordingLock?: { mode: string; lockedByName: string } | null;
 };
 
-type QueueKind = "interview" | "lesson" | "report" | "share" | "room";
+type QueueKind = "interview" | "lesson" | "report" | "review" | "share" | "room";
 
 type QueueItem = {
   student: StudentRow;
@@ -57,9 +71,38 @@ function completeness(profileData?: any) {
   return Math.min(100, (basic + personal) * 6);
 }
 
+function toDate(value?: string | null) {
+  if (!value) return null;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function diffHours(start?: string | null, end?: string | null) {
+  const startDate = toDate(start);
+  const endDate = toDate(end);
+  if (!startDate || !endDate) return null;
+  const diffMs = endDate.getTime() - startDate.getTime();
+  if (!Number.isFinite(diffMs) || diffMs < 0) return null;
+  return diffMs / (60 * 60 * 1000);
+}
+
+function latestReportSummary(report?: ReportSummary | null) {
+  if (!report) return null;
+  return buildReportDeliverySummary(report);
+}
+
+function reportStateLabel(report?: ReportSummary | null) {
+  if (!report) return "保護者レポート未生成";
+  const summary = latestReportSummary(report);
+  if (summary) return reportDeliveryStateLabel(summary.deliveryState);
+  const deliveryState = deriveReportDeliveryState(report);
+  return reportDeliveryStateLabel(deliveryState);
+}
+
 function summarize(student: StudentRow) {
   const latestSession = student.sessions?.[0];
-  const latestReport = student.reports?.[0];
+  const latestReport = student.reports?.[0] ?? null;
+  const latestReportSummary = latestReport ? buildReportDeliverySummary(latestReport) : null;
 
   if (!latestSession) {
     return {
@@ -108,18 +151,63 @@ function summarize(student: StudentRow) {
     };
   }
 
-  if (latestReport && latestReport.status !== "SENT") {
+  if (latestReportSummary?.deliveryState === "draft") {
     return {
-      state: latestSession.heroStateLabel ?? "共有待ち",
-      oneLiner:
-        latestSession.heroOneLiner ?? latestSession.latestSummary ?? "保護者レポートは下書き済みです。確認して共有まで進められます。",
+      state: latestReportSummary.deliveryStateLabel,
+      oneLiner: latestSession.heroOneLiner ?? latestSession.latestSummary ?? "保護者レポートは下書き済みです。確認して共有まで進められます。",
+      queue: {
+        kind: "review" as const,
+        title: "レビュー待ち",
+        reason: "保護者レポートは下書き済みです。確認して送付前に整えます。",
+        cta: "レポートを開く",
+        href: `/app/students/${student.id}?panel=report`,
+        score: 86,
+      },
+    };
+  }
+
+  if (latestReportSummary?.deliveryState === "reviewed") {
+    return {
+      state: latestReportSummary.deliveryStateLabel,
+      oneLiner: latestSession.heroOneLiner ?? latestSession.latestSummary ?? "保護者レポートは確認済みです。共有に進めます。",
       queue: {
         kind: "share" as const,
         title: "共有待ち",
-        reason: "保護者レポートは作成済みです。共有まで完了させます。",
+        reason: "保護者レポートは確認済みです。送信または手動共有を完了します。",
         cta: "共有を進める",
         href: `/app/students/${student.id}?panel=report`,
-        score: 82,
+        score: 84,
+      },
+    };
+  }
+
+  if (latestReportSummary && ["failed", "bounced"].includes(latestReportSummary.deliveryState)) {
+    return {
+      state: latestReportSummary.deliveryStateLabel,
+      oneLiner: "送信に失敗しています。再送または手動共有を確認してください。",
+      queue: {
+        kind: "share" as const,
+        title: "再送を確認",
+        reason: "failed / bounced の履歴があります。送信方法を見直します。",
+        cta: "共有を見直す",
+        href: `/app/students/${student.id}?panel=report`,
+        score: 88,
+      },
+    };
+  }
+
+  if (latestReportSummary && ["sent", "delivered", "resent", "manual_shared"].includes(latestReportSummary.deliveryState)) {
+    return {
+      state: latestReportSummary.deliveryStateLabel,
+      oneLiner:
+        latestSession.heroOneLiner ?? latestSession.latestSummary ?? "保護者共有は完了しています。履歴と次の会話に進めます。",
+      queue: {
+        kind: "room" as const,
+        title: "送付済みを確認",
+        reason: "送付後の履歴と次の会話を確認できます。",
+        cta: "レポートを見る",
+        href: `/app/students/${student.id}`,
+        score: 40,
       },
     };
   }
@@ -188,11 +276,50 @@ export default function DashboardPage() {
   );
 
   const stats = useMemo(() => {
-    const interview = enriched.filter((item) => item.queue.kind === "interview").length;
-    const lesson = enriched.filter((item) => item.queue.kind === "lesson").length;
-    const report = enriched.filter((item) => item.queue.kind === "report").length;
-    const share = enriched.filter((item) => item.queue.kind === "share").length;
-    return { interview, lesson, report, share };
+    const reportUncreated = enriched.filter((item) => item.queue.kind === "report").length;
+    const reviewWait = enriched.filter((item) => latestReportSummary(item.reports?.[0] ?? null)?.deliveryState === "draft").length;
+    const shareWait = enriched.filter((item) => latestReportSummary(item.reports?.[0] ?? null)?.deliveryState === "reviewed").length;
+    const sent = enriched.filter((item) => {
+      const state = latestReportSummary(item.reports?.[0] ?? null)?.deliveryState;
+      return state === "sent" || state === "delivered" || state === "resent" || state === "manual_shared";
+    }).length;
+    const manualShare = enriched.filter(
+      (item) => latestReportSummary(item.reports?.[0] ?? null)?.deliveryState === "manual_shared"
+    ).length;
+    const delivered = enriched.filter(
+      (item) => latestReportSummary(item.reports?.[0] ?? null)?.deliveryState === "delivered"
+    ).length;
+    const resent = enriched.filter((item) => latestReportSummary(item.reports?.[0] ?? null)?.deliveryState === "resent").length;
+    const failedBounced = enriched.filter((item) => {
+      const state = latestReportSummary(item.reports?.[0] ?? null)?.deliveryState;
+      return state === "failed" || state === "bounced";
+    }).length;
+    const shareDurations = enriched
+      .map((item) => {
+        const latestReport = item.reports?.[0] ?? null;
+        const shareState = latestReportSummary(latestReport)?.deliveryState;
+        if (!latestReport || !shareState || !["sent", "delivered", "resent", "manual_shared"].includes(shareState)) {
+          return null;
+        }
+        return diffHours(latestReport.reviewedAt ?? latestReport.createdAt, latestReport.sentAt);
+      })
+      .filter((value): value is number => typeof value === "number");
+    const averageTimeToShareHours =
+      shareDurations.length > 0
+        ? Number((shareDurations.reduce((sum, value) => sum + value, 0) / shareDurations.length).toFixed(1))
+        : null;
+    return {
+      reportUncreated,
+      reviewWait,
+      shareWait,
+      sent,
+      manualShare,
+      delivered,
+      resent,
+      failedBounced,
+      averageTimeToShareHours,
+      measuredShares: shareDurations.length,
+    };
   }, [enriched]);
 
   const interviewHref = queue.find((item) => item.queue.kind === "interview")?.queue.href ?? "/app/students";
@@ -225,20 +352,36 @@ export default function DashboardPage() {
 
       <section className={styles.statusStrip}>
         <div className={styles.statusItem}>
-          <span className={styles.statusLabel}>面談未実施</span>
-          <strong>{stats.interview}</strong>
-        </div>
-        <div className={styles.statusItem}>
-          <span className={styles.statusLabel}>チェックアウト待ち</span>
-          <strong>{stats.lesson}</strong>
-        </div>
-        <div className={styles.statusItem}>
           <span className={styles.statusLabel}>レポート未作成</span>
-          <strong>{stats.report}</strong>
+          <strong>{stats.reportUncreated}</strong>
+        </div>
+        <div className={styles.statusItem}>
+          <span className={styles.statusLabel}>レビュー待ち</span>
+          <strong>{stats.reviewWait}</strong>
         </div>
         <div className={styles.statusItem}>
           <span className={styles.statusLabel}>共有待ち</span>
-          <strong>{stats.share}</strong>
+          <strong>{stats.shareWait}</strong>
+        </div>
+        <div className={styles.statusItem}>
+          <span className={styles.statusLabel}>送付済み</span>
+          <strong>{stats.sent}</strong>
+        </div>
+        <div className={styles.statusItem}>
+          <span className={styles.statusLabel}>手動共有</span>
+          <strong>{stats.manualShare}</strong>
+        </div>
+        <div className={styles.statusItem}>
+          <span className={styles.statusLabel}>配達済み</span>
+          <strong>{stats.delivered}</strong>
+        </div>
+        <div className={styles.statusItem}>
+          <span className={styles.statusLabel}>再送</span>
+          <strong>{stats.resent}</strong>
+        </div>
+        <div className={styles.statusItem}>
+          <span className={styles.statusLabel}>送信失敗</span>
+          <strong>{stats.failedBounced}</strong>
         </div>
       </section>
 
@@ -342,27 +485,41 @@ export default function DashboardPage() {
         >
           <div className={styles.miniList}>
             <div className={styles.miniItem}>
-              <strong>面談未実施</strong>
-              <span>{stats.interview} 人</span>
-            </div>
-            <div className={styles.miniItem}>
-              <strong>授業後の録音待ち</strong>
-              <span>{stats.lesson} 人</span>
-            </div>
-            <div className={styles.miniItem}>
               <strong>レポート未作成</strong>
-              <span>{stats.report} 人</span>
+              <span>{stats.reportUncreated} 人</span>
+            </div>
+            <div className={styles.miniItem}>
+              <strong>レビュー待ち</strong>
+              <span>{stats.reviewWait} 人</span>
             </div>
             <div className={styles.miniItem}>
               <strong>共有待ち</strong>
-              <span>{stats.share} 人</span>
+              <span>{stats.shareWait} 人</span>
+            </div>
+            <div className={styles.miniItem}>
+              <strong>送付済み</strong>
+              <span>{stats.sent} 人</span>
+            </div>
+            <div className={styles.miniItem}>
+              <strong>手動共有</strong>
+              <span>{stats.manualShare} 件</span>
+            </div>
+            <div className={styles.miniItem}>
+              <strong>送信失敗</strong>
+              <span>{stats.failedBounced} 件</span>
+            </div>
+            <div className={styles.miniItem}>
+              <strong>平均共有時間</strong>
+              <span>
+                {stats.averageTimeToShareHours !== null ? `${stats.averageTimeToShareHours} 時間` : "まだ算出なし"}
+              </span>
             </div>
           </div>
         </Card>
 
         <Card
           title="全体の状態"
-          subtitle="詳細なKPIではなく、今日の運用を止めるものだけ静かに出します。"
+          subtitle="今日の運用と共有速度の輪郭だけを、朝いちで把握できるようにします。"
         >
           <div className={styles.directorySummary}>
             <div>
@@ -381,7 +538,18 @@ export default function DashboardPage() {
                 %
               </div>
             </div>
+            <div>
+              <div className={styles.summaryLabel}>平均 time-to-share</div>
+              <div className={styles.summaryValue}>
+                {stats.averageTimeToShareHours !== null ? `${stats.averageTimeToShareHours}h` : "-"}
+              </div>
+            </div>
           </div>
+          <p className={styles.summaryNote}>
+            {stats.measuredShares > 0
+              ? `最新の共有完了 ${stats.measuredShares} 件をもとに、レビュー完了から共有完了までの平均時間を計測しています。`
+              : "まだ共有完了データが少ないため、平均 time-to-share はこれから蓄積されます。"}
+          </p>
         </Card>
       </div>
     </div>

@@ -1,4 +1,5 @@
-﻿import type { OperationalLog } from "@/lib/operational-log";
+import type { OperationalLog } from "@/lib/operational-log";
+import type { ReportDeliveryState } from "@/lib/report-delivery";
 
 export type TopicCard = {
   category: string;
@@ -73,12 +74,24 @@ export type SessionItem = {
   } | null;
 };
 
+export type ReportHistoryItem = {
+  id?: string;
+  eventType: string;
+  label: string;
+  deliveryChannel?: string | null;
+  note?: string | null;
+  createdAt: string;
+  actor?: { id?: string; name?: string | null; email?: string | null } | null;
+};
+
 export type ReportItem = {
   id: string;
   status: string;
   reportMarkdown: string;
   createdAt: string;
   sentAt?: string | null;
+  reviewedAt?: string | null;
+  deliveryChannel?: string | null;
   qualityChecksJson?: {
     bundleQualityEval?: {
       periodLabel?: string;
@@ -92,6 +105,14 @@ export type ReportItem = {
     };
   } | null;
   sourceLogIds?: string[] | null;
+  workflowStatusLabel?: string;
+  deliveryState?: ReportDeliveryState;
+  deliveryStateLabel?: string;
+  latestEvent?: ReportHistoryItem | null;
+  history?: ReportHistoryItem[];
+  isShareCompleted?: boolean;
+  needsReview?: boolean;
+  needsShare?: boolean;
 };
 
 export type RecordingLockInfo = {

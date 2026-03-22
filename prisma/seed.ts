@@ -2,6 +2,7 @@ import {
   ConversationSourceType,
   ConversationStatus,
   PrismaClient,
+  ReportDeliveryEventType,
   ReportStatus,
   SessionPartStatus,
   SessionPartType,
@@ -336,7 +337,7 @@ async function createHana() {
     },
   });
 
-  await prisma.report.create({
+  const harutoReport = await prisma.report.create({
     data: {
       id: "report-demo-1",
       studentId,
@@ -349,6 +350,18 @@ async function createHana() {
       periodFrom: plusDays(interviewDate, -30),
       periodTo: new Date("2026-03-13T01:00:00.000Z"),
       sourceLogIds: ["conversation-demo-1-interview", "conversation-demo-1-lesson"] as any,
+      createdAt: new Date("2026-03-13T01:00:00.000Z"),
+    },
+  });
+
+  await prisma.reportDeliveryEvent.create({
+    data: {
+      reportId: harutoReport.id,
+      organizationId: DEFAULT_ORGANIZATION_ID,
+      studentId,
+      actorUserId: "user-demo-teacher",
+      eventType: ReportDeliveryEventType.DRAFT_CREATED,
+      eventMetaJson: { seeded: true } as any,
       createdAt: new Date("2026-03-13T01:00:00.000Z"),
     },
   });
@@ -464,7 +477,7 @@ async function createAoi() {
     },
   });
 
-  await prisma.report.create({
+  const aoiReport = await prisma.report.create({
     data: {
       id: "report-demo-2",
       studentId,
@@ -482,6 +495,30 @@ async function createAoi() {
       sourceLogIds: ["conversation-demo-2-interview"] as any,
       createdAt: new Date("2026-03-11T08:00:00.000Z"),
     },
+  });
+
+  await prisma.reportDeliveryEvent.createMany({
+    data: [
+      {
+        reportId: aoiReport.id,
+        organizationId: DEFAULT_ORGANIZATION_ID,
+        studentId,
+        actorUserId: "user-demo-teacher",
+        eventType: ReportDeliveryEventType.DRAFT_CREATED,
+        eventMetaJson: { seeded: true } as any,
+        createdAt: new Date("2026-03-11T08:00:00.000Z"),
+      },
+      {
+        reportId: aoiReport.id,
+        organizationId: DEFAULT_ORGANIZATION_ID,
+        studentId,
+        actorUserId: "user-demo-teacher",
+        eventType: ReportDeliveryEventType.MANUAL_SHARED,
+        deliveryChannel: "manual",
+        eventMetaJson: { seeded: true } as any,
+        createdAt: new Date("2026-03-11T09:00:00.000Z"),
+      },
+    ],
   });
 }
 

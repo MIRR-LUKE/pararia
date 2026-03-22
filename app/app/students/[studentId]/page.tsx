@@ -551,7 +551,7 @@ export default function StudentDetailPage({ params }: { params: { studentId: str
                     </div>
                     <div>
                       <div className={styles.historyRowTitle}>{formatReportDate(report.createdAt)} の保護者レポート</div>
-                      <div className={styles.historyRowMeta}>{report.status === "SENT" ? "送付済み" : "下書きあり"}</div>
+                      <div className={styles.historyRowMeta}>{report.deliveryStateLabel ?? report.workflowStatusLabel ?? "状態確認中"}</div>
                     </div>
                   </div>
                   <div className={styles.assigneePill}>{viewerBadge}</div>
@@ -676,7 +676,7 @@ export default function StudentDetailPage({ params }: { params: { studentId: str
                     </div>
                     <div>
                       <span>状態</span>
-                      <strong>{activeParentReport.status === "SENT" ? "送付済み" : "下書き"}</strong>
+                      <strong>{activeParentReport.deliveryStateLabel ?? activeParentReport.workflowStatusLabel ?? "状態確認中"}</strong>
                     </div>
                     <div>
                       <span>参照ログ</span>
@@ -694,7 +694,7 @@ export default function StudentDetailPage({ params }: { params: { studentId: str
                       </div>
                     ))}
 
-                  {activeParentReport.status !== "SENT" ? (
+                  {activeParentReport.needsReview || activeParentReport.needsShare ? (
                     <div className={styles.detailActions}>
                       <Button onClick={() => openReportStudio("send")}>送付前確認へ進む</Button>
                     </div>

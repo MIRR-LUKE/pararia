@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
@@ -6,6 +6,7 @@ import { useSearchParams } from "next/navigation";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { Badge } from "@/components/ui/Badge";
 import { Card } from "@/components/ui/Card";
+import { deriveReportDeliveryState, reportDeliveryStateLabel } from "@/lib/report-delivery";
 import styles from "./logsList.module.css";
 
 type LogItem = {
@@ -20,18 +21,49 @@ type LogItem = {
   student?: { id: string; name: string; grade?: string | null };
 };
 
+type LatestReport = {
+  id: string;
+  status: string;
+  createdAt: string;
+  reviewedAt?: string | null;
+  sentAt?: string | null;
+  deliveryChannel?: string | null;
+  sourceLogIds?: string[] | null;
+  deliveryEvents?: Array<{
+    eventType: string;
+    createdAt: string;
+    deliveryChannel?: string | null;
+  }>;
+};
+
+type StudentRow = {
+  id: string;
+  name: string;
+  grade?: string | null;
+  sessions?: Array<{ id: string; conversation?: { id: string } | null }>;
+  reports?: LatestReport[];
+};
+
 type TabType = "all" | "interview" | "lesson";
+
+type TraceRow = {
+  studentId: string;
+  studentName: string;
+  reportId: string;
+  reportLabel: string;
+  sourceCount: number;
+};
 
 function sessionTypeLabel(type?: string | null) {
   return type === "LESSON_REPORT" ? "指導報告" : "面談";
 }
 
 function statusLabel(status: string) {
-  if (status === "DONE") return "確認可能";
+  if (status === "DONE") return "生成完了";
   if (status === "PROCESSING") return "生成中";
-  if (status === "PARTIAL") return "途中まで表示";
-  if (status === "ERROR") return "要再実行";
-  return "状態確認中";
+  if (status === "PARTIAL") return "一部表示";
+  if (status === "ERROR") return "エラー";
+  return "処理中";
 }
 
 function statusTone(status: string): "neutral" | "low" | "medium" | "high" {
@@ -42,13 +74,18 @@ function statusTone(status: string): "neutral" | "low" | "medium" | "high" {
 }
 
 function excerpt(markdown?: string | null) {
-  if (!markdown) return "まだ要点が出ていません。生成が終わるとここに確認用の要約が出ます。";
+  if (!markdown) return "まだ要約はありません。録音が終わると、ここに要点が出ます。";
   return markdown
     .replace(/^##\s+/gm, "")
     .replace(/\*\*/g, "")
     .replace(/\n+/g, " ")
     .trim()
     .slice(0, 120);
+}
+
+function reportDeliveryLabel(report?: LatestReport | null) {
+  if (!report) return "未使用";
+  return reportDeliveryStateLabel(deriveReportDeliveryState(report));
 }
 
 export default function LogsListPage() {
@@ -58,6 +95,7 @@ export default function LogsListPage() {
   const tab: TabType =
     typeParam === "lessonReport" ? "lesson" : typeParam === "interview" ? "interview" : "all";
   const [conversations, setConversations] = useState<LogItem[]>([]);
+  const [students, setStudents] = useState<StudentRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -65,28 +103,33 @@ export default function LogsListPage() {
     setLoading(true);
     setError(null);
 
-    const params = new URLSearchParams();
-    if (studentId) params.set("studentId", studentId);
-    params.set("limit", studentId ? "100" : "80");
+    const conversationParams = new URLSearchParams();
+    if (studentId) conversationParams.set("studentId", studentId);
+    conversationParams.set("limit", studentId ? "100" : "80");
 
-    fetch(`/api/conversations?${params.toString()}`, { cache: "no-store" })
-      .then(async (res) => {
+    Promise.all([
+      fetch(`/api/conversations?${conversationParams.toString()}`, { cache: "no-store" }).then(async (res) => {
         const body = await res.json();
-        if (!res.ok) throw new Error(body?.error ?? "ログの読み込みに失敗しました。");
-        return body;
+        if (!res.ok) throw new Error(body?.error ?? "ログ一覧の読み込みに失敗しました。");
+        return body.conversations ?? [];
+      }),
+      fetch("/api/students?limit=200", { cache: "no-store" }).then(async (res) => {
+        const body = await res.json();
+        if (!res.ok) throw new Error(body?.error ?? "生徒情報の読み込みに失敗しました。");
+        return body.students ?? [];
+      }),
+    ])
+      .then(([conversationRows, studentRows]) => {
+        setConversations(conversationRows);
+        setStudents(studentRows);
       })
-      .then((body) => setConversations(body.conversations ?? []))
       .catch((fetchError: Error) => setError(fetchError.message))
       .finally(() => setLoading(false));
   }, [studentId]);
 
   const filtered = useMemo(() => {
-    if (tab === "interview") {
-      return conversations.filter((item) => item.sessionType !== "LESSON_REPORT");
-    }
-    if (tab === "lesson") {
-      return conversations.filter((item) => item.sessionType === "LESSON_REPORT");
-    }
+    if (tab === "interview") return conversations.filter((item) => item.sessionType !== "LESSON_REPORT");
+    if (tab === "lesson") return conversations.filter((item) => item.sessionType === "LESSON_REPORT");
     return conversations;
   }, [conversations, tab]);
 
@@ -99,13 +142,36 @@ export default function LogsListPage() {
     [conversations]
   );
 
+  const traceByLogId = useMemo(() => {
+    const map = new Map<string, TraceRow[]>();
+
+    for (const student of students) {
+      const report = student.reports?.[0];
+      if (!report?.sourceLogIds?.length) continue;
+      const reportLabel = reportDeliveryLabel(report);
+      for (const logId of report.sourceLogIds) {
+        const current = map.get(logId) ?? [];
+        current.push({
+          studentId: student.id,
+          studentName: student.name,
+          reportId: report.id,
+          reportLabel,
+          sourceCount: report.sourceLogIds.length,
+        });
+        map.set(logId, current);
+      }
+    }
+
+    return map;
+  }, [students]);
+
   const baseLogsPath = studentId ? `/app/logs?studentId=${encodeURIComponent(studentId)}` : "/app/logs";
 
   return (
     <div className={styles.page}>
       <AppHeader
-        title="根拠確認"
-        subtitle="AI の判断根拠を確認し、必要ならここから修正を反映します。日常の主導線ではなく、確認専用の裏面です。"
+        title="面談ログ / 指導報告ログ"
+        subtitle="ここでは記録の中身だけでなく、どの保護者レポートに使われたかまで追えます。"
       />
 
       <section className={styles.summaryRow}>
@@ -135,40 +201,58 @@ export default function LogsListPage() {
         </Link>
       </section>
 
-      <Card title="確認待ちのログ" subtitle="生徒ルームの『根拠を見る』からもここに入れます。必要なものだけを開いてください。">
+      <Card title="保存済みログ" subtitle="面談ログと指導報告ログを一覧し、どの保護者レポートに使われたかを確認できます。">
         {loading ? (
           <div className={styles.empty}>読み込み中です。</div>
         ) : error ? (
           <div className={styles.error}>{error}</div>
         ) : filtered.length === 0 ? (
           <div className={styles.empty}>
-            この条件に当てはまるログはありません。面談か指導報告を録音すると、ここで根拠確認できます。
+            この条件に合うログはありません。録音後にログを生成すると、ここに表示されます。
           </div>
         ) : (
           <div className={styles.list}>
-            {filtered.map((log) => (
-              <Link key={log.id} href={`/app/logs/${log.id}`} className={styles.row}>
-                <div className={styles.rowMain}>
-                  <div className={styles.rowTop}>
-                    <div>
-                      <div className={styles.studentName}>{log.student?.name ?? "生徒未設定"}</div>
-                      <div className={styles.meta}>{log.student?.grade ?? "学年未設定"}</div>
+            {filtered.map((log) => {
+              const traces = traceByLogId.get(log.id) ?? [];
+              return (
+                <Link key={log.id} href={`/app/logs/${log.id}`} className={styles.row}>
+                  <div className={styles.rowMain}>
+                    <div className={styles.rowTop}>
+                      <div>
+                        <div className={styles.studentName}>{log.student?.name ?? "担当未設定"}</div>
+                        <div className={styles.meta}>{log.student?.grade ?? "学年未設定"}</div>
+                      </div>
+                      <div className={styles.badgeRow}>
+                        <Badge label={sessionTypeLabel(log.sessionType)} tone="neutral" />
+                        <Badge label={statusLabel(log.status)} tone={statusTone(log.status)} />
+                      </div>
                     </div>
-                    <div className={styles.badgeRow}>
-                      <Badge label={sessionTypeLabel(log.sessionType)} tone="neutral" />
-                      <Badge label={statusLabel(log.status)} tone={statusTone(log.status)} />
+
+                    <p className={styles.summary}>{excerpt(log.summaryMarkdown)}</p>
+
+                    <div className={styles.tracePanel}>
+                      <div className={styles.traceLabel}>このログが使われた保護者レポート</div>
+                      {traces.length === 0 ? (
+                        <p className={styles.traceEmpty}>まだ source trace はありません。</p>
+                      ) : (
+                        <div className={styles.traceChips}>
+                          {traces.map((trace) => (
+                            <span key={`${trace.reportId}-${trace.studentId}`} className={styles.traceChip}>
+                              {trace.studentName} / {trace.reportLabel} / {trace.sourceCount}件
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className={styles.footerRow}>
+                      <span className={styles.meta}>{new Date(log.createdAt).toLocaleDateString("ja-JP")}</span>
+                      <span className={styles.linkLabel}>開く</span>
                     </div>
                   </div>
-
-                  <p className={styles.summary}>{excerpt(log.summaryMarkdown)}</p>
-
-                  <div className={styles.footerRow}>
-                    <span className={styles.meta}>{new Date(log.createdAt).toLocaleDateString("ja-JP")}</span>
-                    <span className={styles.linkLabel}>開く</span>
-                  </div>
-                </div>
-              </Link>
-            ))}
+                </Link>
+              );
+            })}
           </div>
         )}
       </Card>
