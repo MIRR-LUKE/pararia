@@ -234,48 +234,63 @@ function normalizeProfileDelta(delta: ProfileDelta): ProfileDelta {
 }
 
 function normalizeTimeline(sections: TimelineSection[]) {
-  return sections.map((s) => ({
-    title: s.title?.trim() ?? "",
-    what_happened: s.what_happened?.trim() ?? "",
-    coach_point: s.coach_point?.trim() ?? "",
-    student_state: s.student_state?.trim() ?? "",
-    evidence_quotes: sanitizeQuotes(s.evidence_quotes ?? []),
-  }));
+  return sections
+    .map((s) => {
+      const title = sanitizeUserFacingSentence(s.title, { maxLength: 48 });
+      const whatHappened = sanitizeUserFacingSentence(s.what_happened, { maxLength: 180 });
+      const coachPoint = sanitizeUserFacingSentence(s.coach_point, { maxLength: 180 });
+      const studentState = sanitizeUserFacingSentence(s.student_state, { maxLength: 140 });
+      if (!title && !whatHappened && !coachPoint && !studentState) return null;
+      return {
+        title: title || "今回の確認事項",
+        what_happened: whatHappened,
+        coach_point: coachPoint,
+        student_state: studentState,
+        evidence_quotes: sanitizeQuotes(s.evidence_quotes ?? []),
+      };
+    })
+    .filter((section): section is TimelineSection => Boolean(section));
 }
 
 function normalizeNextActions(actions: NextAction[]) {
   return actions
-    .filter((a) => a.action && a.metric)
     .map((a) => ({
       owner: a.owner,
-      action: a.action.trim(),
+      action: sanitizeUserFacingSentence(a.action, { maxLength: 140 }),
       due: a.due ?? null,
-      metric: a.metric.trim(),
-      why: maskSensitiveText(a.why?.trim() ?? ""),
-    }));
+      metric: sanitizeUserFacingSentence(a.metric, { maxLength: 120 }),
+      why: sanitizeUserFacingSentence(a.why, { maxLength: 160 }),
+    }))
+    .filter((action) => action.action && action.metric);
 }
 
 function normalizeReducedAnalysis(input: ReducedAnalysis): ReducedAnalysis {
+  const normalizeLine = (value: unknown, maxLength = 160) =>
+    sanitizeUserFacingSentence(value, { maxLength });
   return {
-    facts: (input.facts ?? []).map((v) => String(v).trim()).filter(Boolean),
-    coaching_points: (input.coaching_points ?? []).map((v) => String(v).trim()).filter(Boolean),
-    decisions: (input.decisions ?? []).map((v) => String(v).trim()).filter(Boolean),
-    student_state_delta: (input.student_state_delta ?? []).map((v) => String(v).trim()).filter(Boolean),
-    todo_candidates: (input.todo_candidates ?? []).map((t) => ({
-      owner: t.owner ?? "STUDENT",
-      action: String(t.action ?? "").trim(),
-      due: t.due ?? null,
-      metric: String(t.metric ?? "").trim(),
-      why: String(t.why ?? "").trim(),
-      evidence_quotes: sanitizeQuotes(t.evidence_quotes ?? []),
-    })),
-    timeline_candidates: (input.timeline_candidates ?? []).map((t) => ({
-      title: String(t.title ?? "").trim(),
-      what_happened: String(t.what_happened ?? "").trim(),
-      coach_point: String(t.coach_point ?? "").trim(),
-      student_state: String(t.student_state ?? "").trim(),
-      evidence_quotes: sanitizeQuotes(t.evidence_quotes ?? []),
-    })),
+    facts: (input.facts ?? []).map((v) => normalizeLine(v)).filter(Boolean),
+    coaching_points: (input.coaching_points ?? []).map((v) => normalizeLine(v)).filter(Boolean),
+    decisions: (input.decisions ?? []).map((v) => normalizeLine(v)).filter(Boolean),
+    student_state_delta: (input.student_state_delta ?? []).map((v) => normalizeLine(v)).filter(Boolean),
+    todo_candidates: (input.todo_candidates ?? [])
+      .map((t) => ({
+        owner: t.owner ?? "STUDENT",
+        action: sanitizeUserFacingSentence(t.action, { maxLength: 140 }),
+        due: t.due ?? null,
+        metric: sanitizeUserFacingSentence(t.metric, { maxLength: 120 }),
+        why: sanitizeUserFacingSentence(t.why, { maxLength: 160 }),
+        evidence_quotes: sanitizeQuotes(t.evidence_quotes ?? []),
+      }))
+      .filter((item) => item.action && item.metric),
+    timeline_candidates: (input.timeline_candidates ?? [])
+      .map((t) => ({
+        title: sanitizeUserFacingSentence(t.title, { maxLength: 48 }),
+        what_happened: sanitizeUserFacingSentence(t.what_happened, { maxLength: 180 }),
+        coach_point: sanitizeUserFacingSentence(t.coach_point, { maxLength: 180 }),
+        student_state: sanitizeUserFacingSentence(t.student_state, { maxLength: 140 }),
+        evidence_quotes: sanitizeQuotes(t.evidence_quotes ?? []),
+      }))
+      .filter((item) => item.title || item.what_happened || item.coach_point || item.student_state),
     profile_delta_candidates: normalizeProfileDelta(input.profile_delta_candidates ?? { basic: [], personal: [] }),
     quotes: sanitizeQuotes(input.quotes ?? []),
     safety_flags: (input.safety_flags ?? []).map((v) => String(v).trim()).filter(Boolean),
@@ -285,8 +300,8 @@ function normalizeReducedAnalysis(input: ReducedAnalysis): ReducedAnalysis {
 function normalizeParentPack(pack: ParentPack): ParentPack {
   const normalizeList = (items?: string[]) =>
     (items ?? [])
-      .map((v) => maskSensitiveText(String(v).trim()))
-      .filter((v) => v && !hasBadUserFacingText(v));
+      .map((v) => sanitizeUserFacingSentence(v, { maxLength: 160 }))
+      .filter(Boolean);
   return {
     what_we_did: normalizeList(pack.what_we_did),
     what_improved: normalizeList(pack.what_improved),
@@ -323,14 +338,14 @@ function normalizeStudentState(value: StudentStateCard | null | undefined): Stud
   const label = STUDENT_STATE_LABELS.includes(String(value?.label ?? "").trim() as StudentStateLabel)
     ? (String(value?.label).trim() as StudentStateLabel)
     : "安定";
-  const oneLinerRaw = maskSensitiveText(String(value?.oneLiner ?? "").trim()).slice(0, 80);
+  const oneLinerRaw = sanitizeUserFacingSentence(value?.oneLiner, { maxLength: 80 });
   const rationale = (value?.rationale ?? [])
-    .map((v) => maskSensitiveText(String(v).trim()))
-    .filter((v) => v && !hasBadUserFacingText(v))
+    .map((v) => sanitizeUserFacingSentence(v, { maxLength: 120 }))
+    .filter(Boolean)
     .slice(0, 4);
   return {
     label,
-    oneLiner: oneLinerRaw && !hasBadUserFacingText(oneLinerRaw) ? oneLinerRaw : "",
+    oneLiner: oneLinerRaw,
     rationale,
     confidence: Math.max(0, Math.min(100, Number(value?.confidence ?? 60))),
   };
@@ -340,9 +355,9 @@ function normalizeRecommendedTopics(items: RecommendedTopic[] | null | undefined
   return (items ?? [])
     .map((item, index) => ({
       category: toProfileCategory(item?.category),
-      title: maskSensitiveText(String(item?.title ?? "").trim()),
-      reason: maskSensitiveText(String(item?.reason ?? "").trim()),
-      question: maskSensitiveText(String(item?.question ?? "").trim()),
+      title: sanitizeUserFacingSentence(item?.title, { maxLength: 56 }),
+      reason: sanitizeUserFacingSentence(item?.reason, { maxLength: 140 }),
+      question: sanitizeUserFacingSentence(item?.question, { maxLength: 100 }),
       priority: Math.max(1, Math.min(7, Number(item?.priority ?? index + 1))),
     }))
     .filter((item) => item.title && item.question)
@@ -354,8 +369,8 @@ function normalizeQuickQuestions(items: QuickQuestion[] | null | undefined): Qui
   return (items ?? [])
     .map((item) => ({
       category: toProfileCategory(item?.category),
-      question: maskSensitiveText(String(item?.question ?? "").trim()),
-      reason: maskSensitiveText(String(item?.reason ?? "").trim()),
+      question: sanitizeUserFacingSentence(item?.question, { maxLength: 100 }),
+      reason: sanitizeUserFacingSentence(item?.reason, { maxLength: 140 }),
     }))
     .filter((item) => item.question)
     .filter((item) => !hasBadUserFacingText([item.question, item.reason].join(" ")))
@@ -369,15 +384,15 @@ function normalizeProfileSections(items: ProfileSection[] | null | undefined): P
       status: toProfileSectionStatus(item?.status),
       highlights: (item?.highlights ?? [])
         .map((highlight) => ({
-          label: maskSensitiveText(String(highlight?.label ?? "").trim()),
-          value: maskSensitiveText(String(highlight?.value ?? "").trim()),
+          label: sanitizeUserFacingSentence(highlight?.label, { maxLength: 36 }),
+          value: sanitizeUserFacingSentence(highlight?.value, { maxLength: 120 }),
           isNew: Boolean(highlight?.isNew),
           isUpdated: Boolean(highlight?.isUpdated),
         }))
         .filter((highlight) => highlight.label && highlight.value)
         .filter((highlight) => !hasBadUserFacingText(`${highlight.label} ${highlight.value}`))
         .slice(0, 5),
-      nextQuestion: maskSensitiveText(String(item?.nextQuestion ?? "").trim()),
+      nextQuestion: sanitizeUserFacingSentence(item?.nextQuestion, { maxLength: 100 }),
     }))
     .filter((item) => item.highlights.length > 0 || (item.nextQuestion && !hasBadUserFacingText(item.nextQuestion)))
     .slice(0, 4);
@@ -417,7 +432,7 @@ function normalizeEntityCandidates(items: EntityCandidate[] | null | undefined):
     if (seen.has(key)) continue;
     seen.add(key);
     const canonicalValue = item?.canonicalValue ? maskSensitiveText(String(item.canonicalValue).trim()) : null;
-    const context = item?.context ? maskSensitiveText(String(item.context).trim()) : undefined;
+    const context = item?.context ? sanitizeUserFacingSentence(item.context, { maxLength: 120 }) : undefined;
     normalized.push({
       id: item?.id,
       kind: normalizeEntityKind(item?.kind),
@@ -425,7 +440,7 @@ function normalizeEntityCandidates(items: EntityCandidate[] | null | undefined):
       canonicalValue: canonicalValue && !hasBadUserFacingText(canonicalValue) ? canonicalValue : null,
       confidence: Math.max(0, Math.min(100, Number(item?.confidence ?? 60))),
       status: normalizeEntityStatus(item?.status),
-      context: context && !hasBadUserFacingText(context) ? context : undefined,
+      context,
     });
     if (normalized.length >= 8) break;
   }
@@ -442,21 +457,20 @@ function normalizeObservationEvents(items: ObservationEvent[] | null | undefined
         category: toProfileCategory(item?.category),
         statusDraft: toProfileSectionStatus(item?.statusDraft),
         insights: (item?.insights ?? [])
-          .map((v) => maskSensitiveText(String(v).trim()))
-          .filter((v) => v && !hasBadUserFacingText(v))
+          .map((v) => sanitizeUserFacingSentence(v, { maxLength: 120 }))
+          .filter(Boolean)
           .slice(0, 4),
         topics: (item?.topics ?? [])
-          .map((v) => maskSensitiveText(String(v).trim()))
-          .filter((v) => v && !hasBadUserFacingText(v))
+          .map((v) => sanitizeUserFacingSentence(v, { maxLength: 80 }))
+          .filter(Boolean)
           .slice(0, 4),
         nextActions: (item?.nextActions ?? [])
-          .map((v) => maskSensitiveText(String(v).trim()))
-          .filter((v) => v && !hasBadUserFacingText(v))
+          .map((v) => sanitizeUserFacingSentence(v, { maxLength: 120 }))
+          .filter(Boolean)
           .slice(0, 4),
         evidence: sanitizeQuotes((item?.evidence ?? []).map((v) => String(v))),
         characterSignal: (() => {
-          const signal = maskSensitiveText(String(item?.characterSignal ?? "").trim());
-          return signal && !hasBadUserFacingText(signal) ? signal : "";
+          return sanitizeUserFacingSentence(item?.characterSignal, { maxLength: 80 });
         })(),
         weight: Math.max(1, Math.min(5, Number(item?.weight ?? 3))),
       };
@@ -469,18 +483,18 @@ function normalizeLessonReport(value: LessonReportArtifact | null | undefined): 
   if (!value) return null;
   const normalizeList = (items?: string[]) =>
     (items ?? [])
-      .map((v) => maskSensitiveText(String(v).trim()))
-      .filter((v) => v && !hasBadUserFacingText(v))
+      .map((v) => sanitizeUserFacingSentence(v, { maxLength: 140 }))
+      .filter(Boolean)
       .slice(0, 5);
-  const todayGoal = maskSensitiveText(String(value.todayGoal ?? "").trim());
-  const parentShareDraft = value.parentShareDraft ? maskSensitiveText(String(value.parentShareDraft).trim()) : undefined;
+  const todayGoal = sanitizeUserFacingSentence(value.todayGoal, { maxLength: 120 });
+  const parentShareDraft = sanitizeUserFacingSentence(value.parentShareDraft, { maxLength: 180 });
   return {
-    todayGoal: todayGoal && !hasBadUserFacingText(todayGoal) ? todayGoal : "",
+    todayGoal,
     covered: normalizeList(value.covered),
     blockers: normalizeList(value.blockers),
     homework: normalizeList(value.homework),
     nextLessonFocus: normalizeList(value.nextLessonFocus),
-    parentShareDraft: parentShareDraft && !hasBadUserFacingText(parentShareDraft) ? parentShareDraft : undefined,
+    parentShareDraft: parentShareDraft || undefined,
   };
 }
 
@@ -671,12 +685,62 @@ function formatActionOwnerLabel(owner?: NextAction["owner"]) {
   return "生徒";
 }
 
+const PROFILE_DELTA_FIELD_LABELS: Record<string, string> = {
+  school: "学校",
+  grade: "学年",
+  targets: "目標",
+  subjects: "科目",
+  materials: "教材",
+  mockResults: "模試結果",
+  guardian: "保護者共有",
+  schedule: "予定",
+  issues: "課題",
+  nextSessionPlan: "次回計画",
+};
+
 function containsSentenceLikeEnglish(text: string) {
   const normalized = String(text ?? "").replace(/\s+/g, " ").trim();
   if (!normalized) return false;
   if (/(?:\b[A-Za-z]{3,}\b[\s,.;:!?'"()/-]*){3,}/.test(normalized)) return true;
   const latinChars = (normalized.match(/[A-Za-z]/g) ?? []).length;
   return latinChars >= 18;
+}
+
+function countJapaneseChars(text: string) {
+  return (text.match(/[ぁ-んァ-ヶ一-龠]/g) ?? []).length;
+}
+
+function countEnglishWords(text: string) {
+  return (text.match(/\b[A-Za-z][A-Za-z'/-]{2,}\b/g) ?? []).length;
+}
+
+function isJapanesePrimarySentence(text: string) {
+  const normalized = String(text ?? "").replace(/\s+/g, " ").trim();
+  if (!normalized) return false;
+  const japaneseChars = countJapaneseChars(normalized);
+  const latinChars = (normalized.match(/[A-Za-z]/g) ?? []).length;
+  const englishWords = countEnglishWords(normalized);
+  if (japaneseChars === 0) return false;
+  if (englishWords >= 4) return false;
+  if (latinChars >= Math.max(18, japaneseChars)) return false;
+  return true;
+}
+
+function sanitizeUserFacingSentence(text: unknown, opts?: { maxLength?: number }) {
+  const normalized = maskSensitiveText(String(text ?? "").replace(/\s+/g, " ").trim());
+  if (!normalized) return "";
+  const sliced = opts?.maxLength ? normalized.slice(0, opts.maxLength).trim() : normalized;
+  if (!sliced) return "";
+  if (hasBadUserFacingText(sliced)) return "";
+  if (!isJapanesePrimarySentence(sliced)) return "";
+  return sliced;
+}
+
+function formatProfileDeltaFieldLabel(field: string) {
+  const normalized = String(field ?? "").trim();
+  if (!normalized) return "確認項目";
+  if (/[ぁ-んァ-ヶ一-龠]/.test(normalized)) return normalized;
+  return PROFILE_DELTA_FIELD_LABELS[normalized] ?? "確認項目";
 }
 
 function isLowSignalPlaceholder(text: string) {
@@ -1325,6 +1389,7 @@ function isWeakSummaryMarkdown(summary: string) {
   if (lines.length < 4) return true;
   if (hasDuplicateNormalizedText(lines)) return true;
   if (lines.some((line) => isLowSignalPlaceholder(line))) return true;
+  if (lines.some((line) => !isJapanesePrimarySentence(line))) return true;
   return false;
 }
 
@@ -1831,7 +1896,7 @@ function buildFallbackSummaryMarkdown(
   current: string,
   minSummaryChars: number
 ) {
-  if (current && current.length >= minSummaryChars && !hasBadUserFacingText(current)) return current;
+  if (current && current.length >= minSummaryChars && !isWeakSummaryMarkdown(current)) return current;
   const facts = (reduced.facts ?? []).slice(0, 6);
   const points = (reduced.coaching_points ?? []).slice(0, 6);
   const decisions = (reduced.decisions ?? []).slice(0, 4);
@@ -2165,7 +2230,7 @@ function buildSinglePassFallbackSummary(
   transcript: string,
   minSummaryChars: number
 ) {
-  if (current && current.length >= minSummaryChars && !hasBadUserFacingText(current)) return current;
+  if (current && current.length >= minSummaryChars && !isWeakSummaryMarkdown(current)) return current;
   const lines = transcriptLinesForFallback(transcript);
   const parts = [
     "## 今回確認したこと",
@@ -2200,8 +2265,8 @@ function buildSinglePassStructuredSummary(input: {
     .slice(0, 6);
   const coachCore = [
     ...input.timeline.map((t) => String(t.coach_point ?? "").trim()),
-    ...input.profileDelta.basic.map((i) => `${i.field}: ${i.value}`),
-    ...input.profileDelta.personal.map((i) => `${i.field}: ${i.value}`),
+    ...input.profileDelta.basic.map((i) => `${formatProfileDeltaFieldLabel(i.field)}: ${i.value}`),
+    ...input.profileDelta.personal.map((i) => `${formatProfileDeltaFieldLabel(i.field)}: ${i.value}`),
   ]
     .map((v) => String(v ?? "").trim())
     .filter(Boolean)

@@ -1,6 +1,6 @@
-﻿.page {
+.page {
   display: grid;
-  gap: 18px;
+  gap: 24px;
 }
 
 .toolbar {
@@ -10,8 +10,6 @@
 
 .search {
   width: 100%;
-  min-height: 52px;
-  padding: 0 16px;
 }
 
 .filters {
@@ -21,36 +19,26 @@
 }
 
 .filterChip {
-  min-height: 40px;
+  min-height: 35px;
   padding: 0 14px;
   border-radius: 999px;
   border: 1px solid var(--border);
-  background: var(--surface);
+  background: var(--surface-3);
   color: var(--muted-strong);
   font-weight: 700;
   cursor: pointer;
 }
 
-.filterChip:focus-visible {
-  outline: 2px solid var(--text);
-  outline-offset: 2px;
-}
-
 .filterChipActive {
-  background: var(--text);
-  border-color: var(--text);
-  color: var(--surface);
+  background: var(--accent);
+  border-color: rgba(219, 255, 75, 0.3);
+  color: var(--accent-contrast);
 }
 
 .formGrid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
-}
-
-.formGrid input {
-  min-height: 48px;
-  padding: 0 14px;
 }
 
 .formActions {
@@ -68,10 +56,10 @@
 .row {
   display: grid;
   grid-template-columns: minmax(0, 1.3fr) minmax(160px, 0.6fr) minmax(160px, 0.55fr) auto;
-  gap: 16px;
+  gap: 18px;
   align-items: center;
   padding: 18px;
-  border-radius: 20px;
+  border-radius: var(--card-radius);
   border: 1px solid var(--border);
   background: var(--surface-2);
   transition: border-color 0.16s ease, transform 0.16s ease, background 0.16s ease;
@@ -79,7 +67,7 @@
 
 .row:hover {
   border-color: var(--border-strong);
-  background: var(--surface);
+  background: var(--surface-3);
   transform: translateY(-1px);
 }
 
@@ -107,6 +95,7 @@
 .oneLiner {
   margin: 8px 0 0;
   color: var(--muted);
+  line-height: 1.6;
 }
 
 .rowMetaColumn {
@@ -134,7 +123,7 @@
 .emptyState,
 .empty {
   min-height: 220px;
-  border-radius: 20px;
+  border-radius: var(--card-radius);
   border: 1px dashed var(--border-strong);
   background: var(--surface-2);
   display: grid;
@@ -142,14 +131,15 @@
   text-align: center;
   gap: 12px;
   padding: 24px;
+  color: var(--muted);
 }
 
 .error {
   margin-bottom: 6px;
   padding: 12px 14px;
-  border-radius: 16px;
-  border: 1px solid var(--text);
-  background: var(--surface);
+  border-radius: var(--card-radius);
+  border: 1px solid rgba(255, 139, 132, 0.36);
+  background: rgba(255, 139, 132, 0.08);
 }
 
 @media (max-width: 980px) {

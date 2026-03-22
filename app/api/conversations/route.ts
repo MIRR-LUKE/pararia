@@ -4,6 +4,11 @@ import { ConversationSourceType, ConversationStatus } from "@prisma/client";
 import { preprocessTranscript } from "@/lib/transcript/preprocess";
 import { enqueueConversationJobs } from "@/lib/jobs/conversationJobs";
 import { ensureOrganizationId } from "@/lib/server/organization";
+import {
+  sanitizeQuickQuestions,
+  sanitizeSummaryMarkdown,
+  sanitizeTopicSuggestions,
+} from "@/lib/user-facing-japanese";
 
 export async function GET(request: Request) {
   try {
@@ -55,13 +60,13 @@ export async function GET(request: Request) {
         studentId: conversation.studentId,
         sessionId: conversation.sessionId,
         status: conversation.status,
-        summaryMarkdown: conversation.summaryMarkdown,
+        summaryMarkdown: sanitizeSummaryMarkdown(conversation.summaryMarkdown),
         timelineJson: conversation.timelineJson as any,
         nextActionsJson: conversation.nextActionsJson as any,
         profileDeltaJson: conversation.profileDeltaJson as any,
         studentStateJson: conversation.studentStateJson as any,
-        topicSuggestionsJson: conversation.topicSuggestionsJson as any,
-        quickQuestionsJson: conversation.quickQuestionsJson as any,
+        topicSuggestionsJson: sanitizeTopicSuggestions(conversation.topicSuggestionsJson),
+        quickQuestionsJson: sanitizeQuickQuestions(conversation.quickQuestionsJson),
         profileSectionsJson: conversation.profileSectionsJson as any,
         lessonReportJson: conversation.lessonReportJson as any,
         entityCandidatesJson: conversation.entityCandidatesJson as any,
@@ -101,7 +106,7 @@ export async function GET(request: Request) {
       studentId: c.studentId,
       sessionId: c.sessionId,
       status: c.status,
-      summaryMarkdown: c.summaryMarkdown,
+      summaryMarkdown: sanitizeSummaryMarkdown(c.summaryMarkdown),
       createdAt: c.createdAt,
       date: new Date(c.createdAt).toLocaleDateString("ja-JP"),
       student: c.student,

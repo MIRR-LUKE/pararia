@@ -27,6 +27,27 @@ type OverlayState =
   | { kind: "lessonReport"; sessionId: string }
   | { kind: "parentReport"; reportId: string };
 
+const FALLBACK_TOPICS = [
+  {
+    category: "学習",
+    items: [
+      { title: "直近の学習で手応えがあった単元を聞く" },
+      { title: "今つまずいている問題の種類を確認する" },
+    ],
+  },
+  {
+    category: "生活",
+    items: [
+      { title: "今週の生活リズムで崩れた日を確認する" },
+      { title: "勉強に入りやすかった時間帯を聞く" },
+    ],
+  },
+  {
+    category: "進路",
+    items: [{ title: "次の模試で見たい指標を一つ決める" }],
+  },
+];
+
 function normalizeTab(value: string | null): TabKey {
   if (value === "lessonReports") return "lessonReports";
   if (value === "parentReports") return "parentReports";
@@ -235,7 +256,10 @@ export default function StudentDetailPage({ params }: { params: { studentId: str
 
   const latestConversation = room?.latestConversation ?? null;
   const latestReport = room?.reports[0] ?? null;
-  const topics = useMemo(() => groupTopics(latestConversation?.topicSuggestionsJson).slice(0, 3), [latestConversation?.topicSuggestionsJson]);
+  const topics = useMemo(() => {
+    const grouped = groupTopics(latestConversation?.topicSuggestionsJson).slice(0, 3);
+    return grouped.length > 0 ? grouped : FALLBACK_TOPICS;
+  }, [latestConversation?.topicSuggestionsJson]);
   const viewerBadge = userBadge(session?.user?.name ?? null);
   const allSelectionIds = reportSelectionSessions.map((item) => item.id);
   const allSelected = allSelectionIds.length > 0 && allSelectionIds.every((id) => selectedSessionIds.includes(id));
@@ -395,7 +419,7 @@ export default function StudentDetailPage({ params }: { params: { studentId: str
           </div>
 
           <div className={styles.reportActions}>
-            <Button onClick={() => openReportStudio("selection")} disabled={selectedSessionIds.length === 0}>
+            <Button variant="secondary" onClick={() => openReportStudio("selection")} disabled={selectedSessionIds.length === 0}>
               保護者レポートを生成
             </Button>
             <span className={styles.selectionCount}>{selectedSessionIds.length}件選択中</span>
@@ -405,24 +429,20 @@ export default function StudentDetailPage({ params }: { params: { studentId: str
 
       <section className={styles.topicSection}>
         <div className={styles.sectionTitle}>おすすめの話題</div>
-        {topics.length === 0 ? (
-          <div className={styles.emptyCompact}>録音が終わると、次に使える話題がここに並びます。</div>
-        ) : (
-          <div className={styles.topicColumns}>
-            {topics.map((group) => (
-              <div key={group.category} className={styles.topicGroup}>
-                <div className={styles.topicGroupLabel}>{group.category}</div>
-                <div className={styles.topicTagList}>
-                  {group.items.map((item) => (
-                    <button key={`${group.category}-${item.title}`} type="button" className={styles.topicTag}>
-                      {item.title}
-                    </button>
-                  ))}
-                </div>
+        <div className={styles.topicColumns}>
+          {topics.map((group) => (
+            <div key={group.category} className={styles.topicGroup}>
+              <div className={styles.topicGroupLabel}>{group.category}</div>
+              <div className={styles.topicTagList}>
+                {group.items.map((item) => (
+                  <button key={`${group.category}-${item.title}`} type="button" className={styles.topicTag}>
+                    {item.title}
+                  </button>
+                ))}
               </div>
-            ))}
-          </div>
-        )}
+            </div>
+          ))}
+        </div>
       </section>
 
       <section className={styles.workspaceSection}>

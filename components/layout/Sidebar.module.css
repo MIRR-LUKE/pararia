@@ -1,29 +1,31 @@
-﻿.sidebar {
+.sidebar {
   width: var(--sidebar-width);
   min-width: var(--sidebar-width);
   height: 100vh;
   position: fixed;
   inset: 0 auto 0 0;
-  padding: 20px;
+  padding: 21px 0 21px 21px;
   background: #222222;
   z-index: 30;
 }
 
 .shell {
+  width: var(--sidebar-shell-width);
   height: 100%;
-  border-radius: 10px;
-  border: 1px solid #353535;
-  background: #2f2f2f;
-  padding: 16px 12px 18px;
+  border-radius: var(--card-radius);
+  border: 1px solid var(--border);
+  background: var(--surface-shell);
+  padding: 22px 14px 18px;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  gap: 24px;
+  gap: 28px;
+  box-shadow: var(--shadow-card);
 }
 
 .topSection {
   display: grid;
-  gap: 28px;
+  gap: 32px;
 }
 
 .brandRow {
@@ -36,7 +38,7 @@
 .brandBubble {
   width: 25px;
   height: 25px;
-  border-radius: 12px;
+  border-radius: 10px;
   background: #ffffff;
   display: flex;
   align-items: center;
@@ -55,8 +57,8 @@
   min-height: 25px;
   padding: 0 8px 0 10px;
   border: none;
-  border-radius: 5px;
-  background: #693ac8;
+  border-radius: var(--radius-compact);
+  background: var(--brand);
   color: #ffffff;
   display: inline-flex;
   align-items: center;
@@ -71,7 +73,7 @@
 
 .searchBox {
   min-height: 36px;
-  border-radius: 5px;
+  border-radius: var(--radius-compact);
   border: 1px solid #525252;
   background: transparent;
   padding: 0 11px;
@@ -103,7 +105,7 @@
 
 .searchPlaceholder {
   font-size: 12px;
-  color: rgba(255, 255, 255, 0.3);
+  color: var(--muted-faint);
 }
 
 .menu {
@@ -114,7 +116,7 @@
 .item {
   min-height: 48px;
   padding: 0 11px;
-  border-radius: 5px;
+  border-radius: var(--radius-compact);
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -130,6 +132,7 @@
 
 .active {
   background: #222222;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.03);
 }
 
 .itemIcon {
@@ -195,7 +198,7 @@
 
 .userCard {
   min-height: 51px;
-  border-radius: 5px;
+  border-radius: var(--radius-compact);
   border: 1px solid #525252;
   padding: 10px 12px;
   display: flex;
@@ -207,7 +210,7 @@
   width: 30px;
   height: 30px;
   border-radius: 999px;
-  background: #38d2c8;
+  background: var(--avatar);
   color: #ffffff;
   display: grid;
   place-items: center;
@@ -246,6 +249,7 @@
   }
 
   .shell {
+    width: 100%;
     height: auto;
     gap: 16px;
   }

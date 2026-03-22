@@ -69,6 +69,16 @@ export type ParentReportResult = {
   bundleQualityEval: BundleQualityEval;
 };
 
+const DEFAULT_REPORT_SECTIONS = [
+  { title: "今回の様子", body: "今回の記録から、現在の学習状況と次回に向けた確認事項を整理しています。" },
+  { title: "学習状況の変化", body: "直近のやり取りの中で見えた変化は、次回面談・授業で継続して確認します。" },
+  { title: "講師としての見立て", body: "事実ベースの記録を踏まえ、次回も方針の妥当性を確認していきます。" },
+  { title: "科目別またはテーマ別の具体策", body: "教材・教科・優先順位を具体化し、次回までに何を回すかを明確にします。" },
+  { title: "リスクとその意味", body: "止まりやすいポイントや見落としやすい点を、必要以上に煽らず整理します。" },
+  { title: "次回までの方針", body: "今回整理した確認事項と次の行動をもとに、学習の進め方を具体化していきます。" },
+  { title: "ご家庭で見てほしいこと", body: "課題を終えたかどうかだけでなく、やり直しや定着確認まで進められたかを一言確認いただけると効果的です。" },
+] as const;
+
 function getApiKey() {
   const apiKey = process.env.LLM_API_KEY || process.env.OPENAI_API_KEY || "";
   if (!apiKey) {
@@ -90,6 +100,44 @@ function extractJsonCandidate(text: string) {
   const end = text.lastIndexOf("}");
   if (start === -1 || end === -1 || end <= start) return null;
   return text.slice(start, end + 1);
+}
+
+function containsSentenceLikeEnglish(text: string) {
+  const normalized = String(text ?? "").replace(/\s+/g, " ").trim();
+  if (!normalized) return false;
+  if (/(?:\b[A-Za-z]{3,}\b[\s,.;:!?'"()/-]*){3,}/.test(normalized)) return true;
+  const latinChars = (normalized.match(/[A-Za-z]/g) ?? []).length;
+  return latinChars >= 18;
+}
+
+function countJapaneseChars(text: string) {
+  return (text.match(/[ぁ-んァ-ヶ一-龠]/g) ?? []).length;
+}
+
+function countEnglishWords(text: string) {
+  return (text.match(/\b[A-Za-z][A-Za-z'/-]{2,}\b/g) ?? []).length;
+}
+
+function isJapanesePrimaryText(text: string) {
+  const normalized = String(text ?? "").replace(/\s+/g, " ").trim();
+  if (!normalized) return false;
+  const japaneseChars = countJapaneseChars(normalized);
+  const latinChars = (normalized.match(/[A-Za-z]/g) ?? []).length;
+  const englishWords = countEnglishWords(normalized);
+  if (japaneseChars === 0) return false;
+  if (englishWords >= 4) return false;
+  if (latinChars >= Math.max(18, japaneseChars)) return false;
+  return true;
+}
+
+function sanitizeReportText(text: unknown, maxLength: number) {
+  const normalized = String(text ?? "").replace(/\s+/g, " ").trim();
+  if (!normalized) return "";
+  const sliced = normalized.slice(0, maxLength).trim();
+  if (!sliced) return "";
+  if (containsSentenceLikeEnglish(sliced)) return "";
+  if (!isJapanesePrimaryText(sliced)) return "";
+  return sliced;
 }
 
 async function callReportModel(systemPrompt: string, userPrompt: string) {
@@ -190,14 +238,26 @@ function defaultReportJson(input: ReportInput, createdAt: string): ParentReportJ
     greeting: "お世話になっております。",
     introduction: "直近の面談・授業記録をもとに、現在の状況と今後の進め方をご報告いたします。",
     summary: "現在の状況と次回までの方針を、会話ログの内容に基づいて整理しました。",
-    sections: [
-      { title: "今回の様子", body: "今回の記録から、現在の学習状況と次回に向けた確認事項を整理しています。" },
-      { title: "学習状況の変化", body: "直近のやり取りの中で見えた変化は、次回面談・授業で継続して確認します。" },
-      { title: "講師としての見立て", body: "事実ベースの記録を踏まえ、次回も方針の妥当性を確認していきます。" },
-      { title: "次回までの方針", body: "今回整理した確認事項と次の行動をもとに、学習の進め方を具体化していきます。" },
-      { title: "ご家庭で見てほしいこと", body: "課題を終えたかどうかだけでなく、やり直しや定着確認まで進められたかを一言確認いただけると効果的です。" },
-    ],
+    sections: DEFAULT_REPORT_SECTIONS.map((section) => ({ ...section })),
     closing: "引き続きよろしくお願いいたします。",
+  };
+}
+
+function sanitizeParentReportJson(value: ParentReportJson | null | undefined, fallback: ParentReportJson): ParentReportJson {
+  const rawSections = Array.isArray(value?.sections) ? value.sections : [];
+  return {
+    date: /^\d{4}-\d{2}-\d{2}$/.test(String(value?.date ?? "")) ? String(value?.date) : fallback.date,
+    greeting: sanitizeReportText(value?.greeting, 80) || fallback.greeting,
+    introduction: sanitizeReportText(value?.introduction, 220) || fallback.introduction,
+    summary: sanitizeReportText(value?.summary, 320) || fallback.summary,
+    sections: DEFAULT_REPORT_SECTIONS.map((defaultSection, index) => {
+      const candidate = rawSections[index];
+      return {
+        title: sanitizeReportText(candidate?.title, 48) || defaultSection.title,
+        body: sanitizeReportText(candidate?.body, 520) || defaultSection.body,
+      };
+    }),
+    closing: sanitizeReportText(value?.closing, 120) || fallback.closing,
   };
 }
 
@@ -270,6 +330,9 @@ export async function generateParentReport(input: ReportInput): Promise<ParentRe
 - 本人の特性に合う進め方なら、その理由まで書く
 - 選択されたログ以外は使わない
 - 情報が弱い点は、断定せず慎重に書く
+- 本文・見出し・要約はすべて日本語で書く
+- 英語の見出し、英語の定型句、英語逃げは禁止
+- 固有名詞としてローマ字を残す場合も、日本語文の中で説明する
 
 JSON schema:
 {
@@ -334,11 +397,8 @@ ${logPayload}
   const contentText = await callReportModel(systemPrompt, userPrompt);
   const jsonText = extractJsonCandidate(contentText) ?? contentText;
   const parsed = tryParseJson<ParentReportJson>(jsonText);
-  const reportJson = {
-    ...defaultReportJson(input, createdAt),
-    ...(parsed ?? {}),
-    date: parsed?.date ?? createdAt,
-  };
+  const fallbackReport = defaultReportJson(input, createdAt);
+  const reportJson = sanitizeParentReportJson(parsed, fallbackReport);
 
   const markdown = renderParentReportMarkdown(reportJson, organizationName, periodFrom, periodTo);
   return {

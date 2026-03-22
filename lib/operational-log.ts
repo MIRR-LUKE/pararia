@@ -137,6 +137,21 @@ function alphaRatio(text: string) {
   return alpha / Math.max(1, text.length);
 }
 
+function englishWordCount(text: string) {
+  return (text.match(/\b[A-Za-z][A-Za-z'/-]{2,}\b/g) ?? []).length;
+}
+
+function isJapanesePrimaryText(text: string) {
+  const japaneseChars = (text.match(/[ぁ-んァ-ヶ一-龠]/g) ?? []).length;
+  const latinChars = (text.match(/[A-Za-z]/g) ?? []).length;
+  if (japaneseChars === 0) {
+    return /^[A-Z0-9][A-Z0-9 .&/+_-]{1,12}$/.test(text);
+  }
+  if (englishWordCount(text) >= 4) return false;
+  if (latinChars >= Math.max(18, japaneseChars)) return false;
+  return true;
+}
+
 function isLowSignalPlaceholder(text: string) {
   if (!text) return true;
   if (SUMMARY_DUMP_PATTERNS.some((pattern) => pattern.test(text))) return true;
@@ -155,6 +170,7 @@ function sanitizeLine(text?: string | null) {
   const value = normalizeWhitespace(stripMarkdown(String(text)));
   if (!value) return null;
   if (isLowSignalPlaceholder(value)) return null;
+  if (!isJapanesePrimaryText(value)) return null;
   if (!hasJapanese(value) && alphaRatio(value) >= 0.28) return null;
   return value;
 }

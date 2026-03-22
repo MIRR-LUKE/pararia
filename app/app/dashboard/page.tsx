@@ -284,11 +284,7 @@ export default function DashboardPage() {
               {inviteBusy ? "作成中..." : "招待リンクを作成"}
             </Button>
           </div>
-          {inviteMessage ? (
-            <p className={styles.inviteMessage} style={{ whiteSpace: "pre-wrap", marginTop: "0.75rem" }}>
-              {inviteMessage}
-            </p>
-          ) : null}
+          {inviteMessage ? <p className={styles.inviteMessage}>{inviteMessage}</p> : null}
         </Card>
       ) : null}
 

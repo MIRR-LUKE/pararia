@@ -1,4 +1,4 @@
-﻿.workbenchSection {
+.workbenchSection {
   display: grid;
   gap: 18px;
 }
@@ -23,15 +23,15 @@
 .metricLabel,
 .sectionLabel {
   font-size: 12px;
-  font-weight: 800;
+  font-weight: 700;
   letter-spacing: 0.04em;
   color: var(--muted);
 }
 
 .workbenchTitle {
   margin: 8px 0 0;
-  font-size: 24px;
-  line-height: 1.15;
+  font-size: 26px;
+  line-height: 1.05;
   letter-spacing: -0.03em;
 }
 
@@ -48,7 +48,7 @@
 .issueCard,
 .reportBlock,
 .emptyWorkbench {
-  border-radius: 20px;
+  border-radius: var(--card-radius);
   border: 1px solid var(--border);
   background: var(--surface-2);
 }
@@ -109,10 +109,7 @@
   gap: 10px;
 }
 
-.inlineActions {
-  flex-wrap: wrap;
-}
-
+.inlineActions,
 .actionStack {
   flex-wrap: wrap;
 }

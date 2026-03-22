@@ -31,7 +31,7 @@ function statusLabel(status: string) {
   if (status === "PROCESSING") return "生成中";
   if (status === "PARTIAL") return "途中まで表示";
   if (status === "ERROR") return "要再実行";
-  return status;
+  return "状態確認中";
 }
 
 function statusTone(status: string): "neutral" | "low" | "medium" | "high" {

@@ -1,27 +1,30 @@
 .page {
   display: grid;
-  gap: 18px;
+  gap: 24px;
 }
 
 .hero {
   display: grid;
-  grid-template-columns: minmax(0, 1.4fr) minmax(280px, 0.9fr);
+  grid-template-columns: minmax(0, 1.35fr) minmax(280px, 0.85fr);
   gap: 18px;
-  padding: 26px;
-  border-radius: 28px;
+  padding: 24px;
+  border-radius: var(--card-radius);
   border: 1px solid var(--border);
-  background: linear-gradient(180deg, var(--surface), var(--surface-2));
+  background:
+    radial-gradient(circle at top right, rgba(219, 255, 75, 0.08), transparent 24%),
+    linear-gradient(180deg, var(--surface), var(--surface-2));
+  box-shadow: var(--shadow-card);
 }
 
 .heroCopy {
   display: grid;
-  gap: 10px;
+  gap: 12px;
 }
 
 .eyebrow {
   margin: 0;
   font-size: 12px;
-  font-weight: 800;
+  font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--muted);
@@ -29,29 +32,29 @@
 
 .heroTitle {
   margin: 0;
-  font-size: 30px;
-  line-height: 1.08;
-  letter-spacing: -0.03em;
+  font-size: clamp(30px, 4vw, 42px);
+  line-height: 1.02;
+  letter-spacing: -0.04em;
 }
 
 .heroText {
   margin: 0;
   max-width: 54ch;
   color: var(--muted);
+  line-height: 1.7;
 }
 
 .heroActions {
   display: grid;
-  gap: 12px;
+  gap: 10px;
   align-content: start;
 }
 
 .heroButton,
 .heroButtonSecondary {
   width: 100%;
-  min-height: 56px;
+  min-height: 51px;
   justify-content: center;
-  font-size: 15px;
 }
 
 .heroActions a {
@@ -61,21 +64,22 @@
 .statusStrip {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 10px;
+  gap: 12px;
 }
 
 .statusItem {
   min-height: 88px;
   padding: 16px 18px;
-  border-radius: 20px;
+  border-radius: var(--card-radius);
   border: 1px solid var(--border);
   background: var(--surface);
   display: grid;
-  gap: 8px;
+  gap: 10px;
+  box-shadow: var(--shadow-card);
 }
 
 .statusItem strong {
-  font-size: 24px;
+  font-size: 28px;
 }
 
 .statusLabel {
@@ -92,9 +96,9 @@
 .queueRow {
   display: grid;
   grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.95fr) auto;
-  gap: 16px;
+  gap: 18px;
   padding: 18px;
-  border-radius: 20px;
+  border-radius: var(--card-radius);
   border: 1px solid var(--border);
   background: var(--surface-2);
   align-items: center;
@@ -126,12 +130,12 @@
 .queueReason {
   margin: 8px 0 0;
   color: var(--muted);
-  line-height: 1.5;
+  line-height: 1.6;
 }
 
 .queueTitle {
   font-size: 14px;
-  font-weight: 800;
+  font-weight: 700;
 }
 
 .queueActionBlock {
@@ -153,7 +157,7 @@
 .miniItem {
   min-height: 56px;
   padding: 0 14px;
-  border-radius: 16px;
+  border-radius: var(--card-radius);
   border: 1px solid var(--border);
   background: var(--surface-2);
   display: flex;
@@ -177,14 +181,14 @@
 .summaryValue {
   margin-top: 8px;
   font-size: 28px;
-  font-weight: 800;
+  font-weight: 700;
   letter-spacing: -0.03em;
 }
 
 .emptyState,
 .empty {
   min-height: 200px;
-  border-radius: 20px;
+  border-radius: var(--card-radius);
   border: 1px dashed var(--border-strong);
   background: var(--surface-2);
   display: grid;
@@ -192,14 +196,35 @@
   text-align: center;
   gap: 12px;
   padding: 24px;
+  color: var(--muted);
 }
 
 .error {
   margin-bottom: 6px;
   padding: 12px 14px;
-  border-radius: 16px;
-  border: 1px solid var(--text);
-  background: var(--surface);
+  border-radius: var(--card-radius);
+  border: 1px solid rgba(255, 139, 132, 0.36);
+  background: rgba(255, 139, 132, 0.08);
+  color: var(--text);
+}
+
+.inviteRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+}
+
+.inviteInput {
+  flex: 1;
+  min-width: 220px;
+}
+
+.inviteMessage {
+  margin: 12px 0 0;
+  white-space: pre-wrap;
+  color: var(--muted-strong);
+  line-height: 1.7;
 }
 
 @media (max-width: 1080px) {
@@ -224,24 +249,6 @@
   }
 
   .heroTitle {
-    font-size: 26px;
+    font-size: 28px;
   }
-}
-
-.inviteRow {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-  align-items: center;
-}
-
-.inviteInput {
-  flex: 1;
-  min-width: 220px;
-  padding: 10px 12px;
-  border-radius: 12px;
-  border: 1px solid var(--border);
-  background: var(--surface);
-  color: inherit;
-  font: inherit;
 }

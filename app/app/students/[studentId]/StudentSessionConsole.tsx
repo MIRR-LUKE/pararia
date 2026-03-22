@@ -502,6 +502,7 @@ export function StudentSessionConsole({
 
   const canRecord = !lockConflict && state !== "uploading" && state !== "processing";
   const canUpload = canRecord && state !== "recording";
+  const canStartFromCircle = canRecord && state !== "recording";
 
   const idleHeadline =
     mode === "INTERVIEW"
@@ -565,9 +566,15 @@ export function StudentSessionConsole({
 
       <div className={styles.surface}>
         <div className={styles.recorderArea}>
-          <div className={styles.microphoneCircle} aria-hidden>
-            <span className={styles.microphoneGlyph}>●</span>
-          </div>
+          <button
+            type="button"
+            className={`${styles.microphoneCircle} ${canStartFromCircle ? styles.microphoneButton : styles.microphoneButtonDisabled}`}
+            onClick={() => void startRecording()}
+            disabled={!canStartFromCircle}
+            aria-label="録音を開始する"
+          >
+            <span className={styles.microphoneGlyph} aria-hidden />
+          </button>
 
           <div className={styles.recorderMeta}>
             {state === "recording" ? <div className={styles.currentMode}>{modeLabel(mode, lessonPart)}</div> : null}
@@ -605,13 +612,6 @@ export function StudentSessionConsole({
           ) : (
             <>
               <div className={styles.inlineActions}>
-                <Button onClick={startRecording} disabled={!canRecord}>
-                  {mode === "INTERVIEW"
-                    ? "面談を録音する"
-                    : lessonPart === "CHECK_OUT"
-                      ? "チェックアウトを録音する"
-                      : "チェックインを録音する"}
-                </Button>
                 <Button variant="secondary" onClick={() => fileInputRef.current?.click()} disabled={!canUpload}>
                   音声ファイルを選ぶ
                 </Button>

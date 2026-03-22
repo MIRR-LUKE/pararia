@@ -19,7 +19,7 @@ function roleLabel(role?: string) {
 
 export function AppHeader({ title, subtitle, actions }: Props) {
   const { data: session } = useSession();
-  const initials = (session?.user?.name || "P").slice(0, 1).toUpperCase();
+  const initials = (session?.user?.name ?? "担当").replace(/\s+/g, "").slice(0, 2) || "担当";
   const role = (session?.user as any)?.role;
 
   return (

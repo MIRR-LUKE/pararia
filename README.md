@@ -3,18 +3,21 @@
 PARARIA は、塾・個別指導・学習コーチング向けの `Teaching OS` です。  
 録音した会話をそのまま残すのではなく、`会話ログ -> 生徒理解 -> 指導報告書 -> 保護者レポート` に変換して、次の指導に使える状態まで運びます。
 
-この README は、**2026-03-20 時点の実装コードを基準に再構成した現行仕様書** です。  
+この README は、**2026-03-22 時点の実装コードを基準に再構成した現行仕様書** です。  
 README に書かれている内容は、`prisma/schema.prisma`、`app/api/*`、`app/app/*`、`lib/*` の実装と揃えています。
 
 ## 1. いまのプロダクト全体像
 
 PARARIA の主導線は次の 3 つです。
 
-- `概要` (`/app/dashboard`)
+- `ダッシュボード` (`/app/dashboard`)
 - `生徒一覧` (`/app/students`)
-- `設定` (`/app/settings`)
+- `システム設定` (`/app/settings`)
 
-Sidebar もこの 3 つに絞っており、`Reports` と `Logs` は主ナビから外しています。
+Sidebar もこの 3 つに絞っており、`送付前レビュー` (`/app/reports`) と `根拠確認` (`/app/logs`) は主ナビから外しています。
+
+UI の見た目は `student/slug` の Figma (`PPVNh3FbmfqhuKXG0ajYiZ`, node `1:75`) を基準に、  
+`app/globals.css` の dark-only token と共通コンポーネントへ寄せています。
 
 実務の中心は **生徒詳細ページ (`/app/students/[studentId]`)** です。  
 このページの中で次の作業を完結させる設計になっています。
@@ -34,6 +37,7 @@ Sidebar もこの 3 つに絞っており、`Reports` と `Logs` は主ナビか
 
 また、次のルートは互換用に残しています。
 
+- `/` -> `/login` へ redirect
 - `/app` -> `/app/dashboard` へ redirect
 - `/app/logs/[logId]` -> 該当生徒の Student Room 内 proof 表示へ redirect
 - `/app/students/[studentId]/logs/[logId]` -> 該当生徒の Student Room 内 proof 表示へ redirect
@@ -51,14 +55,15 @@ Sidebar もこの 3 つに絞っており、`Reports` と `Logs` は主ナビか
   - STT: OpenAI Audio Transcriptions
   - 会話構造化 / 要約 / 保護者レポート: OpenAI Chat Completions
 - UI 状態管理: React state 中心
-- スタイル: CSS Modules
+- スタイル: CSS Modules + `app/globals.css` の共通 token
+- UI 基準: Student Room Figma を起点にした dark-only visual system
 - 背景ジョブ: **DB ベースの conversation jobs runner**
 
 ### 2.2 レイヤー構成
 
 1. `app/app/*`
 - 画面とユーザー導線
-- 主導線は `概要 -> 生徒一覧 -> 生徒詳細`
+- 主導線は `ダッシュボード -> 生徒一覧 -> 生徒詳細`
 
 2. `app/api/*`
 - REST API
@@ -73,6 +78,7 @@ Sidebar もこの 3 つに絞っており、`Reports` と `Logs` は主ナビか
 補足:
 
 - `app/layout.tsx` は `ThemeProvider` と `AuthProvider` を root に入れています
+- `ThemeProvider` は互換用の dark-only wrapper で、theme 切替 UI は現在使っていません
 - `app/app/layout.tsx` は `auth()` を見て、未ログインなら `/login` に redirect します
 
 ### 2.3 実装上の重要な分離
@@ -149,100 +155,180 @@ Sidebar もこの 3 つに絞っており、`Reports` と `Logs` は主ナビか
 
 ## 4. 画面と導線
 
-### 4.1 ログイン
+### 4.1 ログイン / 招待受諾
 
-- ページ: `/login`
-- 招待受諾ページ: `/invite/accept`
-- 実装: `NextAuth Credentials`
+- `/` は `/login` へ redirect
+- ログインページは `/login`
+- 招待受諾ページは `/invite/accept`
+- 実装は `NextAuth Credentials`
+- 招待受諾では表示名と初回パスワードを設定し、その後 `/login` から入る
 - デフォルト seed アカウント:
   - `admin@demo.com / demo123`
 
-### 4.2 概要 (`/app/dashboard`)
+### 4.2 ダッシュボード (`/app/dashboard`)
+
+画面タイトルは `今日の優先キュー` です。
 
 役割:
 
-- 今日優先して動くべき生徒を出す
-- 未面談、授業途中、要確認、レポ待ちのキューを出す
-- 生徒詳細へ進む入り口にする
+- 今日すぐ動くべき生徒だけを優先順に出す
+- `面談を始める` / `授業を始める` の 2 つの主 CTA を先頭に置く
+- 未面談、授業途中、要確認、レポ待ちを 1 本の queue に束ねる
 
-ここは情報倉庫ではなく、**行動キュー** です。
+画面構成:
+
+- hero セクション
+  - その日の運用方針
+  - `面談を始める`
+  - `授業を始める`
+- status strip
+  - 面談系キュー
+  - チェックアウト待ち
+  - レポ確認待ち
+  - 要確認
+- `ユーザーを招待` card
+  - `ADMIN` / `MANAGER` のときだけ表示
+  - 招待リンクを発行する
+- `今日の優先キュー` card
+  - 最大 8 件の生徒を優先順に表示
+- 下段 2 card
+  - `次に確認すること`
+  - `全体の状態`
+
+ここは情報倉庫ではなく、**その日の最初の一手を決める画面**です。
 
 ### 4.3 生徒一覧 (`/app/students`)
+
+画面タイトルは `生徒一覧` です。
 
 役割:
 
 - 生徒を検索する
-- フィルタで絞る
+- 現在の状態で絞る
 - 生徒詳細へ入る
-- 新規生徒を作る
+- 最小入力で新規生徒を作る
 
-**重要**: ここでは録音やレポ生成を直接させません。  
-各行は `生徒詳細へ` に寄せています。
+画面構成:
+
+- 検索 input
+  - 名前
+  - フリガナ
+  - 学年
+  - コース
+- filter chip
+  - `すべて`
+  - `面談待ち`
+  - `要確認`
+  - `レポ待ち`
+- `新しい生徒を追加` card
+  - 生徒名
+  - フリガナ
+  - 学年
+  - コース
+  - 保護者名
+- `生徒ディレクトリ` card
+  - 各行は `生徒詳細へ`
+  - `次にやること`
+  - `プロフィール`
+  - `セッション`
+  - `レポート`
+
+**重要**: ここでは録音やレポ生成を完結させません。  
+操作は生徒詳細ページに寄せています。
 
 ### 4.4 生徒詳細 (`/app/students/[studentId]`)
 
 現在の主作業面です。
 
-#### 上段サマリー
+#### 上段の常設カード
 
-- 生徒名、学年、一言サマリー
-- 状態バッジ
-- 今の全体像
-- おすすめの話題
-- 主録音操作
+- breadcrumb
+- 生徒名、学年、最終更新
+- `StudentSessionConsole`
+  - 常時表示の録音カード
   - 面談 / 指導報告 モード切替
   - 指導報告時の `チェックイン / チェックアウト` 切替
-  - `録音開始` ボタン
-- 進行中件数、未確認 entity 件数などの補助表示
+  - 中央のマイク円から録音開始
+  - `音声ファイルを選ぶ`
+- 保護者レポート生成カード
+  - 対象ログ選択
+  - `保護者レポートを生成`
+  - 選択件数表示
+- `おすすめの話題` section
+  - category ごとに 2 件ずつ表示
 
-#### 下段タブ
+#### 中段ワークスペース
 
-1. `プロフィール`
-- 学習 / 学校 / 生活 / 進路 の固定カテゴリ
-- それぞれ `現在の状態 / 今回の更新 / 講師の見立て / 次に確認すること / 根拠ログ導線`
+- tab
+  - `面談ログ`
+  - `指導報告ログ`
+  - `保護者レポートログ`
+- filter
+  - 期間: `すべて` / `今月`
+  - 並び順: `新しい順` / `古い順`
 
-2. `コミュニケーション履歴`
+#### 各タブの役割
+
+1. `面談ログ`
 - 会話ログ一覧
 - 保護者レポート素材の選択元
-- 詳細は別ページではなく画面内オーバーレイ
+- `根拠を見る` から詳細オーバーレイを開く
 
-3. `指導報告書履歴`
-- 過去 lesson report の確認
+2. `指導報告ログ`
+- チェックイン / チェックアウトの結果確認
+- lesson report detail を開く
 
-4. `保護者レポート履歴`
+3. `保護者レポートログ`
 - 過去 report の確認
-- 再送や送付前確認の入口
+- 送付前確認への入口
 
 #### オーバーレイで開くもの
 
-- `StudentSessionConsole`: 録音開始 / 進行中 / アップロード
-- `LogDetailView`: 会話ログ詳細
-- `ReportStudio`: 保護者レポート生成 / 送付前確認
+- `LogDetailView`
+  - 会話ログ詳細
+- `ReportStudio`
+  - ログ選択
+  - 生成済みドラフト確認
+  - 送付前確認
 - 指導報告詳細
 - 保護者レポート詳細
 
-### 4.5 ログ一覧 (`/app/logs`)
+補足:
 
-- 裏面の確認用画面
-- 根拠確認や QA 用
-- 主導線ではない
+- `StudentSessionConsole` はオーバーレイではなく、上段の常設カードです
+- `ReportStudio` は上段の保護者レポート生成カードや送付前確認導線から開きます
 
-### 4.6 レビュー一覧 (`/app/reports`)
+### 4.5 根拠確認 (`/app/logs`)
 
-- 送付前レビューの補助面
-- 主導線ではない
-- 本命は生徒詳細の中での report flow
+画面タイトルは `根拠確認` です。
 
-### 4.7 設定 (`/app/settings`)
+- 主導線ではない補助面
+- `すべて / 面談 / 指導報告` の filter chip がある
+- 各 row は summary 抜粋と status badge を持つ
+- 生徒ルームの `根拠を見る` からもここへ入れる
 
-- テーマ切替 (`system / light / dark`)
-- レビュー運用方針表示
-- 組織情報の下書き
-- 音声保持ポリシー表示
+### 4.6 送付前レビュー (`/app/reports`)
+
+画面タイトルは `送付前レビュー` です。
+
+- 主導線ではない補助面
+- filter chip は `送付待ち / 要確認あり / 送付済み`
+- `送付待ちレポート` card で report queue を見る
+- `その他の確認キュー` card で entity / checkout 待ちもまとめて見る
+- 実際の生成・確認の本命導線は生徒詳細の `ReportStudio`
+
+### 4.7 システム設定 (`/app/settings`)
+
+画面タイトルは `システム設定` です。
+
+- `UI 基盤`
+- `レビュー運用`
+- `組織情報`
+- `音声データ保持`
 
 注意:
 
-- テーマ設定は **localStorage に保存する端末ローカル設定** です
+- 設定画面は運用ルール確認と下書き UI が中心です
 - サーバー同期は未実装です
 
 ## 5. 認証・テナント・アクセス制御
@@ -479,6 +565,45 @@ block は後段の `CHUNK_ANALYZE` にそのまま使います。
 - `lib/ai/conversationPipeline.ts`
 - `lib/operational-log.ts`
 
+### 12.0 入力から画面表示までの全体フロー
+
+1. 録音またはアップロード
+- 生徒詳細の `StudentSessionConsole` から `SessionPart` を作る
+- 旧経路では `/api/audio` や `/api/conversations` から直接 `ConversationLog` を作ることもある
+
+2. 録音バリデーション
+- duration と transcript の薄さを見て、生成を進めるか止めるか判定する
+
+3. transcript 前処理
+- filler 除去、重複除去、block 化を行う
+
+4. job enqueue
+- `ConversationJob` を `CHUNK_ANALYZE -> REDUCE -> FINALIZE` で積む
+
+5. chunk 分析
+- block 単位で `facts`, `coaching_points`, `decisions`, `todo_candidates`, `timeline_candidates`, `profile_delta_candidates` を作る
+
+6. reduce
+- block ごとの分析を 1 つの `ReducedAnalysis` に統合する
+
+7. finalize
+- `summaryMarkdown`, `timeline`, `nextActions`, `studentState`, `recommendedTopics`, `quickQuestions`, `profileSections`, `entityCandidates`, `lessonReport` へ変換する
+
+8. 日本語ガードと fallback
+- 英語混入・placeholder・弱い出力を落とし、日本語の fallback へ置き換える
+- transcript theme fallback が発火すると、summary からおすすめ話題までまとめて日本語で再構成する
+
+9. 保存
+- `ConversationLog.*Json` と `qualityMetaJson` に保存する
+- `syncSessionAfterConversation()` で `Session` と `SessionEntity` 側にも反映する
+
+10. OperationalLog 再構成
+- 保存済み artifacts を `theme / facts / changes / assessment / nextChecks / parentShare / entities` に組み替える
+
+11. Student Room / Log 詳細 / Report Studio 表示
+- `GET /api/students/[id]/room` と `GET /api/conversations/[id]` が `operationalLog` と `operationalSummaryMarkdown` を導出して返す
+- UI はそこから日本語の確認面を組み立てる
+
 ### 12.1 標準フロー
 
 1. `CHUNK_ANALYZE`
@@ -505,6 +630,113 @@ block は後段の `CHUNK_ANALYZE` にそのまま使います。
 - `entityCandidatesJson`
 - `lessonReportJson` (lesson mode only)
 
+### 12.2a おすすめの話題 / short questions
+
+`おすすめの話題` は `ConversationLog.topicSuggestionsJson` に保存され、最終的に Student Room 上段へ出ます。
+
+ロジックの流れ:
+
+1. `FINALIZE` または `single-pass`
+- `lib/ai/conversationPipeline.ts` の prompt で `recommendedTopics` と `quickQuestions` を JSON 出力させる
+- category は `学習 | 生活 | 学校 | 進路`
+- `recommendedTopics / quickQuestions` は「次の会話でそのまま使える自然な質問」にするよう制約している
+
+2. 正規化
+- `normalizeRecommendedTopics()` で `title` / `question` 必須、PII マスク、bad text 除去、最大 7 件に整形
+- `normalizeQuickQuestions()` で bad text と重複を落とし、最大 6 件に整形
+
+3. fallback
+- `recommendedTopics` が空なら `buildRecommendedTopicsFallback()` を使う
+- fallback は `profileSections -> timeline -> nextActions` の順に材料を拾い、話題タイトル・理由・次に聞く質問を再構成する
+- `quickQuestions` が弱いか空なら `buildQuickQuestionsFallback()` でおすすめ話題の `question` / `reason` を短問化して再利用する
+
+4. transcript theme fallback
+- 出力が weak と判定された場合は、文字起こしから抽出した theme を使って `summary / timeline / nextActions / recommendedTopics / quickQuestions / profileSections / studentState` をまとめて再構成する
+- weak 判定には `recommendedTopics < 3`、重複タイトル、重複質問なども含む
+
+5. 保存と表示
+- `lib/jobs/conversationJobs.ts` が `result.recommendedTopics` を `topicSuggestionsJson`、`result.quickQuestions` を `quickQuestionsJson` として保存する
+- `GET /api/students/[id]/room` がそのまま返し、`app/app/students/[studentId]/page.tsx` で category ごとに束ねて最大 3 列・各 2 件を表示する
+- `topicSuggestionsJson` が空なら UI は `FALLBACK_TOPICS` を表示して空欄を作らない
+
+補足:
+
+- `quickQuestionsJson` は現状 Student Room に独立カードとしては出していない
+- 代わりに `lib/operational-log.ts` の `nextChecks` や `lib/ai/parentReport.ts` の保護者レポート生成で再利用している
+
+### 12.2b 日本語固定ガード
+
+このプロジェクトでは、**AI に「日本語で」と頼むだけで終わらせていません**。  
+現在は、生成パイプライン全体で次の 4 段階ガードを入れています。
+
+1. prompt 制約
+- `analyze`, `reduce`, `finalize`, `single-pass`, `parent report` の全 prompt で「ユーザー向け文はすべて日本語」「英語の見出しや定型句は禁止」を明示する
+
+2. 正規化で除外
+- `normalizeReducedAnalysis()`
+- `normalizeTimeline()`
+- `normalizeNextActions()`
+- `normalizeStudentState()`
+- `normalizeRecommendedTopics()`
+- `normalizeQuickQuestions()`
+- `normalizeProfileSections()`
+- `normalizeObservationEvents()`
+- `normalizeLessonReport()`
+
+これらの段階で、英語が主になっている文、placeholder、低品質な定型文を落とす。
+
+3. summary / topic の弱さ判定
+- `isWeakSummaryMarkdown()` で英語混入や重複を検知する
+- `shouldUseThemeFallback()` で summary / timeline / actions / topics / questions / profileSections / studentState の弱さを見て transcript theme fallback に切り替える
+
+4. 表示前の再防御
+- `lib/operational-log.ts` が英語優位の行を再度落として `OperationalLog` を再構築する
+- `lib/ai/parentReport.ts` は LLM の返した JSON をそのまま採用せず、英語優位の要約・見出し・本文を日本語 default に差し替える
+- `GET /api/students/[id]/room` と `GET /api/conversations*` は、旧データの `summary / topic / quickQuestion / report` を返す直前にも日本語フィルタを通す
+- UI 側の status label も raw enum をそのまま返さず、日本語 fallback を使う
+
+### 12.2c 成果物ごとの保存先と利用先
+
+1. `summaryMarkdown`
+- 保存先: `ConversationLog.summaryMarkdown`
+- 利用先: Log 詳細、OperationalLog 再構成の材料、parent report bundle
+
+2. `timelineJson`
+- 保存先: `ConversationLog.timelineJson`
+- 利用先: Student Room の面談理解、fallback 再構成、lesson/report 素材
+
+3. `nextActionsJson`
+- 保存先: `ConversationLog.nextActionsJson`
+- 利用先: Student Room、OperationalLog.nextChecks、保護者レポート本文
+
+4. `studentStateJson`
+- 保存先: `ConversationLog.studentStateJson`
+- 利用先: Session の hero 要約、Student Room の状態理解
+
+5. `topicSuggestionsJson`
+- 保存先: `ConversationLog.topicSuggestionsJson`
+- 利用先: Student Room 上段の `おすすめの話題`
+
+6. `quickQuestionsJson`
+- 保存先: `ConversationLog.quickQuestionsJson`
+- 利用先: fallback 問い生成、OperationalLog.nextChecks、保護者レポート生成
+
+7. `profileSectionsJson`
+- 保存先: `ConversationLog.profileSectionsJson`
+- 利用先: おすすめ話題 fallback、観察イベント fallback、今後のプロフィール統合材料
+
+8. `entityCandidatesJson`
+- 保存先: `ConversationLog.entityCandidatesJson`
+- 利用先: `syncSessionAfterConversation()` で `SessionEntity` を再構築し、確認待ち entity として UI に出す
+
+9. `lessonReportJson`
+- 保存先: `ConversationLog.lessonReportJson`
+- 利用先: 指導報告ログタブ、授業のチェックイン / チェックアウト確認
+
+10. `qualityMetaJson`
+- 保存先: `ConversationLog.qualityMetaJson`
+- 利用先: promptVersion / model / repaired の追跡、品質検証
+
 ### 12.3 single-pass モード
 
 条件を満たす短い会話は `single-pass` で処理します。
@@ -523,6 +755,8 @@ FINALIZE 系では次も入っています。
 
 - summary が短すぎると fallback
 - timeline / actions / profile delta / parent pack / student state などが不足すると repair
+- `recommendedTopics` / `quickQuestions` / `profileSections` が弱い場合も transcript theme fallback を使う
+- 英語が主になっている文は normalize 段階で落とし、日本語 fallback に差し替える
 - それでも足りない部分は heuristic で埋める
 
 ### 12.5 prompt / cost meta
@@ -567,6 +801,12 @@ LLM の出力はそのまま UI に流していません。
 - transcript ダンプをそのまま見せない
 - UI で読む順番を固定する
 - parent report の素材として再利用しやすくする
+
+### 13.4 日本語再防御
+
+- `sanitizeLine()` で英語優位の行や placeholder を落とす
+- `renderOperationalSummaryMarkdown()` は必ず日本語見出しで再レンダリングする
+- そのため、FINALIZE の時点で弱い文字列が残っても、UI に入る前にもう一度日本語の整理面へ矯正される
 
 ## 14. プロフィール更新
 
@@ -672,6 +912,28 @@ UI 上では次の観点で扱っています。
 - `qualityChecksJson.pendingEntityCount > 0` の report は送れません
 - 送付は manual 記録のみです
 - 実メール送信は未実装です
+
+### 17.5 保護者レポートの日本語保証
+
+`lib/ai/parentReport.ts` では次の順で日本語を保証します。
+
+1. prompt で日本語のみを要求
+- 英語の見出し、英語の定型句、英語逃げを禁止する
+
+2. 選択ログ束ね
+- `buildReportBundle()` で `OperationalLog` ベースに材料をそろえる
+
+3. JSON parse
+- LLM 出力を JSON として読む
+
+4. final sanitize
+- `sanitizeParentReportJson()` で `greeting`, `introduction`, `summary`, `sections`, `closing` を検査する
+- 英語優位・非日本語の要素は捨てて、日本語 default に差し替える
+
+5. markdown render
+- 最終 markdown は sanitize 済み JSON から組み立てる
+
+つまり、保護者レポートは「生成に成功したらそのまま採用」ではなく、**最後に日本語品質ゲートを通してから保存・表示**しています。
 
 ## 18. entity 確認
 
@@ -887,9 +1149,10 @@ npm run dev
   - `teacher@demo.com / demo123`
   - `instructor@demo.com / demo123`
 - demo students:
-  - `Hana Yamada`
-  - `Aoi Sato`
+  - `山田 花`
+  - `佐藤 葵`
 - interview / lesson / report のサンプルデータ
+- 生成済み `summary / topics / lesson report / parent report` も日本語で seed する
 
 ### 23.3 検証コマンド
 
@@ -931,10 +1194,7 @@ npm run verify
 - status 更新のみ
 - 実メール / LINE / SMS 送信は未実装
 
-4. テーマ設定は端末ローカル
-- サーバー同期なし
-
-5. Settings の一部は下書き UI
+4. Settings の一部は下書き UI
 - 組織情報や保持方針は画面上の整備が中心
 - すべてが永続設定 API に繋がっているわけではない
 
@@ -948,6 +1208,7 @@ npm run verify
 - direct audio (`/api/audio`) と direct transcript (`/api/conversations POST`) の旧経路もまだ生きている
 - transcript の raw 情報には TTL がある
 - single-pass と 3 段 job の両方がある
+- 英語混入は prompt だけでなく normalize / fallback / operational-log / parent-report sanitize の 4 層で防いでいる
 - summary はそのまま見せず、OperationalLog に再構成してから UI に出す
 - 保護者レポートは selected logs only
 - pending entity がある report は送れない

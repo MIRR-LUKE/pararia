@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { buildOperationalLog, buildReuseBlocks, renderOperationalSummaryMarkdown } from "@/lib/operational-log";
+import {
+  sanitizeQuickQuestions,
+  sanitizeSummaryMarkdown,
+  sanitizeTopicSuggestions,
+} from "@/lib/user-facing-japanese";
 
 export async function GET(
   request: Request,
@@ -99,17 +104,21 @@ export async function GET(
       return NextResponse.json({ error: "not found" }, { status: 404 });
     }
 
+    const summaryMarkdown = sanitizeSummaryMarkdown(conversation.summaryMarkdown ?? "");
+    const quickQuestionsJson = sanitizeQuickQuestions(conversation.quickQuestionsJson);
+
     return NextResponse.json({
       conversation: {
         ...conversation,
+        summaryMarkdown,
         rawSegments: conversation.rawSegments as any,
         timelineJson: conversation.timelineJson as any,
         nextActionsJson: conversation.nextActionsJson as any,
         profileDeltaJson: conversation.profileDeltaJson as any,
         parentPackJson: conversation.parentPackJson as any,
         studentStateJson: conversation.studentStateJson as any,
-        topicSuggestionsJson: conversation.topicSuggestionsJson as any,
-        quickQuestionsJson: conversation.quickQuestionsJson as any,
+        topicSuggestionsJson: sanitizeTopicSuggestions(conversation.topicSuggestionsJson),
+        quickQuestionsJson,
         profileSectionsJson: conversation.profileSectionsJson as any,
         observationJson: conversation.observationJson as any,
         entityCandidatesJson: conversation.entityCandidatesJson as any,
@@ -118,13 +127,13 @@ export async function GET(
         operationalLog: buildOperationalLog({
           sessionType: conversation.session?.type,
           createdAt: conversation.createdAt,
-          summaryMarkdown: conversation.summaryMarkdown ?? "",
+          summaryMarkdown,
           timeline: conversation.timelineJson as any,
           nextActions: conversation.nextActionsJson as any,
           parentPack: conversation.parentPackJson as any,
           studentState: conversation.studentStateJson as any,
           profileSections: conversation.profileSectionsJson as any,
-          quickQuestions: conversation.quickQuestionsJson as any,
+          quickQuestions: quickQuestionsJson,
           entityCandidates: conversation.entityCandidatesJson as any,
           lessonReport: conversation.lessonReportJson as any,
           sessionEntities: conversation.entities as any,
@@ -133,13 +142,13 @@ export async function GET(
           buildOperationalLog({
             sessionType: conversation.session?.type,
             createdAt: conversation.createdAt,
-            summaryMarkdown: conversation.summaryMarkdown ?? "",
+            summaryMarkdown,
             timeline: conversation.timelineJson as any,
             nextActions: conversation.nextActionsJson as any,
             parentPack: conversation.parentPackJson as any,
             studentState: conversation.studentStateJson as any,
             profileSections: conversation.profileSectionsJson as any,
-            quickQuestions: conversation.quickQuestionsJson as any,
+            quickQuestions: quickQuestionsJson,
             entityCandidates: conversation.entityCandidatesJson as any,
             lessonReport: conversation.lessonReportJson as any,
             sessionEntities: conversation.entities as any,
@@ -149,13 +158,13 @@ export async function GET(
           buildOperationalLog({
             sessionType: conversation.session?.type,
             createdAt: conversation.createdAt,
-            summaryMarkdown: conversation.summaryMarkdown ?? "",
+            summaryMarkdown,
             timeline: conversation.timelineJson as any,
             nextActions: conversation.nextActionsJson as any,
             parentPack: conversation.parentPackJson as any,
             studentState: conversation.studentStateJson as any,
             profileSections: conversation.profileSectionsJson as any,
-            quickQuestions: conversation.quickQuestionsJson as any,
+            quickQuestions: quickQuestionsJson,
             entityCandidates: conversation.entityCandidatesJson as any,
             lessonReport: conversation.lessonReportJson as any,
             sessionEntities: conversation.entities as any,

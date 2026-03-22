@@ -1,80 +1,69 @@
-﻿"use client";
+"use client";
 
 import { useState } from "react";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
-import { useTheme, type ThemeMode } from "@/components/providers/ThemeProvider";
 import styles from "./settings.module.css";
 
-const THEME_OPTIONS: Array<{ value: ThemeMode; title: string; description: string }> = [
+const FOUNDATION_NOTES = [
   {
-    value: "system",
-    title: "システムに合わせる",
-    description: "OS のライト / ダーク設定に追従します。",
+    title: "ダークキャンバス",
+    description: "MCP の Student Room を基準に、ページ全体を深いチャコールで統一します。",
+    swatchClassName: "canvasSwatch",
   },
   {
-    value: "light",
-    title: "ライト固定",
-    description: "日中の確認作業を優先した明るい表示にします。",
+    title: "2 段階の面",
+    description: "主要カードは `#262626`、操作面は `#303030` を使い、奥行きを小さく保ちます。",
+    swatchClassName: "panelSwatch",
   },
   {
-    value: "dark",
-    title: "ダーク固定",
-    description: "夜の録音やレビューでも眩しさを抑えます。",
+    title: "アクセント",
+    description: "黄緑タグ、シアンの担当バッジ、紫の校舎ボタンを全画面で再利用します。",
+    swatchClassName: "accentSwatch",
   },
 ];
 
-function labelTheme(mode: ThemeMode) {
-  if (mode === "light") return "ライト固定";
-  if (mode === "dark") return "ダーク固定";
-  return "システム追従";
-}
+const OPERATIONS = [
+  {
+    title: "要確認の固有名詞",
+    description: "送付前レビューと根拠確認の両方に残し、確定名は生徒辞書へ保存します。",
+  },
+  {
+    title: "授業前だけで止まった授業",
+    description: "概要キューと送付前レビューに残し、チェックアウトまで消しません。",
+  },
+  {
+    title: "生成中の成果物",
+    description: "全部がそろうまで待たせず、保存完了から順に見せます。",
+  },
+];
 
 export default function SettingsPage() {
-  const { themeMode, resolvedTheme, setThemeMode } = useTheme();
   const [org, setOrg] = useState("PARARIA 本校");
-  const [campus, setCampus] = useState("本校");
+  const [campus, setCampus] = useState("渋谷校");
   const [policyDays, setPolicyDays] = useState(30);
 
   return (
     <div className={styles.page}>
       <AppHeader
-        title="設定"
-        subtitle="見た目、レビュー運用、音声データの基本方針をここで揃えます。"
+        title="システム設定"
+        subtitle="Student Room のビジュアル基盤と、録音から送付前確認までの運用ルールをここでそろえます。"
       />
 
       <div className={styles.grid}>
         <Card
-          title="表示テーマ"
-          subtitle="初期値はシステム追従です。ここで上書きするとこの端末だけに保存されます。"
+          title="UI 基盤"
+          subtitle="このプロジェクトでは、Student Room の Figma を全体のトークンとコンポーネントの土台として扱います。"
         >
-          <div className={styles.themeStack}>
-            {THEME_OPTIONS.map((option) => (
-              <button
-                key={option.value}
-                type="button"
-                className={`${styles.themeOption} ${themeMode === option.value ? styles.themeOptionActive : ""}`}
-                onClick={() => setThemeMode(option.value)}
-              >
-                <div>
-                  <div className={styles.themeTitle}>{option.title}</div>
-                  <div className={styles.note}>{option.description}</div>
-                </div>
-                <span className={styles.themeState}>{themeMode === option.value ? "選択中" : ""}</span>
-              </button>
+          <div className={styles.foundationGrid}>
+            {FOUNDATION_NOTES.map((item) => (
+              <div key={item.title} className={styles.foundationCard}>
+                <div className={`${styles.foundationSwatch} ${styles[item.swatchClassName]}`} aria-hidden />
+                <div className={styles.foundationTitle}>{item.title}</div>
+                <div className={styles.note}>{item.description}</div>
+              </div>
             ))}
-          </div>
-
-          <div className={styles.previewRow}>
-            <div className={styles.previewCard}>
-              <span className={styles.previewLabel}>現在の設定</span>
-              <strong>{labelTheme(themeMode)}</strong>
-            </div>
-            <div className={styles.previewCard}>
-              <span className={styles.previewLabel}>実際の表示</span>
-              <strong>{resolvedTheme === "dark" ? "ダーク" : "ライト"}</strong>
-            </div>
           </div>
         </Card>
 
@@ -83,22 +72,16 @@ export default function SettingsPage() {
           subtitle="送付前の事故を防ぐため、確認待ちは確認キューとして先に出します。"
         >
           <div className={styles.policyList}>
-            <div className={styles.policyItem}>
-              <strong>要確認の固有名詞</strong>
-              <p>送付前レビューと根拠確認の両方に残し、確定名は生徒辞書へ保存します。</p>
-            </div>
-            <div className={styles.policyItem}>
-              <strong>授業前だけで止まった授業</strong>
-              <p>Today と送付前レビューに残し、チェックアウトまで消しません。</p>
-            </div>
-            <div className={styles.policyItem}>
-              <strong>生成中の成果物</strong>
-              <p>全部が揃うまで待たせず、保存完了から順に見せます。</p>
-            </div>
+            {OPERATIONS.map((item) => (
+              <div key={item.title} className={styles.policyItem}>
+                <strong>{item.title}</strong>
+                <p>{item.description}</p>
+              </div>
+            ))}
           </div>
         </Card>
 
-        <Card title="組織情報" subtitle="運用メモ用の基本設定です。組織構成の正式管理は今後 Admin 側に寄せます。">
+        <Card title="組織情報" subtitle="運用メモ用の基本設定です。正式な組織管理は今後この設定面から分離して拡張します。">
           <div className={styles.field}>
             <label className={styles.label}>組織名</label>
             <input className={styles.input} value={org} onChange={(e) => setOrg(e.target.value)} />
@@ -107,12 +90,8 @@ export default function SettingsPage() {
             <label className={styles.label}>拠点名</label>
             <input className={styles.input} value={campus} onChange={(e) => setCampus(e.target.value)} />
           </div>
-          <Button
-            type="button"
-            variant="secondary"
-            onClick={() => alert("組織情報はこの端末の下書きとして保存しました。")}
-          >
-            下書き保存
+          <Button type="button" variant="secondary" onClick={() => alert("組織情報はこの端末の下書きとして保存しました。")}>
+            下書きを保存
           </Button>
         </Card>
 
@@ -127,7 +106,7 @@ export default function SettingsPage() {
               onChange={(e) => setPolicyDays(Number(e.target.value))}
             />
             <div className={styles.note}>
-              ここでは運用方針を揃えるための値を確認できます。本番の削除はバックグラウンド処理で行います。
+              ここでは運用方針の値だけを管理します。本番の削除処理自体はバックグラウンドジョブで実行します。
             </div>
           </div>
           <Button

@@ -92,11 +92,7 @@ export function InviteAcceptForm({ token }: Props) {
               minLength={8}
             />
           </div>
-          {error ? (
-            <p className={styles.subtitle} style={{ color: "#b91c1c" }}>
-              {error}
-            </p>
-          ) : null}
+          {error ? <p className={styles.errorText}>{error}</p> : null}
           <p className={styles.subtitle}>{emailHint}</p>
           <div className={styles.actions}>
             <Button type="submit" variant="primary" disabled={submitting}>

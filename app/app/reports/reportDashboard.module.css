@@ -1,6 +1,6 @@
-﻿.page {
+.page {
   display: grid;
-  gap: 18px;
+  gap: 24px;
 }
 
 .summaryRow {
@@ -12,11 +12,12 @@
 .summaryCard {
   min-height: 96px;
   padding: 18px;
-  border-radius: 22px;
+  border-radius: var(--card-radius);
   border: 1px solid var(--border);
   background: var(--surface);
   display: grid;
-  gap: 8px;
+  gap: 10px;
+  box-shadow: var(--shadow-card);
 }
 
 .summaryCard strong {
@@ -38,24 +39,19 @@
 }
 
 .filterChip {
-  min-height: 40px;
+  min-height: 35px;
   padding: 0 14px;
   border-radius: 999px;
   border: 1px solid var(--border);
-  background: var(--surface);
+  background: var(--surface-3);
   font-weight: 700;
   cursor: pointer;
 }
 
-.filterChip:focus-visible {
-  outline: 2px solid var(--text);
-  outline-offset: 2px;
-}
-
 .filterChipActive {
-  background: var(--text);
-  border-color: var(--text);
-  color: var(--surface);
+  background: var(--accent);
+  border-color: rgba(219, 255, 75, 0.3);
+  color: var(--accent-contrast);
 }
 
 .grid {
@@ -68,7 +64,7 @@
   display: grid;
   gap: 14px;
   padding: 18px;
-  border-radius: 20px;
+  border-radius: var(--card-radius);
   border: 1px solid var(--border);
   background: var(--surface-2);
   transition: border-color 0.16s ease, transform 0.16s ease, background 0.16s ease;
@@ -76,7 +72,7 @@
 
 .linkCard:hover {
   border-color: var(--border-strong);
-  background: var(--surface);
+  background: var(--surface-3);
   transform: translateY(-1px);
 }
 
@@ -88,7 +84,7 @@
 
 .name {
   font-size: 16px;
-  font-weight: 800;
+  font-weight: 700;
 }
 
 .meta,
@@ -98,6 +94,7 @@
 
 .oneLiner {
   margin: 0;
+  line-height: 1.7;
 }
 
 .metricGrid {
@@ -108,9 +105,9 @@
 
 .metricItem {
   padding: 12px;
-  border-radius: 16px;
+  border-radius: var(--card-radius);
   border: 1px solid var(--border);
-  background: var(--surface);
+  background: var(--surface-3);
   display: grid;
   gap: 6px;
 }
@@ -123,13 +120,14 @@
 
 .empty {
   min-height: 220px;
-  border-radius: 18px;
+  border-radius: var(--card-radius);
   border: 1px dashed var(--border-strong);
   background: var(--surface-2);
   display: grid;
   place-items: center;
   text-align: center;
   padding: 24px;
+  color: var(--muted);
 }
 
 @media (max-width: 980px) {

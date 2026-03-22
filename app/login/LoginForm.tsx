@@ -64,7 +64,7 @@ export function LoginForm({ callbackUrl }: Props) {
               required
             />
           </div>
-          {error ? <p className={styles.subtitle} style={{ color: "#b91c1c" }}>{error}</p> : null}
+          {error ? <p className={styles.errorText}>{error}</p> : null}
           <div className={styles.actions}>
             <Button type="submit" variant="primary" disabled={submitting}>
               {submitting ? "ログイン中..." : "ログイン"}

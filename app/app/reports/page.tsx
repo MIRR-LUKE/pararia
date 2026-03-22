@@ -41,7 +41,7 @@ function reportStatusLabel(status?: string | null) {
   if (status === "DRAFT") return "下書きあり";
   if (status === "REVIEWED") return "確認済み";
   if (status === "SENT") return "送付済み";
-  return status;
+  return "状態確認中";
 }
 
 function toneFromStatus(status?: string | null): "neutral" | "low" | "medium" | "high" {

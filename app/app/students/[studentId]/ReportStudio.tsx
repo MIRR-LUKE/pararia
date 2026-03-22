@@ -37,7 +37,7 @@ function reportStatusLabel(status?: string | null) {
   if (status === "DRAFT") return "下書き";
   if (status === "REVIEWED") return "確認済み";
   if (status === "SENT") return "送付済み";
-  return status;
+  return "状態確認中";
 }
 
 function splitParagraphs(markdown?: string | null) {

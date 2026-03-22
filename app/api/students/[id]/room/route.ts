@@ -3,6 +3,12 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/db";
 import { buildOperationalLog, renderOperationalSummaryMarkdown } from "@/lib/operational-log";
 import { getRecordingLockView } from "@/lib/recording/lockService";
+import {
+  sanitizeQuickQuestions,
+  sanitizeReportMarkdown,
+  sanitizeSummaryMarkdown,
+  sanitizeTopicSuggestions,
+} from "@/lib/user-facing-japanese";
 
 export async function GET(
   _request: Request,
@@ -85,13 +91,17 @@ export async function GET(
     });
 
     const sessions = student.sessions.map((session) => {
+      const summaryMarkdown = sanitizeSummaryMarkdown(session.conversation?.summaryMarkdown ?? "");
+      const topicSuggestionsJson = sanitizeTopicSuggestions(session.conversation?.topicSuggestionsJson);
+      const quickQuestionsJson = sanitizeQuickQuestions(session.conversation?.quickQuestionsJson);
       const conversation = session.conversation
         ? {
             ...session.conversation,
+            summaryMarkdown,
             timelineJson: session.conversation.timelineJson as any,
             parentPackJson: session.conversation.parentPackJson as any,
-            topicSuggestionsJson: session.conversation.topicSuggestionsJson as any,
-            quickQuestionsJson: session.conversation.quickQuestionsJson as any,
+            topicSuggestionsJson,
+            quickQuestionsJson,
             nextActionsJson: session.conversation.nextActionsJson as any,
             profileSectionsJson: session.conversation.profileSectionsJson as any,
             lessonReportJson: session.conversation.lessonReportJson as any,
@@ -100,13 +110,13 @@ export async function GET(
             operationalLog: buildOperationalLog({
               sessionType: session.type,
               createdAt: session.conversation.createdAt,
-              summaryMarkdown: session.conversation.summaryMarkdown ?? "",
+              summaryMarkdown,
               timeline: session.conversation.timelineJson as any,
               nextActions: session.conversation.nextActionsJson as any,
               parentPack: session.conversation.parentPackJson as any,
               studentState: session.conversation.studentStateJson as any,
               profileSections: session.conversation.profileSectionsJson as any,
-              quickQuestions: session.conversation.quickQuestionsJson as any,
+              quickQuestions: quickQuestionsJson,
               entityCandidates: session.conversation.entityCandidatesJson as any,
               lessonReport: session.conversation.lessonReportJson as any,
               sessionEntities: session.entities as any,
@@ -115,13 +125,13 @@ export async function GET(
               buildOperationalLog({
                 sessionType: session.type,
                 createdAt: session.conversation.createdAt,
-                summaryMarkdown: session.conversation.summaryMarkdown ?? "",
+                summaryMarkdown,
                 timeline: session.conversation.timelineJson as any,
                 nextActions: session.conversation.nextActionsJson as any,
                 parentPack: session.conversation.parentPackJson as any,
                 studentState: session.conversation.studentStateJson as any,
                 profileSections: session.conversation.profileSectionsJson as any,
-                quickQuestions: session.conversation.quickQuestionsJson as any,
+                quickQuestions: quickQuestionsJson,
                 entityCandidates: session.conversation.entityCandidatesJson as any,
                 lessonReport: session.conversation.lessonReportJson as any,
                 sessionEntities: session.entities as any,
@@ -139,10 +149,11 @@ export async function GET(
     const latestConversationWithDerived = latestConversation
       ? {
           ...latestConversation,
+          summaryMarkdown: sanitizeSummaryMarkdown(latestConversation.summaryMarkdown ?? ""),
           timelineJson: latestConversation.timelineJson as any,
           parentPackJson: latestConversation.parentPackJson as any,
-          topicSuggestionsJson: latestConversation.topicSuggestionsJson as any,
-          quickQuestionsJson: latestConversation.quickQuestionsJson as any,
+          topicSuggestionsJson: sanitizeTopicSuggestions(latestConversation.topicSuggestionsJson),
+          quickQuestionsJson: sanitizeQuickQuestions(latestConversation.quickQuestionsJson),
           nextActionsJson: latestConversation.nextActionsJson as any,
           profileSectionsJson: latestConversation.profileSectionsJson as any,
           lessonReportJson: latestConversation.lessonReportJson as any,
@@ -150,26 +161,26 @@ export async function GET(
           studentStateJson: latestConversation.studentStateJson as any,
           operationalLog: buildOperationalLog({
             createdAt: latestConversation.createdAt,
-            summaryMarkdown: latestConversation.summaryMarkdown ?? "",
+            summaryMarkdown: sanitizeSummaryMarkdown(latestConversation.summaryMarkdown ?? ""),
             timeline: latestConversation.timelineJson as any,
             nextActions: latestConversation.nextActionsJson as any,
             parentPack: latestConversation.parentPackJson as any,
             studentState: latestConversation.studentStateJson as any,
             profileSections: latestConversation.profileSectionsJson as any,
-            quickQuestions: latestConversation.quickQuestionsJson as any,
+            quickQuestions: sanitizeQuickQuestions(latestConversation.quickQuestionsJson),
             entityCandidates: latestConversation.entityCandidatesJson as any,
             lessonReport: latestConversation.lessonReportJson as any,
           }),
           operationalSummaryMarkdown: renderOperationalSummaryMarkdown(
             buildOperationalLog({
               createdAt: latestConversation.createdAt,
-              summaryMarkdown: latestConversation.summaryMarkdown ?? "",
+              summaryMarkdown: sanitizeSummaryMarkdown(latestConversation.summaryMarkdown ?? ""),
               timeline: latestConversation.timelineJson as any,
               nextActions: latestConversation.nextActionsJson as any,
               parentPack: latestConversation.parentPackJson as any,
               studentState: latestConversation.studentStateJson as any,
               profileSections: latestConversation.profileSectionsJson as any,
-              quickQuestions: latestConversation.quickQuestionsJson as any,
+              quickQuestions: sanitizeQuickQuestions(latestConversation.quickQuestionsJson),
               entityCandidates: latestConversation.entityCandidatesJson as any,
               lessonReport: latestConversation.lessonReportJson as any,
             })
@@ -188,7 +199,10 @@ export async function GET(
       latestConversation: latestConversationWithDerived,
       latestProfile: student.profiles[0] ?? null,
       sessions,
-      reports: student.reports,
+      reports: student.reports.map((report) => ({
+        ...report,
+        reportMarkdown: sanitizeReportMarkdown(report.reportMarkdown),
+      })),
       recordingLock,
     });
   } catch (error: any) {

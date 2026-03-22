@@ -1,27 +1,27 @@
-﻿.badge {
+.badge {
   display: inline-flex;
   align-items: center;
-  min-height: 28px;
+  min-height: 25px;
   padding: 4px 10px;
   border-radius: 999px;
   border: 1px solid var(--border);
   font-size: 12px;
   font-weight: 700;
   line-height: 1;
-  background: var(--surface-2);
+  background: var(--surface-3);
   color: var(--muted-strong);
 }
 
 .neutral {
-  background: var(--surface-2);
+  background: var(--surface-3);
   border-color: var(--border);
   color: var(--muted-strong);
 }
 
 .low {
-  background: var(--surface);
-  border-color: var(--border-strong);
-  color: var(--success);
+  background: rgba(219, 255, 75, 0.12);
+  border-color: rgba(219, 255, 75, 0.28);
+  color: var(--text);
 }
 
 .medium {
@@ -31,7 +31,7 @@
 }
 
 .high {
-  background: var(--surface);
-  border-color: var(--text);
-  color: var(--danger);
+  background: rgba(255, 139, 132, 0.12);
+  border-color: rgba(255, 139, 132, 0.36);
+  color: var(--text);
 }

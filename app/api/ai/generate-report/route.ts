@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { generateParentReport } from "@/lib/ai/parentReport";
+import { sanitizeReportMarkdownForReuse } from "@/lib/user-facing-japanese";
 
 export async function POST(request: Request) {
   try {
@@ -90,7 +91,10 @@ export async function POST(request: Request) {
       organizationName: undefined,
       periodFrom: from?.toISOString().slice(0, 10),
       periodTo: (to ?? new Date()).toISOString().slice(0, 10),
-      previousReport: usePreviousReport ? previousReport?.reportMarkdown ?? undefined : undefined,
+      previousReport:
+        usePreviousReport
+          ? sanitizeReportMarkdownForReuse(previousReport?.reportMarkdown) || undefined
+          : undefined,
       profileSnapshot: latestProfile?.profileData ?? {},
       logs: logs.map((log) => ({
         id: log.id,
