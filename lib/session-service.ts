@@ -23,19 +23,37 @@ const PART_LABEL: Record<SessionPartType, string> = {
   FULL: "面談・通し録音",
   CHECK_IN: "授業前チェックイン",
   CHECK_OUT: "授業後チェックアウト",
-  TEXT_NOTE: "メモ",
+  TEXT_NOTE: "補足メモ",
 };
 
-export function buildSessionTranscript(parts: SessionPartLike[]) {
-  const ordered = [...parts].sort((a, b) => {
-    const order = {
+function getPartOrder(sessionType: SessionType) {
+  if (sessionType === SessionType.LESSON_REPORT) {
+    return {
       [SessionPartType.CHECK_IN]: 0,
       [SessionPartType.FULL]: 1,
       [SessionPartType.CHECK_OUT]: 2,
       [SessionPartType.TEXT_NOTE]: 3,
-    };
-    return order[a.partType] - order[b.partType];
-  });
+    } as const;
+  }
+
+  return {
+    [SessionPartType.FULL]: 0,
+    [SessionPartType.CHECK_IN]: 1,
+    [SessionPartType.CHECK_OUT]: 2,
+    [SessionPartType.TEXT_NOTE]: 3,
+  } as const;
+}
+
+function getReadyPartsForConversation(sessionType: SessionType, parts: SessionPartLike[]) {
+  const order = getPartOrder(sessionType);
+  return [...parts]
+    .filter((part) => part.status === SessionPartStatus.READY)
+    .filter((part) => Boolean(part.rawTextCleaned?.trim() || part.rawTextOriginal?.trim()))
+    .sort((a, b) => order[a.partType] - order[b.partType]);
+}
+
+export function buildSessionTranscript(sessionType: SessionType, parts: SessionPartLike[]) {
+  const ordered = getReadyPartsForConversation(sessionType, parts);
 
   const chunks = ordered
     .map((part) => {
@@ -43,7 +61,20 @@ export function buildSessionTranscript(parts: SessionPartLike[]) {
       if (!body) return null;
       return `## ${PART_LABEL[part.partType]}\n${body}`;
     })
-    .filter(Boolean);
+    .filter((chunk): chunk is string => Boolean(chunk));
+
+  if (chunks.length === 0) return "";
+
+  if (sessionType === SessionType.LESSON_REPORT) {
+    const preface = [
+      "## セッション構成",
+      "- 授業前チェックイン: 授業前の状態・宿題状況・今日扱いたいこと",
+      "- 面談・通し録音: 授業中に扱った内容ややり取り",
+      "- 授業後チェックアウト: 授業後の理解・つまずき・宿題・次回確認",
+    ].join("\n");
+
+    return [preface, ...chunks].join("\n\n").trim();
+  }
 
   return chunks.join("\n\n").trim();
 }
@@ -73,10 +104,11 @@ export async function ensureConversationForSession(sessionId: string) {
     throw new Error("session is not ready for generation");
   }
 
-  const combinedText = buildSessionTranscript(session.parts);
+  const combinedText = buildSessionTranscript(session.type, session.parts);
   if (!combinedText) throw new Error("session transcript is empty");
 
-  const hasAudio = session.parts.some((part) => part.sourceType === ConversationSourceType.AUDIO);
+  const readyParts = getReadyPartsForConversation(session.type, session.parts);
+  const hasAudio = readyParts.some((part) => part.sourceType === ConversationSourceType.AUDIO);
   const sourceType = hasAudio ? ConversationSourceType.AUDIO : ConversationSourceType.MANUAL;
 
   const expiresAt = new Date();

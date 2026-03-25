@@ -3,7 +3,7 @@
 PARARIA は、塾・個別指導・学習コーチング向けの `Teaching OS` です。  
 面談と指導報告のコミュニケーションを、`面談ログ / 指導報告ログ / 保護者レポート / 共有履歴` に変換して、次の指導と保護者共有に使える状態まで運びます。
 
-この README は、**2026-03-22 時点の実装コードに合わせた現行仕様書** です。  
+この README は、**2026-03-25 時点の実装コードに合わせた現行仕様書** です。  
 旧確認フロー前提の運用は、コード・schema・seed から削除済みです。
 
 ## 1. 一言でいうと
@@ -277,6 +277,7 @@ UI 上では主に次で見せています。
 - `lib/jobs/conversationJobs.ts`
 - `lib/ai/conversationPipeline.ts`
 - `lib/operational-log.ts`
+- `lib/session-service.ts`
 
 標準フロー:
 
@@ -287,6 +288,22 @@ UI 上では主に次で見せています。
 5. `CHUNK_ANALYZE -> REDUCE -> FINALIZE`
 6. 面談ログまたは指導報告ログとして保存
 7. Student Room / Logs / Reports で表示
+
+### 8.1 モード別生成の扱い
+
+- `lib/session-service.ts` は `READY` の part だけを transcript にまとめる
+- `面談モード` は `FULL -> CHECK_IN -> CHECK_OUT -> TEXT_NOTE` の順で transcript を組む
+- `指導報告モード` は `CHECK_IN -> FULL -> CHECK_OUT -> TEXT_NOTE` の順で transcript を組み、先頭に `セッション構成` を付ける
+- `lib/jobs/conversationJobs.ts` は `CHUNK_ANALYZE / REDUCE / FINALIZE / SINGLE_PASS` の各段で `sessionType` を渡す
+- `/api/ai/analyze-conversation` と `lib/analytics/conversationAnalysis.ts` でも `sessionType` を受け取れる
+
+### 8.2 今回の検証コマンド
+
+- `npm run typecheck`
+- `npm run test:conversation-modes`
+- `npm run build`
+
+`npm run test:conversation-modes` は OpenAI 実APIなしで `面談モード / 指導報告モード` の両方について、`analyze -> reduce -> finalize` と `single-pass` の生成経路を smoke test します。
 
 代表的な成果物:
 

@@ -383,6 +383,7 @@ async function executeAnalyzeJob(job: JobPayload, convo: ConversationPayload) {
     ? await analyzeChunkBlocks(toAnalyze, {
         studentName: convo.studentName ?? undefined,
         teacherName: convo.teacherName ?? undefined,
+        sessionType: convo.sessionType === SessionType.LESSON_REPORT ? "LESSON_REPORT" : "INTERVIEW",
       })
     : { analyses: [], model: "reuse", apiCalls: 0 };
   const analyzedByHash = new Map(analyzed.map((a) => [a.hash, a]));
@@ -521,6 +522,7 @@ async function executeReduceJob(job: JobPayload, convo: ConversationPayload) {
     analyses,
     studentName: convo.studentName ?? undefined,
     teacherName: convo.teacherName ?? undefined,
+    sessionType: convo.sessionType === SessionType.LESSON_REPORT ? "LESSON_REPORT" : "INTERVIEW",
   });
   const duration = Date.now() - start;
 

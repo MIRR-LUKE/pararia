@@ -1,4 +1,4 @@
-import { ConversationSourceType, ConversationStatus } from "@prisma/client";
+import { ConversationSourceType, ConversationStatus, SessionType } from "@prisma/client";
 import { prisma } from "../db";
 import { applyProfileDelta } from "../profile";
 import { preprocessTranscript } from "../transcript/preprocess";
@@ -12,6 +12,7 @@ type CreateConversationInput = {
   userId?: string;
   sourceType?: ConversationSourceType;
   studentName?: string;
+  sessionType?: SessionType;
 };
 
 export async function createStructuredConversationLog({
@@ -21,6 +22,7 @@ export async function createStructuredConversationLog({
   userId,
   sourceType = ConversationSourceType.MANUAL,
   studentName,
+  sessionType = SessionType.INTERVIEW,
 }: CreateConversationInput) {
   console.log("[createStructuredConversationLog] Starting...", {
     studentId,
@@ -31,16 +33,25 @@ export async function createStructuredConversationLog({
   const pre = preprocessTranscript(transcript);
   const { analyses } = await analyzeChunkBlocks(
     pre.blocks.map((b) => ({ index: b.index, text: b.text, hash: b.hash })),
-    { studentName }
+    {
+      studentName,
+      sessionType: sessionType === SessionType.LESSON_REPORT ? "LESSON_REPORT" : "INTERVIEW",
+    }
   );
-  const { reduced } = await reduceChunkAnalyses({ analyses, studentName });
+  const { reduced } = await reduceChunkAnalyses({
+    analyses,
+    studentName,
+    sessionType: sessionType === SessionType.LESSON_REPORT ? "LESSON_REPORT" : "INTERVIEW",
+  });
   const { result } = await finalizeConversationArtifacts({
     studentName,
     reduced,
     minSummaryChars: transcript.length >= 20000 ? 1200 : 700,
+    sessionType: sessionType === SessionType.LESSON_REPORT ? "LESSON_REPORT" : "INTERVIEW",
   });
   const summaryMarkdown = renderOperationalSummaryMarkdown(
     buildOperationalLog({
+      sessionType,
       summaryMarkdown: result.summaryMarkdown,
       timeline: result.timeline as any,
       nextActions: result.nextActions as any,
