@@ -1,27 +1,20 @@
 import { prisma } from "@/lib/db";
-import { ConversationJobType, ConversationStatus, JobStatus, SessionStatus, SessionType } from "@prisma/client";
+import { ConversationJobType, ConversationStatus, JobStatus, Prisma, SessionStatus, SessionType } from "@prisma/client";
 import {
   analyzeChunkBlocks,
   reduceChunkAnalyses,
-  finalizeConversationArtifacts,
   generateConversationArtifactsSinglePass,
   getPromptVersion,
   estimateTokens,
 } from "@/lib/ai/conversationPipeline";
 import { formatTranscriptFromSegments, formatTranscriptFromText } from "@/lib/ai/llm";
-import { applyProfileDelta } from "@/lib/profile";
 import { DEFAULT_TEACHER_FULL_NAME } from "@/lib/constants";
 import type { ConversationQualityMeta, ChunkAnalysis, ReducedAnalysis } from "@/lib/types/conversation";
 import { preprocessTranscript, preprocessTranscriptWithSegments } from "@/lib/transcript/preprocess";
 import { syncSessionAfterConversation } from "@/lib/session-service";
-import { buildOperationalLog, renderOperationalSummaryMarkdown } from "@/lib/operational-log";
 import { toPrismaJson } from "@/lib/prisma-json";
 
-const DEFAULT_JOB_TYPES: ConversationJobType[] = [
-  ConversationJobType.CHUNK_ANALYZE,
-  ConversationJobType.REDUCE,
-  ConversationJobType.FINALIZE,
-];
+const DEFAULT_JOB_TYPES: ConversationJobType[] = [ConversationJobType.FINALIZE];
 
 const JOB_PRIORITY: Record<ConversationJobType, number> = {
   [ConversationJobType.CHUNK_ANALYZE]: 0,
@@ -33,8 +26,8 @@ const JOB_PRIORITY: Record<ConversationJobType, number> = {
 
 const activeConversationRuns = new Set<string>();
 const ENABLE_SINGLE_PASS_MODE = process.env.ENABLE_SINGLE_PASS_MODE !== "0";
-const SINGLE_PASS_MAX_BLOCKS = Math.max(1, Math.min(8, Number(process.env.SINGLE_PASS_MAX_BLOCKS ?? 4)));
-const SINGLE_PASS_MAX_CHARS = Math.max(1200, Number(process.env.SINGLE_PASS_MAX_CHARS ?? 25000));
+const SINGLE_PASS_MAX_BLOCKS = Math.max(1, Math.min(100, Number(process.env.SINGLE_PASS_MAX_BLOCKS ?? 50)));
+const SINGLE_PASS_MAX_CHARS = Math.max(1200, Number(process.env.SINGLE_PASS_MAX_CHARS ?? 200000));
 
 type JobPayload = {
   id: string;
@@ -42,6 +35,22 @@ type JobPayload = {
   type: ConversationJobType;
   attempts: number;
 };
+
+function isValidLlmSummary(markdown: string | null | undefined): markdown is string {
+  if (!markdown) return false;
+  const trimmed = markdown.trim();
+  if (trimmed.length < 200) return false;
+  if (!trimmed.includes("■")) return false;
+  if (/^[A-Za-z\s{}":\[\],]+$/.test(trimmed)) return false;
+  return true;
+}
+
+function requireValidLlmSummary(llmSummary: string | null | undefined): string {
+  if (isValidLlmSummary(llmSummary)) {
+    return llmSummary.trim();
+  }
+  throw new Error("LLM summary quality insufficient");
+}
 
 type ProcessJobsOptions = {
   conversationId?: string;
@@ -52,6 +61,7 @@ type ConversationPayload = {
   studentId: string;
   sessionId?: string | null;
   sessionType?: SessionType | null;
+  sessionDate?: Date | string | null;
   rawTextOriginal?: string | null;
   rawTextCleaned?: string | null;
   rawSegments?: any[] | null;
@@ -115,15 +125,7 @@ function normalizeSourceText(payload: ConversationPayload) {
 }
 
 function hasSinglePassArtifacts(payload: ConversationPayload) {
-  const hasTimeline = Array.isArray(payload.timelineJson) && payload.timelineJson.length > 0;
-  const hasActions = Array.isArray(payload.nextActionsJson) && payload.nextActionsJson.length > 0;
-  return Boolean(
-    payload.summaryMarkdown?.trim() &&
-    hasTimeline &&
-    hasActions &&
-    payload.profileDeltaJson &&
-    payload.parentPackJson
-  );
+  return Boolean(payload.summaryMarkdown?.trim());
 }
 
 function estimateSttSeconds(segments?: Array<{ start?: number; end?: number }> | null) {
@@ -142,13 +144,16 @@ function dependencySatisfied(
 ) {
   if (type === ConversationJobType.CHUNK_ANALYZE) return true;
   if (type === ConversationJobType.REDUCE) {
-    return statusByType.get(ConversationJobType.CHUNK_ANALYZE) === JobStatus.DONE;
+    const analyzeStatus = statusByType.get(ConversationJobType.CHUNK_ANALYZE);
+    return typeof analyzeStatus === "undefined" || analyzeStatus === JobStatus.DONE;
   }
   if (type === ConversationJobType.FINALIZE) {
-    return statusByType.get(ConversationJobType.REDUCE) === JobStatus.DONE;
+    const reduceStatus = statusByType.get(ConversationJobType.REDUCE);
+    return typeof reduceStatus === "undefined" || reduceStatus === JobStatus.DONE;
   }
   if (type === ConversationJobType.FORMAT) {
-    return statusByType.get(ConversationJobType.FINALIZE) === JobStatus.DONE;
+    const finalizeStatus = statusByType.get(ConversationJobType.FINALIZE);
+    return typeof finalizeStatus === "undefined" || finalizeStatus === JobStatus.DONE;
   }
   return true;
 }
@@ -277,6 +282,7 @@ async function executeAnalyzeJob(job: JobPayload, convo: ConversationPayload) {
       transcript: sourceText,
       studentName: convo.studentName ?? undefined,
       teacherName: convo.teacherName ?? undefined,
+      sessionDate: convo.sessionDate ?? undefined,
       minSummaryChars,
       minTimelineSections,
       sessionType: convo.sessionType === SessionType.LESSON_REPORT ? "LESSON_REPORT" : "INTERVIEW",
@@ -287,41 +293,22 @@ async function executeAnalyzeJob(job: JobPayload, convo: ConversationPayload) {
       result.profileDelta.basic.reduce((acc, i) => acc + (i.evidence_quotes?.length ?? 0), 0) +
       result.profileDelta.personal.reduce((acc, i) => acc + (i.evidence_quotes?.length ?? 0), 0) +
       (result.parentPack?.evidence_quotes?.length ?? 0);
-    const summaryMarkdown = renderOperationalSummaryMarkdown(
-      buildOperationalLog({
-        sessionType: convo.sessionType,
-        createdAt: new Date(),
-        summaryMarkdown: result.summaryMarkdown,
-        timeline: result.timeline as any,
-        nextActions: result.nextActions as any,
-        parentPack: result.parentPack as any,
-        studentState: result.studentState as any,
-        profileSections: result.profileSections as any,
-        quickQuestions: result.quickQuestions as any,
-        lessonReport: result.lessonReport as any,
-      }),
-      {
-        sessionType: convo.sessionType,
-        studentName: convo.studentName,
-        teacherName: convo.teacherName,
-        sessionDate: new Date(),
-      }
-    );
+    const summaryMarkdown = requireValidLlmSummary(result.summaryMarkdown);
 
     await prisma.conversationLog.update({
       where: { id: convo.id },
       data: {
         summaryMarkdown,
-        timelineJson: toPrismaJson(result.timeline),
-        nextActionsJson: toPrismaJson(result.nextActions),
-        profileDeltaJson: toPrismaJson(result.profileDelta),
-        parentPackJson: toPrismaJson(result.parentPack),
-        studentStateJson: toPrismaJson(result.studentState),
-        topicSuggestionsJson: toPrismaJson(result.recommendedTopics),
-        quickQuestionsJson: toPrismaJson(result.quickQuestions),
-        profileSectionsJson: toPrismaJson(result.profileSections),
-        observationJson: toPrismaJson(result.observationEvents),
-        lessonReportJson: toPrismaJson(result.lessonReport),
+        timelineJson: Prisma.DbNull,
+        nextActionsJson: Prisma.DbNull,
+        profileDeltaJson: Prisma.DbNull,
+        parentPackJson: Prisma.DbNull,
+        studentStateJson: Prisma.DbNull,
+        topicSuggestionsJson: Prisma.DbNull,
+        quickQuestionsJson: Prisma.DbNull,
+        profileSectionsJson: Prisma.DbNull,
+        observationJson: Prisma.DbNull,
+        lessonReportJson: Prisma.DbNull,
         qualityMetaJson: toPrismaJson({
           ...(convo.qualityMetaJson ?? {}),
           singlePassMode: true,
@@ -569,54 +556,7 @@ async function executeReduceJob(job: JobPayload, convo: ConversationPayload) {
 async function executeFinalizeJob(job: JobPayload, convo: ConversationPayload) {
   const singlePassMode = (convo.qualityMetaJson as any)?.singlePassMode === true;
   if (singlePassMode && hasSinglePassArtifacts(convo)) {
-    const timeline = (Array.isArray(convo.timelineJson) ? convo.timelineJson : []) as any[];
-    const nextActions = (Array.isArray(convo.nextActionsJson) ? convo.nextActionsJson : []) as any[];
-    const profileDelta = (convo.profileDeltaJson as any) ?? { basic: [], personal: [] };
-    const parentPack = (convo.parentPackJson as any) ?? {
-      what_we_did: [],
-      what_improved: [],
-      what_to_practice: [],
-      risks_or_notes: [],
-      next_time_plan: [],
-      evidence_quotes: [],
-    };
-    const studentState = (convo.studentStateJson as any) ?? null;
-    const recommendedTopics = (Array.isArray(convo.topicSuggestionsJson) ? convo.topicSuggestionsJson : []) as any[];
-    const quickQuestions = (Array.isArray(convo.quickQuestionsJson) ? convo.quickQuestionsJson : []) as any[];
-    const profileSections = (Array.isArray(convo.profileSectionsJson) ? convo.profileSectionsJson : []) as any[];
-    const observationEvents = (Array.isArray(convo.observationJson) ? convo.observationJson : []) as any[];
-    const lessonReport = (convo.lessonReportJson as any) ?? null;
-    const summaryMarkdown = renderOperationalSummaryMarkdown(
-      buildOperationalLog({
-        sessionType: convo.sessionType,
-        createdAt: new Date(),
-        summaryMarkdown: convo.summaryMarkdown ?? "",
-        timeline: timeline as any,
-        nextActions: nextActions as any,
-        parentPack: parentPack as any,
-        studentState: studentState as any,
-        profileSections: profileSections as any,
-        quickQuestions: quickQuestions as any,
-        lessonReport: lessonReport as any,
-      }),
-      {
-        sessionType: convo.sessionType,
-        studentName: convo.studentName,
-        teacherName: convo.teacherName,
-        sessionDate: new Date(),
-      }
-    );
-    const quotesCountTotal =
-      timeline.reduce((acc: number, t: any) => acc + (t?.evidence_quotes?.length ?? 0), 0) +
-      (profileDelta?.basic ?? []).reduce((acc: number, i: any) => acc + (i?.evidence_quotes?.length ?? 0), 0) +
-      (profileDelta?.personal ?? []).reduce((acc: number, i: any) => acc + (i?.evidence_quotes?.length ?? 0), 0) +
-      (parentPack?.evidence_quotes?.length ?? 0);
-
-    try {
-      await applyProfileDelta(convo.studentId, profileDelta, convo.id);
-    } catch (e: any) {
-      console.error("[executeFinalizeJob] applyProfileDelta failed (single-pass, non-fatal):", e?.message);
-    }
+    const summaryMarkdown = requireValidLlmSummary(convo.summaryMarkdown);
 
     const qualityMeta: ConversationQualityMeta = {
       ...(convo.qualityMetaJson ?? {}),
@@ -625,9 +565,9 @@ async function executeFinalizeJob(job: JobPayload, convo: ConversationPayload) {
         (convo.qualityMetaJson as any)?.modelAnalyze ||
         "skip-single-pass",
       summaryCharCount: summaryMarkdown.length,
-      timelineSectionCount: timeline.length,
-      todoCount: nextActions.length,
-      quotesCountTotal,
+      timelineSectionCount: 0,
+      todoCount: 0,
+      quotesCountTotal: 0,
       jobSecondsFinalize: 0,
       llmApiCallsFinalize: 0,
       finalizeRepaired: (convo.qualityMetaJson as any)?.singlePassRepaired ?? false,
@@ -640,6 +580,16 @@ async function executeFinalizeJob(job: JobPayload, convo: ConversationPayload) {
       where: { id: convo.id },
       data: {
         summaryMarkdown,
+        timelineJson: Prisma.DbNull,
+        nextActionsJson: Prisma.DbNull,
+        profileDeltaJson: Prisma.DbNull,
+        parentPackJson: Prisma.DbNull,
+        studentStateJson: Prisma.DbNull,
+        topicSuggestionsJson: Prisma.DbNull,
+        quickQuestionsJson: Prisma.DbNull,
+        profileSectionsJson: Prisma.DbNull,
+        observationJson: Prisma.DbNull,
+        lessonReportJson: Prisma.DbNull,
         qualityMetaJson: toPrismaJson(qualityMeta),
       },
     });
@@ -654,8 +604,8 @@ async function executeFinalizeJob(job: JobPayload, convo: ConversationPayload) {
           skipped: true,
           reason: "single-pass",
           summaryCharCount: summaryMarkdown.length,
-          timelineSectionCount: timeline.length,
-          todoCount: nextActions.length,
+          timelineSectionCount: 0,
+          todoCount: 0,
           llmApiCalls: 0,
           repaired: (convo.qualityMetaJson as any)?.singlePassRepaired ?? false,
         }),
@@ -686,29 +636,26 @@ async function executeFinalizeJob(job: JobPayload, convo: ConversationPayload) {
     return {
       result: {
         summaryMarkdown,
-        timeline: timeline as any,
-        nextActions: nextActions as any,
-        profileDelta: profileDelta as any,
-        parentPack: parentPack as any,
-        studentState: studentState as any,
-        recommendedTopics: recommendedTopics as any,
-        quickQuestions: quickQuestions as any,
-        profileSections: profileSections as any,
-        observationEvents: observationEvents as any,
-        lessonReport: lessonReport as any,
+        timeline: [],
+        nextActions: [],
+        profileDelta: { basic: [], personal: [] },
+        parentPack: {
+          what_we_did: [],
+          what_improved: [],
+          what_to_practice: [],
+          risks_or_notes: [],
+          next_time_plan: [],
+          evidence_quotes: [],
+        },
+        studentState: { label: "安定", oneLiner: "", rationale: [], confidence: 0 },
+        recommendedTopics: [],
+        quickQuestions: [],
+        profileSections: [],
+        observationEvents: [],
+        lessonReport: null,
       },
       duration: 0,
     };
-  }
-
-  const reduceJob = await prisma.conversationJob.findFirst({
-    where: { conversationId: convo.id, type: ConversationJobType.REDUCE, status: JobStatus.DONE },
-    select: { outputJson: true },
-  });
-
-  const reduced = (reduceJob?.outputJson as any)?.reduced as ReducedAnalysis | undefined;
-  if (!reduced) {
-    throw new Error("FINALIZE dependencies not ready");
   }
 
   const sourceText = normalizeSourceText(convo);
@@ -716,10 +663,11 @@ async function executeFinalizeJob(job: JobPayload, convo: ConversationPayload) {
   const minTimelineSections = sourceText.length >= 12000 ? 3 : 2;
 
   const start = Date.now();
-  const { result, model, apiCalls: finalizeApiCalls, repaired } = await finalizeConversationArtifacts({
+  const { result, model, apiCalls: finalizeApiCalls, repaired } = await generateConversationArtifactsSinglePass({
+    transcript: sourceText,
     studentName: convo.studentName ?? undefined,
     teacherName: convo.teacherName ?? undefined,
-    reduced,
+    sessionDate: convo.sessionDate ?? undefined,
     minSummaryChars,
     minTimelineSections,
     sessionType: convo.sessionType === SessionType.LESSON_REPORT ? "LESSON_REPORT" : "INTERVIEW",
@@ -731,26 +679,7 @@ async function executeFinalizeJob(job: JobPayload, convo: ConversationPayload) {
     result.profileDelta.basic.reduce((acc, i) => acc + (i.evidence_quotes?.length ?? 0), 0) +
     result.profileDelta.personal.reduce((acc, i) => acc + (i.evidence_quotes?.length ?? 0), 0) +
     (result.parentPack?.evidence_quotes?.length ?? 0);
-  const summaryMarkdown = renderOperationalSummaryMarkdown(
-    buildOperationalLog({
-      sessionType: convo.sessionType,
-      createdAt: new Date(),
-      summaryMarkdown: result.summaryMarkdown,
-      timeline: result.timeline as any,
-      nextActions: result.nextActions as any,
-      parentPack: result.parentPack as any,
-      studentState: result.studentState as any,
-      profileSections: result.profileSections as any,
-      quickQuestions: result.quickQuestions as any,
-      lessonReport: result.lessonReport as any,
-    }),
-    {
-      sessionType: convo.sessionType,
-      studentName: convo.studentName,
-      teacherName: convo.teacherName,
-      sessionDate: new Date(),
-    }
-  );
+  const summaryMarkdown = requireValidLlmSummary(result.summaryMarkdown);
 
   const qualityMeta: ConversationQualityMeta = {
     ...(convo.qualityMetaJson ?? {}),
@@ -771,16 +700,16 @@ async function executeFinalizeJob(job: JobPayload, convo: ConversationPayload) {
       where: { id: convo.id },
       data: {
         summaryMarkdown,
-        timelineJson: toPrismaJson(result.timeline),
-        nextActionsJson: toPrismaJson(result.nextActions),
-        profileDeltaJson: toPrismaJson(result.profileDelta),
-        parentPackJson: toPrismaJson(result.parentPack),
-        studentStateJson: toPrismaJson(result.studentState),
-        topicSuggestionsJson: toPrismaJson(result.recommendedTopics),
-        quickQuestionsJson: toPrismaJson(result.quickQuestions),
-        profileSectionsJson: toPrismaJson(result.profileSections),
-        observationJson: toPrismaJson(result.observationEvents),
-        lessonReportJson: toPrismaJson(result.lessonReport),
+        timelineJson: Prisma.DbNull,
+        nextActionsJson: Prisma.DbNull,
+        profileDeltaJson: Prisma.DbNull,
+        parentPackJson: Prisma.DbNull,
+        studentStateJson: Prisma.DbNull,
+        topicSuggestionsJson: Prisma.DbNull,
+        quickQuestionsJson: Prisma.DbNull,
+        profileSectionsJson: Prisma.DbNull,
+        observationJson: Prisma.DbNull,
+        lessonReportJson: Prisma.DbNull,
         qualityMetaJson: toPrismaJson(qualityMeta),
       },
   });
@@ -800,19 +729,13 @@ async function executeFinalizeJob(job: JobPayload, convo: ConversationPayload) {
       }),
       costMetaJson: toPrismaJson({
         promptVersion: getPromptVersion(),
-        inputTokensEstimate: estimateTokens(JSON.stringify(reduced)),
+        inputTokensEstimate: estimateTokens(sourceText),
         outputTokensEstimate: estimateTokens(JSON.stringify(result)),
         seconds: Math.round(duration / 1000),
         llmApiCalls: finalizeApiCalls,
       }),
     },
   });
-
-  try {
-    await applyProfileDelta(convo.studentId, result.profileDelta, convo.id);
-  } catch (e: any) {
-    console.error("[executeFinalizeJob] applyProfileDelta failed (non-fatal):", e?.message);
-  }
 
   await updateConversationStatus(convo.id);
   await syncSessionAfterConversation(convo.id);
@@ -909,7 +832,7 @@ async function executeJob(job: JobPayload) {
     include: {
       student: { select: { name: true } },
       user: { select: { name: true } },
-      session: { select: { id: true, type: true } },
+      session: { select: { id: true, type: true, sessionDate: true } },
     },
   });
   if (!convo) throw new Error("conversation not found");
@@ -919,6 +842,7 @@ async function executeJob(job: JobPayload) {
     studentId: convo.studentId,
     sessionId: convo.sessionId,
     sessionType: convo.session?.type ?? null,
+    sessionDate: convo.session?.sessionDate ?? null,
     rawTextOriginal: convo.rawTextOriginal,
     rawTextCleaned: convo.rawTextCleaned,
     rawSegments: (convo.rawSegments as any[]) ?? [],

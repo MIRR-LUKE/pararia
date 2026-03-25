@@ -5,7 +5,7 @@ import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { GenerationProgress } from "@/components/ui/GenerationProgress";
 import { buildParentReportGenerationProgress } from "@/lib/generation-progress";
-import { buildBundlePreview, buildBundleQualityEval, type ReportBundleLog } from "@/lib/operational-log";
+import { buildBundlePreview, buildBundleQualityEval, buildReportBundleLog, type ReportBundleLog } from "@/lib/operational-log";
 import { reportStatusLabel } from "@/lib/report-delivery";
 import type { ReportItem, ReportStudioView, SessionItem } from "./roomTypes";
 import styles from "./reportStudio.module.css";
@@ -19,20 +19,23 @@ type Props = {
   selectedSessionIds: string[];
   onSelectedSessionIdsChange: (ids: string[]) => void;
   onRefresh: () => Promise<void> | void;
-  onOpenProof: (logId: string) => void;
+  onOpenLog: (logId: string) => void;
   onViewChange: (view: ReportStudioView) => void;
 };
 
 function toBundleLogs(sessions: SessionItem[]): ReportBundleLog[] {
   return sessions
-    .filter((session) => session.conversation?.operationalLog)
-    .map((session) => ({
-      id: session.id,
-      sessionId: session.id,
-      date: session.sessionDate,
-      mode: session.type,
-      operationalLog: session.conversation!.operationalLog!,
-    }));
+    .filter((session) => Boolean(session.conversation?.summaryMarkdown?.trim()))
+    .map((session) =>
+      buildReportBundleLog({
+        id: session.id,
+        sessionId: session.id,
+        date: session.sessionDate,
+        mode: session.type,
+        sessionType: session.type,
+        summaryMarkdown: session.conversation!.summaryMarkdown!,
+      })
+    );
 }
 
 function splitParagraphs(markdown?: string | null) {
@@ -64,7 +67,7 @@ export function ReportStudio({
   selectedSessionIds,
   onSelectedSessionIdsChange,
   onRefresh,
-  onOpenProof,
+  onOpenLog,
   onViewChange,
 }: Props) {
   const [draftMarkdown, setDraftMarkdown] = useState("");
@@ -76,7 +79,7 @@ export function ReportStudio({
   >(null);
 
   const candidateSessions = useMemo(
-    () => sessions.filter((session) => session.conversation?.operationalLog),
+    () => sessions.filter((session) => Boolean(session.conversation?.summaryMarkdown?.trim())),
     [sessions]
   );
   const selectedSessions = useMemo(
@@ -425,10 +428,10 @@ export function ReportStudio({
                       onClick={() => {
                         const proofId =
                           selectedSessions[index]?.conversation?.id ?? selectedSessions[0]?.conversation?.id;
-                        if (proofId) onOpenProof(proofId);
+                        if (proofId) onOpenLog(proofId);
                       }}
                     >
-                      根拠を見る
+                      ログを見る
                     </Button>
                   </div>
                   <p className={styles.reportParagraph}>{paragraph.replace(/^#+\s*/gm, "")}</p>

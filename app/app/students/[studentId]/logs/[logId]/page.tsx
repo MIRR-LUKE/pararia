@@ -5,5 +5,5 @@ export default function StudentLogDetailRedirect({
 }: {
   params: { studentId: string; logId: string };
 }) {
-  redirect(`/app/students/${params.studentId}?panel=proof&logId=${params.logId}`);
+  redirect(`/app/students/${params.studentId}?panel=log&logId=${params.logId}`);
 }

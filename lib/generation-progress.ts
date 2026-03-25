@@ -24,8 +24,8 @@ type ConversationJobLike = {
 };
 
 const CONVERSATION_STEP_LABELS: Record<GenerationMode, string[]> = {
-  INTERVIEW: ["保存", "文字起こし", "分析", "ログ生成", "完了"],
-  LESSON_REPORT: ["保存", "文字起こし", "分析", "報告生成", "完了"],
+  INTERVIEW: ["保存", "文字起こし", "ログ生成", "完了"],
+  LESSON_REPORT: ["保存", "文字起こし", "報告生成", "完了"],
 };
 
 const PARENT_REPORT_STEP_LABELS = ["確認", "整理", "生成", "保存"];
@@ -94,8 +94,7 @@ function estimateValue(steps: GenerationStep[]) {
 function getConversationErrorIndex(jobs: ConversationJobLike[]) {
   const firstError = jobs.find((job) => job.status === "ERROR");
   if (!firstError) return 0;
-  if (firstError.type === "FINALIZE") return 3;
-  if (firstError.type === "REDUCE") return 3;
+  if (firstError.type === "FINALIZE" || firstError.type === "REDUCE") return 2;
   if (firstError.type === "CHUNK_ANALYZE") return 2;
   return 1;
 }
@@ -106,9 +105,8 @@ function getConversationCurrentIndex(jobs: ConversationJobLike[]) {
   const reduce = byType.get("REDUCE");
   const finalize = byType.get("FINALIZE");
 
-  if (finalize === "DONE") return 4;
-  if (finalize === "RUNNING" || reduce === "DONE") return 3;
-  if (reduce === "RUNNING" || analyze === "DONE" || analyze === "RUNNING") return 2;
+  if (finalize === "DONE") return 3;
+  if (finalize === "RUNNING" || reduce === "DONE" || reduce === "RUNNING" || analyze === "DONE" || analyze === "RUNNING") return 2;
   return 1;
 }
 
@@ -158,10 +156,9 @@ export function buildConversationGenerationProgress(input: {
   const descriptionByIndex = [
     "音声データを安全に保存しています。",
     "文字起こしを整えています。",
-    "会話の要点を抽出しています。",
     input.mode === "LESSON_REPORT"
-      ? "指導報告と引き継ぎ事項を生成しています。"
-      : "面談ログと話題候補を生成しています。",
+      ? "指導報告ログを生成しています。"
+      : "面談ログを生成しています。",
     "最終確認しています。",
   ];
 

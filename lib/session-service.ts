@@ -64,18 +64,6 @@ export function buildSessionTranscript(sessionType: SessionType, parts: SessionP
     .filter((chunk): chunk is string => Boolean(chunk));
 
   if (chunks.length === 0) return "";
-
-  if (sessionType === SessionType.LESSON_REPORT) {
-    const preface = [
-      "## セッション構成",
-      "- 授業前チェックイン: 授業前の状態・宿題状況・今日扱いたいこと",
-      "- 面談・通し録音: 授業中に扱った内容ややり取り",
-      "- 授業後チェックアウト: 授業後の理解・つまずき・宿題・次回確認",
-    ].join("\n");
-
-    return [preface, ...chunks].join("\n\n").trim();
-  }
-
   return chunks.join("\n\n").trim();
 }
 
@@ -165,6 +153,17 @@ function mapConversationToSessionStatus(status: ConversationStatus): SessionStat
   return SessionStatus.PROCESSING;
 }
 
+function extractHeroOneLiner(summaryMarkdown?: string | null) {
+  const lines = String(summaryMarkdown ?? "")
+    .replace(/\r/g, "")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .filter((line) => !line.startsWith("■ "));
+  const line = lines.find((item) => !item.startsWith("- ") && !item.startsWith("対象生徒:")) ?? lines[0] ?? "";
+  return line.slice(0, 100) || null;
+}
+
 export async function syncSessionAfterConversation(conversationId: string) {
   const conversation = await prisma.conversationLog.findUnique({
     where: { id: conversationId },
@@ -174,20 +173,24 @@ export async function syncSessionAfterConversation(conversationId: string) {
       studentId: true,
       status: true,
       summaryMarkdown: true,
-      studentStateJson: true,
+      session: {
+        select: {
+          type: true,
+        },
+      },
     },
   });
   if (!conversation?.sessionId) return;
-
-  const studentState = (conversation.studentStateJson ?? {}) as { label?: string; oneLiner?: string };
+  const heroStateLabel = conversation.session?.type === SessionType.LESSON_REPORT ? "指導報告ログ" : "面談ログ";
+  const heroOneLiner = extractHeroOneLiner(conversation.summaryMarkdown);
 
   await prisma.session.update({
     where: { id: conversation.sessionId },
     data: {
       status: mapConversationToSessionStatus(conversation.status),
-      heroStateLabel: studentState.label ?? undefined,
-      heroOneLiner: studentState.oneLiner ?? undefined,
-      latestSummary: conversation.summaryMarkdown ?? undefined,
+      heroStateLabel,
+      heroOneLiner,
+      latestSummary: conversation.summaryMarkdown ?? null,
       completedAt: conversation.status === ConversationStatus.DONE ? new Date() : null,
     },
   });

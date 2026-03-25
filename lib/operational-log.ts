@@ -89,8 +89,8 @@ const SUMMARY_DUMP_PATTERNS = [
 ];
 
 const SECTION_ALIASES: Record<keyof OperationalLog, string[]> = {
-  theme: ["今回の会話テーマ", "会話テーマ", "今回のテーマ", "本日の指導サマリー", "本日の指導サマリー（室長向け要約）"],
-  facts: ["事実として分かったこと", "会話で確認できた事実", "面談で確認した事実", "超解像度高い具体性を持ったサマリー"],
+  theme: ["今回の会話テーマ", "会話テーマ", "今回のテーマ", "本日の指導サマリー", "本日の指導サマリー（室長向け要約）", "1. サマリー"],
+  facts: ["事実として分かったこと", "会話で確認できた事実", "面談で確認した事実", "超解像度高い具体性を持ったサマリー", "1. サマリー"],
   changes: ["変化として見えたこと", "今回の変化", "今週の変化", "ポジティブな話題", "課題と指導成果", "課題と指導成果（Before → After）"],
   assessment: ["講師としての見立て", "指導の核", "講師の見立て", "改善・対策が必要な話題"],
   nextChecks: ["次に確認すべきこと", "次回までの方針", "次回方針", "学習方針と次回アクション", "学習方針と次回アクション（自学習の設計）"],
@@ -212,8 +212,8 @@ function parseSummarySections(markdown?: string | null) {
     const line = rawLine.trim();
     if (!line) continue;
 
-    if (line.startsWith("## ")) {
-      const heading = normalizeKey(line.slice(3));
+    if (line.startsWith("## ") || line.startsWith("■ ")) {
+      const heading = normalizeKey(line.slice(2).trim());
       currentKey =
         (Object.entries(SECTION_ALIASES).find(([, aliases]) =>
           aliases.some((alias) => normalizeKey(alias) === heading)
@@ -273,6 +273,7 @@ function deriveFacts(input: OperationalLogInput, parsed: Partial<Record<keyof Op
   return takeLines(
     [
       ...(parsed.facts ?? []),
+      ...(parsed.theme ?? []),
       ...asArray<string | null | undefined>(parentPack?.what_we_did),
       ...timeline.map((item) => item?.what_happened),
       ...asArray<string | null | undefined>(lessonReport?.covered),
@@ -334,6 +335,7 @@ function deriveNextChecks(input: OperationalLogInput, parsed: Partial<Record<key
   return takeLines(
     [
       ...(parsed.nextChecks ?? []),
+      ...(parsed.assessment ?? []),
       ...nextActions.map((item) => {
         const action = sanitizeLine(item?.action);
         const metric = sanitizeLine(item?.metric);
@@ -489,7 +491,7 @@ export function renderOperationalSummaryMarkdown(log: OperationalLog, meta?: Ope
       lines.push(`• ${item}`);
     }
   } else {
-    lines.push("■ 1. 超解像度高い具体性を持ったサマリー");
+    lines.push("■ 1. サマリー");
     lines.push(log.theme);
     if (log.facts.length > 0) {
       lines.push(log.facts.join(" "));

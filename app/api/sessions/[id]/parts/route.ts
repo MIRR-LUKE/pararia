@@ -282,6 +282,7 @@ export async function POST(
       session,
       conversationId,
       generationError,
+      generationDeferred: false,
     });
   } catch (error: any) {
     console.error("[POST /api/sessions/[id]/parts] Error:", error);

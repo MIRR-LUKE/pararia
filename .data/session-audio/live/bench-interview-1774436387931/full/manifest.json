@@ -1,0 +1,152 @@
+{
+  "sessionId": "bench-interview-1774436387931",
+  "partType": "FULL",
+  "mimeType": "audio/mp4",
+  "totalDurationMs": 119998,
+  "updatedAt": "2026-03-25T10:59:58.579Z",
+  "chunks": [
+    {
+      "sequence": 0,
+      "fileName": "chunk-000.m4a",
+      "mimeType": "audio/mp4",
+      "byteSize": 243885,
+      "storageUrl": "C:\\Users\\lukew\\Desktop\\pararia SaaS\\.data\\session-audio\\live\\bench-interview-1774436387931\\full\\00000-chunk-000.m4a",
+      "startedAtMs": 0,
+      "durationMs": 15019,
+      "status": "READY",
+      "rawTextOriginal": "録音始めたけど。\n今週出した三角関数はやりましたか。\nこれは証明書。",
+      "rawTextCleaned": "録音始めたけど。\n今週出した三角関数はやりましたか。 これは証明書。",
+      "rawSegments": [],
+      "meta": {
+        "sttSeconds": 2,
+        "sttModel": "gpt-4o-transcribe",
+        "sttResponseFormat": "text",
+        "sttFallbackUsed": false
+      }
+    },
+    {
+      "sequence": 1,
+      "fileName": "chunk-001.m4a",
+      "mimeType": "audio/mp4",
+      "byteSize": 244908,
+      "storageUrl": "C:\\Users\\lukew\\Desktop\\pararia SaaS\\.data\\session-audio\\live\\bench-interview-1774436387931\\full\\00001-chunk-001.m4a",
+      "startedAtMs": 15019,
+      "durationMs": 14997,
+      "status": "READY",
+      "rawTextOriginal": "本当に証明必要だったから、\n理解してるし、分かんないところは",
+      "rawTextCleaned": "本当に証明必要だったから、\n理解してるし、分かんないところは",
+      "rawSegments": [],
+      "meta": {
+        "sttSeconds": 2,
+        "sttModel": "gpt-4o-transcribe",
+        "sttResponseFormat": "text",
+        "sttFallbackUsed": false
+      }
+    },
+    {
+      "sequence": 2,
+      "fileName": "chunk-002.m4a",
+      "mimeType": "audio/mp4",
+      "byteSize": 244457,
+      "storageUrl": "C:\\Users\\lukew\\Desktop\\pararia SaaS\\.data\\session-audio\\live\\bench-interview-1774436387931\\full\\00002-chunk-002.m4a",
+      "startedAtMs": 30016,
+      "durationMs": 14997,
+      "status": "READY",
+      "rawTextOriginal": "やった中では。\nうん。\nまあでも。\nぱっと見\n変なことは書いていなさそう。",
+      "rawTextCleaned": "やった中では。 。 まあでも。 ぱっと見\n変なことは書いていなさそう。",
+      "rawSegments": [],
+      "meta": {
+        "sttSeconds": 1,
+        "sttModel": "gpt-4o-transcribe",
+        "sttResponseFormat": "text",
+        "sttFallbackUsed": false
+      }
+    },
+    {
+      "sequence": 3,
+      "fileName": "chunk-003.m4a",
+      "mimeType": "audio/mp4",
+      "byteSize": 245416,
+      "storageUrl": "C:\\Users\\lukew\\Desktop\\pararia SaaS\\.data\\session-audio\\live\\bench-interview-1774436387931\\full\\00003-chunk-003.m4a",
+      "startedAtMs": 45013,
+      "durationMs": 14997,
+      "status": "READY",
+      "rawTextOriginal": "ここの部分。\n教科書で相互関係って出てるところがそのままボンと出していいのかが心配になる。",
+      "rawTextCleaned": "ここの部分。\n教科書で相互関係って出てるところがそのままボンと出していいのかが心配になる。",
+      "rawSegments": [],
+      "meta": {
+        "sttSeconds": 1,
+        "sttModel": "gpt-4o-transcribe",
+        "sttResponseFormat": "text",
+        "sttFallbackUsed": false
+      }
+    },
+    {
+      "sequence": 4,
+      "fileName": "chunk-004.m4a",
+      "mimeType": "audio/mp4",
+      "byteSize": 244173,
+      "storageUrl": "C:\\Users\\lukew\\Desktop\\pararia SaaS\\.data\\session-audio\\live\\bench-interview-1774436387931\\full\\00004-chunk-004.m4a",
+      "startedAtMs": 60010,
+      "durationMs": 14997,
+      "status": "READY",
+      "rawTextOriginal": "で\nですね。\nわからんことない?\nね。\n今週は学校で体育の講習だったんで、",
+      "rawTextCleaned": "で ですね。\nわからんことない? ね。\n今週は学校で体育の講習だったんで、",
+      "rawSegments": [],
+      "meta": {
+        "sttSeconds": 1,
+        "sttModel": "gpt-4o-transcribe",
+        "sttResponseFormat": "text",
+        "sttFallbackUsed": false
+      }
+    },
+    {
+      "sequence": 5,
+      "fileName": "chunk-005.m4a",
+      "mimeType": "audio/mp4",
+      "byteSize": 244570,
+      "storageUrl": "C:\\Users\\lukew\\Desktop\\pararia SaaS\\.data\\session-audio\\live\\bench-interview-1774436387931\\full\\00005-chunk-005.m4a",
+      "startedAtMs": 75007,
+      "durationMs": 14997,
+      "status": "READY",
+      "rawTextOriginal": "ベンチでやったの。\nすごいノートの跡がある。",
+      "rawTextCleaned": "ベンチでやったの。\nすごいノートの跡がある。",
+      "rawSegments": [],
+      "meta": {
+        "sttSeconds": 2,
+        "sttModel": "gpt-4o-transcribe",
+        "sttResponseFormat": "text",
+        "sttFallbackUsed": false
+      }
+    },
+    {
+      "sequence": 6,
+      "fileName": "chunk-006.m4a",
+      "mimeType": "audio/mp4",
+      "byteSize": 245196,
+      "storageUrl": "C:\\Users\\lukew\\Desktop\\pararia SaaS\\.data\\session-audio\\live\\bench-interview-1774436387931\\full\\00006-chunk-006.m4a",
+      "startedAtMs": 90004,
+      "durationMs": 14997,
+      "status": "READY",
+      "rawTextOriginal": "だから\nどちらかというと科学に時間を割いてたからいい。",
+      "rawTextCleaned": "だから\nどちらかというと科学に時間を割いてたからいい。",
+      "rawSegments": [],
+      "meta": {
+        "sttSeconds": 1,
+        "sttModel": "gpt-4o-transcribe",
+        "sttResponseFormat": "text",
+        "sttFallbackUsed": false
+      }
+    },
+    {
+      "sequence": 7,
+      "fileName": "chunk-007.m4a",
+      "mimeType": "audio/mp4",
+      "byteSize": 244897,
+      "storageUrl": "C:\\Users\\lukew\\Desktop\\pararia SaaS\\.data\\session-audio\\live\\bench-interview-1774436387931\\full\\00007-chunk-007.m4a",
+      "startedAtMs": 105001,
+      "durationMs": 14997,
+      "status": "TRANSCRIBING"
+    }
+  ]
+}

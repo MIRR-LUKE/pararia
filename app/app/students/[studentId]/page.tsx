@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { Button } from "@/components/ui/Button";
+import { StructuredMarkdown } from "@/components/ui/StructuredMarkdown";
 import { getLessonReportPartState, pickOngoingLessonReportSession } from "@/lib/lesson-report-flow";
 import { LogDetailView } from "../../logs/LogDetailView";
 import { ReportStudio } from "./ReportStudio";
@@ -14,7 +15,7 @@ import {
   type SessionConsoleMode,
 } from "./StudentSessionConsole";
 import { StudentSessionStream } from "./StudentSessionStream";
-import type { ReportStudioView, RoomResponse, SessionItem, TopicCard } from "./roomTypes";
+import type { ReportStudioView, RoomResponse, SessionItem } from "./roomTypes";
 import styles from "./studentDetail.module.css";
 
 type TabKey = "communications" | "lessonReports" | "parentReports";
@@ -23,31 +24,9 @@ type SortOrder = "desc" | "asc";
 
 type OverlayState =
   | { kind: "none" }
-  | { kind: "proof"; logId: string }
+  | { kind: "log"; logId: string }
   | { kind: "report"; view: ReportStudioView }
-  | { kind: "lessonReport"; sessionId: string }
   | { kind: "parentReport"; reportId: string };
-
-const FALLBACK_TOPICS = [
-  {
-    category: "学習",
-    items: [
-      { title: "直近の学習で手応えがあった単元を聞く" },
-      { title: "今つまずいている問題の種類を確認する" },
-    ],
-  },
-  {
-    category: "生活",
-    items: [
-      { title: "今週の生活リズムで崩れた日を確認する" },
-      { title: "勉強に入りやすかった時間帯を聞く" },
-    ],
-  },
-  {
-    category: "進路",
-    items: [{ title: "次の模試で見たい指標を一つ決める" }],
-  },
-];
 
 function normalizeTab(value: string | null): TabKey {
   if (value === "lessonReports") return "lessonReports";
@@ -105,19 +84,6 @@ function lessonSummaryLabel(session: SessionItem) {
   if (types.includes("CHECK_OUT")) return "チェックアウト";
   if (types.includes("CHECK_IN")) return "チェックイン";
   return "指導報告";
-}
-
-function groupTopics(topics?: TopicCard[] | null) {
-  const grouped = new Map<string, TopicCard[]>();
-  for (const topic of topics ?? []) {
-    const current = grouped.get(topic.category) ?? [];
-    current.push(topic);
-    grouped.set(topic.category, current);
-  }
-  return Array.from(grouped.entries()).map(([category, items]) => ({
-    category,
-    items: items.slice(0, 2),
-  }));
 }
 
 function userBadge(name?: string | null) {
@@ -220,8 +186,8 @@ export default function StudentDetailPage({ params }: { params: { studentId: str
     const reportId = searchParams.get("reportId");
     const lessonSessionId = searchParams.get("lessonSessionId");
 
-    if (panel === "proof" && logId) {
-      setOverlay({ kind: "proof", logId });
+    if (panel === "log" && logId) {
+      setOverlay({ kind: "log", logId });
       return;
     }
     if (panel === "report") {
@@ -229,8 +195,11 @@ export default function StudentDetailPage({ params }: { params: { studentId: str
       return;
     }
     if (panel === "lessonReport" && lessonSessionId) {
-      setOverlay({ kind: "lessonReport", sessionId: lessonSessionId });
-      return;
+      const lessonSession = room.sessions.find((session) => session.id === lessonSessionId);
+      if (lessonSession?.conversation?.id) {
+        setOverlay({ kind: "log", logId: lessonSession.conversation.id });
+        return;
+      }
     }
     if (panel === "parentReport" && reportId) {
       setOverlay({ kind: "parentReport", reportId });
@@ -274,7 +243,7 @@ export default function StudentDetailPage({ params }: { params: { studentId: str
   }, [ongoingLessonSession, syncUrl]);
 
   const candidateReportSessions = useMemo(
-    () => (room?.sessions ?? []).filter((session) => session.conversation?.operationalLog),
+    () => (room?.sessions ?? []).filter((session) => Boolean(session.conversation?.summaryMarkdown?.trim())),
     [room?.sessions]
   );
 
@@ -290,7 +259,7 @@ export default function StudentDetailPage({ params }: { params: { studentId: str
   }, [periodFilter, room?.sessions, sortOrder]);
 
   const lessonSessions = useMemo(() => {
-    const base = (room?.sessions ?? []).filter((session) => session.type === "LESSON_REPORT" && session.conversation?.lessonReportJson);
+    const base = (room?.sessions ?? []).filter((session) => session.type === "LESSON_REPORT" && session.conversation?.id);
     const filtered = periodFilter === "month" ? base.filter((session) => withinCurrentMonth(session.sessionDate)) : base;
     return [...filtered].sort((left, right) =>
       sortOrder === "desc"
@@ -311,10 +280,6 @@ export default function StudentDetailPage({ params }: { params: { studentId: str
 
   const latestConversation = room?.latestConversation ?? null;
   const latestReport = room?.reports[0] ?? null;
-  const topics = useMemo(() => {
-    const grouped = groupTopics(latestConversation?.topicSuggestionsJson).slice(0, 3);
-    return grouped.length > 0 ? grouped : FALLBACK_TOPICS;
-  }, [latestConversation?.topicSuggestionsJson]);
   const viewerBadge = userBadge(session?.user?.name ?? null);
   const allSelectionIds = reportSelectionSessions.map((item) => item.id);
   const allSelected = allSelectionIds.length > 0 && allSelectionIds.every((id) => selectedSessionIds.includes(id));
@@ -342,10 +307,10 @@ export default function StudentDetailPage({ params }: { params: { studentId: str
     handleSelectedSessionIdsChange(allSelected ? [] : allSelectionIds);
   }, [allSelected, allSelectionIds, handleSelectedSessionIdsChange]);
 
-  const openProof = useCallback(
+  const openLog = useCallback(
     (logId: string) => {
-      setOverlay({ kind: "proof", logId });
-      syncUrl({ panel: "proof", logId, reportId: null, lessonSessionId: null });
+      setOverlay({ kind: "log", logId });
+      syncUrl({ panel: "log", logId, reportId: null, lessonSessionId: null });
     },
     [syncUrl]
   );
@@ -354,14 +319,6 @@ export default function StudentDetailPage({ params }: { params: { studentId: str
     (view: ReportStudioView) => {
       setOverlay({ kind: "report", view });
       syncUrl({ panel: "report", logId: null, reportId: null, lessonSessionId: null });
-    },
-    [syncUrl]
-  );
-
-  const openLessonReport = useCallback(
-    (sessionId: string) => {
-      setOverlay({ kind: "lessonReport", sessionId });
-      syncUrl({ panel: "lessonReport", lessonSessionId: sessionId, logId: null, reportId: null, tab: "lessonReports" });
     },
     [syncUrl]
   );
@@ -378,11 +335,6 @@ export default function StudentDetailPage({ params }: { params: { studentId: str
     setOverlay({ kind: "none" });
     syncUrl({ panel: null, logId: null, reportId: null, lessonSessionId: null });
   }, [syncUrl]);
-
-  const activeLessonReport =
-    overlay.kind === "lessonReport"
-      ? lessonSessions.find((session) => session.id === overlay.sessionId) ?? null
-      : null;
   const activeParentReport =
     overlay.kind === "parentReport" ? parentReports.find((report) => report.id === overlay.reportId) ?? null : null;
 
@@ -436,7 +388,7 @@ export default function StudentDetailPage({ params }: { params: { studentId: str
               syncUrl({ part: nextPart });
             }}
             onRefresh={refresh}
-            onOpenProof={openProof}
+            onOpenLog={openLog}
             recordingLock={room.recordingLock}
             showModePicker
           />
@@ -485,24 +437,6 @@ export default function StudentDetailPage({ params }: { params: { studentId: str
             </Button>
             <span className={styles.selectionCount}>{selectedSessionIds.length}件選択中</span>
           </div>
-        </div>
-      </section>
-
-      <section className={styles.topicSection}>
-        <div className={styles.sectionTitle}>おすすめの話題</div>
-        <div className={styles.topicColumns}>
-          {topics.map((group) => (
-            <div key={group.category} className={styles.topicGroup}>
-              <div className={styles.topicGroupLabel}>{group.category}</div>
-              <div className={styles.topicTagList}>
-                {group.items.map((item) => (
-                  <button key={`${group.category}-${item.title}`} type="button" className={styles.topicTag}>
-                    {item.title}
-                  </button>
-                ))}
-              </div>
-            </div>
-          ))}
         </div>
       </section>
 
@@ -563,7 +497,7 @@ export default function StudentDetailPage({ params }: { params: { studentId: str
         </div>
 
         {activeTab === "communications" ? (
-          <StudentSessionStream sessions={communicationSessions} assigneeName={session?.user?.name ?? undefined} onOpenProof={openProof} />
+          <StudentSessionStream sessions={communicationSessions} assigneeName={session?.user?.name ?? undefined} onOpenLog={openLog} />
         ) : null}
 
         {activeTab === "lessonReports" ? (
@@ -576,7 +510,9 @@ export default function StudentDetailPage({ params }: { params: { studentId: str
                   key={sessionItem.id}
                   type="button"
                   className={styles.historyRow}
-                  onClick={() => openLessonReport(sessionItem.id)}
+                  onClick={() => {
+                    if (sessionItem.conversation?.id) openLog(sessionItem.conversation.id);
+                  }}
                 >
                   <div className={styles.historyRowLeft}>
                     <div className={styles.historyIcon} aria-hidden>
@@ -635,22 +571,18 @@ export default function StudentDetailPage({ params }: { params: { studentId: str
             <div className={styles.overlayHeader}>
               <div className={styles.overlayTitleBlock}>
                 <div className={styles.overlayEyebrow}>
-                  {overlay.kind === "proof"
-                    ? "面談ログ"
+                  {overlay.kind === "log"
+                    ? "ログ"
                     : overlay.kind === "report"
                       ? "保護者レポート"
-                      : overlay.kind === "lessonReport"
-                        ? "指導報告ログ"
-                        : "保護者レポートログ"}
+                      : "保護者レポートログ"}
                 </div>
                 <h3 className={styles.overlayTitle}>
-                  {overlay.kind === "proof"
-                    ? "会話ログの詳細"
+                  {overlay.kind === "log"
+                    ? "ログを確認する"
                     : overlay.kind === "report"
                       ? "保護者レポートを確認する"
-                      : overlay.kind === "lessonReport"
-                        ? "指導報告書を確認する"
-                        : "保護者レポートを確認する"}
+                      : "保護者レポートを確認する"}
                 </h3>
               </div>
               <Button variant="secondary" onClick={closeOverlay}>
@@ -659,7 +591,7 @@ export default function StudentDetailPage({ params }: { params: { studentId: str
             </div>
 
             <div className={styles.overlayContent}>
-              {overlay.kind === "proof" ? <LogDetailView logId={overlay.logId} showHeader={false} onBack={closeOverlay} /> : null}
+              {overlay.kind === "log" ? <LogDetailView logId={overlay.logId} showHeader={false} onBack={closeOverlay} /> : null}
 
               {overlay.kind === "report" ? (
                 <ReportStudio
@@ -671,61 +603,9 @@ export default function StudentDetailPage({ params }: { params: { studentId: str
                   selectedSessionIds={selectedSessionIds}
                   onSelectedSessionIdsChange={handleSelectedSessionIdsChange}
                   onRefresh={refresh}
-                  onOpenProof={openProof}
+                  onOpenLog={openLog}
                   onViewChange={(view) => setOverlay({ kind: "report", view })}
                 />
-              ) : null}
-
-              {overlay.kind === "lessonReport" && activeLessonReport ? (
-                <div className={styles.detailStack}>
-                  <div className={styles.detailBlock}>
-                    <div className={styles.detailLabel}>今日扱った内容</div>
-                    <p>{activeLessonReport.conversation?.lessonReportJson?.goal ?? "まだ整理されていません。"}</p>
-                  </div>
-                  <div className={styles.detailBlock}>
-                    <div className={styles.detailLabel}>今日見えた理解状態</div>
-                    <ul>
-                      {(activeLessonReport.conversation?.lessonReportJson?.did ?? ["まだ整理されていません。"]).map((item) => (
-                        <li key={item}>{item}</li>
-                      ))}
-                    </ul>
-                  </div>
-                  <div className={styles.detailBlock}>
-                    <div className={styles.detailLabel}>詰まった点 / 注意点</div>
-                    <ul>
-                      {(activeLessonReport.conversation?.lessonReportJson?.blocked ?? ["大きな詰まりは記録されていません。"]).map((item) => (
-                        <li key={item}>{item}</li>
-                      ))}
-                    </ul>
-                  </div>
-                  <div className={styles.detailBlock}>
-                    <div className={styles.detailLabel}>次回見るべき点</div>
-                    <ul>
-                      {(activeLessonReport.conversation?.lessonReportJson?.nextLessonFocus ?? ["次回確認事項はまだありません。"]).map((item) => (
-                        <li key={item}>{item}</li>
-                      ))}
-                    </ul>
-                  </div>
-                  <div className={styles.detailBlock}>
-                    <div className={styles.detailLabel}>宿題 / 確認事項</div>
-                    <ul>
-                      {(activeLessonReport.conversation?.lessonReportJson?.homework ?? ["宿題はまだ整理されていません。"]).map((item) => (
-                        <li key={item}>{item}</li>
-                      ))}
-                    </ul>
-                  </div>
-                  <div className={styles.detailBlock}>
-                    <div className={styles.detailLabel}>講師間共有メモ</div>
-                    <p>{activeLessonReport.conversation?.lessonReportJson?.coachMemo ?? "共有メモはありません。"}</p>
-                  </div>
-                  {activeLessonReport.conversation?.id ? (
-                    <div className={styles.detailActions}>
-                      <Button variant="secondary" onClick={() => openProof(activeLessonReport.conversation!.id)}>
-                        根拠を見る
-                      </Button>
-                    </div>
-                  ) : null}
-                </div>
               ) : null}
 
               {overlay.kind === "parentReport" && activeParentReport ? (
@@ -745,15 +625,12 @@ export default function StudentDetailPage({ params }: { params: { studentId: str
                     </div>
                   </div>
 
-                  {activeParentReport.reportMarkdown
-                    .split(/\n\s*\n/g)
-                    .map((paragraph) => paragraph.replace(/\r/g, "").trim())
-                    .filter(Boolean)
-                    .map((paragraph, index) => (
-                      <div key={`${activeParentReport.id}-${index}`} className={styles.reportParagraph}>
-                        {paragraph.replace(/^#+\s*/gm, "")}
-                      </div>
-                    ))}
+                  <div className={styles.reportParagraph}>
+                    <StructuredMarkdown
+                      markdown={activeParentReport.reportMarkdown}
+                      emptyMessage="まだ保護者レポートは生成されていません。"
+                    />
+                  </div>
 
                   {activeParentReport.needsReview || activeParentReport.needsShare ? (
                     <div className={styles.detailActions}>

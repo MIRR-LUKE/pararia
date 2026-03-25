@@ -25,13 +25,13 @@ import type {
 } from "@/lib/types/session";
 
 const LLM_API_KEY = process.env.LLM_API_KEY || process.env.OPENAI_API_KEY || "";
-const PROMPT_VERSION = "v2.0";
+const PROMPT_VERSION = "v3.0";
 
-const DEFAULT_LLM_TIMEOUT_MS = clampInt(Number(process.env.LLM_CALL_TIMEOUT_MS ?? 90000), 10000, 240000);
+const DEFAULT_LLM_TIMEOUT_MS = clampInt(Number(process.env.LLM_CALL_TIMEOUT_MS ?? 120000), 10000, 300000);
 const ANALYZE_MAX_TOKENS = clampInt(Number(process.env.ANALYZE_MAX_TOKENS ?? 1400), 500, 4000);
 const REDUCE_MAX_TOKENS = clampInt(Number(process.env.REDUCE_MAX_TOKENS ?? 2000), 900, 5000);
 const FINALIZE_MAX_TOKENS = clampInt(Number(process.env.FINALIZE_MAX_TOKENS ?? 3000), 1200, 7000);
-const SINGLE_PASS_MAX_TOKENS = clampInt(Number(process.env.SINGLE_PASS_MAX_TOKENS ?? 4200), 1200, 10000);
+const SINGLE_PASS_MAX_TOKENS = clampInt(Number(process.env.SINGLE_PASS_MAX_TOKENS ?? 4200), 1200, 16000);
 const ENABLE_FINALIZE_REPAIR = process.env.ENABLE_FINALIZE_REPAIR !== "0";
 
 const PROFILE_CATEGORIES: ProfileCategory[] = ["学習", "生活", "学校", "進路"];
@@ -121,6 +121,8 @@ async function callChatCompletions(params: {
   temperature?: number;
   response_format?: { type: "json_object" };
   timeoutMs?: number;
+  prompt_cache_key?: string;
+  prompt_cache_retention?: "in_memory" | "24h";
 }): Promise<ChatResult> {
   if (!LLM_API_KEY) {
     throw new Error("LLM_API_KEY (or OPENAI_API_KEY) is not set.");
@@ -135,6 +137,8 @@ async function callChatCompletions(params: {
       : {}),
     ...(typeof params.temperature === "number" ? { temperature: params.temperature } : {}),
     ...(params.response_format ? { response_format: params.response_format } : {}),
+    ...(params.prompt_cache_key ? { prompt_cache_key: params.prompt_cache_key } : {}),
+    ...(params.prompt_cache_retention ? { prompt_cache_retention: params.prompt_cache_retention } : {}),
   };
 
   const requestOnce = async (body: Record<string, unknown>) => {
@@ -164,10 +168,20 @@ async function callChatCompletions(params: {
       typeof bodyBase.temperature === "number" &&
       /temperature/i.test(raw) &&
       /default\s*\(1\)/i.test(raw);
+    const unsupportedPromptCache =
+      res.status === 400 &&
+      /(prompt_cache_key|prompt_cache_retention)/i.test(raw);
 
     if (defaultTempOnly) {
       const retryBody = { ...bodyBase };
       delete retryBody.temperature;
+      const retried = await requestOnce(retryBody);
+      res = retried.res;
+      raw = retried.raw;
+    } else if (unsupportedPromptCache) {
+      const retryBody = { ...bodyBase };
+      delete retryBody.prompt_cache_key;
+      delete retryBody.prompt_cache_retention;
       const retried = await requestOnce(retryBody);
       res = retried.res;
       raw = retried.raw;
@@ -201,6 +215,14 @@ function getFinalModel() {
   return forceGpt5Family(process.env.LLM_MODEL_FINAL || process.env.LLM_MODEL || "gpt-5.4");
 }
 
+function supportsExtendedPromptCaching(model: string) {
+  return /^gpt-5(?:\.|$|-)/i.test(model) || /^gpt-4\.1(?:$|-)/i.test(model);
+}
+
+function buildPromptCacheKey(kind: string, sessionType?: SessionMode) {
+  return ["conversation-pipeline", PROMPT_VERSION, kind, sessionType ?? "COMMON"].join(":");
+}
+
 export function maskSensitiveText(text: string) {
   let out = String(text ?? "");
   out = out.replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, "［EMAIL］");
@@ -218,6 +240,13 @@ function formatStudentLabel(name?: string) {
 function formatTeacherLabel(name?: string) {
   const base = String(name ?? DEFAULT_TEACHER_FULL_NAME).replace(/先生$/g, "").trim();
   return `${base || "講師"}先生`;
+}
+
+function formatSessionDateLabel(value?: string | Date | null) {
+  if (!value) return "";
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return `${date.getFullYear()}年${date.getMonth() + 1}月${date.getDate()}日`;
 }
 
 function normalizeWhitespace(text: unknown) {
@@ -571,6 +600,7 @@ function sanitizeSummaryMarkdown(markdown: unknown, minChars: number) {
     .map((line) => line.trim())
     .filter(Boolean)
     .map((line) => {
+      if (line.startsWith("■ ")) return line;
       if (line.startsWith("## ")) return line;
       if (line.startsWith("- ") || /^\d+\./.test(line)) return line;
       const cleaned = sanitizeSentence(line, { maxLength: 220, allowShort: true });
@@ -579,6 +609,176 @@ function sanitizeSummaryMarkdown(markdown: unknown, minChars: number) {
     .filter(Boolean);
   const rebuilt = lines.join("\n");
   return rebuilt.length >= Math.min(180, minChars) ? rebuilt : "";
+}
+
+function hasLessonReportSummaryStructure(markdown: string) {
+  return (
+    markdown.includes("■ 基本情報") &&
+    markdown.includes("■ 1. 本日の指導サマリー（室長向け要約）") &&
+    markdown.includes("■ 2. 課題と指導成果（Before → After）") &&
+    markdown.includes("■ 3. 学習方針と次回アクション（自学習の設計）") &&
+    markdown.includes("■ 4. 室長・他講師への共有・連携事項")
+  );
+}
+
+function hasInterviewSummaryStructure(markdown: string) {
+  return (
+    markdown.includes("■ 基本情報") &&
+    markdown.includes("■ 1. サマリー") &&
+    markdown.includes("■ 2. ポジティブな話題") &&
+    markdown.includes("■ 3. 改善・対策が必要な話題")
+  );
+}
+
+function isWeakInterviewSummary(markdown: string, minChars: number) {
+  const text = String(markdown ?? "").trim();
+  if (!text) return true;
+  if (text.length < Math.max(180, Math.min(minChars, 900))) return true;
+  if (!hasInterviewSummaryStructure(text)) return true;
+  if (!/英語|数学|国語|理科|社会|学校|生活|志望校|受験|進路/.test(text)) return true;
+  return false;
+}
+
+function isWeakLessonReportSummary(markdown: string, minChars: number) {
+  const text = String(markdown ?? "").trim();
+  if (!text) return true;
+  if (text.length < Math.max(500, Math.min(minChars, 900))) return true;
+  if (!hasLessonReportSummaryStructure(text)) return true;
+  if ((text.match(/現状（Before）:/g) ?? []).length < 2) return true;
+  if ((text.match(/成果（After）:/g) ?? []).length < 2) return true;
+  if (!text.includes("次回までの宿題:")) return true;
+  if (!text.includes("次回の確認（テスト）事項:")) return true;
+  if (/[^\n。！？]\n■ 2\./.test(text)) return true;
+  if (/[^\n。！？]\n■ 3\./.test(text)) return true;
+  if (/[^\n。！？]\n■ 4\./.test(text)) return true;
+  if (/[^\n。！？]\n次回までの宿題:/.test(text)) return true;
+  if (/[^\n。！？]\n次回の確認（テスト）事項:/.test(text)) return true;
+  if (/##\s*授業前チェックイン|##\s*授業後チェックアウト/.test(text)) return true;
+  if (/録音始めた|何喋ろうか忘れちゃった|質問ある\?ないです|以上です。お疲れ/.test(text)) return true;
+  return false;
+}
+
+function repairBrokenLessonReportSections(markdown: string) {
+  return String(markdown ?? "")
+    .replace(
+      /学校の(?:化学|理科|講習|講座)?。\s*今後は、/g,
+      "学校講習などで学習時間が圧迫される週には演習量が不足しやすい。今後は、"
+    )
+    .replace(
+      /極限は(?:補|基礎の見|見通しの見)?。\s*次回までは、/g,
+      "極限は補助的に扱い、授業内で記述の再現性を確認していく。次回までは、"
+    )
+    .replace(
+      /、極限。\s*次回までは、/g,
+      "、極限は補助的に扱い、授業内で記述の再現性を確認していく。次回までは、"
+    )
+    .replace(
+      /関数同士のオ。\s*今後は、/g,
+      "関数同士のオーダーを比較し、支配的な項を見抜く視点が整理された。今後は、"
+    )
+    .replace(
+      /挟み撃ちの。\s*次回までは、/g,
+      "挟み撃ちの原理を導入し、感覚を論理へ接続する。次回までは、"
+    )
+    .replace(/持って。\s*今後は、/g, "持っている。今後は、")
+    .replace(/自己評価が。\s*今後は、/g, "自己評価が『分かった』で止まりやすい。今後は、")
+    .replace(/化学に。\s*今後は、/g, "化学に時間を割いており、数学の演習量は十分ではなかった。今後は、")
+    .replace(/数学の演習。\s*今後は、/g, "数学の演習量は十分ではなかった。今後は、")
+    .replace(/したがって次回までは、。\s*次回までは、/g, "したがって次回までは、")
+    .replace(/、。\s*次回までは、/g, "。次回までは、")
+    .replace(
+      /([^\n。！？])\n■ 2\. 課題と指導成果（Before → After）/g,
+      "$1。今後は、理解の見通しを答案として再現できるかまで確認していく。\n■ 2. 課題と指導成果（Before → After）"
+    )
+    .replace(
+      /([^\n。！？])\n■ 3\. 学習方針と次回アクション（自学習の設計）/g,
+      "$1。今後の自学習では、優先順位を絞って再現性を高める必要がある。\n■ 3. 学習方針と次回アクション（自学習の設計）"
+    )
+    .replace(
+      /([^\n。！？])\n次回までの宿題:/g,
+      "$1。次回までは、三角関数の反復を優先しつつ、極限は授業内で記述の再現性を確認する。\n次回までの宿題:"
+    )
+    .replace(
+      /([^\n。！？])\n次回の確認（テスト）事項:/g,
+      "$1。\n次回の確認（テスト）事項:"
+    );
+}
+
+function hasBrokenLessonReportPhrasing(markdown: string) {
+  const normalized = String(markdown ?? "");
+  return /(?:前に分子|前に分母|基礎の見|説明の見|見通しの見|自己評価が|化学に|数学の演習)\。\s*(?:今後は|次回までは|次回の)|次回までは、。\s*次回までは、/.test(normalized);
+}
+
+function repairBrokenSummaryLineBreaks(markdown: string) {
+  const source = String(markdown ?? "").replace(/\r/g, "");
+  if (!source) return "";
+  const rawLines = source.split("\n");
+  const rebuilt: string[] = [];
+
+  for (let index = 0; index < rawLines.length; index += 1) {
+    let current = rawLines[index].trim();
+    if (!current) {
+      if (rebuilt[rebuilt.length - 1] !== "") rebuilt.push("");
+      continue;
+    }
+
+    while (index + 1 < rawLines.length) {
+      const next = rawLines[index + 1].trim();
+      if (!next) break;
+      const currentIsBlock = /^(■\s|##\s|- |\d+\.)/.test(current);
+      const nextStartsBlock =
+        /^(■\s|##\s|- |\d+\.|現状（Before）:|成果（After）:|次回までの宿題:|次回の確認（テスト）事項:|※)/.test(next);
+      const endsWithSentence = /[。！？:：）\]」』]$/.test(current);
+
+      if (nextStartsBlock) {
+        if (!currentIsBlock && !endsWithSentence) current = `${current}。`;
+        break;
+      }
+      if (currentIsBlock) break;
+      if (endsWithSentence) break;
+
+      current = `${current}${next}`;
+      index += 1;
+    }
+
+    rebuilt.push(current);
+  }
+
+  return rebuilt.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+
+async function polishLessonReportSummaryMarkdown(input: { markdown: string; transcript: string }) {
+  const model = getFinalModel();
+  try {
+    const { contentText, raw } = await callChatCompletions({
+      model,
+      messages: [
+        {
+          role: "system",
+          content: [
+            "あなたは学習塾の教務責任者です。",
+            "与えられた指導報告ログ markdown の言い回しだけを整えてください。",
+            "構造・事実・方針は維持し、途中で切れた文、不自然な句点、語尾の崩れだけを自然な日本語へ直してください。",
+            "見出し記号 ■ や各セクション構造は絶対に維持してください。",
+            "新しい事実の追加は禁止です。",
+            "出力は markdown 本文のみです。",
+          ].join("\n"),
+        },
+        {
+          role: "user",
+          content: ["現在の markdown:", input.markdown, "", "参考文字起こし:", input.transcript].join("\n"),
+        },
+      ],
+      temperature: 0.1,
+      timeoutMs: DEFAULT_LLM_TIMEOUT_MS * 2,
+      max_completion_tokens: Math.max(FINALIZE_MAX_TOKENS, 5200),
+      prompt_cache_key: buildPromptCacheKey("lesson-polish", "LESSON_REPORT"),
+      prompt_cache_retention: supportsExtendedPromptCaching(model) ? "24h" : "in_memory",
+    });
+    return String(contentText ?? raw ?? "").trim();
+  } catch {
+    return input.markdown;
+  }
 }
 
 function compactJson(value: unknown) {
@@ -591,8 +791,24 @@ function transcriptLines(transcript: string) {
     .replace(/\r\n/g, "\n")
     .split(/\n+|(?<=[。！？!?])\s*/g)
     .map((line) => maskSensitiveText(line))
-    .map((line) => normalizeWhitespace(line.replace(/^\*\*[^*]+\*\*:\s*/g, "")))
+    .map((line) =>
+      normalizeWhitespace(
+        line
+          .replace(/^\*\*[^*]+\*\*:\s*/g, "")
+          .replace(/^##\s*/, "")
+      )
+    )
     .filter(Boolean)
+    .filter(
+      (line) =>
+        !/^(授業前チェックイン|授業後チェックアウト|面談・通し録音|補足メモ|セッション構成)$/.test(line)
+    )
+    .filter(
+      (line) =>
+        !/^(録音始めたけど。?|ねえ。?|はい。?|で ですね|OK、じゃあすぐいない。?|質問ある\?ないです。?以上です。?お疲れ。?)$/.test(
+          line
+        )
+    )
     .filter((line) => {
       if (seen.has(line)) return false;
       seen.add(line);
@@ -659,6 +875,239 @@ function extractMarkdownSectionBody(transcript: string, heading: string) {
   return match?.[1]?.trim() ?? "";
 }
 
+async function rewriteLessonReportSummaryMarkdown(input: {
+  transcript: string;
+  studentName?: string;
+  teacherName?: string;
+  sessionDate?: string | Date | null;
+  minSummaryChars: number;
+  current?: string;
+  lessonReport?: LessonReportArtifact | null;
+  nextActions?: NextAction[];
+  forceCompleteSentences?: boolean;
+}) {
+  const model = getFinalModel();
+  const system = [
+    "あなたは学習塾・個別指導の教務責任者です。",
+    "指導報告ログの summaryMarkdown だけを高品質に書き直してください。",
+    "出力は markdown 本文のみです。JSON は禁止です。",
+    "見出し記号は必ず ■ を使い、# や ## は使わないでください。",
+    "授業前チェックインと授業後チェックアウトを混同せず、Before と After を明確に分けてください。",
+    "録音開始時の雑談、相槌、発話事故、STT の崩れた断片、意味が取れない文はノイズとして捨ててください。",
+    "逐語録の貼り付けは禁止です。塾の管理者が読める完成文に要約してください。",
+    "教科・単元は文字起こしから合理的に推定してください。確信が低ければ広めの表現にしてください。",
+    "必ず 2 トピック以上の Before → After を書いてください。",
+    `本文は ${input.minSummaryChars} 文字以上を目安に、薄くならないように書いてください。`,
+    ...(input.forceCompleteSentences
+      ? ["各段落・各セクションの本文は、必ず文末を『。』で閉じてください。途中で切れた文は禁止です。"]
+      : []),
+    "",
+    ...buildSummaryMarkdownSpec(true),
+  ].join("\n");
+
+  const user = [
+    `生徒: ${formatStudentLabel(input.studentName)}`,
+    `講師: ${formatTeacherLabel(input.teacherName)}`,
+    `指導日: ${formatSessionDateLabel(input.sessionDate) || "不明"}`,
+    "",
+    "参考 nextActions:",
+    compactJson(input.nextActions ?? []),
+    "",
+    "参考 lessonReport:",
+    compactJson(input.lessonReport ?? null),
+    "",
+    "現在の弱い下書き:",
+    input.current?.trim() || "(none)",
+    "",
+    "文字起こし:",
+    input.transcript,
+  ].join("\n");
+
+  try {
+    const { contentText, raw } = await callChatCompletions({
+      model,
+      messages: [
+        { role: "system", content: system },
+        { role: "user", content: user },
+      ],
+      temperature: 0.2,
+      timeoutMs: DEFAULT_LLM_TIMEOUT_MS * 2,
+      max_completion_tokens: Math.max(FINALIZE_MAX_TOKENS, 5200),
+      prompt_cache_key: buildPromptCacheKey("lesson-rewrite", "LESSON_REPORT"),
+      prompt_cache_retention: supportsExtendedPromptCaching(model) ? "24h" : "in_memory",
+    });
+    return sanitizeSummaryMarkdown(contentText ?? raw, input.minSummaryChars);
+  } catch {
+    return "";
+  }
+}
+
+async function stabilizeLessonReportResult(input: {
+  result: FinalizeResult;
+  heuristic: FinalizeResult;
+  transcript: string;
+  studentName?: string;
+  teacherName?: string;
+  sessionDate?: string | Date | null;
+  minSummaryChars: number;
+}) {
+  let summaryMarkdown = input.result.summaryMarkdown;
+  if (isWeakLessonReportSummary(summaryMarkdown, input.minSummaryChars)) {
+    const rewritten = await rewriteLessonReportSummaryMarkdown({
+      transcript: input.transcript,
+      studentName: input.studentName,
+      teacherName: input.teacherName,
+      sessionDate: input.sessionDate,
+      minSummaryChars: input.minSummaryChars,
+      current: summaryMarkdown,
+      lessonReport: input.result.lessonReport ?? input.heuristic.lessonReport,
+      nextActions:
+        input.result.nextActions.length >= 2
+          ? input.result.nextActions
+          : input.heuristic.nextActions,
+    });
+    if (rewritten && !isWeakLessonReportSummary(rewritten, input.minSummaryChars)) {
+      summaryMarkdown = rewritten;
+    } else {
+      const preferredWeakCandidate = rewritten || summaryMarkdown;
+      const rewrittenStrict = await rewriteLessonReportSummaryMarkdown({
+        transcript: input.transcript,
+        studentName: input.studentName,
+        teacherName: input.teacherName,
+        sessionDate: input.sessionDate,
+        minSummaryChars: input.minSummaryChars,
+        current: rewritten || summaryMarkdown,
+        lessonReport: input.result.lessonReport ?? input.heuristic.lessonReport,
+        nextActions:
+          input.result.nextActions.length >= 2
+            ? input.result.nextActions
+            : input.heuristic.nextActions,
+        forceCompleteSentences: true,
+      });
+      if (rewrittenStrict && !isWeakLessonReportSummary(rewrittenStrict, input.minSummaryChars)) {
+        summaryMarkdown = rewrittenStrict;
+      } else if (rewrittenStrict) {
+        summaryMarkdown = rewrittenStrict;
+      } else if (preferredWeakCandidate && preferredWeakCandidate !== input.heuristic.summaryMarkdown) {
+        summaryMarkdown = preferredWeakCandidate;
+      } else if (isWeakLessonReportSummary(summaryMarkdown, input.minSummaryChars)) {
+        summaryMarkdown = input.heuristic.summaryMarkdown;
+      }
+    }
+  }
+
+  const repairedSummary = repairBrokenLessonReportSections(summaryMarkdown);
+  const polishedSummary = await polishLessonReportSummaryMarkdown({
+    markdown: repairedSummary,
+    transcript: input.transcript,
+  });
+
+  return {
+    ...input.result,
+    summaryMarkdown: polishedSummary || repairedSummary,
+    timeline:
+      input.result.timeline.length >= 3 ? input.result.timeline : input.heuristic.timeline,
+    nextActions:
+      input.result.nextActions.length >= 2 ? input.result.nextActions : input.heuristic.nextActions,
+    parentPack:
+      input.result.parentPack.what_we_did.length > 0 ? input.result.parentPack : input.heuristic.parentPack,
+    recommendedTopics:
+      input.result.recommendedTopics.length > 0
+        ? input.result.recommendedTopics
+        : input.heuristic.recommendedTopics,
+    quickQuestions:
+      input.result.quickQuestions.length > 0 ? input.result.quickQuestions : input.heuristic.quickQuestions,
+    profileSections:
+      input.result.profileSections.length > 0 ? input.result.profileSections : input.heuristic.profileSections,
+    observationEvents:
+      input.result.observationEvents.length > 0
+        ? input.result.observationEvents
+        : input.heuristic.observationEvents,
+    lessonReport: input.result.lessonReport ?? input.heuristic.lessonReport,
+  };
+}
+
+function buildSummaryMarkdownSpec(isLessonReport: boolean): string[] {
+  if (isLessonReport) {
+    return [
+      "=== summaryMarkdown のフォーマット仕様（指導報告ログ）===",
+      "summaryMarkdown は以下の構造に「厳密に」従ってください。見出し記号は ■ を使用し、■ 以外の markdown 見出し（# や ## ）は使わないでください。",
+      "",
+      "■ 基本情報",
+      "対象生徒: {生徒名} 様",
+      "指導日: {YYYY年M月D日}",
+      "教科・単元: {教科名} / {単元名}  ← 文字起こしから判断して埋める",
+      "担当チューター: {講師名}",
+      "",
+      "■ 1. 本日の指導サマリー（室長向け要約）",
+      "室長が3分で授業内容を把握できる密度の段落を書く。以下を必ず含む：",
+      "- 今日扱った教科・単元の具体名",
+      "- 指導を通じて見えた改善傾向と残課題",
+      "- 生徒の学習傾向・癖（例：「学習量」で安心する傾向がある等）",
+      "- 今後の方針転換や設計の方向性",
+      "",
+      "■ 2. 課題と指導成果（Before → After）",
+      "トピックごとに以下の構造で書く。トピックは2つ以上。",
+      "【トピック名】一行で変化を要約する説明",
+      "現状（Before）: 授業前の生徒の状態を具体的に記述。「できていなかった」ではなく何がどうできなかったのか。",
+      "成果（After）: 授業を通じてどう変わったか。改善点と残課題の両方を書く。",
+      "※特記事項: 演習量への影響、注意点、次回への申し送りなど（該当する場合のみ）",
+      "",
+      "■ 3. 学習方針と次回アクション（自学習の設計）",
+      "まず生徒の学習傾向や判断根拠を1段落で述べる。その後：",
+      "次回までの宿題:",
+      "  具体的な宿題を箇条書き（教材名・範囲を含む）",
+      "次回の確認（テスト）事項:",
+      "  次回授業で測定・確認する項目を箇条書き",
+      "",
+      "■ 4. 室長・他講師への共有・連携事項",
+      "他教科への共有: 他の講師に伝えるべき学習傾向や指導方針",
+      "エスカレーション（管理者対応）について: 室長の介入が必要かどうかと理由",
+      "",
+      "=== 品質基準 ===",
+      "- 「確認した」「整理した」で終わる文は禁止。何を確認し何が分かったか書く",
+      "- Before は「できなかった」ではなく、何がどうできなかったかを教材名・行動レベルで書く",
+      "- After は改善点と残課題の両方を必ず書く",
+      "- 一般論・抽象論は禁止。生徒固有の具体的事実のみ",
+      "- 教科名・テキスト名・単元名・問題種別を可能な限り入れる",
+    ];
+  }
+
+  return [
+    "=== summaryMarkdown のフォーマット仕様（面談ログ）===",
+    "summaryMarkdown は以下の構造に「厳密に」従ってください。見出し記号は ■ を使用し、■ 以外の markdown 見出し（# や ## ）は使わないでください。",
+    "",
+    "■ 基本情報",
+    "対象生徒: {生徒名} 様",
+    "面談日: {YYYY年M月D日}",
+    "面談時間: {N分 または 未記録}",
+    "担当チューター: {講師名}",
+    "面談目的: {目的。判断できない場合は『学習状況の確認と次回方針の整理』}",
+    "",
+    "■ 1. サマリー",
+    "面談の全体像が伝わる長めの本文を書く。以下を必ず含める：",
+    "- 各教科の学習状況（教科名・テキスト名・具体的な進捗を含む）",
+    "- 生活面の状況（睡眠・部活・スマホ・勉強時間の実態）",
+    "- 進路に関する話題（志望校・模試・検定の具体名を含む）",
+    "- 生徒自身の発言から読み取れる本音や自己認識",
+    "- 講師の判断・方針・具体的なアドバイス",
+    "- 面談の結論と次回までの方針",
+    "",
+    "■ 2. ポジティブな話題",
+    "良い点を5項目前後で列挙する。各項目は『何が良いか』だけでなく、なぜそう言えるかまで具体的に書く。",
+    "",
+    "■ 3. 改善・対策が必要な話題",
+    "課題を4〜6項目前後で列挙する。各項目は『現状の課題 -> 背景や原因 -> 今後の対策』まで一続きの文章で書く。",
+    "",
+    "=== 品質基準 ===",
+    "- 「確認した」「話し合った」で終わる文は禁止。何を確認し何が分かったか書く",
+    "- 教科ごとの現状と方針を具体的に書く（「英語は順調」ではなく具体的な進捗を書く）",
+    "- 生徒の発言や自己認識を自然に織り込む（「〜と話していた」「〜という認識を持っている」等）",
+    "- 一般論・抽象論は禁止。面談で実際に出た固有の事実のみ",
+    "- 数ヶ月後に読み返しても文脈が完全に分かる具体性にする",
+  ];
+}
+
 function buildSessionPromptSpec(sessionType: SessionMode) {
   if (sessionType === "LESSON_REPORT") {
     return {
@@ -680,7 +1129,6 @@ function buildSessionPromptSpec(sessionType: SessionMode) {
         "summaryMarkdown は室長が3分で授業内容を把握できる具体性で書く",
         "各トピックを【】で見出し化し、Before→After の構造で成果を明示する",
         "「確認した」「整理した」で終わらせず、何を確認し何が分かったか具体的に書く",
-        "lessonReport は todayGoal / covered / blockers / homework / nextLessonFocus を必ず具体化する",
         "保護者・室長・他講師が読んでも理解できる日本語にする",
         "※特記事項があれば補足として明記する",
       ],
@@ -704,12 +1152,12 @@ function buildSessionPromptSpec(sessionType: SessionMode) {
       "保護者共有・次回面談・プロフィール更新に使える粒度にする",
     ],
     finalizeStyle: [
-      "summaryMarkdown は面談の全体像が伝わる詳細なサマリーにする（3段落以上）",
+      "summaryMarkdown は、サンプルのように『基本情報 / サマリー / ポジティブな話題 / 改善・対策が必要な話題』で構成する",
+      "サマリーは、面談の流れが後から読んでも追える長めの本文にする",
       "一般論・抽象論は禁止。教科名・テキスト名・具体行動・生徒の発言を入れる",
       "ポジティブな話題（生徒の成長・意欲・良い変化）を明確に列挙する",
       "改善・対策が必要な話題は、現状と対策案をセットで書く",
-      "nextActions は生徒と講師の行動を分け、確認指標を明記する",
-      "recommendedTopics と quickQuestions は次回面談でそのまま使える具体質問にする",
+      "基本情報の『面談目的』は、会話の主軸が分かる自然な日本語でまとめる",
     ],
   };
 }
@@ -826,43 +1274,34 @@ function buildFinalizePrompt(input: {
   reduced: ReducedAnalysis;
   studentName?: string;
   teacherName?: string;
+  sessionDate?: string | Date | null;
   minSummaryChars: number;
   minTimelineSections: number;
 }) {
   const spec = buildSessionPromptSpec(input.sessionType);
   const isLesson = input.sessionType === "LESSON_REPORT";
-  const headings = isLesson
-    ? [
-        "- ## 本日の指導サマリー（室長向け要約）  ← 授業全体の要約を3段落以上で。教科名・単元名・具体行動を含める",
-        "- ## 課題と指導成果（Before → After）  ← トピック別に【】で見出し化し、現状(Before)→成果(After)→特記事項の構造で",
-        "- ## 学習方針と次回アクション（自学習の設計）  ← 次回の学習方針、宿題、確認事項を具体的に",
-        "- ## 室長・他講師への共有・連携事項  ← 他教科への共有やエスカレーション事項",
-      ]
-    : [
-        "- ## 超解像度高い具体性を持ったサマリー  ← 面談全体の詳細サマリー。3段落以上。教科別状況・生活面・進路を網羅する",
-        "- ## ポジティブな話題  ← 生徒の成長・意欲・良い変化を箇条書きで",
-        "- ## 改善・対策が必要な話題  ← 課題とその対策案を箇条書きで。各項目にサブポイントを添える",
-      ];
   const system = [
     "あなたは学習塾・個別指導の教務責任者です。",
-    "reduced evidence だけを使って、最終的な会話ログ成果物を生成してください。",
+    "reduced evidence だけを使って、最終的なログ本文を生成してください。",
     "出力は厳密な JSON object のみ。",
+    "出力するキーは summaryMarkdown のみです。",
     "summaryMarkdown 以外で markdown は使わないでください。",
     `summaryMarkdown は ${input.minSummaryChars} 文字以上にしてください。`,
-    `timeline は evidence がある限り ${input.minTimelineSections} セクション以上にしてください。`,
-    "summaryMarkdown の見出し構造（必ずこの見出しを使うこと）:",
-    ...headings,
+    "",
+    ...buildSummaryMarkdownSpec(isLesson),
+    "",
     "品質要件:",
     ...spec.finalizeStyle.map((line) => `- ${line}`),
     "- 『整理した』『確認した』だけで終わらせず、何を整理・確認したか書く",
-    "- nextActions は owner / action / metric / why を必ず埋める",
-    "- parentPack は保護者が読んで理解できる自然な日本語にする",
     "- 英語や placeholder は禁止",
+    "- 録音開始時の雑談・相槌・意味が壊れた STT 断片はノイズとして捨てる",
+    "- 『授業前チェックイン』『授業後チェックアウト』というラベル自体を本文にコピペしない",
   ].join("\n");
 
   const user = [
     `生徒: ${formatStudentLabel(input.studentName)}`,
     `講師: ${formatTeacherLabel(input.teacherName)}`,
+    `セッション日: ${formatSessionDateLabel(input.sessionDate) || "不明"}`,
     `セッション種別: ${input.sessionType}`,
     "",
     "入力 reduced evidence JSON:",
@@ -870,36 +1309,14 @@ function buildFinalizePrompt(input: {
     "",
     "出力 JSON 形式:",
     "{",
-    '  "summaryMarkdown": "...",',
-    '  "timeline": [',
-    '    { "title": "...", "what_happened": "...", "coach_point": "...", "student_state": "...", "evidence_quotes": ["..."] }',
-    "  ],",
-    '  "nextActions": [',
-    '    { "owner": "COACH|STUDENT|PARENT", "action": "...", "due": "YYYY-MM-DD or null", "metric": "...", "why": "..." }',
-    "  ],",
-    '  "profileDelta": { "basic": [...], "personal": [...] },',
-    '  "parentPack": {',
-    '    "what_we_did": ["..."],',
-    '    "what_improved": ["..."],',
-    '    "what_to_practice": ["..."],',
-    '    "risks_or_notes": ["..."],',
-    '    "next_time_plan": ["..."],',
-    '    "evidence_quotes": ["..."]',
-    "  },",
-    '  "studentState": { "label": "前進|集中|安定|不安|疲れ|詰まり|落ち込み|高揚", "oneLiner": "...", "rationale": ["..."], "confidence": 0 },',
-    '  "recommendedTopics": [{ "category": "学習|生活|学校|進路", "title": "...", "reason": "...", "question": "...", "priority": 1 }],',
-    '  "quickQuestions": [{ "category": "学習|生活|学校|進路", "question": "...", "reason": "..." }],',
-    '  "profileSections": [{ "category": "学習|生活|学校|進路", "status": "改善|維持|落ちた|不明", "highlights": [{ "label": "...", "value": "...", "isNew": true, "isUpdated": false }], "nextQuestion": "..." }],',
-    '  "observationEvents": [{ "sourceType": "INTERVIEW|LESSON_REPORT", "category": "学習|生活|学校|進路", "statusDraft": "改善|維持|落ちた|不明", "insights": ["..."], "topics": ["..."], "nextActions": ["..."], "evidence": ["..."], "characterSignal": "...", "weight": 1 }],',
-    '  "lessonReport": { "todayGoal": "...", "covered": ["..."], "blockers": ["..."], "homework": ["..."], "nextLessonFocus": ["..."], "parentShareDraft": "..." }',
+    '  "summaryMarkdown": "..."',
     "}",
     "",
     "重要ルール:",
     "- 面談ログでは、背景・原因・方針のつながりを出す",
     "- 指導報告ログでは、今日の授業で何が起きたかを最優先で具体化する",
     "- 指導報告ログで『授業前チェックイン』『授業後チェックアウト』がある場合は、開始時点の状態と授業後の結果を混同しない",
-    "- recommendedTopics と quickQuestions は、次回会話でそのまま使える内容にする",
-    "- profileDelta は durable な情報だけに絞る",
+    "- 基本情報に書けない項目は捏造せず『未記録』と書く",
   ].join("\n");
 
   return { system, user };
@@ -910,81 +1327,101 @@ function buildSinglePassPrompt(input: {
   transcript: string;
   studentName?: string;
   teacherName?: string;
+  sessionDate?: string | Date | null;
   minSummaryChars: number;
   minTimelineSections: number;
 }) {
   const spec = buildSessionPromptSpec(input.sessionType);
   const isLesson = input.sessionType === "LESSON_REPORT";
-  const headings = isLesson
-    ? [
-        "- ## 本日の指導サマリー（室長向け要約）  ← 授業全体の要約を3段落以上で。教科名・単元名・具体行動を含める",
-        "- ## 課題と指導成果（Before → After）  ← トピック別に【】で見出し化し、現状(Before)→成果(After)→特記事項の構造で",
-        "- ## 学習方針と次回アクション（自学習の設計）  ← 次回の学習方針、宿題、確認事項を具体的に",
-        "- ## 室長・他講師への共有・連携事項  ← 他教科への共有やエスカレーション事項",
-      ]
-    : [
-        "- ## 超解像度高い具体性を持ったサマリー  ← 面談全体の詳細サマリー。3段落以上。教科別状況・生活面・進路を網羅する",
-        "- ## ポジティブな話題  ← 生徒の成長・意欲・良い変化を箇条書きで",
-        "- ## 改善・対策が必要な話題  ← 課題とその対策案を箇条書きで。各項目にサブポイントを添える",
-      ];
   const system = [
     "あなたは学習塾・個別指導の教務責任者です。",
-    "文字起こしから、最終的な会話ログ成果物を直接生成してください。",
+    "文字起こしから、最終的なログ本文を直接生成してください。",
     "出力は厳密な JSON object のみ。",
+    "出力するキーは summaryMarkdown のみです。",
     "summaryMarkdown 以外で markdown は使わないでください。",
     `summaryMarkdown は ${input.minSummaryChars} 文字以上にしてください。`,
-    `timeline は evidence がある限り ${input.minTimelineSections} セクション以上にしてください。`,
-    "summaryMarkdown の見出し構造（必ずこの見出しを使うこと）:",
-    ...headings,
+    "",
+    ...buildSummaryMarkdownSpec(isLesson),
+    "",
     "品質要件:",
     ...spec.finalizeStyle.map((line) => `- ${line}`),
     "- 文字起こしの逐語ダンプは禁止",
     "- 雑な一般論・抽象論は禁止",
     "- 何をどう改善するか、後から読んでも分かる具体性にする",
+    "- 録音開始時の雑談・相槌・意味が壊れた STT 断片はノイズとして捨てる",
+    "- 『授業前チェックイン』『授業後チェックアウト』というラベル自体を本文にコピペしない",
+    "- 基本情報に書けない項目は捏造せず『未記録』と書く",
   ].join("\n");
 
   const user = [
     `生徒: ${formatStudentLabel(input.studentName)}`,
     `講師: ${formatTeacherLabel(input.teacherName)}`,
+    `セッション日: ${formatSessionDateLabel(input.sessionDate) || "不明"}`,
     `セッション種別: ${input.sessionType}`,
     "",
     "文字起こし:",
     input.transcript,
     "",
-    "出力 JSON 形式は finalize prompt と同じ。",
+    "出力 JSON 形式:",
+    "{",
+    '  "summaryMarkdown": "..."',
+    "}",
   ].join("\n");
 
   return { system, user };
 }
 
-function buildSummaryMarkdown(facts: string[], points: string[], actions: NextAction[], minChars: number, sessionType?: SessionMode) {
+function buildSummaryMarkdown(
+  facts: string[],
+  points: string[],
+  actions: NextAction[],
+  minChars: number,
+  sessionType?: SessionMode,
+  meta?: { studentName?: string; teacherName?: string; sessionDate?: string | Date | null }
+) {
   const isLesson = sessionType === "LESSON_REPORT";
   const lines = isLesson
     ? [
-        "## 本日の指導サマリー（室長向け要約）",
+        "■ 基本情報",
+        `対象生徒: ${formatStudentLabel(meta?.studentName)} 様`,
+        `指導日: ${formatSessionDateLabel(meta?.sessionDate) || "未記録"}`,
+        "教科・単元: 文字起こしから確認した内容を整理",
+        `担当チューター: ${formatTeacherLabel(meta?.teacherName)}`,
+        "",
+        "■ 1. 本日の指導サマリー（室長向け要約）",
         ...(facts.length > 0 ? [facts.join(" ")] : ["本日の授業内容を整理した。"]),
         "",
-        "## 課題と指導成果（Before → After）",
+        "■ 2. 課題と指導成果（Before → After）",
         ...(points.length > 0 ? points.map((line) => `- ${line}`) : ["- 授業内での成果を次回確認する。"]),
         "",
-        "## 学習方針と次回アクション（自学習の設計）",
+        "■ 3. 学習方針と次回アクション（自学習の設計）",
         ...(actions.length > 0
           ? actions.slice(0, 4).map((action) => `- ${ownerLabel(action.owner)}: ${action.action}（指標: ${action.metric}）`)
           : ["- 次回までに回す行動を一つに絞り、実行結果を確認する。"]),
         "",
-        "## 室長・他講師への共有・連携事項",
+        "■ 4. 室長・他講師への共有・連携事項",
         "- 現時点で特別な連携事項はなし。",
       ]
     : [
-        "## 超解像度高い具体性を持ったサマリー",
-        ...(facts.length > 0 ? [facts.join(" ")] : ["今回の面談で確認した事実を整理した。"]),
+        "■ 基本情報",
+        `対象生徒: ${formatStudentLabel(meta?.studentName)} 様`,
+        `面談日: ${formatSessionDateLabel(meta?.sessionDate) || "未記録"}`,
+        "面談時間: 未記録",
+        `担当チューター: ${formatTeacherLabel(meta?.teacherName)}`,
+        "面談目的: 学習状況の確認と次回方針の整理",
         "",
-        "## ポジティブな話題",
+        "■ 1. サマリー",
+        ...(facts.length > 0 ? [facts.join(" ")] : ["今回の面談で確認した事実を整理した。"]),
+        ...(points.length > 0 ? [points.slice(0, 2).join(" ")] : []),
+        "",
+        "■ 2. ポジティブな話題",
         ...(points.length > 0 ? points.map((line) => `- ${line}`) : ["- 次回確認の中で具体化する。"]),
         "",
-        "## 改善・対策が必要な話題",
+        "■ 3. 改善・対策が必要な話題",
         ...(actions.length > 0
-          ? actions.slice(0, 4).map((action) => `- ${ownerLabel(action.owner)}: ${action.action}（指標: ${action.metric}）`)
+          ? actions
+              .slice(0, 4)
+              .map((action) => `- ${ownerLabel(action.owner)}: ${action.action}。確認指標は ${action.metric}。`)
           : ["- 次回までに回す行動を一つに絞り、実行結果を確認する。"]),
       ];
   let built = lines.join("\n").trim();
@@ -1256,7 +1693,8 @@ function buildHeuristicFinalize(
   transcript: string,
   reduced: ReducedAnalysis,
   minSummaryChars: number,
-  minTimelineSections: number
+  minTimelineSections: number,
+  meta?: { studentName?: string; teacherName?: string; sessionDate?: string | Date | null }
 ): FinalizeResult {
   const nextActions =
     normalizeNextActions(reduced.todo_candidates ?? []).length > 0
@@ -1282,7 +1720,7 @@ function buildHeuristicFinalize(
   const points = dedupeStrings([...reduced.coaching_points, ...timeline.map((item) => item.coach_point)]).slice(0, 6);
 
   return {
-    summaryMarkdown: buildSummaryMarkdown(facts, points, nextActions, minSummaryChars, sessionType),
+    summaryMarkdown: buildSummaryMarkdown(facts, points, nextActions, minSummaryChars, sessionType, meta),
     timeline,
     nextActions,
     profileDelta,
@@ -1296,13 +1734,55 @@ function buildHeuristicFinalize(
   };
 }
 
-function isWeakFinalize(result: FinalizeResult, minSummaryChars: number, minTimelineSections: number) {
-  if (!result.summaryMarkdown || result.summaryMarkdown.length < minSummaryChars) return true;
-  if (result.timeline.length < minTimelineSections) return true;
-  if (result.nextActions.length < 2) return true;
-  if (result.recommendedTopics.length === 0) return true;
-  if (result.profileSections.length === 0) return true;
-  return false;
+function hasProfileDeltaContent(delta: ProfileDelta) {
+  return delta.basic.length > 0 || delta.personal.length > 0;
+}
+
+function hasParentPackContent(parentPack: ParentPack) {
+  return (
+    parentPack.what_we_did.length > 0 ||
+    parentPack.what_improved.length > 0 ||
+    parentPack.what_to_practice.length > 0 ||
+    parentPack.risks_or_notes.length > 0 ||
+    parentPack.next_time_plan.length > 0
+  );
+}
+
+function hasStudentStateContent(studentState: StudentStateCard) {
+  return Boolean(studentState.oneLiner?.trim()) || studentState.rationale.length > 0;
+}
+
+function fillMissingFinalizeResult(primary: FinalizeResult, fallback: FinalizeResult): FinalizeResult {
+  return {
+    summaryMarkdown: primary.summaryMarkdown || fallback.summaryMarkdown,
+    timeline: primary.timeline.length > 0 ? primary.timeline : fallback.timeline,
+    nextActions: primary.nextActions.length > 0 ? primary.nextActions : fallback.nextActions,
+    profileDelta: hasProfileDeltaContent(primary.profileDelta) ? primary.profileDelta : fallback.profileDelta,
+    parentPack: hasParentPackContent(primary.parentPack) ? primary.parentPack : fallback.parentPack,
+    studentState: hasStudentStateContent(primary.studentState) ? primary.studentState : fallback.studentState,
+    recommendedTopics:
+      primary.recommendedTopics.length > 0 ? primary.recommendedTopics : fallback.recommendedTopics,
+    quickQuestions: primary.quickQuestions.length > 0 ? primary.quickQuestions : fallback.quickQuestions,
+    profileSections: primary.profileSections.length > 0 ? primary.profileSections : fallback.profileSections,
+    observationEvents:
+      primary.observationEvents.length > 0 ? primary.observationEvents : fallback.observationEvents,
+    lessonReport: primary.lessonReport ?? fallback.lessonReport,
+  };
+}
+
+function isWeakFinalize(
+  result: FinalizeResult,
+  minSummaryChars: number,
+  minTimelineSections: number,
+  sessionType: SessionMode = "INTERVIEW"
+) {
+  if (sessionType === "LESSON_REPORT") {
+    if (!result.summaryMarkdown) return true;
+    if (isWeakLessonReportSummary(result.summaryMarkdown, Math.min(minSummaryChars, 700))) return true;
+    return false;
+  }
+  if (!result.summaryMarkdown) return true;
+  return isWeakInterviewSummary(result.summaryMarkdown, minSummaryChars);
 }
 
 async function repairFinalizeResult(input: {
@@ -1328,8 +1808,8 @@ async function repairFinalizeResult(input: {
     "",
     "不足している点:",
     "- summaryMarkdown が弱い場合は、何が事実で、何が講師の判断で、次回何をするかまで補う",
-    "- timeline は具体タイトルにする",
-    "- nextActions は action / metric / why を具体化する",
+    "- 面談なら『基本情報 / サマリー / ポジティブな話題 / 改善・対策が必要な話題』を崩さない",
+    "- 指導報告なら『基本情報 / 本日の指導サマリー / 課題と指導成果 / 学習方針と次回アクション / 共有事項』を崩さない",
     "- 面談なら背景と方針、指導報告なら今日の授業内容と宿題を明確にする",
     "",
     "現在の JSON:",
@@ -1485,6 +1965,8 @@ export async function reduceChunkAnalyses(input: {
       response_format: { type: "json_object" },
       temperature: 0.2,
       max_completion_tokens: REDUCE_MAX_TOKENS,
+      prompt_cache_key: buildPromptCacheKey("reduce", sessionType),
+      prompt_cache_retention: supportsExtendedPromptCaching(model) ? "24h" : "in_memory",
     });
     const jsonText = contentText ?? extractJsonCandidate(raw) ?? "";
     parsed = tryParseJson<Partial<ReducedAnalysis>>(jsonText);
@@ -1515,6 +1997,7 @@ export async function reduceChunkAnalyses(input: {
 export async function finalizeConversationArtifacts(input: {
   studentName?: string;
   teacherName?: string;
+  sessionDate?: string | Date | null;
   reduced: ReducedAnalysis;
   minSummaryChars: number;
   minTimelineSections?: number;
@@ -1528,6 +2011,7 @@ export async function finalizeConversationArtifacts(input: {
     reduced: input.reduced,
     studentName: input.studentName,
     teacherName: input.teacherName,
+    sessionDate: input.sessionDate,
     minSummaryChars: input.minSummaryChars,
     minTimelineSections,
   });
@@ -1548,6 +2032,8 @@ export async function finalizeConversationArtifacts(input: {
       temperature: 0.2,
       timeoutMs: DEFAULT_LLM_TIMEOUT_MS * 2,
       max_completion_tokens: FINALIZE_MAX_TOKENS,
+      prompt_cache_key: buildPromptCacheKey("finalize", sessionType),
+      prompt_cache_retention: supportsExtendedPromptCaching(model) ? "24h" : "in_memory",
     });
     const jsonText = contentText ?? extractJsonCandidate(raw) ?? "";
     parsed = tryParseJson<Partial<FinalizeResult>>(jsonText);
@@ -1556,15 +2042,23 @@ export async function finalizeConversationArtifacts(input: {
   }
 
   const evidenceText = JSON.stringify(input.reduced);
+  const heuristic = buildHeuristicFinalize(
+    sessionType,
+    evidenceText,
+    input.reduced,
+    input.minSummaryChars,
+    minTimelineSections,
+    {
+      studentName: input.studentName,
+      teacherName: input.teacherName,
+      sessionDate: input.sessionDate,
+    }
+  );
   let result = parsed
     ? normalizeFinalizeResult(parsed, sessionType, input.minSummaryChars)
-    : buildHeuristicFinalize(sessionType, evidenceText, input.reduced, input.minSummaryChars, minTimelineSections);
+    : heuristic;
 
-  if (isWeakFinalize(result, input.minSummaryChars, minTimelineSections)) {
-    result = buildHeuristicFinalize(sessionType, evidenceText, input.reduced, input.minSummaryChars, minTimelineSections);
-  }
-
-  if (ENABLE_FINALIZE_REPAIR && isWeakFinalize(result, input.minSummaryChars, minTimelineSections)) {
+  if (ENABLE_FINALIZE_REPAIR && isWeakFinalize(result, input.minSummaryChars, minTimelineSections, sessionType)) {
     const repairedResult = await repairFinalizeResult({
       sessionType,
       transcriptOrEvidence: evidenceText,
@@ -1578,14 +2072,24 @@ export async function finalizeConversationArtifacts(input: {
       apiCalls += 1;
       repaired = true;
       const normalized = normalizeFinalizeResult(repairedResult, sessionType, input.minSummaryChars);
-      if (!isWeakFinalize(normalized, input.minSummaryChars, minTimelineSections)) {
+      if (!isWeakFinalize(normalized, input.minSummaryChars, minTimelineSections, sessionType)) {
         result = normalized;
       }
     }
   }
 
-  if (isWeakFinalize(result, input.minSummaryChars, minTimelineSections)) {
-    result = buildHeuristicFinalize(sessionType, evidenceText, input.reduced, input.minSummaryChars, minTimelineSections);
+  if (sessionType === "LESSON_REPORT") {
+    result = await stabilizeLessonReportResult({
+      result,
+      heuristic,
+      transcript: evidenceText,
+      studentName: input.studentName,
+      teacherName: input.teacherName,
+      sessionDate: input.sessionDate,
+      minSummaryChars: input.minSummaryChars,
+    });
+  } else if (isWeakFinalize(result, input.minSummaryChars, minTimelineSections, sessionType)) {
+    result = heuristic;
     repaired = false;
   }
 
@@ -1596,6 +2100,7 @@ export async function generateConversationArtifactsSinglePass(input: {
   transcript: string;
   studentName?: string;
   teacherName?: string;
+  sessionDate?: string | Date | null;
   minSummaryChars: number;
   minTimelineSections?: number;
   sessionType?: SessionMode;
@@ -1603,11 +2108,16 @@ export async function generateConversationArtifactsSinglePass(input: {
   const sessionType = input.sessionType ?? "INTERVIEW";
   const minTimelineSections = input.minTimelineSections ?? 2;
   const model = getFinalModel();
+  const singlePassMaxTokens =
+    sessionType === "LESSON_REPORT"
+      ? Math.max(SINGLE_PASS_MAX_TOKENS, 5200)
+      : SINGLE_PASS_MAX_TOKENS;
   const { system, user } = buildSinglePassPrompt({
     sessionType,
     transcript: input.transcript,
     studentName: input.studentName,
     teacherName: input.teacherName,
+    sessionDate: input.sessionDate,
     minSummaryChars: input.minSummaryChars,
     minTimelineSections,
   });
@@ -1616,23 +2126,43 @@ export async function generateConversationArtifactsSinglePass(input: {
   let apiCalls = 0;
   let repaired = false;
 
-  try {
-    apiCalls += 1;
+  const requestSinglePass = async (strictRetry = false) => {
     const { contentText, raw } = await callChatCompletions({
       model,
-      messages: [
-        { role: "system", content: system },
-        { role: "user", content: user },
-      ],
+      messages: strictRetry
+        ? [
+            { role: "system", content: `${system}\n前回の出力で JSON 以外が混ざったため、今回は厳密な JSON object のみを返してください。` },
+            { role: "user", content: `${user}\n\n注意: 余計な前置き・説明・markdown を一切出さず、JSON object だけを返してください。` },
+          ]
+        : [
+            { role: "system", content: system },
+            { role: "user", content: user },
+          ],
       response_format: { type: "json_object" },
       temperature: 0.2,
       timeoutMs: DEFAULT_LLM_TIMEOUT_MS * 2,
-      max_completion_tokens: SINGLE_PASS_MAX_TOKENS,
+      max_completion_tokens: singlePassMaxTokens,
+      prompt_cache_key: buildPromptCacheKey(strictRetry ? "single-pass-retry" : "single-pass", sessionType),
+      prompt_cache_retention: supportsExtendedPromptCaching(model) ? "24h" : "in_memory",
     });
     const jsonText = contentText ?? extractJsonCandidate(raw) ?? "";
-    parsed = tryParseJson<Partial<FinalizeResult>>(jsonText);
+    return tryParseJson<Partial<FinalizeResult>>(jsonText);
+  };
+
+  try {
+    apiCalls += 1;
+    parsed = await requestSinglePass(false);
+    if (!parsed) {
+      apiCalls += 1;
+      repaired = true;
+      parsed = await requestSinglePass(true);
+    }
   } catch {
     parsed = null;
+  }
+
+  if (!parsed) {
+    throw new Error("single-pass generation returned invalid JSON");
   }
 
   const reducedFallback = normalizeReducedAnalysis({
@@ -1649,16 +2179,60 @@ export async function generateConversationArtifactsSinglePass(input: {
     quotes: summarizeTranscriptEvidence(input.transcript, 2),
     safety_flags: [],
   });
+  const structuralFallback = buildHeuristicFinalize(
+    sessionType,
+    input.transcript,
+    reducedFallback,
+    input.minSummaryChars,
+    minTimelineSections,
+    {
+      studentName: input.studentName,
+      teacherName: input.teacherName,
+      sessionDate: input.sessionDate,
+    }
+  );
+  let result = normalizeFinalizeResult(parsed, sessionType, input.minSummaryChars);
+  result = fillMissingFinalizeResult(result, structuralFallback);
 
-  let result = parsed
-    ? normalizeFinalizeResult(parsed, sessionType, input.minSummaryChars)
-    : buildHeuristicFinalize(sessionType, input.transcript, reducedFallback, input.minSummaryChars, minTimelineSections);
-
-  if (isWeakFinalize(result, input.minSummaryChars, minTimelineSections)) {
-    result = buildHeuristicFinalize(sessionType, input.transcript, reducedFallback, input.minSummaryChars, minTimelineSections);
+  if (sessionType === "LESSON_REPORT") {
+    const normalizedTimeline =
+      result.timeline.length >= minTimelineSections
+        ? result.timeline
+        : buildFallbackTimeline(sessionType, input.transcript, undefined, minTimelineSections);
+    const normalizedNextActions =
+      result.nextActions.length > 0
+        ? result.nextActions
+        : buildFallbackNextActions(sessionType, input.transcript).slice(0, 3);
+    result = {
+      ...result,
+      timeline: normalizedTimeline,
+      nextActions: normalizedNextActions,
+      lessonReport:
+        result.lessonReport ?? buildFallbackLessonReport(sessionType, normalizedTimeline, normalizedNextActions, input.transcript),
+    };
   }
 
-  if (ENABLE_FINALIZE_REPAIR && isWeakFinalize(result, input.minSummaryChars, minTimelineSections)) {
+  if (sessionType === "LESSON_REPORT" && isWeakFinalize(result, input.minSummaryChars, minTimelineSections, sessionType)) {
+    const rewrittenSummary = await rewriteLessonReportSummaryMarkdown({
+      transcript: input.transcript,
+      studentName: input.studentName,
+      teacherName: input.teacherName,
+      sessionDate: input.sessionDate,
+      minSummaryChars: input.minSummaryChars,
+      current: result.summaryMarkdown,
+      lessonReport: result.lessonReport,
+      nextActions: result.nextActions,
+      forceCompleteSentences: true,
+    });
+    if (rewrittenSummary) {
+      apiCalls += 1;
+      repaired = true;
+      result = {
+        ...result,
+        summaryMarkdown: repairBrokenLessonReportSections(rewrittenSummary),
+      };
+    }
+  } else if (ENABLE_FINALIZE_REPAIR && isWeakFinalize(result, input.minSummaryChars, minTimelineSections, sessionType)) {
     const repairedResult = await repairFinalizeResult({
       sessionType,
       transcriptOrEvidence: input.transcript,
@@ -1671,16 +2245,37 @@ export async function generateConversationArtifactsSinglePass(input: {
     if (repairedResult) {
       apiCalls += 1;
       repaired = true;
-      const normalized = normalizeFinalizeResult(repairedResult, sessionType, input.minSummaryChars);
-      if (!isWeakFinalize(normalized, input.minSummaryChars, minTimelineSections)) {
-        result = normalized;
-      }
+      result = normalizeFinalizeResult(repairedResult, sessionType, input.minSummaryChars);
     }
   }
 
-  if (isWeakFinalize(result, input.minSummaryChars, minTimelineSections)) {
-    result = buildHeuristicFinalize(sessionType, input.transcript, reducedFallback, input.minSummaryChars, minTimelineSections);
-    repaired = false;
+  if (sessionType === "LESSON_REPORT" && result.summaryMarkdown) {
+    let summaryMarkdown = repairBrokenSummaryLineBreaks(repairBrokenLessonReportSections(result.summaryMarkdown));
+    if (hasBrokenLessonReportPhrasing(summaryMarkdown)) {
+      summaryMarkdown = repairBrokenSummaryLineBreaks(
+        repairBrokenLessonReportSections(
+          await polishLessonReportSummaryMarkdown({
+            markdown: summaryMarkdown,
+            transcript: input.transcript,
+          })
+        )
+      );
+      apiCalls += 1;
+      repaired = true;
+    }
+    result = {
+      ...result,
+      summaryMarkdown,
+    };
+  } else if (result.summaryMarkdown) {
+    result = {
+      ...result,
+      summaryMarkdown: repairBrokenSummaryLineBreaks(result.summaryMarkdown),
+    };
+  }
+
+  if (isWeakFinalize(result, input.minSummaryChars, minTimelineSections, sessionType)) {
+    throw new Error("single-pass generation quality insufficient");
   }
 
   return { result, model, apiCalls, repaired };

@@ -11,5 +11,5 @@ export default async function LogDetailRedirectPage({ params }: { params: { logI
     notFound();
   }
 
-  redirect(`/app/students/${log.studentId}?panel=proof&logId=${params.logId}`);
+  redirect(`/app/students/${log.studentId}?panel=log&logId=${params.logId}`);
 }

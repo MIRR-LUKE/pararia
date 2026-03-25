@@ -13,6 +13,9 @@
     "test:artifact-guards": "tsx scripts/test-artifact-guards.ts",
     "test:generation-progress": "tsx scripts/test-generation-progress.ts",
     "test:lesson-report-flow": "tsx scripts/test-lesson-report-flow.ts",
+    "test:live-transcription": "tsx scripts/test-live-transcription.ts",
+    "test:single-pass-fast-path": "tsx scripts/test-single-pass-fast-path.ts",
+    "benchmark:progressive-generation": "tsx scripts/benchmark-progressive-generation.ts",
     "verify": "npm run lint && npm run typecheck && npm run build",
     "postinstall": "prisma generate",
     "prisma:generate": "prisma generate",
@@ -40,6 +43,7 @@
     "@types/react": "^18.2.38",
     "eslint": "^8.56.0",
     "eslint-config-next": "14.0.4",
+    "ffmpeg-static": "^5.3.0",
     "prisma": "^5.9.0",
     "tsx": "^4.21.0",
     "typescript": "^5.3.3"

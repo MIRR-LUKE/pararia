@@ -23,7 +23,7 @@ type Props = {
   onModeChange: (mode: SessionConsoleMode) => void;
   onLessonPartChange: (part: SessionConsoleLessonPart) => void;
   onRefresh: () => Promise<void> | void;
-  onOpenProof: (logId: string) => void;
+  onOpenLog: (logId: string) => void;
   recordingLock?: RecordingLockInfo;
   showModePicker?: boolean;
   autoStartOnMount?: boolean;
@@ -32,6 +32,11 @@ type Props = {
 const MAX_SECONDS: Record<SessionConsoleMode, number> = {
   INTERVIEW: 60 * 60,
   LESSON_REPORT: 10 * 60,
+};
+const RECORDING_TIMESLICE_MS = 1000;
+const LIVE_STT_WINDOW_MS: Record<SessionConsoleMode, number> = {
+  INTERVIEW: 15_000,
+  LESSON_REPORT: 8_000,
 };
 
 function stopTracks(stream: MediaStream | null) {
@@ -80,6 +85,12 @@ function buildUploadFileName(
   return `${prefix}-${studentId}-${new Date().toISOString().slice(0, 19)}.${ext}`;
 }
 
+function buildChunkUploadFileName(baseName: string, sequence: number) {
+  const dotIndex = baseName.lastIndexOf(".");
+  if (dotIndex === -1) return `${baseName}-chunk-${String(sequence).padStart(4, "0")}`;
+  return `${baseName.slice(0, dotIndex)}-chunk-${String(sequence).padStart(4, "0")}${baseName.slice(dotIndex)}`;
+}
+
 export function StudentSessionConsole({
   studentId,
   studentName,
@@ -89,7 +100,7 @@ export function StudentSessionConsole({
   onModeChange,
   onLessonPartChange,
   onRefresh,
-  onOpenProof,
+  onOpenLog,
   recordingLock,
   showModePicker = true,
   autoStartOnMount = false,
@@ -110,6 +121,14 @@ export function StudentSessionConsole({
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const chunksRef = useRef<BlobPart[]>([]);
+  const livePendingChunksRef = useRef<Blob[]>([]);
+  const livePendingDurationMsRef = useRef(0);
+  const liveUploadedUntilMsRef = useRef(0);
+  const liveChunkSequenceRef = useRef(0);
+  const liveUploadQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const liveUploadErrorRef = useRef<Error | null>(null);
+  const recordingSessionIdRef = useRef<string | null>(null);
+  const liveStreamingEnabledRef = useRef(false);
   const mimeTypeRef = useRef("audio/webm");
   const lockTokenRef = useRef<string | null>(null);
   const heartbeatRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -128,6 +147,17 @@ export function StudentSessionConsole({
       clearInterval(heartbeatRef.current);
       heartbeatRef.current = null;
     }
+  }, []);
+
+  const resetLiveCapture = useCallback(() => {
+    livePendingChunksRef.current = [];
+    livePendingDurationMsRef.current = 0;
+    liveUploadedUntilMsRef.current = 0;
+    liveChunkSequenceRef.current = 0;
+    liveUploadQueueRef.current = Promise.resolve();
+    liveUploadErrorRef.current = null;
+    recordingSessionIdRef.current = null;
+    liveStreamingEnabledRef.current = false;
   }, []);
 
   const releaseLockClient = useCallback(
@@ -208,8 +238,9 @@ export function StudentSessionConsole({
       const token = lockTokenRef.current;
       lockTokenRef.current = null;
       if (token) void releaseLockClient(token);
+      resetLiveCapture();
     };
-  }, [releaseLockClient, stopHeartbeat]);
+  }, [releaseLockClient, resetLiveCapture, stopHeartbeat]);
 
   const createSession = useCallback(async () => {
     const payload = {
@@ -266,17 +297,17 @@ export function StudentSessionConsole({
       const startedAt = Date.now();
       let retried = false;
       setState("processing");
-      setMessage("文字起こしと会話ログ整理を進めています。");
+      setMessage(mode === "LESSON_REPORT" ? "文字起こしと指導報告ログ生成を進めています。" : "文字起こしと面談ログ生成を進めています。");
       setRecoverableConversationId(conversationId);
       setRecoverableSessionId(sessionId ?? null);
 
       while (Date.now() - startedAt < 300000) {
-        const res = await fetch(`/api/conversations/${conversationId}?process=1&brief=1`, {
+        const res = await fetch(`/api/conversations/${conversationId}?brief=1`, {
           cache: "no-store",
         });
         const body = await res.json().catch(() => ({}));
         if (!res.ok) {
-          await sleep(1500);
+          await sleep(700);
           continue;
         }
         setProcessingJobs(body?.conversation?.jobs ?? []);
@@ -306,21 +337,139 @@ export function StudentSessionConsole({
           setRecoverableConversationId(null);
           setRecoverableSessionId(null);
           setState("success");
-          setMessage("生成が完了しました。会話ログとおすすめの話題を確認できます。");
+          setMessage(mode === "LESSON_REPORT" ? "生成が完了しました。指導報告ログを確認できます。" : "生成が完了しました。面談ログを確認できます。");
           await onRefresh();
           return;
         }
-        await sleep(1500);
+        await sleep(700);
       }
 
       setCreatedConversationId(conversationId);
       setRecoverableConversationId(null);
       setRecoverableSessionId(null);
       setState("success");
-      setMessage("生成に時間がかかっています。ログ詳細から続きの反映を確認できます。");
+      setMessage("生成に時間がかかっています。ログ画面から続きの反映を確認できます。");
       await onRefresh();
     },
-    [onRefresh]
+    [mode, onRefresh]
+  );
+
+  const handleSavedPartResponse = useCallback(
+    async (body: any, sessionId: string) => {
+      const startedConversationId =
+        body?.conversationId ??
+        (body?.generationDeferred
+          ? null
+          : body?.session?.status === "PROCESSING"
+            ? await ensureGenerationStarted(sessionId)
+            : null);
+
+      if (startedConversationId) {
+        await pollConversation(startedConversationId, sessionId);
+        return startedConversationId as string;
+      }
+
+      setState("success");
+      if (mode === "LESSON_REPORT" && lessonPart === "CHECK_IN") {
+        onLessonPartChange("CHECK_OUT");
+      }
+      setMessage(
+        mode === "INTERVIEW"
+          ? "保存しました。面談ログはまもなく確認できます。"
+          : lessonPart === "CHECK_IN"
+            ? "チェックインを保存しました。次はチェックアウトを録音してください。"
+            : body?.session?.status === "COLLECTING"
+              ? "チェックアウトを保存しました。チェックインを追加すると指導報告が自動生成されます。"
+              : body?.generationDeferred
+                ? "チェックアウトを保存しました。チェックインとチェックアウトを合算して文字起こし・指導報告を生成中です。"
+                : "チェックアウトを保存しました。指導報告を生成中です。"
+      );
+      await onRefresh();
+      return null;
+    },
+    [ensureGenerationStarted, lessonPart, mode, onLessonPartChange, onRefresh, pollConversation]
+  );
+
+  const queueLiveChunkUpload = useCallback(
+    async (options?: { force?: boolean }) => {
+      if (!liveStreamingEnabledRef.current) return;
+      if (!recordingSessionIdRef.current || !lockTokenRef.current) return;
+      if (!livePendingChunksRef.current.length) return;
+      if (!options?.force && livePendingDurationMsRef.current < LIVE_STT_WINDOW_MS[mode]) return;
+
+      const partType = mode === "INTERVIEW" ? "FULL" : lessonPart;
+      const sessionId = recordingSessionIdRef.current;
+      const lockToken = lockTokenRef.current;
+      const pendingChunks = livePendingChunksRef.current;
+      const durationMs = livePendingDurationMsRef.current;
+      const startedAtMs = liveUploadedUntilMsRef.current;
+      const sequence = liveChunkSequenceRef.current;
+      const mimeType = mimeTypeRef.current;
+
+      livePendingChunksRef.current = [];
+      livePendingDurationMsRef.current = 0;
+      liveChunkSequenceRef.current += 1;
+
+      const baseName = buildUploadFileName(studentId, mode, lessonPart, mimeType);
+      const chunkFile = new File(
+        pendingChunks,
+        buildChunkUploadFileName(baseName, sequence),
+        { type: mimeType }
+      );
+
+      liveUploadQueueRef.current = liveUploadQueueRef.current.then(async () => {
+        const form = new FormData();
+        form.append("partType", partType);
+        form.append("sequence", String(sequence));
+        form.append("startedAtMs", String(startedAtMs));
+        form.append("durationMs", String(durationMs));
+        form.append("file", chunkFile);
+        form.append("lockToken", lockToken);
+
+        const res = await fetch(`/api/sessions/${sessionId}/parts/live`, {
+          method: "POST",
+          body: form,
+        });
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(body?.error ?? "先行文字起こしの保存に失敗しました。");
+        }
+        liveUploadedUntilMsRef.current = startedAtMs + durationMs;
+      }).catch((error) => {
+        liveUploadErrorRef.current = error instanceof Error ? error : new Error(String(error));
+        liveStreamingEnabledRef.current = false;
+      });
+
+      await liveUploadQueueRef.current;
+    },
+    [lessonPart, mode, studentId]
+  );
+
+  const finalizeLiveRecording = useCallback(
+    async (sessionId: string) => {
+      await queueLiveChunkUpload({ force: true });
+      await liveUploadQueueRef.current;
+      if (liveUploadErrorRef.current) {
+        throw liveUploadErrorRef.current;
+      }
+
+      const res = await fetch(`/api/sessions/${sessionId}/parts/live`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          partType: mode === "INTERVIEW" ? "FULL" : lessonPart,
+          lockToken: lockTokenRef.current,
+        }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(body?.error ?? "録音の保存に失敗しました。");
+      }
+
+      await handleSavedPartResponse(body, sessionId);
+      return body;
+    },
+    [handleSavedPartResponse, lessonPart, mode, queueLiveChunkUpload]
   );
 
   const reset = useCallback(() => {
@@ -335,7 +484,8 @@ export function StudentSessionConsole({
     setRecoverableSessionId(null);
     setRecoverableConversationId(null);
     autoStartedRef.current = false;
-  }, []);
+    resetLiveCapture();
+  }, [resetLiveCapture]);
 
   const retryGeneration = useCallback(async () => {
     const sessionId = recoverableSessionId;
@@ -385,7 +535,11 @@ export function StudentSessionConsole({
       let partSaved = false;
 
       setError(null);
-      setMessage("音声を保存しています。");
+      setMessage(
+        mode === "LESSON_REPORT" && lessonPart === "CHECK_IN"
+          ? "チェックインを保存しています。"
+          : "音声を保存しています。"
+      );
       setState("uploading");
       setProcessingJobs([]);
       setRecoverableSessionId(null);
@@ -410,30 +564,7 @@ export function StudentSessionConsole({
         }
         partSaved = true;
         savedConversationId = body?.conversationId ?? null;
-
-        const startedConversationId =
-          body?.conversationId ??
-          (body?.session?.status === "PROCESSING" ? await ensureGenerationStarted(sessionId) : null);
-        savedConversationId = startedConversationId;
-
-        if (startedConversationId) {
-          await pollConversation(startedConversationId, sessionId);
-        } else {
-          setState("success");
-          if (mode === "LESSON_REPORT" && lessonPart === "CHECK_IN") {
-            onLessonPartChange("CHECK_OUT");
-          }
-          setMessage(
-            mode === "INTERVIEW"
-              ? "保存しました。面談ログはまもなく確認できます。"
-              : lessonPart === "CHECK_IN"
-                ? "チェックインを保存しました。次はチェックアウトを録音してください。"
-                : body?.session?.status === "COLLECTING"
-                  ? "チェックアウトを保存しました。チェックインを追加すると指導報告が自動生成されます。"
-                  : "チェックアウトを保存しました。指導報告を生成中です。"
-          );
-          await onRefresh();
-        }
+        savedConversationId = await handleSavedPartResponse(body, sessionId);
       } catch (nextError: any) {
         setState("error");
         if (partSaved) {
@@ -448,14 +579,11 @@ export function StudentSessionConsole({
       }
     },
     [
-      ensureGenerationStarted,
       ensureLockForAudio,
       finalizeLock,
+      handleSavedPartResponse,
       lessonPart,
       mode,
-      onLessonPartChange,
-      onRefresh,
-      pollConversation,
       resolveTargetSessionId,
     ]
   );
@@ -484,6 +612,15 @@ export function StudentSessionConsole({
       }
 
       await acquireLock();
+      const sessionId = await resolveTargetSessionId();
+      recordingSessionIdRef.current = sessionId;
+      liveStreamingEnabledRef.current = true;
+      liveUploadErrorRef.current = null;
+      liveUploadQueueRef.current = Promise.resolve();
+      livePendingChunksRef.current = [];
+      livePendingDurationMsRef.current = 0;
+      liveUploadedUntilMsRef.current = 0;
+      liveChunkSequenceRef.current = 0;
 
       const mimeCandidates = ["audio/webm;codecs=opus", "audio/webm", "audio/ogg;codecs=opus"];
       const mimeType = mimeCandidates.find((candidate) => MediaRecorder.isTypeSupported(candidate));
@@ -511,6 +648,11 @@ export function StudentSessionConsole({
       recorder.ondataavailable = (event) => {
         if (event.data && event.data.size > 0) {
           chunksRef.current.push(event.data);
+          if (event.data instanceof Blob && liveStreamingEnabledRef.current) {
+            livePendingChunksRef.current.push(event.data);
+            livePendingDurationMsRef.current += RECORDING_TIMESLICE_MS;
+            void queueLiveChunkUpload();
+          }
           const totalBytes = chunksRef.current.reduce(
             (acc, part) => acc + (part instanceof Blob ? part.size : 0),
             0
@@ -533,7 +675,17 @@ export function StudentSessionConsole({
             buildUploadFileName(studentId, mode, lessonPart, activeMimeType),
             { type: activeMimeType }
           );
-          await uploadAudioFile(file);
+          const liveSessionId = recordingSessionIdRef.current;
+          if (liveStreamingEnabledRef.current && liveSessionId) {
+            try {
+              await finalizeLiveRecording(liveSessionId);
+            } catch {
+              liveStreamingEnabledRef.current = false;
+              await uploadAudioFile(file);
+            }
+          } else {
+            await uploadAudioFile(file);
+          }
         } finally {
           stopTracks(mediaStreamRef.current);
           mediaStreamRef.current = null;
@@ -541,15 +693,18 @@ export function StudentSessionConsole({
           chunksRef.current = [];
           setSeconds(0);
           setIsPaused(false);
+          resetLiveCapture();
         }
       };
 
-      recorder.start(1000);
+      recorder.start(RECORDING_TIMESLICE_MS);
       setState("recording");
       setMessage(
         mode === "LESSON_REPORT" && lessonPart === "CHECK_IN"
           ? "録音を開始しました。終了すると音声を保存します。"
-          : "録音を開始しました。終了すると自動で保存して生成に入ります。"
+          : mode === "LESSON_REPORT" && lessonPart === "CHECK_OUT"
+            ? "録音を開始しました。終了すると音声を保存し、チェックインと合算して自動生成します。"
+            : "録音を開始しました。終了すると自動で保存して生成に入ります。"
       );
     } catch (nextError: any) {
       setState("error");
@@ -566,8 +721,12 @@ export function StudentSessionConsole({
     lessonPart,
     lockConflict,
     mode,
+    queueLiveChunkUpload,
     recordingLock?.lock?.lockedByName,
+    resolveTargetSessionId,
+    resetLiveCapture,
     studentId,
+    finalizeLiveRecording,
     uploadAudioFile,
   ]);
 
@@ -837,7 +996,7 @@ export function StudentSessionConsole({
               <strong>保存が完了しました</strong>
               <p>{message}</p>
               <div className={styles.inlineActions}>
-                {createdConversationId ? <Button onClick={() => onOpenProof(createdConversationId)}>生成結果を確認</Button> : null}
+                {createdConversationId ? <Button onClick={() => onOpenLog(createdConversationId)}>ログを確認</Button> : null}
                 <Button variant="secondary" onClick={reset}>
                   もう一度録る
                 </Button>

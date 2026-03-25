@@ -1,10 +1,7 @@
 import { ConversationSourceType, ConversationStatus, SessionType } from "@prisma/client";
 import { prisma } from "../db";
-import { applyProfileDelta } from "../profile";
 import { preprocessTranscript } from "../transcript/preprocess";
 import { analyzeChunkBlocks, reduceChunkAnalyses, finalizeConversationArtifacts } from "../ai/conversationPipeline";
-import { buildOperationalLog, renderOperationalSummaryMarkdown } from "../operational-log";
-import { toPrismaJson } from "../prisma-json";
 
 type CreateConversationInput = {
   transcript: string;
@@ -50,24 +47,7 @@ export async function createStructuredConversationLog({
     minSummaryChars: transcript.length >= 20000 ? 1200 : 700,
     sessionType: sessionType === SessionType.LESSON_REPORT ? "LESSON_REPORT" : "INTERVIEW",
   });
-  const summaryMarkdown = renderOperationalSummaryMarkdown(
-    buildOperationalLog({
-      sessionType,
-      summaryMarkdown: result.summaryMarkdown,
-      timeline: result.timeline as any,
-      nextActions: result.nextActions as any,
-      parentPack: result.parentPack as any,
-      studentState: result.studentState as any,
-      profileSections: result.profileSections as any,
-      quickQuestions: result.quickQuestions as any,
-      lessonReport: result.lessonReport as any,
-    }),
-    {
-      sessionType,
-      studentName,
-      sessionDate: new Date(),
-    }
-  );
+  const summaryMarkdown = result.summaryMarkdown;
 
   console.log("[createStructuredConversationLog] Creating conversation log in DB...");
   const conversation = await prisma.conversationLog.create({
@@ -78,27 +58,11 @@ export async function createStructuredConversationLog({
       sourceType,
       status: ConversationStatus.DONE,
       summaryMarkdown,
-      timelineJson: toPrismaJson(result.timeline),
-      nextActionsJson: toPrismaJson(result.nextActions),
-      profileDeltaJson: toPrismaJson(result.profileDelta),
-      parentPackJson: toPrismaJson(result.parentPack),
     },
   });
   console.log("[createStructuredConversationLog] Conversation log created:", {
     id: conversation.id,
   });
-
-  try {
-    console.log("[createStructuredConversationLog] Applying profile delta...");
-    await applyProfileDelta(studentId, result.profileDelta, conversation.id);
-    console.log("[createStructuredConversationLog] Profile delta applied successfully");
-  } catch (profileError: any) {
-    console.error("[createStructuredConversationLog] Profile delta failed (non-fatal):", {
-      error: profileError?.message,
-      stack: profileError?.stack,
-    });
-    // プロフィール更新の失敗は会話ログ作成を阻害しない
-  }
 
   return conversation;
 }

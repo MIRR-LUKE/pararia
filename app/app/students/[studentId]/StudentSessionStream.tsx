@@ -6,7 +6,7 @@ import type { SessionItem } from "./roomTypes";
 type Props = {
   sessions: SessionItem[];
   assigneeName?: string;
-  onOpenProof: (logId: string) => void;
+  onOpenLog: (logId: string) => void;
 };
 
 function buildSessionLabel(session: SessionItem) {
@@ -22,7 +22,7 @@ function assigneeText(name?: string) {
   return compact.length > 4 ? compact.slice(0, 2) : compact;
 }
 
-export function StudentSessionStream({ sessions, assigneeName, onOpenProof }: Props) {
+export function StudentSessionStream({ sessions, assigneeName, onOpenLog }: Props) {
   const items = sessions.filter((session) => session.type === "INTERVIEW" && session.conversation?.id);
 
   if (items.length === 0) {
@@ -36,7 +36,7 @@ export function StudentSessionStream({ sessions, assigneeName, onOpenProof }: Pr
           key={session.id}
           type="button"
           className={styles.row}
-          onClick={() => onOpenProof(session.conversation!.id)}
+          onClick={() => onOpenLog(session.conversation!.id)}
         >
           <div className={styles.rowLeft}>
             <div className={styles.iconBubble} aria-hidden>
