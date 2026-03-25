@@ -1,0 +1,54 @@
+import assert from "node:assert/strict";
+import {
+  buildConversationGenerationProgress,
+  buildParentReportGenerationProgress,
+} from "../lib/generation-progress";
+
+const interviewUpload = buildConversationGenerationProgress({
+  mode: "INTERVIEW",
+  stage: "uploading",
+});
+
+assert.match(interviewUpload.title, /音声を保存中/);
+assert.equal(interviewUpload.steps[0]?.status, "active");
+assert.ok(interviewUpload.value > 0 && interviewUpload.value < 100);
+
+const lessonProcessing = buildConversationGenerationProgress({
+  mode: "LESSON_REPORT",
+  stage: "processing",
+  jobs: [
+    { type: "CHUNK_ANALYZE", status: "DONE" },
+    { type: "REDUCE", status: "RUNNING" },
+  ],
+});
+
+assert.match(lessonProcessing.title, /指導報告を生成中/);
+assert.equal(lessonProcessing.steps[2]?.status, "active");
+assert.equal(lessonProcessing.steps[3]?.status, "pending");
+
+const conversationDone = buildConversationGenerationProgress({
+  mode: "INTERVIEW",
+  stage: "done",
+});
+
+assert.equal(conversationDone.value, 100);
+assert.ok(conversationDone.steps.every((step) => step.status === "complete"));
+
+const parentDrafting = buildParentReportGenerationProgress({
+  stage: "drafting",
+  selectedCount: 3,
+});
+
+assert.match(parentDrafting.title, /保護者レポートを生成中/);
+assert.equal(parentDrafting.steps[2]?.status, "active");
+
+const parentError = buildParentReportGenerationProgress({
+  stage: "error",
+  selectedCount: 2,
+  lastError: "timeout",
+});
+
+assert.equal(parentError.steps[2]?.status, "error");
+assert.match(parentError.description, /timeout/);
+
+console.log("generation-progress smoke check passed");

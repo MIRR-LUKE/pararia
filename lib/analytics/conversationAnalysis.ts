@@ -4,6 +4,7 @@ import { applyProfileDelta } from "../profile";
 import { preprocessTranscript } from "../transcript/preprocess";
 import { analyzeChunkBlocks, reduceChunkAnalyses, finalizeConversationArtifacts } from "../ai/conversationPipeline";
 import { buildOperationalLog, renderOperationalSummaryMarkdown } from "../operational-log";
+import { toPrismaJson } from "../prisma-json";
 
 type CreateConversationInput = {
   transcript: string;
@@ -60,7 +61,12 @@ export async function createStructuredConversationLog({
       profileSections: result.profileSections as any,
       quickQuestions: result.quickQuestions as any,
       lessonReport: result.lessonReport as any,
-    })
+    }),
+    {
+      sessionType,
+      studentName,
+      sessionDate: new Date(),
+    }
   );
 
   console.log("[createStructuredConversationLog] Creating conversation log in DB...");
@@ -72,10 +78,10 @@ export async function createStructuredConversationLog({
       sourceType,
       status: ConversationStatus.DONE,
       summaryMarkdown,
-      timelineJson: result.timeline as any,
-      nextActionsJson: result.nextActions as any,
-      profileDeltaJson: result.profileDelta as any,
-      parentPackJson: result.parentPack as any,
+      timelineJson: toPrismaJson(result.timeline),
+      nextActionsJson: toPrismaJson(result.nextActions),
+      profileDeltaJson: toPrismaJson(result.profileDelta),
+      parentPackJson: toPrismaJson(result.parentPack),
     },
   });
   console.log("[createStructuredConversationLog] Conversation log created:", {

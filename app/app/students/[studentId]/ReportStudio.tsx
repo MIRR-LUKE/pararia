@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
+import { GenerationProgress } from "@/components/ui/GenerationProgress";
+import { buildParentReportGenerationProgress } from "@/lib/generation-progress";
 import { buildBundlePreview, buildBundleQualityEval, type ReportBundleLog } from "@/lib/operational-log";
 import { reportStatusLabel } from "@/lib/report-delivery";
 import type { ReportItem, ReportStudioView, SessionItem } from "./roomTypes";
@@ -69,6 +71,9 @@ export function ReportStudio({
   const [error, setError] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isSending, setIsSending] = useState(false);
+  const [generationStage, setGenerationStage] = useState<
+    "validating" | "gathering" | "drafting" | "saving" | "done" | "error" | null
+  >(null);
 
   const candidateSessions = useMemo(
     () => sessions.filter((session) => session.conversation?.operationalLog),
@@ -89,6 +94,22 @@ export function ReportStudio({
     }
   }, [draftMarkdown, latestReport?.reportMarkdown]);
 
+  useEffect(() => {
+    if (!isGenerating) return;
+
+    const timers = [
+      window.setTimeout(() => setGenerationStage("gathering"), 350),
+      window.setTimeout(() => setGenerationStage("drafting"), 1400),
+      window.setTimeout(() => setGenerationStage("saving"), 2600),
+    ];
+
+    return () => {
+      for (const timer of timers) {
+        window.clearTimeout(timer);
+      }
+    };
+  }, [isGenerating]);
+
   const bundleLogs = useMemo(() => toBundleLogs(selectedSessions), [selectedSessions]);
   const allBundleLogs = useMemo(() => toBundleLogs(candidateSessions), [candidateSessions]);
   const quality = useMemo(() => buildBundleQualityEval(bundleLogs, allBundleLogs), [allBundleLogs, bundleLogs]);
@@ -99,11 +120,20 @@ export function ReportStudio({
   );
 
   const previewParagraphs = splitParagraphs(draftMarkdown || latestReport?.reportMarkdown);
+  const reportGenerationProgress =
+    generationStage && (isGenerating || generationStage === "error")
+      ? buildParentReportGenerationProgress({
+          stage: generationStage,
+          selectedCount: selectedSessionIds.length,
+          lastError: error,
+        })
+      : null;
 
   const generateReport = async () => {
     if (selectedSessionIds.length === 0) return;
     setIsGenerating(true);
     setError(null);
+    setGenerationStage("validating");
     try {
       const res = await fetch("/api/ai/generate-report", {
         method: "POST",
@@ -119,9 +149,11 @@ export function ReportStudio({
         throw new Error(body?.error ?? "保護者レポートの生成に失敗しました。");
       }
       setDraftMarkdown(body?.report?.reportMarkdown ?? "");
+      setGenerationStage("done");
       await onRefresh();
       onViewChange("generated");
     } catch (nextError: any) {
+      setGenerationStage("error");
       setError(nextError?.message ?? "保護者レポートの生成に失敗しました。");
     } finally {
       setIsGenerating(false);
@@ -231,6 +263,8 @@ export function ReportStudio({
 
       {view === "selection" ? (
         <>
+          {reportGenerationProgress ? <GenerationProgress progress={reportGenerationProgress} /> : null}
+
           <div className={styles.previewPanel}>
             <pre className={styles.previewText}>{previewText}</pre>
           </div>

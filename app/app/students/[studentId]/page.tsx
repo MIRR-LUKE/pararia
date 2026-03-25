@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { Button } from "@/components/ui/Button";
+import { getLessonReportPartState, pickOngoingLessonReportSession } from "@/lib/lesson-report-flow";
 import { LogDetailView } from "../../logs/LogDetailView";
 import { ReportStudio } from "./ReportStudio";
 import {
@@ -52,6 +53,18 @@ function normalizeTab(value: string | null): TabKey {
   if (value === "lessonReports") return "lessonReports";
   if (value === "parentReports") return "parentReports";
   return "communications";
+}
+
+function normalizeRecordingMode(value: string | null): SessionConsoleMode | null {
+  if (value === "LESSON_REPORT") return "LESSON_REPORT";
+  if (value === "INTERVIEW") return "INTERVIEW";
+  return null;
+}
+
+function normalizeLessonPart(value: string | null): SessionConsoleLessonPart | null {
+  if (value === "CHECK_OUT") return "CHECK_OUT";
+  if (value === "CHECK_IN") return "CHECK_IN";
+  return null;
 }
 
 function arraysEqual(left: string[], right: string[]) {
@@ -125,8 +138,12 @@ export default function StudentDetailPage({ params }: { params: { studentId: str
   const [activeTab, setActiveTab] = useState<TabKey>(normalizeTab(searchParams.get("tab")));
   const [overlay, setOverlay] = useState<OverlayState>({ kind: "none" });
   const [selectedSessionIds, setSelectedSessionIds] = useState<string[]>([]);
-  const [recordingMode, setRecordingMode] = useState<SessionConsoleMode>("INTERVIEW");
-  const [lessonPart, setLessonPart] = useState<SessionConsoleLessonPart>("CHECK_IN");
+  const [recordingMode, setRecordingMode] = useState<SessionConsoleMode>(
+    normalizeRecordingMode(searchParams.get("mode")) ?? "INTERVIEW"
+  );
+  const [lessonPart, setLessonPart] = useState<SessionConsoleLessonPart>(
+    normalizeLessonPart(searchParams.get("part")) ?? "CHECK_IN"
+  );
   const [periodFilter, setPeriodFilter] = useState<PeriodFilter>("all");
   const [sortOrder, setSortOrder] = useState<SortOrder>("desc");
 
@@ -157,6 +174,8 @@ export default function StudentDetailPage({ params }: { params: { studentId: str
       reportId?: string | null;
       lessonSessionId?: string | null;
       sessionIds?: string[] | null;
+      mode?: SessionConsoleMode | null;
+      part?: SessionConsoleLessonPart | null;
     }) => {
       const nextParams = new URLSearchParams(searchParams.toString());
       const apply = (key: string, value?: string | null) => {
@@ -170,6 +189,8 @@ export default function StudentDetailPage({ params }: { params: { studentId: str
       apply("logId", changes.logId);
       apply("reportId", changes.reportId);
       apply("lessonSessionId", changes.lessonSessionId);
+      apply("mode", changes.mode);
+      apply("part", changes.part);
 
       if (typeof changes.sessionIds !== "undefined") {
         if (changes.sessionIds && changes.sessionIds.length > 0) nextParams.set("sessionIds", changes.sessionIds.join(","));
@@ -217,6 +238,40 @@ export default function StudentDetailPage({ params }: { params: { studentId: str
     }
     setOverlay({ kind: "none" });
   }, [room, searchParams]);
+
+  const ongoingLessonSession = useMemo(
+    () => pickOngoingLessonReportSession(room?.sessions ?? []),
+    [room?.sessions]
+  );
+
+  useEffect(() => {
+    const requestedMode = normalizeRecordingMode(searchParams.get("mode"));
+    if (!requestedMode) return;
+    setRecordingMode((current) => (current === requestedMode ? current : requestedMode));
+  }, [searchParams]);
+
+  useEffect(() => {
+    const requestedPart = normalizeLessonPart(searchParams.get("part"));
+    if (requestedPart) {
+      setLessonPart((current) => (current === requestedPart ? current : requestedPart));
+      return;
+    }
+
+    const recommendedPart = getLessonReportPartState(ongoingLessonSession?.parts ?? []).nextRecommendedPart;
+    if (recordingMode !== "LESSON_REPORT") return;
+    setLessonPart((current) => (current === recommendedPart ? current : recommendedPart));
+  }, [ongoingLessonSession?.id, ongoingLessonSession?.parts, recordingMode, searchParams]);
+
+  useEffect(() => {
+    if (!ongoingLessonSession) return;
+    const state = getLessonReportPartState(ongoingLessonSession.parts ?? []);
+    if (state.isComplete) return;
+    if (state.hasReadyCheckIn || state.hasReadyCheckOut) {
+      setRecordingMode("LESSON_REPORT");
+      setLessonPart(state.nextRecommendedPart);
+      syncUrl({ mode: "LESSON_REPORT", part: state.nextRecommendedPart });
+    }
+  }, [ongoingLessonSession, syncUrl]);
 
   const candidateReportSessions = useMemo(
     () => (room?.sessions ?? []).filter((session) => session.conversation?.operationalLog),
@@ -371,9 +426,15 @@ export default function StudentDetailPage({ params }: { params: { studentId: str
             studentName={room.student.name}
             mode={recordingMode}
             lessonPart={lessonPart}
-            ongoingLessonSession={room.sessions.find((session) => session.type === "LESSON_REPORT" && session.status === "COLLECTING") ?? null}
-            onModeChange={setRecordingMode}
-            onLessonPartChange={setLessonPart}
+            ongoingLessonSession={ongoingLessonSession}
+            onModeChange={(nextMode) => {
+              setRecordingMode(nextMode);
+              syncUrl({ mode: nextMode });
+            }}
+            onLessonPartChange={(nextPart) => {
+              setLessonPart(nextPart);
+              syncUrl({ part: nextPart });
+            }}
             onRefresh={refresh}
             onOpenProof={openProof}
             recordingLock={room.recordingLock}

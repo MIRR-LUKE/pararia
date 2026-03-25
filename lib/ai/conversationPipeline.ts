@@ -28,10 +28,10 @@ const LLM_API_KEY = process.env.LLM_API_KEY || process.env.OPENAI_API_KEY || "";
 const PROMPT_VERSION = "v2.0";
 
 const DEFAULT_LLM_TIMEOUT_MS = clampInt(Number(process.env.LLM_CALL_TIMEOUT_MS ?? 90000), 10000, 240000);
-const ANALYZE_MAX_TOKENS = clampInt(Number(process.env.ANALYZE_MAX_TOKENS ?? 1600), 500, 4000);
-const REDUCE_MAX_TOKENS = clampInt(Number(process.env.REDUCE_MAX_TOKENS ?? 2200), 900, 5000);
-const FINALIZE_MAX_TOKENS = clampInt(Number(process.env.FINALIZE_MAX_TOKENS ?? 3200), 1200, 7000);
-const SINGLE_PASS_MAX_TOKENS = clampInt(Number(process.env.SINGLE_PASS_MAX_TOKENS ?? 3600), 1200, 8000);
+const ANALYZE_MAX_TOKENS = clampInt(Number(process.env.ANALYZE_MAX_TOKENS ?? 1400), 500, 4000);
+const REDUCE_MAX_TOKENS = clampInt(Number(process.env.REDUCE_MAX_TOKENS ?? 2000), 900, 5000);
+const FINALIZE_MAX_TOKENS = clampInt(Number(process.env.FINALIZE_MAX_TOKENS ?? 3000), 1200, 7000);
+const SINGLE_PASS_MAX_TOKENS = clampInt(Number(process.env.SINGLE_PASS_MAX_TOKENS ?? 4200), 1200, 10000);
 const ENABLE_FINALIZE_REPAIR = process.env.ENABLE_FINALIZE_REPAIR !== "0";
 
 const PROFILE_CATEGORIES: ProfileCategory[] = ["学習", "生活", "学校", "進路"];
@@ -194,7 +194,7 @@ function forceGpt5Family(model: string) {
 }
 
 function getFastModel() {
-  return forceGpt5Family(process.env.LLM_MODEL_FAST || process.env.LLM_MODEL || "gpt-5-mini");
+  return forceGpt5Family(process.env.LLM_MODEL_FAST || process.env.LLM_MODEL || "gpt-5.4");
 }
 
 function getFinalModel() {
@@ -222,6 +222,12 @@ function formatTeacherLabel(name?: string) {
 
 function normalizeWhitespace(text: unknown) {
   return String(text ?? "").replace(/\s+/g, " ").trim();
+}
+
+function asArray<T>(value: unknown): T[] {
+  if (Array.isArray(value)) return value as T[];
+  if (value === null || typeof value === "undefined") return [];
+  return [value as T];
 }
 
 function countJapaneseChars(text: string) {
@@ -264,8 +270,8 @@ function sanitizeSentence(text: unknown, opts?: { maxLength?: number; allowShort
   return sliced;
 }
 
-function sanitizeQuotes(quotes: unknown[]) {
-  return (quotes ?? [])
+function sanitizeQuotes(quotes: unknown) {
+  return asArray<unknown>(quotes)
     .map((value) => sanitizeSentence(value, { maxLength: 64, allowShort: true }))
     .filter((value) => value.length >= 8)
     .slice(0, 4);
@@ -285,9 +291,9 @@ function dedupeStrings(items: string[]) {
   return result;
 }
 
-function takeUniqueLines(values: unknown[], limit: number, opts?: { maxLength?: number; allowShort?: boolean }) {
+function takeUniqueLines(values: unknown, limit: number, opts?: { maxLength?: number; allowShort?: boolean }) {
   return dedupeStrings(
-    (values ?? [])
+    asArray<unknown>(values)
       .map((value) => sanitizeSentence(value, opts))
       .filter(Boolean)
   ).slice(0, limit);
@@ -314,16 +320,19 @@ function normalizeProfileDeltaItem(item: Partial<ProfileDeltaItem> | null | unde
 }
 
 function normalizeProfileDelta(delta: Partial<ProfileDelta> | null | undefined): ProfileDelta {
-  const normalizeList = (items: Array<Partial<ProfileDeltaItem> | null | undefined>) =>
-    items.map(normalizeProfileDeltaItem).filter((item): item is ProfileDeltaItem => Boolean(item)).slice(0, 8);
+  const normalizeList = (items: unknown) =>
+    asArray<Partial<ProfileDeltaItem> | null | undefined>(items)
+      .map(normalizeProfileDeltaItem)
+      .filter((item): item is ProfileDeltaItem => Boolean(item))
+      .slice(0, 8);
   return {
-    basic: normalizeList(delta?.basic ?? []),
-    personal: normalizeList(delta?.personal ?? []),
+    basic: normalizeList(delta?.basic),
+    personal: normalizeList(delta?.personal),
   };
 }
 
-function normalizeTimeline(items: Array<Partial<TimelineSection | TimelineCandidate> | null | undefined>): TimelineSection[] {
-  return items
+function normalizeTimeline(items: unknown): TimelineSection[] {
+  return asArray<Partial<TimelineSection | TimelineCandidate> | null | undefined>(items)
     .map((item) => {
       const title = sanitizeSentence(item?.title, { maxLength: 50 });
       const what_happened = sanitizeSentence(item?.what_happened, { maxLength: 180 });
@@ -342,8 +351,8 @@ function normalizeTimeline(items: Array<Partial<TimelineSection | TimelineCandid
     .slice(0, 6);
 }
 
-function normalizeNextActions(items: Array<Partial<NextAction | TodoCandidate> | null | undefined>): NextAction[] {
-  return items
+function normalizeNextActions(items: unknown): NextAction[] {
+  return asArray<Partial<NextAction | TodoCandidate> | null | undefined>(items)
     .map((item) => {
       const action = sanitizeSentence(item?.action, { maxLength: 140 });
       const metric = sanitizeSentence(item?.metric, { maxLength: 120 });
@@ -430,7 +439,7 @@ function normalizeStudentState(item: Partial<StudentStateCard> | null | undefine
 }
 
 function normalizeRecommendedTopics(items: Array<Partial<RecommendedTopic> | null | undefined>): RecommendedTopic[] {
-  return items
+  return asArray<Partial<RecommendedTopic> | null | undefined>(items)
     .map((item, index) => {
       const title = sanitizeSentence(item?.title, { maxLength: 56 });
       const reason = sanitizeSentence(item?.reason, { maxLength: 140 });
@@ -449,7 +458,7 @@ function normalizeRecommendedTopics(items: Array<Partial<RecommendedTopic> | nul
 }
 
 function normalizeQuickQuestions(items: Array<Partial<QuickQuestion> | null | undefined>): QuickQuestion[] {
-  return items
+  return asArray<Partial<QuickQuestion> | null | undefined>(items)
     .map((item) => {
       const question = sanitizeSentence(item?.question, { maxLength: 100 });
       const reason = sanitizeSentence(item?.reason, { maxLength: 140 });
@@ -465,9 +474,9 @@ function normalizeQuickQuestions(items: Array<Partial<QuickQuestion> | null | un
 }
 
 function normalizeProfileSections(items: Array<Partial<ProfileSection> | null | undefined>): ProfileSection[] {
-  return items
+  return asArray<Partial<ProfileSection> | null | undefined>(items)
     .map((item) => {
-      const highlights = (item?.highlights ?? [])
+      const highlights = asArray<Partial<ProfileSection["highlights"][number]> | null | undefined>(item?.highlights)
         .map((highlight) => {
           const label = sanitizeSentence(highlight?.label, { maxLength: 36, allowShort: true });
           const value = sanitizeSentence(highlight?.value, { maxLength: 120 });
@@ -495,7 +504,7 @@ function normalizeProfileSections(items: Array<Partial<ProfileSection> | null | 
 }
 
 function normalizeObservationEvents(items: Array<Partial<ObservationEvent> | null | undefined>): ObservationEvent[] {
-  return items
+  return asArray<Partial<ObservationEvent> | null | undefined>(items)
     .map((item) => {
       const insights = takeUniqueLines(item?.insights ?? [], 4, { maxLength: 120 });
       const topics = takeUniqueLines(item?.topics ?? [], 4, { maxLength: 80 });
@@ -654,46 +663,51 @@ function buildSessionPromptSpec(sessionType: SessionMode) {
   if (sessionType === "LESSON_REPORT") {
     return {
       analyzeFocus: [
-        "授業前チェックインで出た状態・宿題実施状況・今日の狙い",
-        "実際に扱った内容",
-        "生徒が止まった具体ポイント",
-        "講師が入れた指導",
-        "授業後チェックアウトで出た理解・宿題・次回フォーカス",
+        "授業前の生徒状態・宿題実施状況・本日の狙い",
+        "実際に扱った教科・単元・問題の具体名",
+        "生徒が止まった箇所と止まった理由",
+        "講師が入れた指導とその結果（Before → After）",
+        "授業後の理解度・次回までの宿題・次回フォーカス",
       ],
       analyzeRules: [
         "面談のような長期背景を勝手に補わない",
-        "授業内で起きた事実を優先する",
-        "抽象語ではなく、単元・問題・行動で書く",
-        "lesson report に直結する情報を優先する",
-        "『授業前チェックイン』と『授業後チェックアウト』を混同しない",
+        "授業内で実際に起きた事実を優先し、推測は最小限にする",
+        "「英語」「読解」のような抽象語ではなく、単元名・問題番号・行動レベルで書く",
+        "各トピックで Before（授業前の状態） と After（授業後の結果）を明確に分ける",
+        "授業前と授業後の情報を混同しない",
       ],
       finalizeStyle: [
-        "summaryMarkdown は授業の記録として読める具体性にする",
-        "timeline は『今日の目標』『授業中の詰まり』『次回までの宿題』のような具体タイトルを優先する",
-        "nextActions は宿題・講師確認事項・必要なら保護者共有の3系統で整理する",
+        "summaryMarkdown は室長が3分で授業内容を把握できる具体性で書く",
+        "各トピックを【】で見出し化し、Before→After の構造で成果を明示する",
+        "「確認した」「整理した」で終わらせず、何を確認し何が分かったか具体的に書く",
         "lessonReport は todayGoal / covered / blockers / homework / nextLessonFocus を必ず具体化する",
-        "授業前チェックインは開始時点の状態、授業後チェックアウトは授業後の結果・宿題・次回確認として扱う",
+        "保護者・室長・他講師が読んでも理解できる日本語にする",
+        "※特記事項があれば補足として明記する",
       ],
     };
   }
 
   return {
     analyzeFocus: [
-      "現在の学習状況・生活状況",
-      "前回からの変化",
-      "詰まりの原因",
-      "講師が伝えた判断や方針",
-      "次回までの具体行動",
+      "現在の学習状況（教科別の具体的な進捗・課題）",
+      "生活面の状況（睡眠・部活・スマホ・勉強時間の実態）",
+      "前回からの変化と、変化の原因",
+      "生徒自身の発言から読み取れる本音・感情・自己認識",
+      "講師が伝えた判断・方針・アドバイスの具体内容",
+      "次回までの具体行動とその理由",
     ],
     analyzeRules: [
-      "生徒の状態・背景・次の打ち手をつなげて捉える",
-      "雑な感想ではなく、会話で確認できた事実に限定する",
-      "面談ログとして後から読んでも文脈が分かる具体性で書く",
+      "生徒の状態・背景・次の打ち手のつながりを捉える",
+      "雑な感想ではなく、会話中に確認できた具体的事実に限定する",
+      "面談の数ヶ月後に読み返しても文脈が分かる具体性で書く",
+      "ポジティブな話題と改善が必要な話題を明確に分けて記録する",
       "保護者共有・次回面談・プロフィール更新に使える粒度にする",
     ],
     finalizeStyle: [
-      "summaryMarkdown は単なる要約ではなく、現状・原因・方針が分かる記録にする",
-      "timeline は『何が起きたか』『講師が何を見立てたか』『生徒がどういう状態か』を1節ごとに分ける",
+      "summaryMarkdown は面談の全体像が伝わる詳細なサマリーにする（3段落以上）",
+      "一般論・抽象論は禁止。教科名・テキスト名・具体行動・生徒の発言を入れる",
+      "ポジティブな話題（生徒の成長・意欲・良い変化）を明確に列挙する",
+      "改善・対策が必要な話題は、現状と対策案をセットで書く",
       "nextActions は生徒と講師の行動を分け、確認指標を明記する",
       "recommendedTopics と quickQuestions は次回面談でそのまま使える具体質問にする",
     ],
@@ -816,6 +830,19 @@ function buildFinalizePrompt(input: {
   minTimelineSections: number;
 }) {
   const spec = buildSessionPromptSpec(input.sessionType);
+  const isLesson = input.sessionType === "LESSON_REPORT";
+  const headings = isLesson
+    ? [
+        "- ## 本日の指導サマリー（室長向け要約）  ← 授業全体の要約を3段落以上で。教科名・単元名・具体行動を含める",
+        "- ## 課題と指導成果（Before → After）  ← トピック別に【】で見出し化し、現状(Before)→成果(After)→特記事項の構造で",
+        "- ## 学習方針と次回アクション（自学習の設計）  ← 次回の学習方針、宿題、確認事項を具体的に",
+        "- ## 室長・他講師への共有・連携事項  ← 他教科への共有やエスカレーション事項",
+      ]
+    : [
+        "- ## 超解像度高い具体性を持ったサマリー  ← 面談全体の詳細サマリー。3段落以上。教科別状況・生活面・進路を網羅する",
+        "- ## ポジティブな話題  ← 生徒の成長・意欲・良い変化を箇条書きで",
+        "- ## 改善・対策が必要な話題  ← 課題とその対策案を箇条書きで。各項目にサブポイントを添える",
+      ];
   const system = [
     "あなたは学習塾・個別指導の教務責任者です。",
     "reduced evidence だけを使って、最終的な会話ログ成果物を生成してください。",
@@ -823,10 +850,8 @@ function buildFinalizePrompt(input: {
     "summaryMarkdown 以外で markdown は使わないでください。",
     `summaryMarkdown は ${input.minSummaryChars} 文字以上にしてください。`,
     `timeline は evidence がある限り ${input.minTimelineSections} セクション以上にしてください。`,
-    "見出しは必ず次の3つを使うこと:",
-    "- ## 会話で確認できた事実",
-    "- ## 指導の要点（講師が伝えた核）",
-    "- ## 次回までの方針",
+    "summaryMarkdown の見出し構造（必ずこの見出しを使うこと）:",
+    ...headings,
     "品質要件:",
     ...spec.finalizeStyle.map((line) => `- ${line}`),
     "- 『整理した』『確認した』だけで終わらせず、何を整理・確認したか書く",
@@ -889,6 +914,19 @@ function buildSinglePassPrompt(input: {
   minTimelineSections: number;
 }) {
   const spec = buildSessionPromptSpec(input.sessionType);
+  const isLesson = input.sessionType === "LESSON_REPORT";
+  const headings = isLesson
+    ? [
+        "- ## 本日の指導サマリー（室長向け要約）  ← 授業全体の要約を3段落以上で。教科名・単元名・具体行動を含める",
+        "- ## 課題と指導成果（Before → After）  ← トピック別に【】で見出し化し、現状(Before)→成果(After)→特記事項の構造で",
+        "- ## 学習方針と次回アクション（自学習の設計）  ← 次回の学習方針、宿題、確認事項を具体的に",
+        "- ## 室長・他講師への共有・連携事項  ← 他教科への共有やエスカレーション事項",
+      ]
+    : [
+        "- ## 超解像度高い具体性を持ったサマリー  ← 面談全体の詳細サマリー。3段落以上。教科別状況・生活面・進路を網羅する",
+        "- ## ポジティブな話題  ← 生徒の成長・意欲・良い変化を箇条書きで",
+        "- ## 改善・対策が必要な話題  ← 課題とその対策案を箇条書きで。各項目にサブポイントを添える",
+      ];
   const system = [
     "あなたは学習塾・個別指導の教務責任者です。",
     "文字起こしから、最終的な会話ログ成果物を直接生成してください。",
@@ -896,10 +934,8 @@ function buildSinglePassPrompt(input: {
     "summaryMarkdown 以外で markdown は使わないでください。",
     `summaryMarkdown は ${input.minSummaryChars} 文字以上にしてください。`,
     `timeline は evidence がある限り ${input.minTimelineSections} セクション以上にしてください。`,
-    "見出しは必ず次の3つを使うこと:",
-    "- ## 会話で確認できた事実",
-    "- ## 指導の要点（講師が伝えた核）",
-    "- ## 次回までの方針",
+    "summaryMarkdown の見出し構造（必ずこの見出しを使うこと）:",
+    ...headings,
     "品質要件:",
     ...spec.finalizeStyle.map((line) => `- ${line}`),
     "- 文字起こしの逐語ダンプは禁止",
@@ -921,19 +957,36 @@ function buildSinglePassPrompt(input: {
   return { system, user };
 }
 
-function buildSummaryMarkdown(facts: string[], points: string[], actions: NextAction[], minChars: number) {
-  const lines = [
-    "## 会話で確認できた事実",
-    ...(facts.length > 0 ? facts.map((line) => `- ${line}`) : ["- 今回の会話で確認した事実を、次回に引き継げる形で整理した。"]),
-    "",
-    "## 指導の要点（講師が伝えた核）",
-    ...(points.length > 0 ? points.map((line) => `- ${line}`) : ["- 次に何を優先すべきかを具体化した。"]),
-    "",
-    "## 次回までの方針",
-    ...(actions.length > 0
-      ? actions.slice(0, 4).map((action) => `- ${ownerLabel(action.owner)}: ${action.action}（指標: ${action.metric}）`)
-      : ["- 次回までに回す行動を一つに絞り、実行結果を確認する。"]),
-  ];
+function buildSummaryMarkdown(facts: string[], points: string[], actions: NextAction[], minChars: number, sessionType?: SessionMode) {
+  const isLesson = sessionType === "LESSON_REPORT";
+  const lines = isLesson
+    ? [
+        "## 本日の指導サマリー（室長向け要約）",
+        ...(facts.length > 0 ? [facts.join(" ")] : ["本日の授業内容を整理した。"]),
+        "",
+        "## 課題と指導成果（Before → After）",
+        ...(points.length > 0 ? points.map((line) => `- ${line}`) : ["- 授業内での成果を次回確認する。"]),
+        "",
+        "## 学習方針と次回アクション（自学習の設計）",
+        ...(actions.length > 0
+          ? actions.slice(0, 4).map((action) => `- ${ownerLabel(action.owner)}: ${action.action}（指標: ${action.metric}）`)
+          : ["- 次回までに回す行動を一つに絞り、実行結果を確認する。"]),
+        "",
+        "## 室長・他講師への共有・連携事項",
+        "- 現時点で特別な連携事項はなし。",
+      ]
+    : [
+        "## 超解像度高い具体性を持ったサマリー",
+        ...(facts.length > 0 ? [facts.join(" ")] : ["今回の面談で確認した事実を整理した。"]),
+        "",
+        "## ポジティブな話題",
+        ...(points.length > 0 ? points.map((line) => `- ${line}`) : ["- 次回確認の中で具体化する。"]),
+        "",
+        "## 改善・対策が必要な話題",
+        ...(actions.length > 0
+          ? actions.slice(0, 4).map((action) => `- ${ownerLabel(action.owner)}: ${action.action}（指標: ${action.metric}）`)
+          : ["- 次回までに回す行動を一つに絞り、実行結果を確認する。"]),
+      ];
   let built = lines.join("\n").trim();
   const filler = dedupeStrings([...facts, ...points, ...actions.map((action) => `${action.action} ${action.metric}`)]).slice(0, 6);
   while (built.length < minChars && filler.length > 0) {
@@ -1229,7 +1282,7 @@ function buildHeuristicFinalize(
   const points = dedupeStrings([...reduced.coaching_points, ...timeline.map((item) => item.coach_point)]).slice(0, 6);
 
   return {
-    summaryMarkdown: buildSummaryMarkdown(facts, points, nextActions, minSummaryChars),
+    summaryMarkdown: buildSummaryMarkdown(facts, points, nextActions, minSummaryChars, sessionType),
     timeline,
     nextActions,
     profileDelta,
@@ -1316,10 +1369,8 @@ export async function analyzeChunkBlocks(
   const model = getFastModel();
   const sessionType = opts.sessionType ?? "INTERVIEW";
   const { system, user } = buildAnalyzePrompt(sessionType, opts.studentName, opts.teacherName);
-  const analyses: ChunkAnalysis[] = [];
-  let apiCalls = 0;
 
-  for (const block of blocks) {
+  const analyzeOne = async (block: { index: number; text: string; hash: string }): Promise<ChunkAnalysis> => {
     const prompt = [
       user,
       "",
@@ -1329,7 +1380,6 @@ export async function analyzeChunkBlocks(
 
     let parsed: Partial<ChunkAnalysis> | null = null;
     try {
-      apiCalls += 1;
       const { contentText, raw } = await callChatCompletions({
         model,
         messages: [
@@ -1379,10 +1429,11 @@ export async function analyzeChunkBlocks(
       };
     }
 
-    analyses.push(normalizeChunkAnalysis(parsed, block.index, block.hash));
-  }
+    return normalizeChunkAnalysis(parsed, block.index, block.hash);
+  };
 
-  return { analyses, model, apiCalls };
+  const results = await Promise.all(blocks.map(analyzeOne));
+  return { analyses: results, model, apiCalls: blocks.length };
 }
 
 export async function reduceChunkAnalyses(input: {

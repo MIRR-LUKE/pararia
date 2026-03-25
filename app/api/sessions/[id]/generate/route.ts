@@ -15,6 +15,8 @@ export async function POST(
     return NextResponse.json({ ok: true, conversationId });
   } catch (error: any) {
     console.error("[POST /api/sessions/[id]/generate] Error:", error);
-    return NextResponse.json({ error: error?.message ?? "Internal Server Error" }, { status: 500 });
+    const message = error?.message ?? "Internal Server Error";
+    const status = message === "session is not ready for generation" ? 409 : 500;
+    return NextResponse.json({ error: message }, { status });
   }
 }

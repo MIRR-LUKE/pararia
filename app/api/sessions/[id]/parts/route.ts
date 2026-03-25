@@ -18,6 +18,7 @@ import {
   getAudioDurationSecondsFromBuffer,
 } from "@/lib/recording/validation";
 import { releaseRecordingLock, verifyRecordingLockForAudioUpload } from "@/lib/recording/lockService";
+import { toPrismaJson } from "@/lib/prisma-json";
 
 function parsePartType(raw: string | null) {
   if (raw === SessionPartType.CHECK_IN) return SessionPartType.CHECK_IN;
@@ -167,8 +168,8 @@ export async function POST(
           byteSize: file?.size ?? null,
           rawTextOriginal,
           rawTextCleaned,
-          rawSegments: rawSegments as any,
-          qualityMetaJson: {
+          rawSegments: toPrismaJson(rawSegments),
+          qualityMetaJson: toPrismaJson({
             ...qualityMeta,
             validationRejection: {
               code: substance.code,
@@ -176,7 +177,7 @@ export async function POST(
               metrics: substance.metrics,
               at: new Date().toISOString(),
             },
-          } as any,
+          }),
           transcriptExpiresAt: expiresAtThin,
         },
         create: {
@@ -189,8 +190,8 @@ export async function POST(
           byteSize: file?.size ?? null,
           rawTextOriginal,
           rawTextCleaned,
-          rawSegments: rawSegments as any,
-          qualityMetaJson: {
+          rawSegments: toPrismaJson(rawSegments),
+          qualityMetaJson: toPrismaJson({
             ...qualityMeta,
             validationRejection: {
               code: substance.code,
@@ -198,7 +199,7 @@ export async function POST(
               metrics: substance.metrics,
               at: new Date().toISOString(),
             },
-          } as any,
+          }),
           transcriptExpiresAt: expiresAtThin,
         },
       });
@@ -234,8 +235,8 @@ export async function POST(
         byteSize: file?.size ?? null,
         rawTextOriginal,
         rawTextCleaned,
-        rawSegments: rawSegments as any,
-        qualityMetaJson: qualityMeta as any,
+        rawSegments: toPrismaJson(rawSegments),
+        qualityMetaJson: toPrismaJson(qualityMeta),
         transcriptExpiresAt: expiresAt,
       },
       create: {
@@ -248,8 +249,8 @@ export async function POST(
         byteSize: file?.size ?? null,
         rawTextOriginal,
         rawTextCleaned,
-        rawSegments: rawSegments as any,
-        qualityMetaJson: qualityMeta as any,
+        rawSegments: toPrismaJson(rawSegments),
+        qualityMetaJson: toPrismaJson(qualityMeta),
         transcriptExpiresAt: expiresAt,
       },
     });
@@ -257,18 +258,30 @@ export async function POST(
     const session = await updateSessionStatusFromParts(params.id);
 
     let conversationId: string | null = null;
+    let generationError: string | null = null;
     if (session && session.status === "PROCESSING") {
-      conversationId = await ensureConversationForSession(params.id);
-      await enqueueConversationJobs(conversationId);
-      void processAllConversationJobs(conversationId).catch((error) => {
-        console.error("[POST /api/sessions/[id]/parts] Background processing failed:", error);
-      });
+      try {
+        conversationId = await ensureConversationForSession(params.id);
+        await enqueueConversationJobs(conversationId);
+        void processAllConversationJobs(conversationId).catch((error) => {
+          console.error("[POST /api/sessions/[id]/parts] Background processing failed:", error);
+        });
+      } catch (generationStartError: any) {
+        generationError = generationStartError?.message ?? "generation kickoff failed";
+        console.error("[POST /api/sessions/[id]/parts] Generation kickoff failed after part save:", {
+          sessionId: params.id,
+          conversationId,
+          error: generationError,
+          stack: generationStartError?.stack,
+        });
+      }
     }
 
     return NextResponse.json({
       part,
       session,
       conversationId,
+      generationError,
     });
   } catch (error: any) {
     console.error("[POST /api/sessions/[id]/parts] Error:", error);

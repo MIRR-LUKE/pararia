@@ -9,6 +9,13 @@ import {
   sanitizeSummaryMarkdown,
   sanitizeTopicSuggestions,
 } from "@/lib/user-facing-japanese";
+import {
+  normalizeLessonReportForView,
+  normalizeNextActionsForView,
+  normalizeProfileSectionsForView,
+  normalizeStudentStateForView,
+  normalizeTimelineForView,
+} from "@/lib/conversation-artifacts-view";
 
 export async function GET(request: Request) {
   try {
@@ -60,14 +67,14 @@ export async function GET(request: Request) {
         sessionId: conversation.sessionId,
         status: conversation.status,
         summaryMarkdown: sanitizeSummaryMarkdown(conversation.summaryMarkdown),
-        timelineJson: conversation.timelineJson as any,
-        nextActionsJson: conversation.nextActionsJson as any,
+        timelineJson: normalizeTimelineForView(conversation.timelineJson),
+        nextActionsJson: normalizeNextActionsForView(conversation.nextActionsJson),
         profileDeltaJson: conversation.profileDeltaJson as any,
-        studentStateJson: conversation.studentStateJson as any,
+        studentStateJson: normalizeStudentStateForView(conversation.studentStateJson),
         topicSuggestionsJson: sanitizeTopicSuggestions(conversation.topicSuggestionsJson),
         quickQuestionsJson: sanitizeQuickQuestions(conversation.quickQuestionsJson),
-        profileSectionsJson: conversation.profileSectionsJson as any,
-        lessonReportJson: conversation.lessonReportJson as any,
+        profileSectionsJson: normalizeProfileSectionsForView(conversation.profileSectionsJson),
+        lessonReportJson: normalizeLessonReportForView(conversation.lessonReportJson),
         formattedTranscript: conversation.formattedTranscript,
         createdAt: conversation.createdAt,
         date: new Date(conversation.createdAt).toLocaleDateString("ja-JP"),

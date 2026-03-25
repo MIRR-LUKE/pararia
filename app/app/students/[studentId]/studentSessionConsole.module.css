@@ -180,6 +180,7 @@
 }
 
 .processingBox,
+.lessonFlowBox,
 .warningBox,
 .errorBox,
 .successBox {
@@ -192,6 +193,7 @@
 }
 
 .processingBox strong,
+.lessonFlowBox strong,
 .warningBox strong,
 .errorBox strong,
 .successBox strong {
@@ -202,6 +204,7 @@
 }
 
 .processingBox p,
+.lessonFlowBox p,
 .warningBox p,
 .errorBox p,
 .successBox p {
@@ -213,6 +216,126 @@
 
 .warningBox {
   border-color: rgba(219, 255, 75, 0.22);
+}
+
+.lessonSteps {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  padding: 0 12px;
+}
+
+.lessonStep {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border: none;
+  background: transparent;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  border-radius: 8px;
+  transition: background 0.18s, color 0.18s;
+}
+
+.lessonStep:disabled {
+  cursor: not-allowed;
+}
+
+.lessonStepNum {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  font-size: 11px;
+  font-weight: 800;
+  flex-shrink: 0;
+  transition: background 0.2s, border-color 0.2s, color 0.2s;
+}
+
+.lessonStepConnector {
+  width: 24px;
+  height: 2px;
+  background: rgba(255, 255, 255, 0.1);
+  flex-shrink: 0;
+  transition: background 0.3s;
+}
+
+.lessonStepConnectorDone {
+  background: rgba(144, 246, 169, 0.4);
+}
+
+.lessonStepDone {
+  color: rgba(144, 246, 169, 0.9);
+}
+
+.lessonStepDone .lessonStepNum {
+  background: rgba(144, 246, 169, 0.18);
+  border: 1.5px solid rgba(144, 246, 169, 0.5);
+  color: #90f6a9;
+}
+
+.lessonStepCurrent {
+  color: #ffffff;
+}
+
+.lessonStepCurrent .lessonStepNum {
+  background: rgba(112, 210, 255, 0.14);
+  border: 1.5px solid rgba(112, 210, 255, 0.5);
+  color: #70d2ff;
+  box-shadow: 0 0 10px rgba(112, 210, 255, 0.2);
+}
+
+.lessonStepPending {
+  color: var(--muted);
+}
+
+.lessonStepPending .lessonStepNum {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1.5px solid rgba(255, 255, 255, 0.12);
+  color: var(--muted);
+}
+
+.lessonStepLocked {
+  color: var(--muted);
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.lessonStepLocked .lessonStepNum {
+  background: rgba(255, 255, 255, 0.02);
+  border: 1.5px solid rgba(255, 255, 255, 0.08);
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.lessonGuide {
+  width: min(320px, 100%);
+  padding: 10px 14px;
+  border-radius: var(--radius-control);
+  border: 1px solid rgba(112, 210, 255, 0.18);
+  background: rgba(112, 210, 255, 0.04);
+  text-align: center;
+}
+
+.lessonGuide p {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: rgba(112, 210, 255, 0.85);
+}
+
+.lessonFlowBox {
+  border-color: rgba(112, 210, 255, 0.22);
+}
+
+.lessonFlowBox p + p {
+  margin-top: 8px;
 }
 
 .errorBox {
@@ -246,5 +369,25 @@
   .segmentButton {
     min-height: 40px;
     font-size: 13px;
+  }
+
+  .lessonSteps {
+    padding: 0;
+    gap: 0;
+  }
+
+  .lessonStep {
+    padding: 6px 10px;
+    font-size: 12px;
+  }
+
+  .lessonStepConnector {
+    width: 16px;
+  }
+
+  .lessonStepNum {
+    width: 20px;
+    height: 20px;
+    font-size: 10px;
   }
 }

@@ -7,6 +7,7 @@ import { enqueueConversationJobs, processAllConversationJobs } from "@/lib/jobs/
 import type { ConversationQualityMeta } from "@/lib/types/conversation";
 import { getPromptVersion } from "@/lib/ai/conversationPipeline";
 import { ensureOrganizationId } from "@/lib/server/organization";
+import { toPrismaJson } from "@/lib/prisma-json";
 
 export async function POST(request: Request) {
   try {
@@ -100,9 +101,9 @@ export async function POST(request: Request) {
           status: ConversationStatus.PROCESSING,
           rawTextOriginal: pre.rawTextOriginal,
           rawTextCleaned: pre.rawTextCleaned,
-          rawSegments: stt.segments ?? [],
+          rawSegments: toPrismaJson(stt.segments ?? []),
           rawTextExpiresAt: expiresAt,
-          qualityMetaJson: qualityMeta as any,
+          qualityMetaJson: toPrismaJson(qualityMeta),
           // LLM outputs will be filled asynchronously
         },
       });

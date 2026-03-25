@@ -292,18 +292,26 @@ UI 上では主に次で見せています。
 ### 8.1 モード別生成の扱い
 
 - `lib/session-service.ts` は `READY` の part だけを transcript にまとめる
+- `指導報告モード` では `CHECK_IN` と `CHECK_OUT` を同じ lesson session に集め、2 本がそろってから 1 本の指導報告ログを生成する
 - `面談モード` は `FULL -> CHECK_IN -> CHECK_OUT -> TEXT_NOTE` の順で transcript を組む
 - `指導報告モード` は `CHECK_IN -> FULL -> CHECK_OUT -> TEXT_NOTE` の順で transcript を組み、先頭に `セッション構成` を付ける
 - `lib/jobs/conversationJobs.ts` は `CHUNK_ANALYZE / REDUCE / FINALIZE / SINGLE_PASS` の各段で `sessionType` を渡す
 - `/api/ai/analyze-conversation` と `lib/analytics/conversationAnalysis.ts` でも `sessionType` を受け取れる
+- `POST /api/sessions/[id]/parts` は part 保存成功後に生成キックが失敗しても 500 にせず、クライアント側で `/api/sessions/[id]/generate` を再試行できる
+- `POST /api/sessions` は lesson report の未完了 session を再利用するため、チェックイン後のチェックアウトが別 session に分かれにくい
+- Student Room では `面談 / 指導報告 / 保護者レポート` の全生成フローで progress bar を表示する
 
 ### 8.2 今回の検証コマンド
 
 - `npm run typecheck`
 - `npm run test:conversation-modes`
+- `npm run test:generation-progress`
+- `npm run test:lesson-report-flow`
 - `npm run build`
 
 `npm run test:conversation-modes` は OpenAI 実APIなしで `面談モード / 指導報告モード` の両方について、`analyze -> reduce -> finalize` と `single-pass` の生成経路を smoke test します。
+`npm run test:generation-progress` は Student Room の `面談 / 指導報告 / 保護者レポート` progress bar が期待どおりの段階を返すかを smoke test します。
+`npm run test:lesson-report-flow` は `CHECK_IN -> CHECK_OUT -> 合算生成` の lesson report 導線が想定どおりの next step を返すかを smoke test します。
 
 代表的な成果物:
 

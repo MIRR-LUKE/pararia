@@ -10,6 +10,13 @@ import {
   sanitizeSummaryMarkdown,
   sanitizeTopicSuggestions,
 } from "@/lib/user-facing-japanese";
+import {
+  normalizeLessonReportForView,
+  normalizeNextActionsForView,
+  normalizeProfileSectionsForView,
+  normalizeStudentStateForView,
+  normalizeTimelineForView,
+} from "@/lib/conversation-artifacts-view";
 
 export async function GET(
   _request: Request,
@@ -104,43 +111,53 @@ export async function GET(
       const summaryMarkdown = sanitizeSummaryMarkdown(session.conversation?.summaryMarkdown ?? "");
       const topicSuggestionsJson = sanitizeTopicSuggestions(session.conversation?.topicSuggestionsJson);
       const quickQuestionsJson = sanitizeQuickQuestions(session.conversation?.quickQuestionsJson);
+      const timelineJson = normalizeTimelineForView(session.conversation?.timelineJson);
+      const nextActionsJson = normalizeNextActionsForView(session.conversation?.nextActionsJson);
+      const profileSectionsJson = normalizeProfileSectionsForView(session.conversation?.profileSectionsJson);
+      const lessonReportJson = normalizeLessonReportForView(session.conversation?.lessonReportJson);
+      const studentStateJson = normalizeStudentStateForView(session.conversation?.studentStateJson);
       const conversation = session.conversation
         ? {
             ...session.conversation,
             summaryMarkdown,
-            timelineJson: session.conversation.timelineJson as any,
+            timelineJson,
             parentPackJson: session.conversation.parentPackJson as any,
             topicSuggestionsJson,
             quickQuestionsJson,
-            nextActionsJson: session.conversation.nextActionsJson as any,
-            profileSectionsJson: session.conversation.profileSectionsJson as any,
-            lessonReportJson: session.conversation.lessonReportJson as any,
-            studentStateJson: session.conversation.studentStateJson as any,
+            nextActionsJson,
+            profileSectionsJson,
+            lessonReportJson,
+            studentStateJson,
             operationalLog: buildOperationalLog({
               sessionType: session.type,
               createdAt: session.conversation.createdAt,
               summaryMarkdown,
-              timeline: session.conversation.timelineJson as any,
-              nextActions: session.conversation.nextActionsJson as any,
+              timeline: timelineJson as any,
+              nextActions: nextActionsJson as any,
               parentPack: session.conversation.parentPackJson as any,
-              studentState: session.conversation.studentStateJson as any,
-              profileSections: session.conversation.profileSectionsJson as any,
+              studentState: studentStateJson as any,
+              profileSections: profileSectionsJson as any,
               quickQuestions: quickQuestionsJson,
-              lessonReport: session.conversation.lessonReportJson as any,
+              lessonReport: lessonReportJson as any,
             }),
             operationalSummaryMarkdown: renderOperationalSummaryMarkdown(
               buildOperationalLog({
                 sessionType: session.type,
                 createdAt: session.conversation.createdAt,
                 summaryMarkdown,
-                timeline: session.conversation.timelineJson as any,
-                nextActions: session.conversation.nextActionsJson as any,
+                timeline: timelineJson as any,
+                nextActions: nextActionsJson as any,
                 parentPack: session.conversation.parentPackJson as any,
-                studentState: session.conversation.studentStateJson as any,
-                profileSections: session.conversation.profileSectionsJson as any,
+                studentState: studentStateJson as any,
+                profileSections: profileSectionsJson as any,
                 quickQuestions: quickQuestionsJson,
-                lessonReport: session.conversation.lessonReportJson as any,
-              })
+                lessonReport: lessonReportJson as any,
+              }),
+              {
+                sessionType: session.type,
+                studentName: student.name,
+                sessionDate: session.conversation.createdAt,
+              }
             ),
           }
         : null;
@@ -155,37 +172,41 @@ export async function GET(
       ? {
           ...latestConversation,
           summaryMarkdown: sanitizeSummaryMarkdown(latestConversation.summaryMarkdown ?? ""),
-          timelineJson: latestConversation.timelineJson as any,
+          timelineJson: normalizeTimelineForView(latestConversation.timelineJson),
           parentPackJson: latestConversation.parentPackJson as any,
           topicSuggestionsJson: sanitizeTopicSuggestions(latestConversation.topicSuggestionsJson),
           quickQuestionsJson: sanitizeQuickQuestions(latestConversation.quickQuestionsJson),
-          nextActionsJson: latestConversation.nextActionsJson as any,
-          profileSectionsJson: latestConversation.profileSectionsJson as any,
-          lessonReportJson: latestConversation.lessonReportJson as any,
-          studentStateJson: latestConversation.studentStateJson as any,
+          nextActionsJson: normalizeNextActionsForView(latestConversation.nextActionsJson),
+          profileSectionsJson: normalizeProfileSectionsForView(latestConversation.profileSectionsJson),
+          lessonReportJson: normalizeLessonReportForView(latestConversation.lessonReportJson),
+          studentStateJson: normalizeStudentStateForView(latestConversation.studentStateJson),
           operationalLog: buildOperationalLog({
             createdAt: latestConversation.createdAt,
             summaryMarkdown: sanitizeSummaryMarkdown(latestConversation.summaryMarkdown ?? ""),
-            timeline: latestConversation.timelineJson as any,
-            nextActions: latestConversation.nextActionsJson as any,
+            timeline: normalizeTimelineForView(latestConversation.timelineJson) as any,
+            nextActions: normalizeNextActionsForView(latestConversation.nextActionsJson) as any,
             parentPack: latestConversation.parentPackJson as any,
-            studentState: latestConversation.studentStateJson as any,
-            profileSections: latestConversation.profileSectionsJson as any,
+            studentState: normalizeStudentStateForView(latestConversation.studentStateJson) as any,
+            profileSections: normalizeProfileSectionsForView(latestConversation.profileSectionsJson) as any,
             quickQuestions: sanitizeQuickQuestions(latestConversation.quickQuestionsJson),
-            lessonReport: latestConversation.lessonReportJson as any,
+            lessonReport: normalizeLessonReportForView(latestConversation.lessonReportJson) as any,
           }),
           operationalSummaryMarkdown: renderOperationalSummaryMarkdown(
             buildOperationalLog({
               createdAt: latestConversation.createdAt,
               summaryMarkdown: sanitizeSummaryMarkdown(latestConversation.summaryMarkdown ?? ""),
-              timeline: latestConversation.timelineJson as any,
-              nextActions: latestConversation.nextActionsJson as any,
+              timeline: normalizeTimelineForView(latestConversation.timelineJson) as any,
+              nextActions: normalizeNextActionsForView(latestConversation.nextActionsJson) as any,
               parentPack: latestConversation.parentPackJson as any,
-              studentState: latestConversation.studentStateJson as any,
-              profileSections: latestConversation.profileSectionsJson as any,
+              studentState: normalizeStudentStateForView(latestConversation.studentStateJson) as any,
+              profileSections: normalizeProfileSectionsForView(latestConversation.profileSectionsJson) as any,
               quickQuestions: sanitizeQuickQuestions(latestConversation.quickQuestionsJson),
-              lessonReport: latestConversation.lessonReportJson as any,
-            })
+              lessonReport: normalizeLessonReportForView(latestConversation.lessonReportJson) as any,
+            }),
+            {
+              studentName: student.name,
+              sessionDate: latestConversation.createdAt,
+            }
           ),
         }
       : null;

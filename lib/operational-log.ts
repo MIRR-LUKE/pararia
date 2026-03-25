@@ -44,6 +44,7 @@ export type OperationalLogInput = {
     homework?: string[];
     nextLessonFocus?: string[];
     parentShare?: string;
+    parentShareDraft?: string;
   } | null;
 };
 
@@ -88,12 +89,12 @@ const SUMMARY_DUMP_PATTERNS = [
 ];
 
 const SECTION_ALIASES: Record<keyof OperationalLog, string[]> = {
-  theme: ["今回の会話テーマ", "会話テーマ", "今回のテーマ"],
-  facts: ["事実として分かったこと", "会話で確認できた事実", "面談で確認した事実"],
-  changes: ["変化として見えたこと", "今回の変化", "今週の変化"],
-  assessment: ["講師としての見立て", "指導の核", "講師の見立て"],
-  nextChecks: ["次に確認すべきこと", "次回までの方針", "次回方針"],
-  parentShare: ["親共有に向く要素", "保護者共有に向く要素", "親共有ポイント"],
+  theme: ["今回の会話テーマ", "会話テーマ", "今回のテーマ", "本日の指導サマリー", "本日の指導サマリー（室長向け要約）"],
+  facts: ["事実として分かったこと", "会話で確認できた事実", "面談で確認した事実", "超解像度高い具体性を持ったサマリー"],
+  changes: ["変化として見えたこと", "今回の変化", "今週の変化", "ポジティブな話題", "課題と指導成果", "課題と指導成果（Before → After）"],
+  assessment: ["講師としての見立て", "指導の核", "講師の見立て", "改善・対策が必要な話題"],
+  nextChecks: ["次に確認すべきこと", "次回までの方針", "次回方針", "学習方針と次回アクション", "学習方針と次回アクション（自学習の設計）"],
+  parentShare: ["親共有に向く要素", "保護者共有に向く要素", "親共有ポイント", "室長・他講師への共有・連携事項", "保護者への共有ポイント"],
 };
 
 function stripMarkdown(text: string) {
@@ -109,6 +110,17 @@ function stripMarkdown(text: string) {
 
 function normalizeWhitespace(text: string) {
   return text.replace(/\s+/g, " ").trim();
+}
+
+function asArray<T>(value: unknown): T[] {
+  if (Array.isArray(value)) return value as T[];
+  if (value == null) return [];
+  return [value as T];
+}
+
+function asObject<T>(value: unknown): Partial<T> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return value as Partial<T>;
 }
 
 function normalizeKey(text: string) {
@@ -222,17 +234,21 @@ function deriveTheme(input: OperationalLogInput, parsed: Partial<Record<keyof Op
   const existing = dedupeLines(parsed.theme ?? []);
   if (existing.length > 0) return ensureSentence(existing.join(" "));
 
-  const timelineTitles = dedupeLines((input.timeline ?? []).map((item) => item?.title));
+  const timeline = asArray<NonNullable<OperationalLogInput["timeline"]>[number]>(input.timeline);
+  const profileSections = asArray<NonNullable<OperationalLogInput["profileSections"]>[number]>(input.profileSections);
+  const lessonReport = asObject<NonNullable<OperationalLogInput["lessonReport"]>>(input.lessonReport);
+  const parentPack = asObject<NonNullable<OperationalLogInput["parentPack"]>>(input.parentPack);
+  const timelineTitles = dedupeLines(timeline.map((item) => item?.title));
   const factSeed = dedupeLines([
-    ...(input.parentPack?.what_we_did ?? []),
-    ...(input.lessonReport?.covered ?? []),
-    ...(input.profileSections ?? []).flatMap((section) =>
-      (section?.highlights ?? []).map((highlight) => highlight?.value)
+    ...asArray<string | null | undefined>(parentPack?.what_we_did),
+    ...asArray<string | null | undefined>(lessonReport?.covered),
+    ...profileSections.flatMap((section) =>
+      asArray<{ label?: string; value?: string } | null | undefined>(section?.highlights).map((highlight) => highlight?.value)
     ),
   ]);
 
   if (input.sessionType === "LESSON_REPORT") {
-    const todayGoal = sanitizeLine(input.lessonReport?.todayGoal);
+    const todayGoal = sanitizeLine(lessonReport?.todayGoal);
     const lead = timelineTitles[0] ?? factSeed[0] ?? "授業前後のやり取り";
     return ensureSentence(
       todayGoal
@@ -250,14 +266,18 @@ function deriveTheme(input: OperationalLogInput, parsed: Partial<Record<keyof Op
 }
 
 function deriveFacts(input: OperationalLogInput, parsed: Partial<Record<keyof OperationalLog, string[]>>) {
+  const timeline = asArray<NonNullable<OperationalLogInput["timeline"]>[number]>(input.timeline);
+  const profileSections = asArray<NonNullable<OperationalLogInput["profileSections"]>[number]>(input.profileSections);
+  const lessonReport = asObject<NonNullable<OperationalLogInput["lessonReport"]>>(input.lessonReport);
+  const parentPack = asObject<NonNullable<OperationalLogInput["parentPack"]>>(input.parentPack);
   return takeLines(
     [
       ...(parsed.facts ?? []),
-      ...(input.parentPack?.what_we_did ?? []),
-      ...(input.timeline ?? []).map((item) => item?.what_happened),
-      ...(input.lessonReport?.covered ?? []),
-      ...(input.profileSections ?? []).flatMap((section) =>
-        (section?.highlights ?? []).map((highlight) => highlight?.value)
+      ...asArray<string | null | undefined>(parentPack?.what_we_did),
+      ...timeline.map((item) => item?.what_happened),
+      ...asArray<string | null | undefined>(lessonReport?.covered),
+      ...profileSections.flatMap((section) =>
+        asArray<{ label?: string; value?: string } | null | undefined>(section?.highlights).map((highlight) => highlight?.value)
       ),
     ],
     4,
@@ -266,13 +286,17 @@ function deriveFacts(input: OperationalLogInput, parsed: Partial<Record<keyof Op
 }
 
 function deriveChanges(input: OperationalLogInput, parsed: Partial<Record<keyof OperationalLog, string[]>>) {
+  const timeline = asArray<NonNullable<OperationalLogInput["timeline"]>[number]>(input.timeline);
+  const studentState = asObject<NonNullable<OperationalLogInput["studentState"]>>(input.studentState);
+  const lessonReport = asObject<NonNullable<OperationalLogInput["lessonReport"]>>(input.lessonReport);
+  const parentPack = asObject<NonNullable<OperationalLogInput["parentPack"]>>(input.parentPack);
   return takeLines(
     [
       ...(parsed.changes ?? []),
-      ...(input.parentPack?.what_improved ?? []),
-      ...(input.timeline ?? []).map((item) => item?.student_state),
-      ...(input.studentState?.rationale ?? []),
-      ...(input.lessonReport?.blockers ?? []).map((item) => `授業の中では ${item}`),
+      ...asArray<string | null | undefined>(parentPack?.what_improved),
+      ...timeline.map((item) => item?.student_state),
+      ...asArray<string | null | undefined>(studentState?.rationale),
+      ...asArray<string | null | undefined>(lessonReport?.blockers).map((item) => `授業の中では ${item}`),
     ],
     4,
     ["前回からの変化はまだ十分に整理しきれていないため、次回の会話で継続確認する。"]
@@ -280,16 +304,21 @@ function deriveChanges(input: OperationalLogInput, parsed: Partial<Record<keyof 
 }
 
 function deriveAssessment(input: OperationalLogInput, parsed: Partial<Record<keyof OperationalLog, string[]>>) {
-  const lessonAssessment = input.lessonReport?.nextLessonFocus?.map(
+  const timeline = asArray<NonNullable<OperationalLogInput["timeline"]>[number]>(input.timeline);
+  const nextActions = asArray<NonNullable<OperationalLogInput["nextActions"]>[number]>(input.nextActions);
+  const studentState = asObject<NonNullable<OperationalLogInput["studentState"]>>(input.studentState);
+  const lessonReport = asObject<NonNullable<OperationalLogInput["lessonReport"]>>(input.lessonReport);
+  const parentPack = asObject<NonNullable<OperationalLogInput["parentPack"]>>(input.parentPack);
+  const lessonAssessment = asArray<string | null | undefined>(lessonReport?.nextLessonFocus).map(
     (item) => `次回は ${item} を重点的に確認する必要がある`
   );
   return takeLines(
     [
       ...(parsed.assessment ?? []),
-      ...(input.parentPack?.risks_or_notes ?? []),
-      ...(input.timeline ?? []).map((item) => item?.coach_point),
-      ...(input.nextActions ?? []).map((item) => item?.why),
-      ...(input.studentState?.oneLiner ? [`現在の状態は「${input.studentState.oneLiner}」と整理できる`] : []),
+      ...asArray<string | null | undefined>(parentPack?.risks_or_notes),
+      ...timeline.map((item) => item?.coach_point),
+      ...nextActions.map((item) => item?.why),
+      ...(studentState?.oneLiner ? [`現在の状態は「${studentState.oneLiner}」と整理できる`] : []),
       ...(lessonAssessment ?? []),
     ],
     4,
@@ -298,19 +327,23 @@ function deriveAssessment(input: OperationalLogInput, parsed: Partial<Record<key
 }
 
 function deriveNextChecks(input: OperationalLogInput, parsed: Partial<Record<keyof OperationalLog, string[]>>) {
+  const nextActions = asArray<NonNullable<OperationalLogInput["nextActions"]>[number]>(input.nextActions);
+  const lessonReport = asObject<NonNullable<OperationalLogInput["lessonReport"]>>(input.lessonReport);
+  const quickQuestions = asArray<NonNullable<OperationalLogInput["quickQuestions"]>[number]>(input.quickQuestions);
+  const parentPack = asObject<NonNullable<OperationalLogInput["parentPack"]>>(input.parentPack);
   return takeLines(
     [
       ...(parsed.nextChecks ?? []),
-      ...(input.nextActions ?? []).map((item) => {
+      ...nextActions.map((item) => {
         const action = sanitizeLine(item?.action);
         const metric = sanitizeLine(item?.metric);
         if (!action) return null;
         return metric ? `${action}。確認指標は ${metric}` : action;
       }),
-      ...(input.lessonReport?.homework ?? []).map((item) => `宿題として ${item} を確認する`),
-      ...(input.lessonReport?.nextLessonFocus ?? []).map((item) => `次回授業では ${item} を見る`),
-      ...(input.quickQuestions ?? []).map((item) => item?.question),
-      ...(input.parentPack?.next_time_plan ?? []),
+      ...asArray<string | null | undefined>(lessonReport?.homework).map((item) => `宿題として ${item} を確認する`),
+      ...asArray<string | null | undefined>(lessonReport?.nextLessonFocus).map((item) => `次回授業では ${item} を見る`),
+      ...quickQuestions.map((item) => item?.question),
+      ...asArray<string | null | undefined>(parentPack?.next_time_plan),
     ],
     5,
     ["次回は、今回決めた方針が実行できたかどうかを具体的に確認する。"]
@@ -318,14 +351,18 @@ function deriveNextChecks(input: OperationalLogInput, parsed: Partial<Record<key
 }
 
 function deriveParentShare(input: OperationalLogInput, parsed: Partial<Record<keyof OperationalLog, string[]>>) {
+  const lessonReport = asObject<NonNullable<OperationalLogInput["lessonReport"]>>(input.lessonReport);
+  const parentPack = asObject<NonNullable<OperationalLogInput["parentPack"]>>(input.parentPack);
   return takeLines(
     [
       ...(parsed.parentShare ?? []),
-      ...(input.parentPack?.what_we_did ?? []),
-      ...(input.parentPack?.what_improved ?? []),
-      ...(input.parentPack?.what_to_practice ?? []),
-      ...(input.parentPack?.risks_or_notes ?? []),
-      ...(input.lessonReport?.parentShare ? [input.lessonReport.parentShare] : []),
+      ...asArray<string | null | undefined>(parentPack?.what_we_did),
+      ...asArray<string | null | undefined>(parentPack?.what_improved),
+      ...asArray<string | null | undefined>(parentPack?.what_to_practice),
+      ...asArray<string | null | undefined>(parentPack?.risks_or_notes),
+      ...((lessonReport?.parentShare || lessonReport?.parentShareDraft)
+        ? [lessonReport.parentShare ?? lessonReport.parentShareDraft]
+        : []),
     ],
     4,
     ["保護者共有に向く具体ポイントは、今回の会話内容から引き続き整理していく。"]
@@ -381,29 +418,106 @@ export function buildOperationalLog(input: OperationalLogInput): OperationalLog 
   };
 }
 
-export function renderOperationalSummaryMarkdown(log: OperationalLog) {
+export type OperationalLogRenderMeta = {
+  sessionType?: string | null;
+  studentName?: string | null;
+  teacherName?: string | null;
+  sessionDate?: string | Date | null;
+  subject?: string | null;
+  duration?: string | null;
+  purpose?: string | null;
+};
+
+function formatRenderDate(value?: string | Date | null) {
+  if (!value) return "";
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return `${date.getFullYear()}年${date.getMonth() + 1}月${date.getDate()}日`;
+}
+
+export function renderOperationalSummaryMarkdown(log: OperationalLog, meta?: OperationalLogRenderMeta) {
+  const isLessonReport = meta?.sessionType === "LESSON_REPORT";
   const lines: string[] = [];
-  lines.push("## 今回の会話テーマ");
-  lines.push(log.theme);
-  lines.push("");
-  lines.push("## 事実として分かったこと");
-  lines.push(log.facts.join(" "));
-  lines.push("");
-  lines.push("## 変化として見えたこと");
-  lines.push(log.changes.join(" "));
-  lines.push("");
-  lines.push("## 講師としての見立て");
-  lines.push(log.assessment.join(" "));
-  lines.push("");
-  lines.push("## 次に確認すべきこと");
-  for (const [index, item] of log.nextChecks.entries()) {
-    lines.push(`${index + 1}. ${item}`);
+
+  lines.push("■ 基本情報");
+  lines.push(`• 対象生徒: ${meta?.studentName ?? "未設定"} 様`);
+  if (isLessonReport) {
+    lines.push(`• 指導日: ${formatRenderDate(meta?.sessionDate) || "未記録"}`);
+    if (meta?.subject) lines.push(`• 教科・単元: ${meta.subject}`);
+    lines.push(`• 担当チューター: ${meta?.teacherName ?? "未設定"}`);
+  } else {
+    lines.push(`• 面談日: ${formatRenderDate(meta?.sessionDate) || "未記録"}`);
+    if (meta?.duration) lines.push(`• 面談時間: ${meta.duration}`);
+    lines.push(`• 担当チューター: ${meta?.teacherName ?? "未設定"}`);
+    if (meta?.purpose) lines.push(`• 面談目的: ${meta.purpose}`);
   }
   lines.push("");
-  lines.push("## 親共有に向く要素");
-  for (const [index, item] of log.parentShare.entries()) {
-    lines.push(`${index + 1}. ${item}`);
+
+  if (isLessonReport) {
+    lines.push("■ 1. 本日の指導サマリー（室長向け要約）");
+    lines.push(log.theme);
+    if (log.facts.length > 0) {
+      lines.push(log.facts.join(" "));
+    }
+    lines.push("");
+
+    lines.push("■ 2. 課題と指導成果（Before → After）");
+    for (const item of log.changes) {
+      lines.push(`• ${item}`);
+    }
+    if (log.assessment.length > 0) {
+      for (const item of log.assessment) {
+        lines.push(`• ${item}`);
+      }
+    }
+    lines.push("");
+
+    lines.push("■ 3. 学習方針と次回アクション（自学習の設計）");
+    if (log.nextChecks.length > 0) {
+      lines.push(log.nextChecks[0]);
+      if (log.nextChecks.length > 1) {
+        lines.push("• 次回までの宿題:");
+        for (const item of log.nextChecks.slice(1)) {
+          lines.push(`  • ${item}`);
+        }
+      }
+    }
+    lines.push("");
+
+    lines.push("■ 4. 室長・他講師への共有・連携事項");
+    for (const item of log.parentShare) {
+      lines.push(`• ${item}`);
+    }
+  } else {
+    lines.push("■ 1. 超解像度高い具体性を持ったサマリー");
+    lines.push(log.theme);
+    if (log.facts.length > 0) {
+      lines.push(log.facts.join(" "));
+    }
+    if (log.assessment.length > 0) {
+      lines.push(log.assessment.join(" "));
+    }
+    lines.push("");
+
+    lines.push("■ 2. ポジティブな話題");
+    for (const item of log.changes) {
+      lines.push(`• ${item}`);
+    }
+    lines.push("");
+
+    lines.push("■ 3. 改善・対策が必要な話題");
+    for (const item of log.nextChecks) {
+      lines.push(`• ${item}`);
+    }
+    if (log.parentShare.length > 0) {
+      lines.push("");
+      lines.push("■ 4. 保護者への共有ポイント");
+      for (const item of log.parentShare) {
+        lines.push(`• ${item}`);
+      }
+    }
   }
+
   return lines.join("\n").trim();
 }
 

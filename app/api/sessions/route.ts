@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { SessionType } from "@prisma/client";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/db";
+import { pickOngoingLessonReportSession } from "@/lib/lesson-report-flow";
 import { ensureOrganizationId } from "@/lib/server/organization";
 
 export const dynamic = "force-dynamic";
@@ -66,6 +67,31 @@ export async function POST(request: Request) {
     const resolvedOrgId = await ensureOrganizationId(
       session?.user?.organizationId ?? organizationId ?? undefined
     );
+
+    if (sessionType === SessionType.LESSON_REPORT) {
+      const existingSessions = await prisma.session.findMany({
+        where: {
+          organizationId: resolvedOrgId,
+          studentId,
+          type: SessionType.LESSON_REPORT,
+        },
+        orderBy: [{ sessionDate: "desc" }, { createdAt: "desc" }],
+        include: {
+          parts: {
+            select: {
+              partType: true,
+              status: true,
+            },
+          },
+        },
+        take: 8,
+      });
+
+      const reusable = pickOngoingLessonReportSession(existingSessions);
+      if (reusable) {
+        return NextResponse.json({ session: reusable, reused: true });
+      }
+    }
 
     const created = await prisma.session.create({
       data: {

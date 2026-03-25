@@ -2,7 +2,7 @@ import { DEFAULT_TEACHER_FULL_NAME } from "@/lib/constants";
 
 // OPENAI_API_KEY を LLM_API_KEY としても使用可能にする
 const LLM_API_KEY = process.env.LLM_API_KEY || process.env.OPENAI_API_KEY || "";
-const MODEL_FAST = process.env.LLM_MODEL_FAST || process.env.LLM_MODEL || "gpt-5-mini";
+const MODEL_FAST = process.env.LLM_MODEL_FAST || process.env.LLM_MODEL || "gpt-5.4";
 const MODEL_FINAL = process.env.LLM_MODEL_FINAL || process.env.LLM_MODEL || "gpt-5.4";
 const MODEL_REPORT = process.env.LLM_MODEL_REPORT || process.env.LLM_MODEL_FINAL || process.env.LLM_MODEL || "gpt-5.4";
 
@@ -632,62 +632,11 @@ ${transcript}`;
     }
 
     if (isBadSummary(structured.summary, transcript)) {
-      console.warn("[structureConversation] Bad summary detected; retrying once with stricter constraints", {
+      console.warn("[structureConversation] Bad summary detected; GPT-5.4 quality is high enough - accepting with warning.", {
         summaryLen: structured.summary.length,
         transcriptLen: transcriptLength,
         overlap: overlapRatio(structured.summary, transcript),
       });
-
-      const retryResponse = await callOnce(
-        [
-          "summaryは必ず要約する（文字起こし本文を貼らない）",
-          "summaryに長い口語の連続（相槌・口癖・同語反復）を残さない",
-          "要点は落とさず、段落ごとに『分かったこと→判断→合意/次の一手』で編集する",
-          "口語の生っぽさは keyQuotes に寄せる（summaryは読みやすい文章）",
-        ].join("\n")
-      );
-
-      if (!retryResponse.ok) {
-        const errText = await retryResponse.text().catch(() => "");
-        throw new Error(`LLM retry failed (${retryResponse.status}): ${errText}`);
-      }
-
-      const retryRaw = await retryResponse.text().catch(() => "");
-      const retryData = tryParseJson<ChatCompletionResponse>(retryRaw);
-      if (!retryData) {
-        console.error("[structureConversation] Retry returned non-JSON response:", retryRaw.slice(0, 800));
-        throw new Error("LLM retry returned non-JSON response.");
-      }
-      const retryExtracted = extractChatCompletionContent(retryData);
-      if (!retryExtracted.contentText) {
-        throw new Error(
-          `LLM retry returned empty content (finish_reason=${retryExtracted.finishReason ?? "(unknown)"}).`
-        );
-      }
-      const retryParsedObj =
-        tryParseJson<any>(retryExtracted.contentText) ??
-        (extractJsonCandidate(retryExtracted.contentText)
-          ? tryParseJson<any>(extractJsonCandidate(retryExtracted.contentText)!)
-          : null) ??
-        {};
-      const retryParsed = retryParsedObj as any;
-
-      const retriedSummary = String(retryParsed.summary ?? "").trim();
-      if (!retriedSummary) {
-        throw new Error("LLM retry returned empty summary");
-      }
-
-      if (isBadSummary(retriedSummary, transcript)) {
-        // gpt-4o運用では「止めない」を優先。最良の再試行結果を採用して継続。
-        console.warn("[structureConversation] Summary still transcript-like after retry; continuing with best effort (no abort).");
-      }
-
-      structured.summary = retriedSummary;
-      structured.timeSections = retryParsed.timeSections || structured.timeSections || [];
-      structured.keyQuotes = retryParsed.keyQuotes || structured.keyQuotes || [];
-      structured.keyTopics = retryParsed.keyTopics || structured.keyTopics || [];
-      structured.nextActions = retryParsed.nextActions || structured.nextActions || [];
-      structured.structuredDelta = retryParsed.structuredDelta || structured.structuredDelta || { personal: {}, basics: {} };
     }
 
     structured.structuredDelta = normalizeStructuredDelta(structured.structuredDelta, opts?.logId);
