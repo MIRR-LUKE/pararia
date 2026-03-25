@@ -2,23 +2,16 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { ConversationSourceType, ConversationStatus } from "@prisma/client";
 import { preprocessTranscript } from "@/lib/transcript/preprocess";
-import { enqueueConversationJobs } from "@/lib/jobs/conversationJobs";
-import { ensureOrganizationId } from "@/lib/server/organization";
-import {
-  sanitizeQuickQuestions,
-  sanitizeSummaryMarkdown,
-  sanitizeTopicSuggestions,
-} from "@/lib/user-facing-japanese";
-import {
-  normalizeLessonReportForView,
-  normalizeNextActionsForView,
-  normalizeProfileSectionsForView,
-  normalizeStudentStateForView,
-  normalizeTimelineForView,
-} from "@/lib/conversation-artifacts-view";
+import { enqueueConversationJobs, processAllConversationJobs } from "@/lib/jobs/conversationJobs";
+import { requireAuthorizedSession } from "@/lib/server/request-auth";
+import { sanitizeSummaryMarkdown } from "@/lib/user-facing-japanese";
 
 export async function GET(request: Request) {
   try {
+    const authResult = await requireAuthorizedSession();
+    if (authResult.response) return authResult.response;
+    const organizationId = authResult.session.user.organizationId;
+
     const { searchParams } = new URL(request.url);
     const studentId = searchParams.get("studentId");
     const typeFilter = searchParams.get("type");
@@ -34,6 +27,7 @@ export async function GET(request: Request) {
         typeFilter === "LESSON_REPORT" || typeFilter === "INTERVIEW" ? typeFilter : undefined;
       const conversations = await prisma.conversationLog.findMany({
         where: {
+          organizationId,
           studentId,
           ...(sessionTypeFilter ? { session: { type: sessionTypeFilter } } : {}),
         },
@@ -45,16 +39,7 @@ export async function GET(request: Request) {
           sessionId: true,
           status: true,
           summaryMarkdown: true,
-          timelineJson: true,
-          nextActionsJson: true,
-          profileDeltaJson: true,
-          studentStateJson: true,
-          topicSuggestionsJson: true,
-          quickQuestionsJson: true,
-          profileSectionsJson: true,
-          lessonReportJson: true,
           formattedTranscript: true,
-          qualityMetaJson: true,
           createdAt: true,
           student: { select: { id: true, name: true, grade: true } },
           session: { select: { type: true } },
@@ -67,14 +52,6 @@ export async function GET(request: Request) {
         sessionId: conversation.sessionId,
         status: conversation.status,
         summaryMarkdown: sanitizeSummaryMarkdown(conversation.summaryMarkdown),
-        timelineJson: normalizeTimelineForView(conversation.timelineJson),
-        nextActionsJson: normalizeNextActionsForView(conversation.nextActionsJson),
-        profileDeltaJson: conversation.profileDeltaJson as any,
-        studentStateJson: normalizeStudentStateForView(conversation.studentStateJson),
-        topicSuggestionsJson: sanitizeTopicSuggestions(conversation.topicSuggestionsJson),
-        quickQuestionsJson: sanitizeQuickQuestions(conversation.quickQuestionsJson),
-        profileSectionsJson: normalizeProfileSectionsForView(conversation.profileSectionsJson),
-        lessonReportJson: normalizeLessonReportForView(conversation.lessonReportJson),
         formattedTranscript: conversation.formattedTranscript,
         createdAt: conversation.createdAt,
         date: new Date(conversation.createdAt).toLocaleDateString("ja-JP"),
@@ -89,9 +66,10 @@ export async function GET(request: Request) {
       typeFilter === "LESSON_REPORT" || typeFilter === "INTERVIEW" ? typeFilter : undefined;
 
     const conversations = await prisma.conversationLog.findMany({
-      where: sessionTypeFilter
-        ? { session: { type: sessionTypeFilter } }
-        : undefined,
+      where: {
+        organizationId,
+        ...(sessionTypeFilter ? { session: { type: sessionTypeFilter } } : {}),
+      },
       orderBy: { createdAt: "desc" },
       take: limit,
       select: {
@@ -129,39 +107,62 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const body = await request.json();
-  const { organizationId, studentId, userId, transcript, sourceType } = body ?? {};
+  try {
+    const authResult = await requireAuthorizedSession();
+    if (authResult.response) return authResult.response;
+    const organizationId = authResult.session.user.organizationId;
+    const userId = authResult.session.user.id;
 
-  if (!studentId) {
-    return NextResponse.json({ error: "studentId is required" }, { status: 400 });
-  }
+    const body = await request.json();
+    const { studentId, transcript, sourceType } = body ?? {};
 
-  if (!transcript || typeof transcript !== "string" || transcript.trim().length === 0) {
+    if (!studentId) {
+      return NextResponse.json({ error: "studentId is required" }, { status: 400 });
+    }
+
+    if (!transcript || typeof transcript !== "string" || transcript.trim().length === 0) {
+      return NextResponse.json(
+        { error: "transcript is required (async pipeline)" },
+        { status: 400 }
+      );
+    }
+
+    const student = await prisma.student.findUnique({
+      where: { id: studentId },
+      select: { id: true, organizationId: true },
+    });
+    if (!student || student.organizationId !== organizationId) {
+      return NextResponse.json({ error: "student not found" }, { status: 404 });
+    }
+
+    const pre = preprocessTranscript(transcript);
+    const expiresAt = new Date();
+    expiresAt.setDate(expiresAt.getDate() + 30);
+    const conversation = await prisma.conversationLog.create({
+      data: {
+        organizationId,
+        studentId,
+        userId,
+        sourceType:
+          sourceType === "AUDIO" ? ConversationSourceType.AUDIO : ConversationSourceType.MANUAL,
+        status: ConversationStatus.PROCESSING,
+        rawTextOriginal: pre.rawTextOriginal,
+        rawTextCleaned: pre.rawTextCleaned,
+        rawTextExpiresAt: expiresAt,
+      },
+    });
+
+    await enqueueConversationJobs(conversation.id);
+    void processAllConversationJobs(conversation.id).catch((error) => {
+      console.error("[POST /api/conversations] Background process failed:", error);
+    });
+
+    return NextResponse.json({ conversation }, { status: 201 });
+  } catch (error: any) {
+    console.error("[POST /api/conversations] Error:", error);
     return NextResponse.json(
-      { error: "transcript is required (async pipeline)" },
-      { status: 400 }
+      { error: error?.message ?? "Internal Server Error" },
+      { status: 500 }
     );
   }
-
-  const pre = preprocessTranscript(transcript);
-  const expiresAt = new Date();
-  expiresAt.setDate(expiresAt.getDate() + 30);
-  const resolvedOrgId = await ensureOrganizationId(organizationId);
-  const conversation = await prisma.conversationLog.create({
-    data: {
-      organizationId: resolvedOrgId,
-      studentId,
-      userId,
-      sourceType:
-        sourceType === "AUDIO" ? ConversationSourceType.AUDIO : ConversationSourceType.MANUAL,
-      status: ConversationStatus.PROCESSING,
-      rawTextOriginal: pre.rawTextOriginal,
-      rawTextCleaned: pre.rawTextCleaned,
-      rawTextExpiresAt: expiresAt,
-    },
-  });
-
-  await enqueueConversationJobs(conversation.id);
-
-  return NextResponse.json({ conversation }, { status: 201 });
 }

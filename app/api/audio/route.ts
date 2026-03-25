@@ -88,7 +88,11 @@ export async function POST(request: Request) {
         preprocessSeconds,
         sttModel: stt.meta.model,
         sttResponseFormat: stt.meta.responseFormat,
-        sttFallbackUsed: stt.meta.fallbackUsed,
+        sttRecoveryUsed: stt.meta.recoveryUsed,
+        sttAttemptCount: stt.meta.attemptCount,
+        sttSegmentCount: stt.meta.segmentCount,
+        sttSpeakerCount: stt.meta.speakerCount,
+        sttQualityWarnings: stt.meta.qualityWarnings,
         promptVersion: getPromptVersion(),
         generatedAt: new Date().toISOString(),
       };

@@ -295,6 +295,7 @@ export function StudentSessionConsole({
   const pollConversation = useCallback(
     async (conversationId: string, sessionId?: string | null) => {
       const startedAt = Date.now();
+      let lastWorkerKickAt = 0;
       let retried = false;
       setState("processing");
       setMessage(mode === "LESSON_REPORT" ? "文字起こしと指導報告ログ生成を進めています。" : "文字起こしと面談ログ生成を進めています。");
@@ -302,7 +303,12 @@ export function StudentSessionConsole({
       setRecoverableSessionId(sessionId ?? null);
 
       while (Date.now() - startedAt < 300000) {
-        const res = await fetch(`/api/conversations/${conversationId}?brief=1`, {
+        const now = Date.now();
+        const shouldKickWorker = now - lastWorkerKickAt >= 4000;
+        if (shouldKickWorker) {
+          lastWorkerKickAt = now;
+        }
+        const res = await fetch(`/api/conversations/${conversationId}?brief=1${shouldKickWorker ? "&process=1" : ""}`, {
           cache: "no-store",
         });
         const body = await res.json().catch(() => ({}));
@@ -320,6 +326,7 @@ export function StudentSessionConsole({
             });
             const retryBody = await retryRes.json().catch(() => ({}));
             if (retryRes.ok) {
+              lastWorkerKickAt = 0;
               setProcessingJobs([]);
               await sleep(1200);
               continue;

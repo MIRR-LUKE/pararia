@@ -1,17 +1,26 @@
 import { NextResponse } from "next/server";
-import { ConversationStatus, Prisma } from "@prisma/client";
+import { ConversationStatus, JobStatus, Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
-import { enqueueConversationJobs } from "@/lib/jobs/conversationJobs";
+import {
+  enqueueConversationJobs,
+  isConversationJobRunActive,
+  processAllConversationJobs,
+} from "@/lib/jobs/conversationJobs";
+import { requireAuthorizedSession } from "@/lib/server/request-auth";
 
 export async function POST(
   request: Request,
   { params }: { params: { id: string } }
 ) {
   try {
+    const authResult = await requireAuthorizedSession();
+    if (authResult.response) return authResult.response;
+    const organizationId = authResult.session.user.organizationId;
+
     const { searchParams } = new URL(request.url);
     const includeFormat = searchParams.get("format") === "1";
-    const conversation = await prisma.conversationLog.findUnique({
-      where: { id: params.id },
+    const conversation = await prisma.conversationLog.findFirst({
+      where: { id: params.id, organizationId },
       select: {
         id: true,
         rawTextOriginal: true,
@@ -25,12 +34,36 @@ export async function POST(
       return NextResponse.json({ error: "conversation not found" }, { status: 404 });
     }
 
-    if (!conversation.rawTextOriginal && !conversation.formattedTranscript) {
+    const runningJobs = await prisma.conversationJob.count({
+      where: {
+        conversationId: params.id,
+        status: JobStatus.RUNNING,
+      },
+    });
+
+    if (runningJobs > 0 || isConversationJobRunActive(params.id)) {
+      return NextResponse.json(
+        { error: "このログは現在生成中です。完了後に再試行してください。" },
+        { status: 409 }
+      );
+    }
+
+    const hasRawSource =
+      Boolean(conversation.rawTextCleaned?.trim()) ||
+      Boolean(conversation.rawTextOriginal?.trim()) ||
+      Boolean(conversation.formattedTranscript?.trim());
+
+    if (!hasRawSource) {
       return NextResponse.json(
         { error: "raw transcript is missing. Cannot regenerate." },
         { status: 400 }
       );
     }
+
+    const keepFormattedTranscriptAsSource =
+      !conversation.rawTextCleaned?.trim() &&
+      !conversation.rawTextOriginal?.trim() &&
+      Boolean(conversation.formattedTranscript?.trim());
 
     await prisma.conversationJob.deleteMany({ where: { conversationId: params.id } });
 
@@ -49,11 +82,16 @@ export async function POST(
         profileSectionsJson: Prisma.DbNull,
         observationJson: Prisma.DbNull,
         lessonReportJson: Prisma.DbNull,
-        formattedTranscript: null,
+        chunkAnalysisJson: Prisma.DbNull,
+        qualityMetaJson: Prisma.DbNull,
+        formattedTranscript: keepFormattedTranscriptAsSource ? conversation.formattedTranscript : null,
       },
     });
 
     await enqueueConversationJobs(params.id, { includeFormat });
+    void processAllConversationJobs(params.id).catch((error) => {
+      console.error("[POST /api/conversations/[id]/regenerate] Background process failed:", error);
+    });
 
     if (conversation.sessionId) {
       await prisma.session.update({

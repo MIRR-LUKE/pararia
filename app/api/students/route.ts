@@ -1,21 +1,24 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { ensureOrganizationId } from "@/lib/server/organization";
+import { requireAuthorizedSession } from "@/lib/server/request-auth";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 export async function GET(request: Request) {
   try {
+    const authResult = await requireAuthorizedSession();
+    if (authResult.response) return authResult.response;
+    const organizationId = authResult.session.user.organizationId;
+
     const { searchParams } = new URL(request.url);
-    const organizationId = searchParams.get("organizationId");
     const limitRaw = searchParams.get("limit");
     const limit = limitRaw ? Math.max(1, Math.min(200, Number(limitRaw))) : undefined;
 
     const now = new Date();
     const students = await prisma.student.findMany({
       where: {
-        ...(organizationId ? { organizationId } : {}),
+        organizationId,
       },
       ...(limit && Number.isFinite(limit) ? { take: Math.floor(limit) } : {}),
       select: {
@@ -140,19 +143,21 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  const authResult = await requireAuthorizedSession();
+  if (authResult.response) return authResult.response;
+
   const body = await request.json();
-  const { organizationId, name, nameKana, grade, course, enrollmentDate, birthdate, guardianNames } = body ?? {};
+  const { name, nameKana, grade, course, enrollmentDate, birthdate, guardianNames } = body ?? {};
   if (!name) {
     return NextResponse.json(
       { error: "name is required" },
       { status: 400 }
     );
   }
-  const resolvedOrgId = await ensureOrganizationId(organizationId);
 
   const student = await prisma.student.create({
     data: {
-      organizationId: resolvedOrgId,
+      organizationId: authResult.session.user.organizationId,
       name,
       nameKana,
       grade,

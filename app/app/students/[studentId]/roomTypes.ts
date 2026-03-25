@@ -1,45 +1,4 @@
-import type { OperationalLog } from "@/lib/operational-log";
 import type { ReportDeliveryState } from "@/lib/report-delivery";
-
-export type TopicCard = {
-  category: string;
-  title: string;
-  reason: string;
-  question: string;
-  priority: number;
-};
-
-export type NextAction = {
-  owner: string;
-  action: string;
-  due: string | null;
-  metric: string;
-  why: string;
-};
-
-export type ProfileSection = {
-  category: string;
-  status: string;
-  highlights: Array<{ label: string; value: string; isNew?: boolean; isUpdated?: boolean }>;
-  nextQuestion: string;
-};
-
-export type StudentState = {
-  label: string;
-  oneLiner: string;
-  rationale: string[];
-  confidence: number;
-};
-
-export type LessonReportArtifact = {
-  goal?: string;
-  did?: string[];
-  blocked?: string[];
-  homework?: string[];
-  nextLessonFocus?: string[];
-  parentShare?: string;
-  coachMemo?: string;
-};
 
 export type SessionPartItem = {
   id: string;
@@ -62,14 +21,6 @@ export type SessionItem = {
     id: string;
     status: string;
     summaryMarkdown?: string | null;
-    operationalLog?: OperationalLog | null;
-    operationalSummaryMarkdown?: string | null;
-    studentStateJson?: StudentState | null;
-    topicSuggestionsJson?: TopicCard[] | null;
-    quickQuestionsJson?: Array<{ question: string; reason?: string; category?: string }> | null;
-    nextActionsJson?: NextAction[] | null;
-    profileSectionsJson?: ProfileSection[] | null;
-    lessonReportJson?: LessonReportArtifact | null;
     createdAt: string;
   } | null;
 };
@@ -140,12 +91,6 @@ export type RoomResponse = {
     id: string;
     status: string;
     summaryMarkdown?: string | null;
-    operationalLog?: OperationalLog | null;
-    operationalSummaryMarkdown?: string | null;
-    studentStateJson?: StudentState | null;
-    topicSuggestionsJson?: TopicCard[] | null;
-    nextActionsJson?: NextAction[] | null;
-    profileSectionsJson?: ProfileSection[] | null;
     createdAt: string;
   } | null;
   latestProfile?: { profileData?: any } | null;

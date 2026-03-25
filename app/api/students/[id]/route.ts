@@ -1,12 +1,16 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
+import { requireAuthorizedSession } from "@/lib/server/request-auth";
 
 export async function GET(
   _request: Request,
   { params }: { params: { id: string } }
 ) {
-  const student = await prisma.student.findUnique({
-    where: { id: params.id },
+  const authResult = await requireAuthorizedSession();
+  if (authResult.response) return authResult.response;
+
+  const student = await prisma.student.findFirst({
+    where: { id: params.id, organizationId: authResult.session.user.organizationId },
     include: {
       profiles: {
         orderBy: { createdAt: "desc" },
@@ -34,6 +38,17 @@ export async function PUT(
   request: Request,
   { params }: { params: { id: string } }
 ) {
+  const authResult = await requireAuthorizedSession();
+  if (authResult.response) return authResult.response;
+
+  const existing = await prisma.student.findFirst({
+    where: { id: params.id, organizationId: authResult.session.user.organizationId },
+    select: { id: true },
+  });
+  if (!existing) {
+    return NextResponse.json({ error: "not found" }, { status: 404 });
+  }
+
   const body = await request.json();
   const { name, nameKana, grade, course, guardianNames, enrollmentDate, birthdate } = body ?? {};
 
@@ -48,7 +63,7 @@ export async function PUT(
   if (birthdate !== undefined) data.birthdate = birthdate ? new Date(birthdate) : null;
 
   const student = await prisma.student.update({
-    where: { id: params.id },
+    where: { id: existing.id },
     data,
   });
 

@@ -665,7 +665,7 @@ function installMockFetch() {
 async function main() {
   installMockFetch();
 
-  const [{ buildSessionTranscript }, pipeline] = await Promise.all([
+  const [{ buildSessionTranscript, buildSessionTranscriptSegments }, pipeline] = await Promise.all([
     import("../lib/session-service"),
     import("../lib/ai/conversationPipeline"),
   ]);
@@ -713,6 +713,30 @@ async function main() {
   assert.match(lessonTranscript, /## 補足メモ/);
   assert.doesNotMatch(lessonTranscript, /## セッション構成/);
   assert.doesNotMatch(lessonTranscript, /これは生成前なので入らない。/);
+
+  const lessonSegments = buildSessionTranscriptSegments(SessionType.LESSON_REPORT, [
+    {
+      id: "check-in",
+      partType: SessionPartType.CHECK_IN,
+      status: SessionPartStatus.READY,
+      sourceType: ConversationSourceType.AUDIO,
+      rawTextCleaned: "宿題の進みと今日扱いたいことを確認した。",
+      rawSegments: [{ start: 0.2, end: 1.0, text: "宿題の進みと今日扱いたいことを確認した。", speaker: "A" }],
+    },
+    {
+      id: "check-out",
+      partType: SessionPartType.CHECK_OUT,
+      status: SessionPartStatus.READY,
+      sourceType: ConversationSourceType.AUDIO,
+      rawTextCleaned: "理解度と宿題、次回確認を整理した。",
+      rawSegments: [{ start: 0.1, end: 0.9, text: "理解度と宿題、次回確認を整理した。", speaker: "B" }],
+    },
+  ]);
+
+  assert.equal(lessonSegments.length, 2);
+  assert.equal(lessonSegments[0]?.speaker, "A");
+  assert.equal(lessonSegments[1]?.speaker, "B");
+  assert.ok((lessonSegments[1]?.start ?? 0) > (lessonSegments[0]?.end ?? 0));
 
   const interviewTranscript = buildSessionTranscript(SessionType.INTERVIEW, [
     {
@@ -772,6 +796,7 @@ async function main() {
   assert.ok(interviewResult.summaryMarkdown.includes("■ 1. サマリー"));
   assert.ok(interviewResult.timeline.length >= 2);
   assert.ok(interviewResult.nextActions.length >= 2);
+  assert.equal(interviewResult.parentPack.what_we_did.length, 0);
 
   const lessonBlocks = [
     {
@@ -811,6 +836,7 @@ async function main() {
   assert.ok(lessonResult.summaryMarkdown.length >= 120);
   assert.ok(lessonResult.timeline.length >= 3);
   assert.ok(lessonResult.nextActions.length >= 3);
+  assert.equal(lessonResult.parentPack.what_we_did.length, 0);
 
   const { result: interviewSinglePass } = await generateConversationArtifactsSinglePass({
     transcript: interviewTranscript,
@@ -824,6 +850,7 @@ async function main() {
   assert.equal(interviewSinglePass.lessonReport, null);
   assert.ok(interviewSinglePass.summaryMarkdown.includes("■ 1. サマリー"));
   assert.ok(interviewSinglePass.recommendedTopics.length >= 3);
+  assert.equal(interviewSinglePass.parentPack.what_we_did.length, 0);
 
   const { result: lessonSinglePass } = await generateConversationArtifactsSinglePass({
     transcript: lessonTranscript,
@@ -837,6 +864,7 @@ async function main() {
   assert.ok(lessonSinglePass.lessonReport);
   assert.ok(lessonSinglePass.lessonReport?.homework.length);
   assert.ok(lessonSinglePass.profileSections.length >= 2);
+  assert.equal(lessonSinglePass.parentPack.what_we_did.length, 0);
 
   assert.ok(requestLog.length >= 4);
   assert.ok(requestLog.some((item) => item.mode === "INTERVIEW"));

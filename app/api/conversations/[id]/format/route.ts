@@ -1,14 +1,20 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { ConversationJobType, ConversationStatus, JobStatus } from "@prisma/client";
+import { processAllConversationJobs } from "@/lib/jobs/conversationJobs";
+import { requireAuthorizedSession } from "@/lib/server/request-auth";
 
 export async function POST(
   _request: Request,
   { params }: { params: { id: string } }
 ) {
   try {
-    const conversation = await prisma.conversationLog.findUnique({
-      where: { id: params.id },
+    const authResult = await requireAuthorizedSession();
+    if (authResult.response) return authResult.response;
+    const organizationId = authResult.session.user.organizationId;
+
+    const conversation = await prisma.conversationLog.findFirst({
+      where: { id: params.id, organizationId },
       select: {
         id: true,
         formattedTranscript: true,
@@ -43,6 +49,9 @@ export async function POST(
     await prisma.conversationLog.update({
       where: { id: params.id },
       data: { status: ConversationStatus.PARTIAL },
+    });
+    void processAllConversationJobs(params.id).catch((error) => {
+      console.error("[POST /api/conversations/[id]/format] Background process failed:", error);
     });
 
     return NextResponse.json({ ok: true, message: "format job queued" });

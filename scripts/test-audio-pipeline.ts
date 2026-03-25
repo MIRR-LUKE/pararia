@@ -6,7 +6,7 @@
  *   npx tsx scripts/test-audio-pipeline.ts
  * 
  * This script tests:
- * 1. Whisper API transcription (verbose_json)
+ * 1. Speech-to-text transcription
  * 2. Preprocessing (filler removal, deduplication)
  * 3. DB save (rawTextOriginal, rawTextCleaned)
  * 4. Job enqueue and parallel execution

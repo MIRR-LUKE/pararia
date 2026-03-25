@@ -426,9 +426,9 @@ export function ReportStudio({
                       size="small"
                       variant="ghost"
                       onClick={() => {
-                        const proofId =
+                        const logId =
                           selectedSessions[index]?.conversation?.id ?? selectedSessions[0]?.conversation?.id;
-                        if (proofId) onOpenLog(proofId);
+                        if (logId) onOpenLog(logId);
                       }}
                     >
                       ログを見る

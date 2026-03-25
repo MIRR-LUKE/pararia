@@ -34,6 +34,8 @@
 .timelineList,
 .profilePoints,
 .profileGrid,
+.contentPanel,
+.structuredContent,
 .markdownBody,
 .noteList,
 .profileCard,
@@ -159,7 +161,8 @@
 
 .summaryEditor,
 .entityInput,
-.transcriptBox {
+.transcriptBox,
+.contentPanel {
   width: 100%;
   border-radius: 18px;
   border: 1px solid var(--border);
@@ -189,6 +192,17 @@
   white-space: pre-wrap;
   font: inherit;
   line-height: 1.75;
+}
+
+.contentPanel {
+  min-height: 420px;
+  max-height: 70vh;
+  overflow: auto;
+  padding: 18px;
+}
+
+.structuredContent {
+  align-content: start;
 }
 
 .twoCol,

@@ -26,15 +26,15 @@
 - ✅ `/api/maintenance/cleanup` (POST): TTL掃除
 
 ### 5. フロントエンド
-- ✅ `LogDetailView.tsx`: Summary/Timeline/ToDo/全文 表示
+- ✅ `LogView.tsx`: ログ本文 / 文字起こし 表示
 - ✅ 生徒詳細でログ生成 / レポート生成
 
 ---
 
 ## 🎯 結論
 
-**MVPの会話ログ生成フローは分割→並列→統合の設計で成立しています。**
+**MVPのログ生成フローは、ログ本文と文字起こしを主成果物にする設計で成立しています。**
 
-- Summary/Timeline/ToDo/ProfileDelta が保存
+- `summaryMarkdown` と transcript 系が保存
 - formattedTranscript の可読性を重視して保持
 - rawText* はTTLで削除

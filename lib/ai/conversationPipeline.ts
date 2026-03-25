@@ -113,6 +113,23 @@ function extractChatCompletionContent(data: ChatCompletionResponse) {
   return { contentText: null, finishReason, refusal };
 }
 
+function waitForLlmRetry(attempt: number) {
+  const base = Math.min(4000, 600 * 2 ** attempt);
+  const jitter = Math.floor(Math.random() * 250);
+  return new Promise((resolve) => setTimeout(resolve, base + jitter));
+}
+
+function isRetryableLlmStatus(status: number, raw: string) {
+  if (status === 408 || status === 409 || status === 429 || status >= 500) return true;
+  return /timeout|timed out|temporar|overloaded|rate limit|try again|unavailable/i.test(raw);
+}
+
+function isRetryableLlmError(error: unknown) {
+  const message =
+    error instanceof Error ? `${error.name} ${error.message}` : typeof error === "string" ? error : "";
+  return /abort|timeout|timed out|fetch failed|network|econnreset|etimedout|socket/i.test(message.toLowerCase());
+}
+
 async function callChatCompletions(params: {
   model: string;
   messages: Array<{ role: "system" | "user"; content: string }>;
@@ -129,7 +146,7 @@ async function callChatCompletions(params: {
   }
 
   const timeoutMs = Math.max(10000, params.timeoutMs ?? DEFAULT_LLM_TIMEOUT_MS);
-  const bodyBase: Record<string, unknown> = {
+  let body: Record<string, unknown> = {
     model: params.model,
     messages: params.messages,
     ...(params.max_completion_tokens || params.max_tokens
@@ -161,40 +178,55 @@ async function callChatCompletions(params: {
     }
   };
 
-  let { res, raw } = await requestOnce(bodyBase);
-  if (!res.ok) {
-    const defaultTempOnly =
-      res.status === 400 &&
-      typeof bodyBase.temperature === "number" &&
-      /temperature/i.test(raw) &&
-      /default\s*\(1\)/i.test(raw);
-    const unsupportedPromptCache =
-      res.status === 400 &&
-      /(prompt_cache_key|prompt_cache_retention)/i.test(raw);
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    try {
+      const { res, raw } = await requestOnce(body);
+      if (!res.ok) {
+        const defaultTempOnly =
+          res.status === 400 &&
+          typeof body.temperature === "number" &&
+          /temperature/i.test(raw) &&
+          /default\s*\(1\)/i.test(raw);
+        const unsupportedPromptCache =
+          res.status === 400 &&
+          /(prompt_cache_key|prompt_cache_retention)/i.test(raw);
 
-    if (defaultTempOnly) {
-      const retryBody = { ...bodyBase };
-      delete retryBody.temperature;
-      const retried = await requestOnce(retryBody);
-      res = retried.res;
-      raw = retried.raw;
-    } else if (unsupportedPromptCache) {
-      const retryBody = { ...bodyBase };
-      delete retryBody.prompt_cache_key;
-      delete retryBody.prompt_cache_retention;
-      const retried = await requestOnce(retryBody);
-      res = retried.res;
-      raw = retried.raw;
+        if (defaultTempOnly) {
+          const retryBody = { ...body };
+          delete retryBody.temperature;
+          body = retryBody;
+          continue;
+        }
+
+        if (unsupportedPromptCache) {
+          const retryBody = { ...body };
+          delete retryBody.prompt_cache_key;
+          delete retryBody.prompt_cache_retention;
+          body = retryBody;
+          continue;
+        }
+
+        if (attempt < 3 && isRetryableLlmStatus(res.status, raw)) {
+          await waitForLlmRetry(attempt);
+          continue;
+        }
+
+        throw new Error(`LLM API failed (${res.status}): ${raw}`);
+      }
+
+      const data = tryParseJson<ChatCompletionResponse>(raw);
+      if (!data) return { raw, contentText: null };
+      return { raw, ...extractChatCompletionContent(data) };
+    } catch (error) {
+      if (attempt < 3 && isRetryableLlmError(error)) {
+        await waitForLlmRetry(attempt);
+        continue;
+      }
+      throw error;
     }
   }
 
-  if (!res.ok) {
-    throw new Error(`LLM API failed (${res.status}): ${raw}`);
-  }
-
-  const data = tryParseJson<ChatCompletionResponse>(raw);
-  if (!data) return { raw, contentText: null };
-  return { raw, ...extractChatCompletionContent(data) };
+  throw new Error("LLM API retry budget exceeded.");
 }
 
 export function estimateTokens(text: string) {
@@ -445,6 +477,10 @@ function normalizeParentPack(item: Partial<ParentPack> | null | undefined): Pare
   };
 }
 
+function emptyParentPack(): ParentPack {
+  return normalizeParentPack(null);
+}
+
 function parseProfileCategory(value: unknown): ProfileCategory {
   const normalized = String(value ?? "").trim();
   return PROFILE_CATEGORIES.includes(normalized as ProfileCategory) ? (normalized as ProfileCategory) : "学習";
@@ -581,7 +617,7 @@ function normalizeFinalizeResult(item: Partial<FinalizeResult> | null | undefine
     timeline: normalizeTimeline(item?.timeline ?? []),
     nextActions: normalizeNextActions(item?.nextActions ?? []),
     profileDelta: normalizeProfileDelta(item?.profileDelta),
-    parentPack: normalizeParentPack(item?.parentPack),
+    parentPack: emptyParentPack(),
     studentState: normalizeStudentState(item?.studentState),
     recommendedTopics: normalizeRecommendedTopics(item?.recommendedTopics ?? []),
     quickQuestions: normalizeQuickQuestions(item?.quickQuestions ?? []),
@@ -1009,8 +1045,7 @@ async function stabilizeLessonReportResult(input: {
       input.result.timeline.length >= 3 ? input.result.timeline : input.heuristic.timeline,
     nextActions:
       input.result.nextActions.length >= 2 ? input.result.nextActions : input.heuristic.nextActions,
-    parentPack:
-      input.result.parentPack.what_we_did.length > 0 ? input.result.parentPack : input.heuristic.parentPack,
+    parentPack: emptyParentPack(),
     recommendedTopics:
       input.result.recommendedTopics.length > 0
         ? input.result.recommendedTopics
@@ -1532,26 +1567,6 @@ function buildFallbackTimeline(
   return normalizeTimeline([...sections, ...fallback]).slice(0, Math.max(minSections, 2));
 }
 
-function buildFallbackParentPack(
-  sessionType: SessionMode,
-  reduced: ReducedAnalysis,
-  actions: NextAction[],
-  transcript: string
-): ParentPack {
-  const lines = summarizeTranscriptEvidence(transcript, 8);
-  return normalizeParentPack({
-    what_we_did: reduced.facts.slice(0, 3).length > 0 ? reduced.facts.slice(0, 3) : lines.slice(0, 3),
-    what_improved:
-      reduced.student_state_delta.slice(0, 3).length > 0
-        ? reduced.student_state_delta.slice(0, 3)
-        : [sessionType === "LESSON_REPORT" ? "授業内での反応から、次回の確認点が見えた。" : "今回の会話で、次の打ち手が前より具体化した。"],
-    what_to_practice: actions.filter((action) => action.owner === "STUDENT").map((action) => action.action).slice(0, 3),
-    risks_or_notes: reduced.coaching_points.slice(0, 2).length > 0 ? reduced.coaching_points.slice(0, 2) : [sessionType === "LESSON_REPORT" ? "宿題の進み方によって、次回の授業配分を調整する。" : "実行はできても、止まった理由まで振り返れるかが次の鍵になる。"],
-    next_time_plan: actions.map((action) => action.metric).slice(0, 3),
-    evidence_quotes: sanitizeQuotes([...reduced.quotes, ...lines.slice(0, 2)]),
-  });
-}
-
 function buildFallbackStudentState(sessionType: SessionMode, reduced: ReducedAnalysis, transcript: string): StudentStateCard {
   const evidence = [transcript, ...reduced.student_state_delta, ...reduced.facts, ...reduced.coaching_points].join(" ");
   const label = inferStateLabel(evidence);
@@ -1713,7 +1728,6 @@ function buildHeuristicFinalize(
     }))
   );
   const studentState = buildFallbackStudentState(sessionType, reduced, transcript);
-  const parentPack = buildFallbackParentPack(sessionType, reduced, nextActions, transcript);
   const observationEvents = buildFallbackObservationEvents(sessionType, profileSections, nextActions, transcript);
   const lessonReport = buildFallbackLessonReport(sessionType, timeline, nextActions, transcript);
   const facts = dedupeStrings([...reduced.facts, ...timeline.map((item) => item.what_happened)]).slice(0, 6);
@@ -1724,7 +1738,7 @@ function buildHeuristicFinalize(
     timeline,
     nextActions,
     profileDelta,
-    parentPack,
+    parentPack: emptyParentPack(),
     studentState,
     recommendedTopics,
     quickQuestions,
@@ -1738,16 +1752,6 @@ function hasProfileDeltaContent(delta: ProfileDelta) {
   return delta.basic.length > 0 || delta.personal.length > 0;
 }
 
-function hasParentPackContent(parentPack: ParentPack) {
-  return (
-    parentPack.what_we_did.length > 0 ||
-    parentPack.what_improved.length > 0 ||
-    parentPack.what_to_practice.length > 0 ||
-    parentPack.risks_or_notes.length > 0 ||
-    parentPack.next_time_plan.length > 0
-  );
-}
-
 function hasStudentStateContent(studentState: StudentStateCard) {
   return Boolean(studentState.oneLiner?.trim()) || studentState.rationale.length > 0;
 }
@@ -1758,7 +1762,7 @@ function fillMissingFinalizeResult(primary: FinalizeResult, fallback: FinalizeRe
     timeline: primary.timeline.length > 0 ? primary.timeline : fallback.timeline,
     nextActions: primary.nextActions.length > 0 ? primary.nextActions : fallback.nextActions,
     profileDelta: hasProfileDeltaContent(primary.profileDelta) ? primary.profileDelta : fallback.profileDelta,
-    parentPack: hasParentPackContent(primary.parentPack) ? primary.parentPack : fallback.parentPack,
+    parentPack: primary.parentPack,
     studentState: hasStudentStateContent(primary.studentState) ? primary.studentState : fallback.studentState,
     recommendedTopics:
       primary.recommendedTopics.length > 0 ? primary.recommendedTopics : fallback.recommendedTopics,

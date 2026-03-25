@@ -113,7 +113,11 @@ export type ConversationQualityMeta = {
   sttSeconds?: number;
   sttModel?: string;
   sttResponseFormat?: string;
-  sttFallbackUsed?: boolean;
+  sttRecoveryUsed?: boolean;
+  sttAttemptCount?: number;
+  sttSegmentCount?: number;
+  sttSpeakerCount?: number;
+  sttQualityWarnings?: string[];
   preprocessSeconds?: number;
   jobSecondsAnalyze?: number;
   jobSecondsReduce?: number;

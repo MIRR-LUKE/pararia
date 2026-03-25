@@ -28,6 +28,7 @@ const activeConversationRuns = new Set<string>();
 const ENABLE_SINGLE_PASS_MODE = process.env.ENABLE_SINGLE_PASS_MODE !== "0";
 const SINGLE_PASS_MAX_BLOCKS = Math.max(1, Math.min(100, Number(process.env.SINGLE_PASS_MAX_BLOCKS ?? 50)));
 const SINGLE_PASS_MAX_CHARS = Math.max(1200, Number(process.env.SINGLE_PASS_MAX_CHARS ?? 200000));
+const JOB_EXECUTION_RETRIES = Math.max(0, Math.min(3, Number(process.env.JOB_EXECUTION_RETRIES ?? 2)));
 
 type JobPayload = {
   id: string;
@@ -35,6 +36,38 @@ type JobPayload = {
   type: ConversationJobType;
   attempts: number;
 };
+
+export function isConversationJobRunActive(conversationId: string) {
+  return activeConversationRuns.has(conversationId);
+}
+
+function isRetryableJobError(error: unknown) {
+  const message =
+    error instanceof Error ? `${error.name} ${error.message}` : typeof error === "string" ? error : "";
+  return /(429|408|409|5\d\d|timeout|timed out|abort|temporar|overloaded|rate limit|fetch failed|network|econnreset|etimedout|socket)/i.test(
+    message
+  );
+}
+
+function waitForJobRetry(attempt: number) {
+  const base = Math.min(5000, 700 * 2 ** attempt);
+  const jitter = Math.floor(Math.random() * 300);
+  return new Promise((resolve) => setTimeout(resolve, base + jitter));
+}
+
+async function executeJobWithRetry(job: JobPayload) {
+  for (let attempt = 0; attempt <= JOB_EXECUTION_RETRIES; attempt += 1) {
+    try {
+      await executeJob(job);
+      return;
+    } catch (error) {
+      if (attempt >= JOB_EXECUTION_RETRIES || !isRetryableJobError(error)) {
+        throw error;
+      }
+      await waitForJobRetry(attempt);
+    }
+  }
+}
 
 function isValidLlmSummary(markdown: string | null | undefined): markdown is string {
   if (!markdown) return false;
@@ -907,7 +940,7 @@ export async function processQueuedJobs(
       }
       idle = 0;
       try {
-        await executeJob(job);
+        await executeJobWithRetry(job);
         processed += 1;
       } catch (e: any) {
         const msg = e?.message ?? "unknown error";

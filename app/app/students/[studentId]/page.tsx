@@ -7,7 +7,7 @@ import { useSession } from "next-auth/react";
 import { Button } from "@/components/ui/Button";
 import { StructuredMarkdown } from "@/components/ui/StructuredMarkdown";
 import { getLessonReportPartState, pickOngoingLessonReportSession } from "@/lib/lesson-report-flow";
-import { LogDetailView } from "../../logs/LogDetailView";
+import { LogView } from "../../logs/LogView";
 import { ReportStudio } from "./ReportStudio";
 import {
   StudentSessionConsole,
@@ -591,7 +591,7 @@ export default function StudentDetailPage({ params }: { params: { studentId: str
             </div>
 
             <div className={styles.overlayContent}>
-              {overlay.kind === "log" ? <LogDetailView logId={overlay.logId} showHeader={false} onBack={closeOverlay} /> : null}
+              {overlay.kind === "log" ? <LogView logId={overlay.logId} showHeader={false} onBack={closeOverlay} /> : null}
 
               {overlay.kind === "report" ? (
                 <ReportStudio

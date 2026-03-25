@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 
-export default function StudentLogDetailRedirect({
+export default function StudentLogRedirect({
   params,
 }: {
   params: { studentId: string; logId: string };

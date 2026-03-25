@@ -1,10 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { StructuredMarkdown } from "@/components/ui/StructuredMarkdown";
-import styles from "./[logId]/logDetail.module.css";
+import styles from "./[logId]/logView.module.css";
 
 type ConversationStatus = "PROCESSING" | "PARTIAL" | "DONE" | "ERROR";
 type TabKey = "summary" | "transcript";
@@ -13,7 +13,6 @@ type ConversationLog = {
   id: string;
   status: ConversationStatus;
   summaryMarkdown?: string | null;
-  operationalSummaryMarkdown?: string | null;
   formattedTranscript?: string | null;
   rawTextOriginal?: string | null;
   rawTextCleaned?: string | null;
@@ -50,25 +49,33 @@ function logTitle(type?: string | null) {
   return type === "LESSON_REPORT" ? "指導報告ログ" : "面談ログ";
 }
 
-export function LogDetailView({ logId, showHeader = true, onBack }: Props) {
+export function LogView({ logId, showHeader = true, onBack }: Props) {
   const [log, setLog] = useState<ConversationLog | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<TabKey>("summary");
 
-  const fetchLog = useCallback(async () => {
-    setLoading(true);
-    setError(null);
+  const fetchLog = useCallback(async (opts?: { silent?: boolean }) => {
+    const silent = opts?.silent ?? false;
+    if (!silent) {
+      setLoading(true);
+      setError(null);
+    }
     try {
-      const res = await fetch(`/api/conversations/${logId}`);
+      const res = await fetch(`/api/conversations/${logId}?process=1`, { cache: "no-store" });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(body?.error ?? "ログの取得に失敗しました。");
       setLog(body?.conversation as ConversationLog);
+      setError(null);
     } catch (nextError: any) {
-      setError(nextError?.message ?? "ログの取得に失敗しました。");
-      setLog(null);
+      if (!silent) {
+        setError(nextError?.message ?? "ログの取得に失敗しました。");
+        setLog(null);
+      }
     } finally {
-      setLoading(false);
+      if (!silent) {
+        setLoading(false);
+      }
     }
   }, [logId]);
 
@@ -76,10 +83,15 @@ export function LogDetailView({ logId, showHeader = true, onBack }: Props) {
     void fetchLog();
   }, [fetchLog]);
 
-  const summaryMarkdown = useMemo(
-    () => log?.summaryMarkdown?.trim() || log?.operationalSummaryMarkdown?.trim() || "",
-    [log?.operationalSummaryMarkdown, log?.summaryMarkdown]
-  );
+  useEffect(() => {
+    if (!log || (log.status !== "PROCESSING" && log.status !== "PARTIAL")) return;
+    const timer = window.setTimeout(() => {
+      void fetchLog({ silent: true });
+    }, 2500);
+    return () => window.clearTimeout(timer);
+  }, [fetchLog, log]);
+
+  const summaryMarkdown = log?.summaryMarkdown?.trim() || "";
   const transcriptText = log?.formattedTranscript || log?.rawTextCleaned || log?.rawTextOriginal || "";
 
   if (loading) {
@@ -129,17 +141,31 @@ export function LogDetailView({ logId, showHeader = true, onBack }: Props) {
         ))}
       </div>
 
+      {log.status === "PROCESSING" || log.status === "PARTIAL" ? (
+        <div className={styles.progressBanner}>生成途中のため自動で更新しています。内容が少しずつ整っていきます。</div>
+      ) : null}
+
       {tab === "summary" ? (
         <div className={styles.stack}>
-          <div className={styles.markdownBody}>
-            <StructuredMarkdown markdown={summaryMarkdown} emptyMessage="まだログ本文は生成されていません。" />
+          <div className={styles.contentPanel}>
+            <StructuredMarkdown
+              markdown={summaryMarkdown}
+              emptyMessage="まだログ本文は生成されていません。生成中の場合はこのまま自動更新されます。"
+              className={styles.structuredContent}
+            />
           </div>
         </div>
       ) : null}
 
       {tab === "transcript" ? (
         <div className={styles.stack}>
-          <div className={styles.transcriptBox}>{transcriptText || "まだ文字起こしはありません。"}</div>
+          <div className={styles.contentPanel}>
+            <StructuredMarkdown
+              markdown={transcriptText}
+              emptyMessage="まだ文字起こしはありません。"
+              className={styles.structuredContent}
+            />
+          </div>
         </div>
       ) : null}
     </section>

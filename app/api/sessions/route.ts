@@ -1,15 +1,17 @@
 import { NextResponse } from "next/server";
 import { SessionType } from "@prisma/client";
-import { auth } from "@/auth";
 import { prisma } from "@/lib/db";
 import { pickOngoingLessonReportSession } from "@/lib/lesson-report-flow";
-import { ensureOrganizationId } from "@/lib/server/organization";
+import { requireAuthorizedSession } from "@/lib/server/request-auth";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 export async function GET(request: Request) {
   try {
+    const authResult = await requireAuthorizedSession();
+    if (authResult.response) return authResult.response;
+
     const { searchParams } = new URL(request.url);
     const studentId = searchParams.get("studentId");
     if (!studentId) {
@@ -17,7 +19,7 @@ export async function GET(request: Request) {
     }
 
     const sessions = await prisma.session.findMany({
-      where: { studentId },
+      where: { studentId, organizationId: authResult.session.user.organizationId },
       orderBy: [{ sessionDate: "desc" }, { createdAt: "desc" }],
       include: {
         parts: {
@@ -36,10 +38,6 @@ export async function GET(request: Request) {
             id: true,
             status: true,
             summaryMarkdown: true,
-            studentStateJson: true,
-            topicSuggestionsJson: true,
-            quickQuestionsJson: true,
-            nextActionsJson: true,
           },
         },
       },
@@ -54,9 +52,11 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const session = await auth();
+    const authResult = await requireAuthorizedSession();
+    if (authResult.response) return authResult.response;
+    const session = authResult.session;
     const body = await request.json();
-    const { organizationId, studentId, userId, type, title, notes, sessionDate } = body ?? {};
+    const { studentId, type, title, notes, sessionDate } = body ?? {};
 
     if (!studentId) {
       return NextResponse.json({ error: "studentId is required" }, { status: 400 });
@@ -64,9 +64,15 @@ export async function POST(request: Request) {
 
     const sessionType =
       type === SessionType.LESSON_REPORT ? SessionType.LESSON_REPORT : SessionType.INTERVIEW;
-    const resolvedOrgId = await ensureOrganizationId(
-      session?.user?.organizationId ?? organizationId ?? undefined
-    );
+    const resolvedOrgId = session.user.organizationId;
+
+    const student = await prisma.student.findUnique({
+      where: { id: studentId },
+      select: { id: true, organizationId: true },
+    });
+    if (!student || student.organizationId !== resolvedOrgId) {
+      return NextResponse.json({ error: "student not found" }, { status: 404 });
+    }
 
     if (sessionType === SessionType.LESSON_REPORT) {
       const existingSessions = await prisma.session.findMany({
@@ -97,7 +103,7 @@ export async function POST(request: Request) {
       data: {
         organizationId: resolvedOrgId,
         studentId,
-        userId: session?.user?.id ?? userId ?? undefined,
+        userId: session.user.id,
         type: sessionType,
         title: typeof title === "string" ? title : undefined,
         notes: typeof notes === "string" ? notes : undefined,

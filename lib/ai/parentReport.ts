@@ -1,6 +1,5 @@
 import {
   buildBundlePreview,
-  buildOperationalLog,
   buildReportBundleLog,
   buildBundleQualityEval,
   type BundleQualityEval,
@@ -26,14 +25,6 @@ type ReportInput = {
     mode: "INTERVIEW" | "LESSON_REPORT";
     subType?: string | null;
     summaryMarkdown?: string;
-    parentPack?: any;
-    timeline?: any;
-    nextActions?: any;
-    profileDelta?: any;
-    studentState?: any;
-    profileSections?: any;
-    quickQuestions?: any;
-    lessonReport?: any;
   }>;
   allLogsForSuggestions?: Array<{
     id: string;
@@ -42,13 +33,6 @@ type ReportInput = {
     mode: "INTERVIEW" | "LESSON_REPORT";
     subType?: string | null;
     summaryMarkdown?: string;
-    parentPack?: any;
-    timeline?: any;
-    nextActions?: any;
-    studentState?: any;
-    profileSections?: any;
-    quickQuestions?: any;
-    lessonReport?: any;
   }>;
 };
 
@@ -269,13 +253,6 @@ export function buildReportBundle(input: ReportInput) {
       subType: log.subType ?? null,
       sessionType: log.mode,
       summaryMarkdown: log.summaryMarkdown,
-      parentPack: log.parentPack,
-      timeline: log.timeline,
-      nextActions: log.nextActions,
-      studentState: log.studentState,
-      profileSections: log.profileSections,
-      quickQuestions: log.quickQuestions,
-      lessonReport: log.lessonReport,
     })
   );
 
@@ -288,13 +265,6 @@ export function buildReportBundle(input: ReportInput) {
       subType: log.subType ?? null,
       sessionType: log.mode,
       summaryMarkdown: log.summaryMarkdown,
-      parentPack: log.parentPack,
-      timeline: log.timeline,
-      nextActions: log.nextActions,
-      studentState: log.studentState,
-      profileSections: log.profileSections,
-      quickQuestions: log.quickQuestions,
-      lessonReport: log.lessonReport,
     })
   );
 
@@ -312,7 +282,7 @@ export async function generateParentReport(input: ReportInput): Promise<ParentRe
   const periodTo = input.periodTo ?? createdAt;
   const previous = (input.previousReport ?? "").trim();
 
-  const { selected, allLogs, bundleQualityEval } = buildReportBundle(input);
+  const { bundleQualityEval } = buildReportBundle(input);
 
   const systemPrompt = `あなたは学習塾の講師責任者として保護者向けレポートを作成します。
 出力は JSON object のみです。必ず自然な日本語で書いてください。
@@ -329,6 +299,9 @@ export async function generateParentReport(input: ReportInput): Promise<ParentRe
 - 本文・見出し・要約はすべて日本語で書く
 - 英語の見出し、英語の定型句、英語逃げは禁止
 - 英字表記を残す場合も、日本語文の中で意味が分かるように説明する
+- 入力として渡されるのは、選択ログの cached なログ本文（summaryMarkdown）だけだと考える
+- 保護者レポート用の別要約がある前提で書かず、各ログ本文を直接読んで再構成する
+- ログ本文の見出しや箇条書きを、そのままコピペせず保護者向け文章へ言い換える
 
 JSON schema:
 {
@@ -348,18 +321,15 @@ JSON schema:
   "closing": "締めの一文"
 }`;
 
-  const logPayload = selected
+  const logPayload = input.logs
     .map((log, index) =>
       [
         `# Log ${index + 1}`,
+        `id: ${log.id}`,
         `date: ${log.date}`,
         `mode: ${log.mode}`,
-        `theme: ${log.operationalLog.theme}`,
-        `facts: ${JSON.stringify(log.operationalLog.facts)}`,
-        `changes: ${JSON.stringify(log.operationalLog.changes)}`,
-        `assessment: ${JSON.stringify(log.operationalLog.assessment)}`,
-        `nextChecks: ${JSON.stringify(log.operationalLog.nextChecks)}`,
-        `parentShare: ${JSON.stringify(log.operationalLog.parentShare)}`,
+        `cachedLogBody:`,
+        log.summaryMarkdown?.trim() || "",
       ].join("\n")
     )
     .join("\n\n");
@@ -387,7 +357,8 @@ ${logPayload}
 - 「科目別またはテーマ別の具体策」では、教材・教科・設計を具体化する
 - 「リスクとその意味」では、煽らずに判断根拠として書く
 - 「次回までの方針」では、次に何を確認し何を決めるかを書く
-- 「ご家庭で見てほしいこと」では、家庭で確認しやすい一言や見守りポイントにする`;
+- 「ご家庭で見てほしいこと」では、家庭で確認しやすい一言や見守りポイントにする
+- cachedLogBody に書かれていない内容は足さない`;
 
   const contentText = await callReportModel(systemPrompt, userPrompt);
   const jsonText = extractJsonCandidate(contentText) ?? contentText;
@@ -401,18 +372,4 @@ ${logPayload}
     reportJson,
     bundleQualityEval,
   };
-}
-
-export function buildReportCandidateSummary(input: Omit<ReportInput["logs"][number], "mode"> & { mode: "INTERVIEW" | "LESSON_REPORT" }) {
-  return buildOperationalLog({
-    sessionType: input.mode,
-    summaryMarkdown: input.summaryMarkdown,
-    parentPack: input.parentPack,
-    timeline: input.timeline,
-    nextActions: input.nextActions,
-    studentState: input.studentState,
-    profileSections: input.profileSections,
-    quickQuestions: input.quickQuestions,
-    lessonReport: input.lessonReport,
-  });
 }

@@ -22,8 +22,17 @@ async function main() {
         status: "READY",
         rawTextOriginal: "次回までに英語の音読を五回やる。",
         rawTextCleaned: "次回までに英語の音読を五回やる。",
-        rawSegments: [{ start: 0.2, end: 1.4, text: "次回までに英語の音読を五回やる。" }],
-        meta: { sttSeconds: 2, sttModel: "gpt-4o-transcribe", sttResponseFormat: "text", sttFallbackUsed: false },
+        rawSegments: [{ start: 0.2, end: 1.4, text: "次回までに英語の音読を五回やる。", speaker: "B" }],
+        meta: {
+          sttSeconds: 2,
+          sttModel: "gpt-4o-transcribe-diarize",
+          sttResponseFormat: "diarized_json",
+          sttRecoveryUsed: false,
+          sttAttemptCount: 1,
+          sttSegmentCount: 1,
+          sttSpeakerCount: 1,
+          sttQualityWarnings: [],
+        },
       },
       {
         sequence: 0,
@@ -36,8 +45,17 @@ async function main() {
         status: "READY",
         rawTextOriginal: "模試の数学で最初の一手が出ずに止まりやすい。",
         rawTextCleaned: "模試の数学で最初の一手が出ずに止まりやすい。",
-        rawSegments: [{ start: 0.1, end: 1.1, text: "模試の数学で最初の一手が出ずに止まりやすい。" }],
-        meta: { sttSeconds: 1, sttModel: "gpt-4o-transcribe", sttResponseFormat: "text", sttFallbackUsed: true },
+        rawSegments: [{ start: 0.1, end: 1.1, text: "模試の数学で最初の一手が出ずに止まりやすい。", speaker: "A" }],
+        meta: {
+          sttSeconds: 1,
+          sttModel: "gpt-4o-transcribe-diarize",
+          sttResponseFormat: "diarized_json",
+          sttRecoveryUsed: true,
+          sttAttemptCount: 2,
+          sttSegmentCount: 1,
+          sttSpeakerCount: 1,
+          sttQualityWarnings: [],
+        },
       },
     ],
   });
@@ -49,7 +67,8 @@ async function main() {
   assert.equal(finalized.rawSegments[0]?.start, 0.1);
   assert.equal(finalized.rawSegments[1]?.start, 6.2);
   assert.equal(finalized.qualityMeta.liveChunkCount, 2);
-  assert.equal(finalized.qualityMeta.sttFallbackUsed, true);
+  assert.equal(finalized.qualityMeta.sttRecoveryUsed, true);
+  assert.equal(finalized.qualityMeta.liveRecoveredChunkCount, 1);
 
   console.log("test-live-transcription: ok");
 }

@@ -640,18 +640,6 @@ export function buildReportBundleLog(input: OperationalLogInput & {
   } satisfies ReportBundleLog;
 }
 
-export function buildProcessingSteps(mode: "INTERVIEW" | "LESSON_REPORT") {
-  const base = [
-    "アップロード完了",
-    "文字起こし中",
-    "内容整理中",
-    "会話ログ要約作成中",
-    "プロフィール更新案作成中",
-    "確認待ち",
-  ];
-  return mode === "LESSON_REPORT" ? [...base, "指導報告書作成中"] : base;
-}
-
 export function buildOperationalSnapshotLabel(input: OperationalLogInput) {
   const createdAt = input.createdAt ? formatDate(input.createdAt) : "";
   const theme = buildOperationalLog(input).theme;

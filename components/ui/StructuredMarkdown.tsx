@@ -1,9 +1,6 @@
+import type { ReactNode } from "react";
+import { parseStructuredMarkdown } from "./structuredMarkdownParser";
 import styles from "./StructuredMarkdown.module.css";
-
-type Block =
-  | { type: "heading"; text: string }
-  | { type: "paragraph"; text: string }
-  | { type: "list"; items: string[] };
 
 type Props = {
   markdown?: string | null;
@@ -11,64 +8,24 @@ type Props = {
   className?: string;
 };
 
-function normalizeLine(line: string) {
-  return line.replace(/\r/g, "").trim();
-}
-
-function toBlocks(markdown?: string | null): Block[] {
-  const lines = String(markdown ?? "")
-    .split("\n")
-    .map(normalizeLine);
-  const blocks: Block[] = [];
-  let paragraphBuffer: string[] = [];
-  let listBuffer: string[] = [];
-
-  const flushParagraph = () => {
-    if (!paragraphBuffer.length) return;
-    blocks.push({ type: "paragraph", text: paragraphBuffer.join("\n").trim() });
-    paragraphBuffer = [];
-  };
-
-  const flushList = () => {
-    if (!listBuffer.length) return;
-    blocks.push({ type: "list", items: listBuffer });
-    listBuffer = [];
-  };
-
-  for (const line of lines) {
-    if (!line) {
-      flushParagraph();
-      flushList();
-      continue;
-    }
-
-    if (/^(#{1,6}\s+|■\s*)/.test(line)) {
-      flushParagraph();
-      flushList();
-      blocks.push({ type: "heading", text: line.replace(/^(#{1,6}\s+|■\s*)/, "").trim() });
-      continue;
-    }
-
-    if (/^[-*]\s+/.test(line)) {
-      flushParagraph();
-      listBuffer.push(line.replace(/^[-*]\s+/, "").trim());
-      continue;
-    }
-
-    flushList();
-    paragraphBuffer.push(line);
-  }
-
-  flushParagraph();
-  flushList();
-  return blocks.filter((block) => {
-    if (block.type === "list") return block.items.length > 0;
-    return Boolean(block.text);
-  });
+function renderInline(text: string): ReactNode[] {
+  return String(text ?? "")
+    .split(/(\*\*[^*]+\*\*)/g)
+    .filter(Boolean)
+    .map((part, index) => {
+      if (part.startsWith("**") && part.endsWith("**") && part.length > 4) {
+        return (
+          <strong key={`${part}-${index}`} className={styles.strong}>
+            {part.slice(2, -2)}
+          </strong>
+        );
+      }
+      return part;
+    });
 }
 
 export function StructuredMarkdown({ markdown, emptyMessage = "まだ生成されていません。", className }: Props) {
-  const blocks = toBlocks(markdown);
+  const blocks = parseStructuredMarkdown(markdown);
 
   if (!blocks.length) {
     return (
@@ -84,7 +41,7 @@ export function StructuredMarkdown({ markdown, emptyMessage = "まだ生成さ�
         if (block.type === "heading") {
           return (
             <h3 key={`${block.type}-${index}-${block.text}`} className={styles.heading}>
-              {block.text}
+              {renderInline(block.text)}
             </h3>
           );
         }
@@ -94,16 +51,38 @@ export function StructuredMarkdown({ markdown, emptyMessage = "まだ生成さ�
             <ul key={`${block.type}-${index}`} className={styles.list}>
               {block.items.map((item, itemIndex) => (
                 <li key={`${item}-${itemIndex}`} className={styles.listItem}>
-                  {item}
+                  {renderInline(item)}
                 </li>
               ))}
             </ul>
           );
         }
 
+        if (block.type === "meta") {
+          return (
+            <div key={`${block.type}-${index}`} className={styles.metaGrid}>
+              {block.items.map((item, itemIndex) => (
+                <div key={`${item.label}-${itemIndex}`} className={styles.metaItem}>
+                  <span className={styles.metaLabel}>{item.label}</span>
+                  <p className={styles.metaValue}>{renderInline(item.value)}</p>
+                </div>
+              ))}
+            </div>
+          );
+        }
+
+        if (block.type === "dialogue") {
+          return (
+            <div key={`${block.type}-${index}-${block.speaker}`} className={styles.dialogueRow}>
+              <span className={styles.dialogueSpeaker}>{block.speaker}</span>
+              <p className={styles.dialogueText}>{renderInline(block.text)}</p>
+            </div>
+          );
+        }
+
         return (
           <p key={`${block.type}-${index}-${block.text}`} className={styles.paragraph}>
-            {block.text}
+            {renderInline(block.text)}
           </p>
         );
       })}

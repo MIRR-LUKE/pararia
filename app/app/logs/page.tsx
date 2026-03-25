@@ -75,14 +75,23 @@ function statusTone(status: string): "neutral" | "low" | "medium" | "high" {
 
 function excerpt(markdown?: string | null) {
   if (!markdown) return "まだ要約はありません。録音が終わると、ここに要点が出ます。";
-  return markdown
-    .replace(/^##\s+/gm, "")
-    .replace(/^■\s+/gm, "")
-    .replace(/^(対象生徒|面談日|面談時間|担当チューター|面談目的|指導日|教科・単元):.*$/gm, "")
-    .replace(/\*\*/g, "")
-    .replace(/\n+/g, " ")
-    .trim()
-    .slice(0, 120);
+  const lines = markdown
+    .replace(/\r/g, "")
+    .split("\n")
+    .map((line) =>
+      line
+        .trim()
+        .replace(/^#{1,6}\s+/, "")
+        .replace(/^■\s+/, "")
+        .replace(/^\*\*([^*]+)\*\*:\s*/, "")
+    )
+    .filter(Boolean)
+    .filter(
+      (line) =>
+        !/^(対象生徒|面談日|面談時間|担当チューター|面談目的|指導日|教科・単元|対象期間|作成日):/.test(line)
+    );
+  const candidate = lines.find((line) => !/^[•・\-*]\s+/.test(line)) ?? lines[0] ?? "";
+  return candidate.replace(/^[•・\-*]\s+/, "").replace(/\*\*/g, "").trim().slice(0, 140);
 }
 
 function reportDeliveryLabel(report?: LatestReport | null) {

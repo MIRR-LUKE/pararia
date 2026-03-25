@@ -93,15 +93,13 @@ PARARIA は、塾・個別指導・学習コーチング向けの `Teaching OS` 
 3. `保護者レポート生成カード`
    - レポート候補ログの選択
    - `保護者レポートを生成`
-4. `おすすめの話題`
-5. `ワークスペース tab`
+4. `ワークスペース tab`
    - `面談ログ`
    - `指導報告ログ`
    - `保護者レポートログ`
-6. `overlay`
-   - `LogDetailView`
+5. `overlay`
+   - `LogView`（面談ログ / 指導報告ログ 共通）
    - `ReportStudio`
-   - 指導報告詳細
    - 保護者レポート詳細
 
 この画面でやること:
@@ -118,7 +116,7 @@ PARARIA は、塾・個別指導・学習コーチング向けの `Teaching OS` 
 現在の役割:
 
 - 面談ログ / 指導報告ログの補助参照
-- 要点・根拠・文字起こしの確認
+- ログ本文・文字起こしの確認
 - どの保護者レポートに使われたかを追うための補助面
 
 ### 4.5 送付前レビュー (`/app/reports`)
@@ -166,8 +164,11 @@ PARARIA は、塾・個別指導・学習コーチング向けの `Teaching OS` 
 - `ConversationLog`
   - 面談モードなら `面談ログ`
   - 指導報告モードなら `指導報告ログ`
+  - 現行の主保存物は `summaryMarkdown` と transcript 系 (`rawTextOriginal / rawTextCleaned / rawSegments / formattedTranscript`) と `qualityMetaJson`
+  - 旧 structured JSON カラムは schema 互換のため残るが、現行主導線では基本的に `null` として扱う
 - `ConversationJob`
-  - `CHUNK_ANALYZE -> REDUCE -> FINALIZE -> FORMAT`
+  - 現行主導線では通常 `FINALIZE` を enqueue し、必要時のみ `FORMAT` を追加する
+  - `CHUNK_ANALYZE / REDUCE` は補助経路・検証用として残る
 - `Report`
   - 保護者レポート本体
   - `sourceLogIds` で使用ログを追う
@@ -191,6 +192,7 @@ PARARIA は、塾・個別指導・学習コーチング向けの `Teaching OS` 
 1. `Student Room` からのセッション入力
 2. `POST /api/audio` の補助経路
 3. `POST /api/conversations` の transcript 直入力
+4. 主要な Student / Session / Conversation / Report API は NextAuth session の `organizationId` でスコープする
 
 ### 6.2 面談モード
 
@@ -198,8 +200,12 @@ PARARIA は、塾・個別指導・学習コーチング向けの `Teaching OS` 
 - 上限 60 分
 - 生成物:
   - `面談ログ`
-  - プロフィール更新案
-  - 次回会話の話題 / 質問 / 行動候補
+  - `文字起こし`（`formattedTranscript` が無ければ raw transcript をそのまま表示）
+
+重要:
+
+- 現行のユーザー向け成果物は `面談ログ` 本体と `文字起こし` のみ
+- 話題候補 / 根拠タブ / 補助生成物タブは削除済み
 
 ### 6.3 指導報告モード
 
@@ -208,17 +214,24 @@ PARARIA は、塾・個別指導・学習コーチング向けの `Teaching OS` 
 - 上限 10 分 / part
 - 生成物:
   - `指導報告ログ`
-  - プロフィール更新案
-  - 指導報告ドラフト
+  - `文字起こし`（`formattedTranscript` が無ければ raw transcript をそのまま表示）
+
+重要:
+
+- `CHECK_IN` と `CHECK_OUT` は同じ lesson session に集約し、そろった時点で 1 本の `指導報告ログ` を生成する
+- ユーザー向けには `指導報告ログ` 本体を見せ、裏側の別成果物は増やさない
 
 ### 6.4 録音後の標準フロー
 
 1. モードを選ぶ
 2. 録音する
 3. STT と transcript 前処理を行う
-4. ログを生成する
-5. `面談ログ` または `指導報告ログ` に保存する
-6. Student Room に戻して一覧へ反映する
+4. job を enqueue する
+5. 通常は保存直後に background worker (`processAllConversationJobs`) を起動する
+6. `FINALIZE` でログ本文を生成し、必要時のみ `FORMAT` で文字起こし表示を整形する
+7. `面談ログ` または `指導報告ログ` に保存する
+8. Student Room / Logs の poll でも `?process=1` により worker を再キックできる
+9. Student Room に戻して一覧へ反映する
 
 ## 7. 保護者レポート
 
@@ -255,7 +268,7 @@ UI 上では主に次で見せています。
 3. `ReportStudio` でドラフトを確認
 4. `POST /api/reports/[id]/send` で `SENT` に更新
 
-### 7.4 根拠の追跡
+### 7.4 使用ログの追跡
 
 - `Report.sourceLogIds` に使用ログを保存
 - Reports / Logs / Student Room から、どのログを使ったかを参照できる
@@ -285,47 +298,59 @@ UI 上では主に次で見せています。
 2. 録音バリデーション
 3. transcript 前処理
 4. job enqueue
-5. `CHUNK_ANALYZE -> REDUCE -> FINALIZE`
-6. 面談ログまたは指導報告ログとして保存
-7. Student Room / Logs / Reports で表示
+5. `FINALIZE` ジョブで `generateConversationArtifactsSinglePass` を実行
+6. `summaryMarkdown` を `ConversationLog` に保存
+7. 必要時のみ `FORMAT` で文字起こし表示を整形する
+8. Student Room / Logs / Reports で表示
 
 ### 8.1 モード別生成の扱い
 
 - `lib/session-service.ts` は `READY` の part だけを transcript にまとめる
 - `指導報告モード` では `CHECK_IN` と `CHECK_OUT` を同じ lesson session に集め、2 本がそろってから 1 本の指導報告ログを生成する
 - `面談モード` は `FULL -> CHECK_IN -> CHECK_OUT -> TEXT_NOTE` の順で transcript を組む
-- `指導報告モード` は `CHECK_IN -> FULL -> CHECK_OUT -> TEXT_NOTE` の順で transcript を組み、先頭に `セッション構成` を付ける
-- `lib/jobs/conversationJobs.ts` は `CHUNK_ANALYZE / REDUCE / FINALIZE / SINGLE_PASS` の各段で `sessionType` を渡す
-- `/api/ai/analyze-conversation` と `lib/analytics/conversationAnalysis.ts` でも `sessionType` を受け取れる
+- `指導報告モード` は `CHECK_IN -> FULL -> CHECK_OUT -> TEXT_NOTE` の順で transcript を組む
+- `lib/jobs/conversationJobs.ts` の現行標準導線は `FINALIZE` ジョブ中心で、面談ログ / 指導報告ログの本文を直接生成する
+- `CHUNK_ANALYZE / REDUCE / finalizeConversationArtifacts` は補助経路・検証用として残る
+- `/api/ai/analyze-conversation` と `lib/analytics/conversationAnalysis.ts` でも `sessionType` を受け取れるが、主導線は Student Room の録音導線
 - `POST /api/sessions/[id]/parts` は part 保存成功後に生成キックが失敗しても 500 にせず、クライアント側で `/api/sessions/[id]/generate` を再試行できる
 - `POST /api/sessions` は lesson report の未完了 session を再利用するため、チェックイン後のチェックアウトが別 session に分かれにくい
 - Student Room では `面談 / 指導報告 / 保護者レポート` の全生成フローで progress bar を表示する
+- `GET /api/conversations/[id]?brief=1&process=1` は poll 用の軽量取得と worker 再キックを兼ねる
+- `POST /api/conversations/[id]/regenerate` は再生成を開始し、既に同一ログが生成中なら `409` を返す
+- `POST /api/conversations/[id]/format` は `FORMAT` を queue し、即時 worker を起動する
 
 ### 8.2 今回の検証コマンド
 
+- `npm run lint`
 - `npm run typecheck`
 - `npm run test:conversation-modes`
 - `npm run test:generation-progress`
 - `npm run test:lesson-report-flow`
+- `npm run test:log-render-and-llm-retries`
+- `npm run test:live-transcription`
+- `npm run test:single-pass-fast-path`
 - `npm run build`
 
 `npm run test:conversation-modes` は OpenAI 実APIなしで `面談モード / 指導報告モード` の両方について、`analyze -> reduce -> finalize` と `single-pass` の生成経路を smoke test します。
 `npm run test:generation-progress` は Student Room の `面談 / 指導報告 / 保護者レポート` progress bar が期待どおりの段階を返すかを smoke test します。
 `npm run test:lesson-report-flow` は `CHECK_IN -> CHECK_OUT -> 合算生成` の lesson report 導線が想定どおりの next step を返すかを smoke test します。
+`npm run test:log-render-and-llm-retries` は ログ表示 parser が `基本情報 / 話者行 / 箇条書き` を崩さず解釈できることと、LLM 呼び出しの retry が 429 で復元できることを smoke test します。
+`npm run test:live-transcription` は live transcription 側の STT metadata 集約と回復系メタの扱いを smoke test します。
+`npm run test:single-pass-fast-path` は現行の主導線である `single-pass -> summaryMarkdown` の高速生成経路を smoke test します。
 
 代表的な成果物:
 
 - `summaryMarkdown`
-- `timelineJson`
-- `nextActionsJson`
-- `profileDeltaJson`
-- `parentPackJson`
-- `studentStateJson`
-- `topicSuggestionsJson`
-- `quickQuestionsJson`
-- `profileSectionsJson`
-- `lessonReportJson`
+- `formattedTranscript`
+- `rawTextOriginal`
+- `rawTextCleaned`
+- `rawSegments`
 - `qualityMetaJson`
+
+補足:
+
+- 旧 structured JSON (`timelineJson` など) のカラムは schema 互換のため残る
+- ただし現行主導線では、API / Room / Logs / Reports の表示や保護者レポート生成でそれらを前提にしない
 
 ## 9. 録音ロックと保持方針
 
@@ -355,6 +380,7 @@ UI 上では主に次で見せています。
 
 - `POST /api/auth/login`
 - `GET/POST /api/auth/[...nextauth]`
+- 主要な `Student / Session / Conversation / Report` API は NextAuth session を要求し、`organizationId` でスコープする
 
 ### 10.2 生徒
 
@@ -377,6 +403,12 @@ UI 上では主に次で見せています。
 - `POST /api/conversations/[id]/regenerate`
 - `POST /api/conversations/[id]/format`
 - `POST /api/audio`
+
+補足:
+
+- `POST /api/conversations` は transcript 直入力を受け取り、job enqueue 後に background worker を即起動する
+- `GET /api/conversations/[id]?brief=1&process=1` は poll 用の軽量レスポンスを返しつつ worker 再キックにも使う
+- `POST /api/conversations/[id]/regenerate?format=1` は再生成に加えて `FORMAT` も再実行する
 
 ### 10.5 保護者レポート
 

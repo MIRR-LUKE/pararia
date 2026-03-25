@@ -1,30 +1,21 @@
 import { NextResponse } from "next/server";
-import { auth } from "@/auth";
 import { prisma } from "@/lib/db";
-import { buildOperationalLog, renderOperationalSummaryMarkdown } from "@/lib/operational-log";
 import { buildReportDeliverySummary } from "@/lib/report-delivery";
 import { getRecordingLockView } from "@/lib/recording/lockService";
-import {
-  sanitizeQuickQuestions,
-  sanitizeReportMarkdown,
-  sanitizeSummaryMarkdown,
-  sanitizeTopicSuggestions,
-} from "@/lib/user-facing-japanese";
-import {
-  normalizeLessonReportForView,
-  normalizeNextActionsForView,
-  normalizeProfileSectionsForView,
-  normalizeStudentStateForView,
-  normalizeTimelineForView,
-} from "@/lib/conversation-artifacts-view";
+import { requireAuthorizedSession } from "@/lib/server/request-auth";
+import { sanitizeReportMarkdown, sanitizeSummaryMarkdown } from "@/lib/user-facing-japanese";
 
 export async function GET(
   _request: Request,
   { params }: { params: { id: string } }
 ) {
   try {
-    const student = await prisma.student.findUnique({
-      where: { id: params.id },
+    const authResult = await requireAuthorizedSession();
+    if (authResult.response) return authResult.response;
+    const authSession = authResult.session;
+
+    const student = await prisma.student.findFirst({
+      where: { id: params.id, organizationId: authSession.user.organizationId },
       include: {
         profiles: {
           orderBy: { createdAt: "desc" },
@@ -49,14 +40,6 @@ export async function GET(
                 id: true,
                 status: true,
                 summaryMarkdown: true,
-                timelineJson: true,
-                parentPackJson: true,
-                studentStateJson: true,
-                topicSuggestionsJson: true,
-                quickQuestionsJson: true,
-                nextActionsJson: true,
-                profileSectionsJson: true,
-                lessonReportJson: true,
                 createdAt: true,
               },
             },
@@ -89,76 +72,27 @@ export async function GET(
     }
 
     const latestConversation = await prisma.conversationLog.findFirst({
-      where: { studentId: student.id },
+      where: {
+        studentId: student.id,
+        organizationId: authSession.user.organizationId,
+      },
       orderBy: { createdAt: "desc" },
       select: {
         id: true,
         status: true,
         summaryMarkdown: true,
-        timelineJson: true,
-        parentPackJson: true,
-        studentStateJson: true,
-        topicSuggestionsJson: true,
-        quickQuestionsJson: true,
-        nextActionsJson: true,
-        profileSectionsJson: true,
-        lessonReportJson: true,
         createdAt: true,
       },
     });
 
     const sessions = student.sessions.map((session) => {
       const summaryMarkdown = sanitizeSummaryMarkdown(session.conversation?.summaryMarkdown ?? "");
-      const topicSuggestionsJson = sanitizeTopicSuggestions(session.conversation?.topicSuggestionsJson);
-      const quickQuestionsJson = sanitizeQuickQuestions(session.conversation?.quickQuestionsJson);
-      const timelineJson = normalizeTimelineForView(session.conversation?.timelineJson);
-      const nextActionsJson = normalizeNextActionsForView(session.conversation?.nextActionsJson);
-      const profileSectionsJson = normalizeProfileSectionsForView(session.conversation?.profileSectionsJson);
-      const lessonReportJson = normalizeLessonReportForView(session.conversation?.lessonReportJson);
-      const studentStateJson = normalizeStudentStateForView(session.conversation?.studentStateJson);
       const conversation = session.conversation
         ? {
-            ...session.conversation,
+            id: session.conversation.id,
+            status: session.conversation.status,
             summaryMarkdown,
-            timelineJson,
-            parentPackJson: session.conversation.parentPackJson as any,
-            topicSuggestionsJson,
-            quickQuestionsJson,
-            nextActionsJson,
-            profileSectionsJson,
-            lessonReportJson,
-            studentStateJson,
-            operationalLog: buildOperationalLog({
-              sessionType: session.type,
-              createdAt: session.conversation.createdAt,
-              summaryMarkdown,
-              timeline: timelineJson as any,
-              nextActions: nextActionsJson as any,
-              parentPack: session.conversation.parentPackJson as any,
-              studentState: studentStateJson as any,
-              profileSections: profileSectionsJson as any,
-              quickQuestions: quickQuestionsJson,
-              lessonReport: lessonReportJson as any,
-            }),
-            operationalSummaryMarkdown: renderOperationalSummaryMarkdown(
-              buildOperationalLog({
-                sessionType: session.type,
-                createdAt: session.conversation.createdAt,
-                summaryMarkdown,
-                timeline: timelineJson as any,
-                nextActions: nextActionsJson as any,
-                parentPack: session.conversation.parentPackJson as any,
-                studentState: studentStateJson as any,
-                profileSections: profileSectionsJson as any,
-                quickQuestions: quickQuestionsJson,
-                lessonReport: lessonReportJson as any,
-              }),
-              {
-                sessionType: session.type,
-                studentName: student.name,
-                sessionDate: session.conversation.createdAt,
-              }
-            ),
+            createdAt: session.conversation.createdAt,
           }
         : null;
 
@@ -170,48 +104,13 @@ export async function GET(
 
     const latestConversationWithDerived = latestConversation
       ? {
-          ...latestConversation,
+          id: latestConversation.id,
+          status: latestConversation.status,
           summaryMarkdown: sanitizeSummaryMarkdown(latestConversation.summaryMarkdown ?? ""),
-          timelineJson: normalizeTimelineForView(latestConversation.timelineJson),
-          parentPackJson: latestConversation.parentPackJson as any,
-          topicSuggestionsJson: sanitizeTopicSuggestions(latestConversation.topicSuggestionsJson),
-          quickQuestionsJson: sanitizeQuickQuestions(latestConversation.quickQuestionsJson),
-          nextActionsJson: normalizeNextActionsForView(latestConversation.nextActionsJson),
-          profileSectionsJson: normalizeProfileSectionsForView(latestConversation.profileSectionsJson),
-          lessonReportJson: normalizeLessonReportForView(latestConversation.lessonReportJson),
-          studentStateJson: normalizeStudentStateForView(latestConversation.studentStateJson),
-          operationalLog: buildOperationalLog({
-            createdAt: latestConversation.createdAt,
-            summaryMarkdown: sanitizeSummaryMarkdown(latestConversation.summaryMarkdown ?? ""),
-            timeline: normalizeTimelineForView(latestConversation.timelineJson) as any,
-            nextActions: normalizeNextActionsForView(latestConversation.nextActionsJson) as any,
-            parentPack: latestConversation.parentPackJson as any,
-            studentState: normalizeStudentStateForView(latestConversation.studentStateJson) as any,
-            profileSections: normalizeProfileSectionsForView(latestConversation.profileSectionsJson) as any,
-            quickQuestions: sanitizeQuickQuestions(latestConversation.quickQuestionsJson),
-            lessonReport: normalizeLessonReportForView(latestConversation.lessonReportJson) as any,
-          }),
-          operationalSummaryMarkdown: renderOperationalSummaryMarkdown(
-            buildOperationalLog({
-              createdAt: latestConversation.createdAt,
-              summaryMarkdown: sanitizeSummaryMarkdown(latestConversation.summaryMarkdown ?? ""),
-              timeline: normalizeTimelineForView(latestConversation.timelineJson) as any,
-              nextActions: normalizeNextActionsForView(latestConversation.nextActionsJson) as any,
-              parentPack: latestConversation.parentPackJson as any,
-              studentState: normalizeStudentStateForView(latestConversation.studentStateJson) as any,
-              profileSections: normalizeProfileSectionsForView(latestConversation.profileSectionsJson) as any,
-              quickQuestions: sanitizeQuickQuestions(latestConversation.quickQuestionsJson),
-              lessonReport: normalizeLessonReportForView(latestConversation.lessonReportJson) as any,
-            }),
-            {
-              studentName: student.name,
-              sessionDate: latestConversation.createdAt,
-            }
-          ),
+          createdAt: latestConversation.createdAt,
         }
       : null;
 
-    const authSession = await auth();
     const recordingLock = await getRecordingLockView({
       studentId: student.id,
       viewerUserId: authSession?.user?.id ?? null,

@@ -8,6 +8,7 @@ import {
   SessionType,
 } from "@prisma/client";
 import { prisma } from "./db";
+import { toPrismaJson } from "./prisma-json";
 
 type SessionPartLike = {
   id: string;
@@ -17,6 +18,13 @@ type SessionPartLike = {
   rawTextOriginal?: string | null;
   rawTextCleaned?: string | null;
   rawSegments?: unknown;
+};
+
+export type SessionTranscriptSegment = {
+  start?: number;
+  end?: number;
+  text: string;
+  speaker?: string;
 };
 
 const PART_LABEL: Record<SessionPartType, string> = {
@@ -67,6 +75,67 @@ export function buildSessionTranscript(sessionType: SessionType, parts: SessionP
   return chunks.join("\n\n").trim();
 }
 
+function normalizePartSegments(rawSegments: unknown): SessionTranscriptSegment[] {
+  if (!Array.isArray(rawSegments)) return [];
+  const parsed: Array<SessionTranscriptSegment | null> = rawSegments
+    .map((segment) => {
+      if (!segment || typeof segment !== "object" || Array.isArray(segment)) return null;
+      const current = segment as Record<string, unknown>;
+      const text = typeof current.text === "string" ? current.text.trim() : "";
+      if (!text) return null;
+      return {
+        start: typeof current.start === "number" && Number.isFinite(current.start) ? current.start : undefined,
+        end: typeof current.end === "number" && Number.isFinite(current.end) ? current.end : undefined,
+        text,
+        speaker: typeof current.speaker === "string" && current.speaker.trim() ? current.speaker.trim() : undefined,
+      };
+    });
+  return parsed.filter((segment): segment is SessionTranscriptSegment => segment !== null);
+}
+
+function estimateSegmentDurationSeconds(text: string) {
+  const compact = text.replace(/\s+/g, "");
+  return Math.min(Math.max(Math.ceil(compact.length / 18), 2), 20);
+}
+
+export function buildSessionTranscriptSegments(sessionType: SessionType, parts: SessionPartLike[]) {
+  const ordered = getReadyPartsForConversation(sessionType, parts);
+  const combined: SessionTranscriptSegment[] = [];
+  let cursorSeconds = 0;
+
+  for (const part of ordered) {
+    const body = part.rawTextCleaned?.trim() || part.rawTextOriginal?.trim() || "";
+    const segments = normalizePartSegments(part.rawSegments);
+
+    if (segments.length > 0) {
+      const adjusted = segments.map((segment) => ({
+        ...segment,
+        start: typeof segment.start === "number" ? segment.start + cursorSeconds : undefined,
+        end: typeof segment.end === "number" ? segment.end + cursorSeconds : undefined,
+      }));
+      combined.push(...adjusted);
+
+      const lastEndSeconds = adjusted.reduce((max, segment) => {
+        const end = typeof segment.end === "number" ? segment.end : segment.start;
+        return typeof end === "number" && end > max ? end : max;
+      }, cursorSeconds);
+      cursorSeconds = lastEndSeconds + 2;
+      continue;
+    }
+
+    if (!body) continue;
+    const estimatedDuration = estimateSegmentDurationSeconds(body);
+    combined.push({
+      start: cursorSeconds,
+      end: cursorSeconds + estimatedDuration,
+      text: body,
+    });
+    cursorSeconds += estimatedDuration + 2;
+  }
+
+  return combined;
+}
+
 export function isSessionReady(sessionType: SessionType, parts: SessionPartLike[]) {
   const readyParts = parts.filter((part) => part.status === SessionPartStatus.READY);
   if (sessionType === SessionType.INTERVIEW) {
@@ -94,6 +163,7 @@ export async function ensureConversationForSession(sessionId: string) {
 
   const combinedText = buildSessionTranscript(session.type, session.parts);
   if (!combinedText) throw new Error("session transcript is empty");
+  const combinedSegments = buildSessionTranscriptSegments(session.type, session.parts);
 
   const readyParts = getReadyPartsForConversation(session.type, session.parts);
   const hasAudio = readyParts.some((part) => part.sourceType === ConversationSourceType.AUDIO);
@@ -111,7 +181,7 @@ export async function ensureConversationForSession(sessionId: string) {
     status: ConversationStatus.PROCESSING,
     rawTextOriginal: combinedText,
     rawTextCleaned: combinedText,
-    rawSegments: [],
+    rawSegments: toPrismaJson(combinedSegments),
     rawTextExpiresAt: expiresAt,
   };
 

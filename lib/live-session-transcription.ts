@@ -1,7 +1,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { SessionPartType } from "@prisma/client";
-import { transcribeAudioForPipeline, type WhisperVerboseSegment } from "@/lib/ai/stt";
+import { transcribeAudioForPipeline, type TranscriptSegment } from "@/lib/ai/stt";
 import { preprocessTranscript, preprocessTranscriptWithSegments } from "@/lib/transcript/preprocess";
 
 type LiveChunkStatus = "PENDING" | "TRANSCRIBING" | "READY" | "ERROR";
@@ -10,7 +10,11 @@ type LiveChunkMeta = {
   sttSeconds?: number;
   sttModel?: string;
   sttResponseFormat?: string;
-  sttFallbackUsed?: boolean;
+  sttRecoveryUsed?: boolean;
+  sttAttemptCount?: number;
+  sttSegmentCount?: number;
+  sttSpeakerCount?: number;
+  sttQualityWarnings?: string[];
 };
 
 type LiveChunkEntry = {
@@ -24,7 +28,7 @@ type LiveChunkEntry = {
   status: LiveChunkStatus;
   rawTextOriginal?: string;
   rawTextCleaned?: string;
-  rawSegments?: WhisperVerboseSegment[];
+  rawSegments?: TranscriptSegment[];
   error?: string;
   meta?: LiveChunkMeta;
 };
@@ -56,7 +60,7 @@ type FinalizedLivePart = {
   storageUrl: string;
   rawTextOriginal: string;
   rawTextCleaned: string;
-  rawSegments: WhisperVerboseSegment[];
+  rawSegments: TranscriptSegment[];
   qualityMeta: Record<string, unknown>;
 };
 
@@ -152,7 +156,7 @@ async function writeManifest(manifest: LivePartManifest) {
   );
 }
 
-function withOffsetSegments(segments: WhisperVerboseSegment[] = [], offsetMs: number) {
+function withOffsetSegments(segments: TranscriptSegment[] = [], offsetMs: number) {
   const offsetSeconds = offsetMs / 1000;
   return segments.map((segment) => ({
     ...segment,
@@ -169,8 +173,8 @@ function combineChunkText(chunks: LiveChunkEntry[], field: "rawTextOriginal" | "
     .trim();
 }
 
-function countFallbackChunks(chunks: LiveChunkEntry[]) {
-  return chunks.filter((chunk) => chunk.meta?.sttFallbackUsed).length;
+function countRecoveredChunks(chunks: LiveChunkEntry[]) {
+  return chunks.filter((chunk) => chunk.meta?.sttRecoveryUsed).length;
 }
 
 export async function appendLiveTranscriptionChunk(input: AppendChunkInput) {
@@ -263,7 +267,11 @@ export async function startLiveChunkTranscription(sessionId: string, partType: S
           sttSeconds: Math.round((Date.now() - sttStart) / 1000),
           sttModel: stt.meta.model,
           sttResponseFormat: stt.meta.responseFormat,
-          sttFallbackUsed: stt.meta.fallbackUsed,
+          sttRecoveryUsed: stt.meta.recoveryUsed,
+          sttAttemptCount: stt.meta.attemptCount,
+          sttSegmentCount: stt.meta.segmentCount,
+          sttSpeakerCount: stt.meta.speakerCount,
+          sttQualityWarnings: stt.meta.qualityWarnings,
         };
         current.error = undefined;
         await writeManifest(manifest);
@@ -350,8 +358,16 @@ export function buildFinalizedLivePartFromManifest(manifest: {
       sttSeconds: readyChunks.reduce((total, chunk) => total + Number(chunk.meta?.sttSeconds ?? 0), 0),
       sttModel: readyChunks[readyChunks.length - 1]?.meta?.sttModel ?? null,
       sttResponseFormat: readyChunks[readyChunks.length - 1]?.meta?.sttResponseFormat ?? null,
-      sttFallbackUsed: countFallbackChunks(readyChunks) > 0,
-      liveFallbackChunkCount: countFallbackChunks(readyChunks),
+      sttRecoveryUsed: countRecoveredChunks(readyChunks) > 0,
+      sttAttemptCount: readyChunks.reduce((total, chunk) => total + Number(chunk.meta?.sttAttemptCount ?? 1), 0),
+      sttSegmentCount: readyChunks.reduce((total, chunk) => total + Number(chunk.meta?.sttSegmentCount ?? 0), 0),
+      sttSpeakerCount:
+        readyChunks[readyChunks.length - 1]?.meta?.sttSpeakerCount ??
+        null,
+      sttQualityWarnings: Array.from(
+        new Set(readyChunks.flatMap((chunk) => chunk.meta?.sttQualityWarnings ?? []))
+      ),
+      liveRecoveredChunkCount: countRecoveredChunks(readyChunks),
       liveFinalizedAt: new Date().toISOString(),
     },
   };

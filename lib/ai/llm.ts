@@ -68,6 +68,7 @@ type DiarizedSegment = {
   start?: number;
   end?: number;
   text: string;
+  sourceSpeaker?: string;
 };
 
 function tryParseJson<T>(text: string): T | null {
@@ -118,6 +119,23 @@ function extractChatCompletionContent(data: ChatCompletionResponse): {
   }
 
   return { contentText: null, finishReason, refusal };
+}
+
+function waitForLlmRetry(attempt: number) {
+  const base = Math.min(4000, 600 * 2 ** attempt);
+  const jitter = Math.floor(Math.random() * 250);
+  return new Promise((resolve) => setTimeout(resolve, base + jitter));
+}
+
+function isRetryableLlmStatus(status: number, raw: string) {
+  if (status === 408 || status === 409 || status === 429 || status >= 500) return true;
+  return /timeout|timed out|temporar|overloaded|rate limit|try again|unavailable/i.test(raw);
+}
+
+function isRetryableLlmError(error: unknown) {
+  const message =
+    error instanceof Error ? `${error.name} ${error.message}` : typeof error === "string" ? error : "";
+  return /abort|timeout|timed out|fetch failed|network|econnreset|etimedout|socket/i.test(message.toLowerCase());
 }
 
 const EMOTION_KEYWORDS = [
@@ -707,53 +725,67 @@ async function callChatCompletions(params: {
     ...(params.response_format ? { response_format: params.response_format } : {}),
   };
 
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    const res = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${LLM_API_KEY}`,
-      },
-      body: JSON.stringify(body),
-    });
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    try {
+      const res = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${LLM_API_KEY}`,
+        },
+        body: JSON.stringify(body),
+      });
 
-    const raw = await res.text().catch(() => "");
-    if (res.ok) {
-      const data = tryParseJson<ChatCompletionResponse>(raw);
-      if (!data) return { raw, data: null, contentText: null };
-      const extracted = extractChatCompletionContent(data);
-      return { raw, data, ...extracted };
-    }
+      const raw = await res.text().catch(() => "");
+      if (res.ok) {
+        const data = tryParseJson<ChatCompletionResponse>(raw);
+        if (!data) return { raw, data: null, contentText: null };
+        const extracted = extractChatCompletionContent(data);
+        return { raw, data, ...extracted };
+      }
 
-    const lower = raw.toLowerCase();
-    let changed = false;
-    const nextBody = { ...body };
+      const lower = raw.toLowerCase();
+      let changed = false;
+      const nextBody = { ...body };
 
-    if ("temperature" in nextBody && /temperature/.test(lower) && /default|unsupported|not supported/.test(lower)) {
-      delete nextBody.temperature;
-      changed = true;
-    }
+      if ("temperature" in nextBody && /temperature/.test(lower) && /default|unsupported|not supported/.test(lower)) {
+        delete nextBody.temperature;
+        changed = true;
+      }
 
-    if ("response_format" in nextBody && /response_format/.test(lower)) {
-      delete nextBody.response_format;
-      changed = true;
-    }
+      if ("response_format" in nextBody && /response_format/.test(lower)) {
+        delete nextBody.response_format;
+        changed = true;
+      }
 
-    if ("max_completion_tokens" in nextBody && /max_completion_tokens/.test(lower)) {
-      nextBody.max_tokens = nextBody.max_completion_tokens;
-      delete nextBody.max_completion_tokens;
-      changed = true;
-    } else if ("max_tokens" in nextBody && /max_tokens/.test(lower) && !/max_completion_tokens/.test(lower)) {
-      nextBody.max_completion_tokens = nextBody.max_tokens;
-      delete nextBody.max_tokens;
-      changed = true;
-    }
+      if ("max_completion_tokens" in nextBody && /max_completion_tokens/.test(lower)) {
+        nextBody.max_tokens = nextBody.max_completion_tokens;
+        delete nextBody.max_completion_tokens;
+        changed = true;
+      } else if ("max_tokens" in nextBody && /max_tokens/.test(lower) && !/max_completion_tokens/.test(lower)) {
+        nextBody.max_completion_tokens = nextBody.max_tokens;
+        delete nextBody.max_tokens;
+        changed = true;
+      }
 
-    if (!changed) {
+      if (changed) {
+        body = nextBody;
+        continue;
+      }
+
+      if (attempt < 3 && isRetryableLlmStatus(res.status, raw)) {
+        await waitForLlmRetry(attempt);
+        continue;
+      }
+
       throw new Error(`LLM API failed (${res.status}): ${raw}`);
+    } catch (error) {
+      if (attempt < 3 && isRetryableLlmError(error)) {
+        await waitForLlmRetry(attempt);
+        continue;
+      }
+      throw error;
     }
-
-    body = nextBody;
   }
 
   throw new Error("LLM API retry budget exceeded.");
@@ -1214,7 +1246,13 @@ async function diarizeSegmentChunk(
   chunk: Array<DiarizedSegment & { hint?: string }>,
   opts?: { studentName?: string; teacherName?: string }
 ): Promise<
-  Array<{ index: number; speaker: "teacher" | "student" | "unknown"; text: string; confidence?: number }>
+  Array<{
+    index: number;
+    speaker: "teacher" | "student" | "unknown";
+    text: string;
+    confidence?: number;
+    sourceSpeaker?: string;
+  }>
 > {
   const studentLabel = formatStudentLabel(opts?.studentName);
   const teacherLabel = formatTeacherLabel(opts?.teacherName);
@@ -1224,6 +1262,7 @@ async function diarizeSegmentChunk(
 ルール:
 - teacher は説明・指導・質問・次の行動提示が中心
 - student は回答・感想・困りごと・自己状況の共有が中心
+- 同じ sourceSpeaker が付いたセグメントは、明確な理由がない限り同じ speaker ラベルを維持する
 - 迷ったら unknown にする（誤判定より安全）
 - 出力JSONは入力と同じ index を必ず全件返す
 話者名は ${teacherLabel} / ${studentLabel} を想定する。`;
@@ -1268,17 +1307,24 @@ ${JSON.stringify(chunk, null, 2)}`;
         : "unknown",
     text: (s.text ?? "").trim(),
     confidence: typeof s.confidence === "number" ? s.confidence : undefined,
+    sourceSpeaker: chunk.find((item) => item.index === s.index)?.sourceSpeaker,
   }));
 }
 
 async function refineDiarizedChunk(
-  chunk: Array<{ index: number; speaker: "teacher" | "student" | "unknown"; text: string }>,
+  chunk: Array<{
+    index: number;
+    speaker: "teacher" | "student" | "unknown";
+    text: string;
+    sourceSpeaker?: string;
+  }>,
   opts?: { studentName?: string; teacherName?: string }
 ) {
   const studentLabel = formatStudentLabel(opts?.studentName);
   const teacherLabel = formatTeacherLabel(opts?.teacherName);
   const system = `あなたは話者ラベルの整合性チェックを行います。
 目的: teacher/student/unknown の誤りを直す。意味変更は禁止。
+同じ sourceSpeaker が付いた行は、明確な根拠がない限り同じ speaker ラベルを維持する。
 話者名は ${teacherLabel}/${studentLabel} を想定。出力はJSONのみ。`;
 
   const user = `以下の話者ラベルを整合性チェックし、必要なら修正してください。
@@ -1312,11 +1358,12 @@ ${JSON.stringify(chunk, null, 2)}`;
         ? s.speaker
         : "unknown",
     text: (s.text ?? "").trim(),
+    sourceSpeaker: chunk.find((item) => item.index === s.index)?.sourceSpeaker,
   }));
 }
 
 export async function formatTranscriptFromSegments(
-  segments: Array<{ start?: number; end?: number; text?: string }>,
+  segments: Array<{ start?: number; end?: number; text?: string; speaker?: string }>,
   opts?: { studentName?: string; teacherName?: string }
 ): Promise<string> {
   const sourceSegments: DiarizedSegment[] = segments
@@ -1325,6 +1372,7 @@ export async function formatTranscriptFromSegments(
       start: s.start,
       end: s.end,
       text: (s.text ?? "").trim(),
+      sourceSpeaker: typeof s.speaker === "string" && s.speaker.trim() ? s.speaker.trim() : undefined,
     }))
     .filter((s) => s.text.length > 0);
 
@@ -1339,7 +1387,11 @@ export async function formatTranscriptFromSegments(
   }
 
   const refinedChunks = chunkSegmentsByChars(
-    labeled.map((l) => ({ index: l.index, text: l.text })) as DiarizedSegment[],
+    labeled.map((l) => ({
+      index: l.index,
+      text: l.text,
+      sourceSpeaker: sourceSegments.find((segment) => segment.index === l.index)?.sourceSpeaker,
+    })) as DiarizedSegment[],
     3800
   );
   const refined: Array<{ index: number; speaker: "teacher" | "student" | "unknown"; text: string }> = [];
@@ -1350,6 +1402,7 @@ export async function formatTranscriptFromSegments(
         index: c.index,
         speaker: matched?.speaker ?? "unknown",
         text: matched?.text ?? c.text,
+        sourceSpeaker: sourceSegments.find((segment) => segment.index === c.index)?.sourceSpeaker,
       };
     });
     const result = await refineDiarizedChunk(chunkItems, opts);
@@ -1404,162 +1457,4 @@ export async function formatTranscriptFromText(
     .map((p) => p.trim())
     .filter(Boolean);
   return paragraphs.map((p) => `**話者不明**: ${p}`).join("\n");
-}
-type ReportInput = {
-  studentName: string;
-  organizationName?: string;
-  periodFrom?: string;
-  periodTo?: string;
-  previousReport?: string;
-  profileSnapshot?: any;
-  logs: Array<{
-    id: string;
-    date: string;
-    parentPack?: any;
-    summaryMarkdown?: string;
-    timeline?: any;
-    nextActions?: any;
-    profileDelta?: any;
-  }>;
-};
-
-type ParentReportJson = {
-  date: string;
-  salutation: string;
-  studentName: string;
-  keyPoints: string;
-  sections: Array<{ title: string; body: string }>;
-  homework: Array<{ item: string; why: string; metric: string; due: string | null }>;
-  closing: string;
-};
-
-function renderParentReportMarkdown(report: ParentReportJson, orgName: string, periodFrom: string, periodTo: string) {
-  const lines: string[] = [];
-  lines.push(`${orgName} / ${report.studentName} / 対象期間: ${periodFrom}〜${periodTo} / 作成日: ${report.date}`);
-  lines.push("");
-  lines.push(report.salutation);
-  lines.push("");
-  lines.push("## 今回の要点");
-  lines.push(report.keyPoints);
-  lines.push("");
-  report.sections.forEach((section) => {
-    lines.push(`## ${section.title}`);
-    lines.push(section.body);
-    lines.push("");
-  });
-  lines.push("## 次回までの宿題");
-  if (report.homework.length === 0) {
-    lines.push("（今回の宿題はありません）");
-  } else {
-    report.homework.forEach((hw, idx) => {
-      lines.push(`${idx + 1}. ${hw.item}（期限: ${hw.due ?? "次回面談まで"} / 指標: ${hw.metric}）`);
-      lines.push(`   理由: ${hw.why}`);
-    });
-  }
-  lines.push("");
-  lines.push(report.closing);
-  return lines.join("\n").trim();
-}
-
-export async function generateParentReport(input: ReportInput): Promise<{ markdown: string; reportJson: ParentReportJson }> {
-  if (!LLM_API_KEY) {
-    throw new Error("LLM_API_KEY (or OPENAI_API_KEY) is not set. Report generation requires LLM (no mock).");
-  }
-
-  const organizationName = input.organizationName ?? "塾";
-  const periodFrom = input.periodFrom ?? "前回レポート以降";
-  const periodTo = input.periodTo ?? "今回まで";
-  const createdAt = new Date().toISOString().slice(0, 10);
-  const previous = (input.previousReport ?? "").trim();
-
-  const systemPrompt = `あなたは学習塾の教務責任者です。保護者向けの近況報告レポートを作成します。
-浅見が手書きしていた文章と同等の品質を目標に、具体的で自然な日本語（ですます）で書いてください。
-
-# 絶対ルール
-- ですます調
-- 入力に parentPack がある場合は **parentPack を最優先**で構成する
-- 推測で盛らない。不明は「現時点では未確認です」と書く
-- 前回レポートがある場合、「継続」「変化」「今回の焦点」を必ず明示する
-- 科目や試験、教材、期限は可能な範囲で具体に
-
-# 章立て（必ずこの順）
-1) 今回の要点（2〜4文）
-2) 学習状況（事実）
-3) 課題と原因（分析）
-4) 次の打ち手（科目別・教材・順序・期限）
-5) 受験戦略（志望校/併願リスク/今やる理由）
-6) 次回までの宿題（3〜6件、why/due/metric付き）
-7) 締め
-
-# 出力（JSONのみ）
-{
-  \"date\": \"YYYY-MM-DD\",
-  \"salutation\": \"お世話になっております。◯◯でございます。...\",
-  \"studentName\": \"...\",
-  \"keyPoints\": \"...\",\n  \"sections\": [\n    { \"title\": \"学習状況\", \"body\": \"...\" },\n    { \"title\": \"課題と原因\", \"body\": \"...\" },\n    { \"title\": \"次の打ち手\", \"body\": \"...\" },\n    { \"title\": \"受験戦略\", \"body\": \"...\" }\n  ],\n  \"homework\": [\n    { \"item\": \"...\", \"why\": \"...\", \"metric\": \"...\", \"due\": \"YYYY-MM-DD or null\" }\n  ],\n  \"closing\": \"近況報告は以上になります。引き続きよろしくお願いいたします。\"\n}`;
-
-  const userPrompt = `生徒名: ${input.studentName}
-対象期間: ${periodFrom} 〜 ${periodTo}
-作成日: ${createdAt}
-
-前回レポート（あれば必ず参照）:
-${previous ? previous : "（前回レポートなし）"}
-
-生徒プロフィール（最新スナップショット）:
-${JSON.stringify(input.profileSnapshot ?? {}, null, 2)}
-
-会話ログ（今回の対象。新しい順）:
-${input.logs
-    .map((l, idx) =>
-      [
-        `# Log ${idx + 1}`,
-        `date: ${l.date}`,
-        `id: ${l.id}`,
-        `parentPack:`,
-        JSON.stringify(l.parentPack ?? {}, null, 2),
-        `summaryMarkdown:`,
-        l.summaryMarkdown ?? "",
-        `timeline:`,
-        JSON.stringify(l.timeline ?? [], null, 2),
-        `nextActions:`,
-        JSON.stringify(l.nextActions ?? [], null, 2),
-        `profileDelta:`,
-        JSON.stringify(l.profileDelta ?? {}, null, 2),
-      ].join("\n")
-    )
-    .join("\n\n")}`;
-
-  const { contentText, raw } = await callChatCompletions({
-    model: MODEL_REPORT,
-    messages: [
-      { role: "system", content: systemPrompt },
-      { role: "user", content: userPrompt },
-    ],
-    response_format: { type: "json_object" },
-    temperature: 0.3,
-  });
-
-  const jsonText = contentText ?? extractJsonCandidate(raw) ?? "";
-  const parsed = tryParseJson<ParentReportJson>(jsonText);
-  if (!parsed) {
-    throw new Error("LLM report returned non-JSON response.");
-  }
-
-  const reportJson: ParentReportJson = {
-    date: parsed.date ?? createdAt,
-    salutation: parsed.salutation ?? "お世話になっております。",
-    studentName: parsed.studentName ?? input.studentName,
-    keyPoints: parsed.keyPoints ?? "",
-    sections: parsed.sections ?? [],
-    homework: parsed.homework ?? [],
-    closing: parsed.closing ?? "近況報告は以上になります。引き続きよろしくお願いいたします。",
-  };
-
-  const markdown = renderParentReportMarkdown(reportJson, organizationName, periodFrom, periodTo);
-  return { markdown, reportJson };
-}
-
-export async function generateParentReportMarkdown(input: ReportInput): Promise<string> {
-  const { markdown } = await generateParentReport(input);
-  return markdown;
 }

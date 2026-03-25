@@ -9,6 +9,10 @@ import { sanitizeReportMarkdownForReuse } from "@/lib/user-facing-japanese";
 export async function POST(request: Request) {
   try {
     const session = await auth();
+    if (!session?.user?.id || !session.user.organizationId) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     const body = await request.json();
     const { studentId, fromDate, toDate, logIds, sessionIds, usePreviousReport } = body ?? {};
 
@@ -16,13 +20,15 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "studentId is required" }, { status: 400 });
     }
 
-    const student = await prisma.student.findUnique({ where: { id: studentId } });
+    const student = await prisma.student.findFirst({
+      where: { id: studentId, organizationId: session.user.organizationId },
+    });
     if (!student) {
       return NextResponse.json({ error: "student not found" }, { status: 404 });
     }
 
     const previousReport = await prisma.report.findFirst({
-      where: { studentId },
+      where: { studentId, organizationId: session.user.organizationId },
       orderBy: { createdAt: "desc" },
     });
 
@@ -39,8 +45,9 @@ export async function POST(request: Request) {
     const from = fromDate ? new Date(fromDate) : previousReport?.periodTo ?? undefined;
     const to = toDate ? new Date(toDate) : undefined;
 
-    const logs = await prisma.conversationLog.findMany({
+    const selectedLogs = await prisma.conversationLog.findMany({
       where: {
+        organizationId: session.user.organizationId,
         studentId,
         ...(resolvedLogIds.length
           ? { id: { in: resolvedLogIds } }
@@ -54,7 +61,11 @@ export async function POST(request: Request) {
               }),
       },
       orderBy: { createdAt: "asc" },
-      include: {
+      select: {
+        id: true,
+        sessionId: true,
+        createdAt: true,
+        summaryMarkdown: true,
         session: {
           select: {
             type: true,
@@ -63,12 +74,23 @@ export async function POST(request: Request) {
       },
     });
 
-    if (logs.length === 0) {
+    if (selectedLogs.length === 0) {
       return NextResponse.json({ error: "selected logs not found" }, { status: 400 });
     }
 
+    const pendingLogs = selectedLogs.filter((log) => !log.summaryMarkdown?.trim());
+    if (pendingLogs.length > 0) {
+      return NextResponse.json(
+        { error: "選択したログ本文がまだ生成されていません。面談ログ / 指導報告ログの生成完了後に再実行してください。" },
+        { status: 400 }
+      );
+    }
+
+    const logs = selectedLogs.filter((log) => Boolean(log.summaryMarkdown?.trim()));
+
     const allCandidateLogs = await prisma.conversationLog.findMany({
       where: {
+        organizationId: session.user.organizationId,
         studentId,
         createdAt: {
           ...(from ? { gte: from } : {}),
@@ -76,7 +98,11 @@ export async function POST(request: Request) {
         },
       },
       orderBy: { createdAt: "asc" },
-      include: {
+      select: {
+        id: true,
+        sessionId: true,
+        createdAt: true,
+        summaryMarkdown: true,
         session: {
           select: {
             type: true,
@@ -105,30 +131,17 @@ export async function POST(request: Request) {
         sessionId: log.sessionId,
         date: log.createdAt.toISOString().slice(0, 10),
         mode: log.session?.type === "LESSON_REPORT" ? "LESSON_REPORT" : "INTERVIEW",
-        parentPack: log.parentPackJson ?? {},
         summaryMarkdown: log.summaryMarkdown ?? "",
-        timeline: log.timelineJson ?? [],
-        nextActions: log.nextActionsJson ?? [],
-        profileDelta: log.profileDeltaJson ?? {},
-        studentState: log.studentStateJson ?? {},
-        profileSections: log.profileSectionsJson ?? [],
-        quickQuestions: log.quickQuestionsJson ?? [],
-        lessonReport: log.lessonReportJson ?? null,
       })),
-      allLogsForSuggestions: allCandidateLogs.map((log) => ({
-        id: log.id,
-        sessionId: log.sessionId,
-        date: log.createdAt.toISOString().slice(0, 10),
-        mode: log.session?.type === "LESSON_REPORT" ? "LESSON_REPORT" : "INTERVIEW",
-        summaryMarkdown: log.summaryMarkdown ?? "",
-        parentPack: log.parentPackJson ?? {},
-        timeline: log.timelineJson ?? [],
-        nextActions: log.nextActionsJson ?? [],
-        studentState: log.studentStateJson ?? {},
-        profileSections: log.profileSectionsJson ?? [],
-        quickQuestions: log.quickQuestionsJson ?? [],
-        lessonReport: log.lessonReportJson ?? null,
-      })),
+      allLogsForSuggestions: allCandidateLogs
+        .filter((log) => Boolean(log.summaryMarkdown?.trim()))
+        .map((log) => ({
+          id: log.id,
+          sessionId: log.sessionId,
+          date: log.createdAt.toISOString().slice(0, 10),
+          mode: log.session?.type === "LESSON_REPORT" ? "LESSON_REPORT" : "INTERVIEW",
+          summaryMarkdown: log.summaryMarkdown ?? "",
+        })),
     });
 
     const report = await prisma.$transaction(async (tx) => {
