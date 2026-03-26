@@ -2,7 +2,9 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { buildReportDeliverySummary } from "@/lib/report-delivery";
 import { getRecordingLockView } from "@/lib/recording/lockService";
+import { buildSessionProgressState } from "@/lib/session-progress";
 import { requireAuthorizedSession } from "@/lib/server/request-auth";
+import { buildSummaryPreview } from "@/lib/session-part-meta";
 import { sanitizeReportMarkdown, sanitizeSummaryMarkdown } from "@/lib/user-facing-japanese";
 
 export async function GET(
@@ -31,6 +33,9 @@ export async function GET(
                 status: true,
                 sourceType: true,
                 fileName: true,
+                rawTextOriginal: true,
+                rawTextCleaned: true,
+                qualityMetaJson: true,
                 createdAt: true,
               },
               orderBy: { createdAt: "asc" },
@@ -87,6 +92,14 @@ export async function GET(
 
     const sessions = student.sessions.map((session) => {
       const summaryMarkdown = sanitizeSummaryMarkdown(session.conversation?.summaryMarkdown ?? "");
+      const parts = session.parts.map((part) => ({
+        id: part.id,
+        partType: part.partType,
+        status: part.status,
+        fileName: part.fileName,
+        previewText: buildSummaryPreview(part.rawTextCleaned || part.rawTextOriginal),
+        qualityMetaJson: part.qualityMetaJson,
+      }));
       const conversation = session.conversation
         ? {
             id: session.conversation.id,
@@ -96,8 +109,17 @@ export async function GET(
           }
         : null;
 
+      const pipeline = buildSessionProgressState({
+        sessionId: session.id,
+        type: session.type,
+        parts: session.parts,
+        conversation: session.conversation,
+      });
+
       return {
         ...session,
+        parts,
+        pipeline,
         conversation,
       };
     });

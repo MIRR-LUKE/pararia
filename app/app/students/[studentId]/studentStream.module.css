@@ -28,6 +28,11 @@
   text-align: left;
 }
 
+.row:disabled {
+  cursor: default;
+  opacity: 0.86;
+}
+
 .row:hover {
   opacity: 0.94;
 }
@@ -78,6 +83,21 @@
   text-overflow: ellipsis;
 }
 
+.rowBody {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.rowMeta {
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .assigneePill {
   width: 30px;
   height: 30px;
@@ -92,7 +112,8 @@
 }
 
 @media (max-width: 720px) {
-  .rowText {
+  .rowText,
+  .rowMeta {
     white-space: normal;
   }
 }

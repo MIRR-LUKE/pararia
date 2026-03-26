@@ -4,7 +4,6 @@ import { auth } from "@/auth";
 import { writeAuditLog } from "@/lib/audit";
 import { prisma } from "@/lib/db";
 import { generateParentReport } from "@/lib/ai/parentReport";
-import { sanitizeReportMarkdownForReuse } from "@/lib/user-facing-japanese";
 
 export async function POST(request: Request) {
   try {
@@ -14,7 +13,7 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json();
-    const { studentId, fromDate, toDate, logIds, sessionIds, usePreviousReport } = body ?? {};
+    const { studentId, fromDate, toDate, logIds, sessionIds } = body ?? {};
 
     if (!studentId) {
       return NextResponse.json({ error: "studentId is required" }, { status: 400 });
@@ -27,11 +26,6 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "student not found" }, { status: 404 });
     }
 
-    const previousReport = await prisma.report.findFirst({
-      where: { studentId, organizationId: session.user.organizationId },
-      orderBy: { createdAt: "desc" },
-    });
-
     const resolvedLogIds = Array.isArray(logIds) ? logIds.filter(Boolean) : [];
     const resolvedSessionIds = Array.isArray(sessionIds) ? sessionIds.filter(Boolean) : [];
 
@@ -42,7 +36,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const from = fromDate ? new Date(fromDate) : previousReport?.periodTo ?? undefined;
+    const from = fromDate ? new Date(fromDate) : undefined;
     const to = toDate ? new Date(toDate) : undefined;
 
     const selectedLogs = await prisma.conversationLog.findMany({
@@ -88,44 +82,11 @@ export async function POST(request: Request) {
 
     const logs = selectedLogs.filter((log) => Boolean(log.summaryMarkdown?.trim()));
 
-    const allCandidateLogs = await prisma.conversationLog.findMany({
-      where: {
-        organizationId: session.user.organizationId,
-        studentId,
-        createdAt: {
-          ...(from ? { gte: from } : {}),
-          ...(to ? { lte: to } : {}),
-        },
-      },
-      orderBy: { createdAt: "asc" },
-      select: {
-        id: true,
-        sessionId: true,
-        createdAt: true,
-        summaryMarkdown: true,
-        session: {
-          select: {
-            type: true,
-          },
-        },
-      },
-    });
-
-    const latestProfile = await prisma.studentProfile.findFirst({
-      where: { studentId },
-      orderBy: { createdAt: "desc" },
-    });
-
     const { markdown, reportJson, bundleQualityEval } = await generateParentReport({
       studentName: student.name,
       organizationName: undefined,
       periodFrom: from?.toISOString().slice(0, 10),
       periodTo: (to ?? new Date()).toISOString().slice(0, 10),
-      previousReport:
-        usePreviousReport
-          ? sanitizeReportMarkdownForReuse(previousReport?.reportMarkdown) || undefined
-          : undefined,
-      profileSnapshot: latestProfile?.profileData ?? {},
       logs: logs.map((log) => ({
         id: log.id,
         sessionId: log.sessionId,
@@ -133,15 +94,6 @@ export async function POST(request: Request) {
         mode: log.session?.type === "LESSON_REPORT" ? "LESSON_REPORT" : "INTERVIEW",
         summaryMarkdown: log.summaryMarkdown ?? "",
       })),
-      allLogsForSuggestions: allCandidateLogs
-        .filter((log) => Boolean(log.summaryMarkdown?.trim()))
-        .map((log) => ({
-          id: log.id,
-          sessionId: log.sessionId,
-          date: log.createdAt.toISOString().slice(0, 10),
-          mode: log.session?.type === "LESSON_REPORT" ? "LESSON_REPORT" : "INTERVIEW",
-          summaryMarkdown: log.summaryMarkdown ?? "",
-        })),
     });
 
     const report = await prisma.$transaction(async (tx) => {
@@ -152,7 +104,6 @@ export async function POST(request: Request) {
           reportMarkdown: markdown,
           reportJson: reportJson as any,
           sourceLogIds: logs.map((log) => log.id),
-          previousReportId: previousReport?.id ?? undefined,
           periodFrom: from ?? undefined,
           periodTo: to ?? new Date(),
           qualityChecksJson: {

@@ -164,72 +164,6 @@ async function createHana() {
       rawTextExpiresAt: plusDays(interviewDate, 30),
       summaryMarkdown:
         "## 今回確認したこと\n長文読解は前より安定してきており、止まりにくさが減っている。\n\n## 講師の見立て\nいまの点数差は英語力そのものより、睡眠リズムの乱れに引っ張られている。\n\n## 次回までに進めること\n就寝時間を整えながら、読解の再現手順を言語化して固定する。",
-      timelineJson: [
-        {
-          title: "長文の安定感が上がった",
-          what_happened: "長文で止まる回数が減り、以前より読み進めやすくなっている。",
-          coach_point: "うまく読めた手順を言葉にして、再現できる形に固定する。",
-          student_state: "手応えはあるが、睡眠次第で波が出ることも自覚している。",
-          evidence_quotes: ["前より読みやすいです", "寝る時間が遅い日はミスが増える"],
-        },
-      ] as any,
-      nextActionsJson: [
-        {
-          owner: "STUDENT",
-          action: "23時30分までにスマホを置いて就寝準備に入る",
-          due: "次回面談まで",
-          metric: "5日実行",
-          why: "点数の振れ幅を減らすため",
-        },
-      ] as any,
-      profileDeltaJson: {
-        basic: [],
-        personal: [{ field: "sleep", value: "就寝が遅い日は集中が落ちやすい", confidence: 84, evidence_quotes: [] }],
-      } as any,
-      parentPackJson: { monthlyChange: "長文読解の安定感が上がってきた", focus: "睡眠リズムと再現性の固定" } as any,
-      studentStateJson: {
-        label: "前進中",
-        oneLiner: "英語の手応えは出てきた。次は睡眠リズムを整えたい。",
-        rationale: ["長文で止まりにくくなっている", "振れ幅は睡眠の影響が大きい"],
-        confidence: 86,
-      } as any,
-      topicSuggestionsJson: [
-        {
-          category: "学習",
-          title: "長文を安定させた要因の確認",
-          reason: "伸びが偶然ではなく、再現できる学習手順に育ちつつあるため。",
-          question: "今週、長文で止まりにくかった理由を自分ではどう考えている？",
-          priority: 1,
-        },
-      ] as any,
-      quickQuestionsJson: [
-        {
-          category: "生活",
-          question: "今週いちばん遅く寝た日は何時ごろだった？",
-          reason: "実際の睡眠リズムを確認するため",
-        },
-      ] as any,
-      profileSectionsJson: [
-        {
-          category: "学習",
-          status: "改善",
-          highlights: [{ label: "長文読解", value: "文章構造の把握が速くなってきた", isUpdated: true }],
-          nextQuestion: "うまく読めたときの手順をもう一度言葉にできる？",
-        },
-      ] as any,
-      observationJson: [
-        {
-          sourceType: "INTERVIEW",
-          category: "学習",
-          statusDraft: "改善",
-          insights: ["長文読解の安定感が上がってきた"],
-          topics: ["英語長文", "睡眠リズム"],
-          nextActions: ["読解の手順を短くメモする"],
-          evidence: ["前より読みやすいです"],
-          characterSignal: "伸びを実感できると行動が早い",
-          weight: 0.9,
-        },
-      ] as any,
       formattedTranscript:
         "## 面談\n講師: 長文は前より止まりにくくなったね。\n生徒: 前より読みやすいです。\n講師: ただ寝る時間が遅い日はミスが増えるね。",
       qualityMetaJson: { seeded: true, modelFinal: "gpt-5.4", modelFast: "gpt-5-mini" } as any,
@@ -301,35 +235,6 @@ async function createHana() {
       rawTextExpiresAt: plusDays(lessonDate, 30),
       summaryMarkdown:
         "## 授業で確認したこと\n授業中の集中は高く、説明への反応も安定していた。\n\n## 講師の見立て\n課題は量ではなく、宿題に着手する最初の一歩が重いこと。\n\n## 次回までに進めること\n負荷は増やさず、開始時刻を固定して着手のハードルを下げる。",
-      timelineJson: [] as any,
-      nextActionsJson: [
-        {
-          owner: "STUDENT",
-          action: "日曜の長文は20時に着手する",
-          due: "次回授業まで",
-          metric: "開始時刻を守れた日数",
-          why: "宿題の着手負荷を下げるため",
-        },
-      ] as any,
-      profileDeltaJson: { basic: [], personal: [] } as any,
-      parentPackJson: { monthlyChange: "授業中の集中は安定している", focus: "宿題開始の習慣化" } as any,
-      studentStateJson: {
-        label: "集中維持",
-        oneLiner: "授業中の集中は高い。宿題の着手だけ整えたい。",
-        rationale: ["授業中の集中は安定している", "宿題開始の摩擦が残っている"],
-        confidence: 80,
-      } as any,
-      topicSuggestionsJson: [] as any,
-      quickQuestionsJson: [] as any,
-      profileSectionsJson: [] as any,
-      observationJson: [] as any,
-      lessonReportJson: {
-        todayGoal: "復習確認と長文1本の演習",
-        covered: ["前回内容の確認テスト", "長文1本の演習"],
-        blockers: ["宿題に着手するまでが重い"],
-        homework: ["長文1本", "単語チェック"],
-        nextLessonFocus: ["読解手順の再現", "宿題開始時刻の固定"],
-      } as any,
       formattedTranscript:
         "## チェックイン\n宿題の長文は2本のうち1本まで進めた。\n\n## チェックアウト\n授業中の集中は良好。宿題は開始時刻を決めて組み直した。",
       qualityMetaJson: { seeded: true, modelFinal: "gpt-5.4", modelFast: "gpt-5-mini" } as any,
@@ -449,28 +354,6 @@ async function createAoi() {
       rawTextExpiresAt: plusDays(sessionDate, 30),
       summaryMarkdown:
         "## 今回確認したこと\n数学は丁寧に取り組めており、粘り強さも見えている。\n\n## 講師の見立て\n弱点は難問で最初の一手が出るまでに時間がかかること。\n\n## 次回までに進めること\n条件整理、図、最初の式の3点セットを先に書く型を作る。",
-      timelineJson: [] as any,
-      nextActionsJson: [
-        {
-          owner: "STUDENT",
-          action: "難問では解き始める前に条件・図・最初の式を3行で書く",
-          due: "次回授業まで",
-          metric: "3問で実行",
-          why: "最初の一手で止まる時間を減らすため",
-        },
-      ] as any,
-      profileDeltaJson: { basic: [], personal: [] } as any,
-      parentPackJson: { monthlyChange: "数学の粘り強さが安定している", focus: "最初の一手の型づくり" } as any,
-      studentStateJson: {
-        label: "思考安定",
-        oneLiner: "数学の粘りはある。最初の一手に型を持たせたい。",
-        rationale: ["手順は丁寧に書けている", "最初の一手だけ止まりやすい"],
-        confidence: 84,
-      } as any,
-      topicSuggestionsJson: [] as any,
-      quickQuestionsJson: [] as any,
-      profileSectionsJson: [] as any,
-      observationJson: [] as any,
       formattedTranscript: "## 面談\n数学は丁寧に取り組めているが、難問になると最初の一手で止まりやすい。",
       qualityMetaJson: { seeded: true, modelFinal: "gpt-5.4", modelFast: "gpt-5-mini" } as any,
       createdAt: new Date(sessionDate),

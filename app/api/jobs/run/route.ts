@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { processQueuedJobs } from "@/lib/jobs/conversationJobs";
+import { processQueuedSessionPartJobs } from "@/lib/jobs/sessionPartJobs";
 
 async function handleRequest(request: Request) {
   try {
@@ -9,18 +10,30 @@ async function handleRequest(request: Request) {
     const concurrencyParam = Number(searchParams.get("concurrency") ?? (body as any)?.concurrency);
     const conversationId =
       searchParams.get("conversationId") ?? (typeof (body as any)?.conversationId === "string" ? (body as any).conversationId : undefined);
+    const sessionId =
+      searchParams.get("sessionId") ?? (typeof (body as any)?.sessionId === "string" ? (body as any).sessionId : undefined);
     const envConcurrency = Number(process.env.JOB_CONCURRENCY ?? 3);
     const concurrency = Number.isFinite(concurrencyParam)
       ? concurrencyParam
       : Number.isFinite(envConcurrency)
         ? envConcurrency
         : 1;
-    const result = await processQueuedJobs(
+    const sessionPartJobs = await processQueuedSessionPartJobs(
+      Number.isFinite(limit) ? limit : 1,
+      concurrency,
+      sessionId ? { sessionId } : undefined
+    );
+    const conversationJobs = await processQueuedJobs(
       Number.isFinite(limit) ? limit : 1,
       concurrency,
       conversationId ? { conversationId } : undefined
     );
-    return NextResponse.json(result);
+    return NextResponse.json({
+      sessionPartJobs,
+      conversationJobs,
+      processed: sessionPartJobs.processed + conversationJobs.processed,
+      errors: [...sessionPartJobs.errors, ...conversationJobs.errors],
+    });
   } catch (e: any) {
     console.error("[/api/jobs/run] Error:", {
       error: e?.message,

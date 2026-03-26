@@ -1,44 +1,28 @@
 import { NextResponse } from "next/server";
 import {
   ConversationSourceType,
+  SessionPartJobType,
   SessionPartStatus,
   SessionPartType,
-  SessionType,
 } from "@prisma/client";
-import { auth } from "@/auth";
 import { prisma } from "@/lib/db";
-import {
-  ensureConversationForSession,
-  updateSessionStatusFromParts,
-} from "@/lib/session-service";
-import {
-  enqueueConversationJobs,
-  processAllConversationJobs,
-} from "@/lib/jobs/conversationJobs";
-import {
-  evaluateTranscriptSubstance,
-} from "@/lib/recording/validation";
+import { enqueueSessionPartJob, processAllSessionPartJobs } from "@/lib/jobs/sessionPartJobs";
+import { updateSessionStatusFromParts } from "@/lib/session-service";
+import { toSessionPartMetaJson } from "@/lib/session-part-meta";
 import { verifyRecordingLockForAudioUpload } from "@/lib/recording/lockService";
 import { toPrismaJson } from "@/lib/prisma-json";
+import { getRecordingMaxDurationSeconds } from "@/lib/recording/validation";
 import {
   appendLiveTranscriptionChunk,
-  finalizeLiveTranscriptionPart,
   getLiveTranscriptionProgress,
   startLiveChunkTranscription,
 } from "@/lib/live-session-transcription";
+import { requireAuthorizedSession } from "@/lib/server/request-auth";
 
 function parsePartType(raw: string | null) {
   if (raw === SessionPartType.CHECK_IN) return SessionPartType.CHECK_IN;
   if (raw === SessionPartType.CHECK_OUT) return SessionPartType.CHECK_OUT;
   return SessionPartType.FULL;
-}
-
-function mergeMeta(existing: unknown, next: Record<string, unknown>) {
-  const base =
-    existing && typeof existing === "object" && !Array.isArray(existing)
-      ? (existing as Record<string, unknown>)
-      : {};
-  return toPrismaJson({ ...base, ...next });
 }
 
 async function verifyLockOrThrow(sessionId: string, studentId: string, userId: string, plainToken: string) {
@@ -63,10 +47,9 @@ export async function POST(
   { params }: { params: { id: string } }
 ) {
   try {
-    const sessionAuth = await auth();
-    if (!sessionAuth?.user?.id || !sessionAuth.user.organizationId) {
-      return NextResponse.json({ error: "ログインが必要です。" }, { status: 401 });
-    }
+    const authResult = await requireAuthorizedSession();
+    if (authResult.response) return authResult.response;
+    const sessionAuth = authResult.session;
 
     const sessionRow = await prisma.session.findUnique({
       where: { id: params.id },
@@ -88,12 +71,26 @@ export async function POST(
       const sequence = Number(formData.get("sequence") ?? -1);
       const startedAtMs = Number(formData.get("startedAtMs") ?? 0);
       const durationMs = Number(formData.get("durationMs") ?? 0);
+      const maxDurationMs = getRecordingMaxDurationSeconds(sessionRow.type) * 1000;
 
       if (!file) {
         return NextResponse.json({ error: "file is required" }, { status: 400 });
       }
       if (!Number.isInteger(sequence) || sequence < 0) {
         return NextResponse.json({ error: "sequence is invalid" }, { status: 400 });
+      }
+      if (startedAtMs + durationMs > maxDurationMs) {
+        return NextResponse.json(
+          {
+            error:
+              sessionRow.type === "LESSON_REPORT"
+                ? "指導報告の録音は各パート10分までです。録音を保存してから次へ進んでください。"
+                : "面談の録音は60分までです。録音を保存してから次へ進んでください。",
+            code: "recording_too_long",
+            maxAllowedSeconds: Math.round(maxDurationMs / 1000),
+          },
+          { status: 422 }
+        );
       }
 
       try {
@@ -134,7 +131,10 @@ export async function POST(
           fileName: `${partType.toLowerCase()}-live.webm`,
           mimeType: file.type || "audio/webm",
           storageUrl: manifestPath,
-          qualityMetaJson: mergeMeta(existingPart?.qualityMetaJson, {
+          qualityMetaJson: toSessionPartMetaJson(existingPart?.qualityMetaJson, {
+            pipelineStage: "TRANSCRIBING",
+            uploadMode: "direct_recording",
+            lastQueuedAt: new Date().toISOString(),
             liveTranscription: true,
             liveChunkCount: progress.chunkCount,
             liveReadyChunkCount: progress.readyChunkCount,
@@ -155,7 +155,10 @@ export async function POST(
           rawTextOriginal: "",
           rawTextCleaned: "",
           rawSegments: toPrismaJson([]),
-          qualityMetaJson: toPrismaJson({
+          qualityMetaJson: toSessionPartMetaJson({}, {
+            pipelineStage: "TRANSCRIBING",
+            uploadMode: "direct_recording",
+            lastQueuedAt: new Date().toISOString(),
             liveTranscription: true,
             liveChunkCount: progress.chunkCount,
             liveReadyChunkCount: progress.readyChunkCount,
@@ -189,6 +192,7 @@ export async function POST(
     };
     const partType = parsePartType(body.partType ?? null);
     const lockToken = String(body.lockToken ?? "").trim();
+    const maxDurationMs = getRecordingMaxDurationSeconds(sessionRow.type) * 1000;
 
     try {
       await verifyLockOrThrow(params.id, sessionRow.studentId, sessionAuth.user.id, lockToken);
@@ -199,127 +203,77 @@ export async function POST(
       );
     }
 
-    const finalized = await finalizeLiveTranscriptionPart(params.id, partType);
-    const qualityMeta = finalized.qualityMeta;
-    const substance = evaluateTranscriptSubstance(finalized.rawTextCleaned || finalized.rawTextOriginal);
     const expiresAt = new Date();
     expiresAt.setDate(expiresAt.getDate() + 30);
-
-    if (!substance.ok) {
-      const rejectedPart = await prisma.sessionPart.upsert({
-        where: { sessionId_partType: { sessionId: params.id, partType } },
-        update: {
-          sourceType: ConversationSourceType.AUDIO,
-          status: SessionPartStatus.ERROR,
-          fileName: finalized.fileName,
-          mimeType: finalized.mimeType,
-          byteSize: finalized.byteSize,
-          storageUrl: finalized.storageUrl,
-          rawTextOriginal: finalized.rawTextOriginal,
-          rawTextCleaned: finalized.rawTextCleaned,
-          rawSegments: toPrismaJson(finalized.rawSegments),
-          qualityMetaJson: toPrismaJson({
-            ...qualityMeta,
-            validationRejection: {
-              code: substance.code,
-              messageJa: substance.messageJa,
-              metrics: substance.metrics,
-              at: new Date().toISOString(),
-            },
-          }),
-          transcriptExpiresAt: expiresAt,
-        },
-        create: {
-          sessionId: params.id,
-          partType,
-          sourceType: ConversationSourceType.AUDIO,
-          status: SessionPartStatus.ERROR,
-          fileName: finalized.fileName,
-          mimeType: finalized.mimeType,
-          byteSize: finalized.byteSize,
-          storageUrl: finalized.storageUrl,
-          rawTextOriginal: finalized.rawTextOriginal,
-          rawTextCleaned: finalized.rawTextCleaned,
-          rawSegments: toPrismaJson(finalized.rawSegments),
-          qualityMetaJson: toPrismaJson({
-            ...qualityMeta,
-            validationRejection: {
-              code: substance.code,
-              messageJa: substance.messageJa,
-              metrics: substance.metrics,
-              at: new Date().toISOString(),
-            },
-          }),
-          transcriptExpiresAt: expiresAt,
-        },
-      });
-
-      await updateSessionStatusFromParts(params.id);
+    const existingPart = await prisma.sessionPart.findUnique({
+      where: { sessionId_partType: { sessionId: params.id, partType } },
+      select: {
+        qualityMetaJson: true,
+        storageUrl: true,
+        fileName: true,
+        mimeType: true,
+      },
+    });
+    const progress = await getLiveTranscriptionProgress(params.id, partType);
+    if (progress.totalDurationMs > maxDurationMs) {
       return NextResponse.json(
         {
-          error: substance.messageJa,
-          code: substance.code,
-          part: rejectedPart,
-          metrics: substance.metrics,
+          error:
+            sessionRow.type === "LESSON_REPORT"
+              ? "指導報告の録音は各パート10分までです。録音を分けて保存してください。"
+              : "面談の録音は60分までです。録音を分けて保存してください。",
+          code: "recording_too_long",
+          maxAllowedSeconds: Math.round(maxDurationMs / 1000),
+          durationSeconds: Math.round(progress.totalDurationMs / 1000),
         },
         { status: 422 }
       );
     }
-
     const part = await prisma.sessionPart.upsert({
       where: { sessionId_partType: { sessionId: params.id, partType } },
       update: {
         sourceType: ConversationSourceType.AUDIO,
-        status: SessionPartStatus.READY,
-        fileName: finalized.fileName,
-        mimeType: finalized.mimeType,
-        byteSize: finalized.byteSize,
-        storageUrl: finalized.storageUrl,
-        rawTextOriginal: finalized.rawTextOriginal,
-        rawTextCleaned: finalized.rawTextCleaned,
-        rawSegments: toPrismaJson(finalized.rawSegments),
-        qualityMetaJson: toPrismaJson(qualityMeta),
+        status: SessionPartStatus.TRANSCRIBING,
+        qualityMetaJson: toSessionPartMetaJson(existingPart?.qualityMetaJson, {
+          pipelineStage: "TRANSCRIBING",
+          uploadMode: "direct_recording",
+          lastAcceptedAt: new Date().toISOString(),
+          lastQueuedAt: new Date().toISOString(),
+        }),
         transcriptExpiresAt: expiresAt,
       },
       create: {
         sessionId: params.id,
         partType,
         sourceType: ConversationSourceType.AUDIO,
-        status: SessionPartStatus.READY,
-        fileName: finalized.fileName,
-        mimeType: finalized.mimeType,
-        byteSize: finalized.byteSize,
-        storageUrl: finalized.storageUrl,
-        rawTextOriginal: finalized.rawTextOriginal,
-        rawTextCleaned: finalized.rawTextCleaned,
-        rawSegments: toPrismaJson(finalized.rawSegments),
-        qualityMetaJson: toPrismaJson(qualityMeta),
+        status: SessionPartStatus.TRANSCRIBING,
+        fileName: `${partType.toLowerCase()}-live.webm`,
+        mimeType: "audio/webm",
+        byteSize: null,
+        storageUrl: null,
+        rawTextOriginal: "",
+        rawTextCleaned: "",
+        rawSegments: toPrismaJson([]),
+        qualityMetaJson: toSessionPartMetaJson({}, {
+          pipelineStage: "TRANSCRIBING",
+          uploadMode: "direct_recording",
+          lastAcceptedAt: new Date().toISOString(),
+          lastQueuedAt: new Date().toISOString(),
+        }),
         transcriptExpiresAt: expiresAt,
       },
     });
 
     const session = await updateSessionStatusFromParts(params.id);
-    let conversationId: string | null = null;
-    let generationError: string | null = null;
-
-    if (session?.status === "PROCESSING") {
-      try {
-        conversationId = await ensureConversationForSession(params.id);
-        await enqueueConversationJobs(conversationId);
-        void processAllConversationJobs(conversationId).catch((error) => {
-          console.error("[POST /api/sessions/[id]/parts/live] Background generation failed:", error);
-        });
-      } catch (error: any) {
-        generationError = error?.message ?? "生成の開始に失敗しました。";
-      }
-    }
+    await enqueueSessionPartJob(part.id, SessionPartJobType.FINALIZE_LIVE_PART);
+    void processAllSessionPartJobs(params.id).catch((error) => {
+      console.error("[POST /api/sessions/[id]/parts/live] Background session part processing failed:", error);
+    });
 
     return NextResponse.json({
       part,
       session,
-      conversationId,
-      generationError,
-      generationDeferred: false,
+      generationDeferred: true,
     });
   } catch (error: any) {
     console.error("[POST /api/sessions/[id]/parts/live] Error:", error);

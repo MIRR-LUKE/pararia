@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { ConversationJobType, ConversationStatus, JobStatus } from "@prisma/client";
+import { ConversationJobType, JobStatus } from "@prisma/client";
 import { processAllConversationJobs } from "@/lib/jobs/conversationJobs";
 import { requireAuthorizedSession } from "@/lib/server/request-auth";
 
@@ -46,10 +46,6 @@ export async function POST(
       skipDuplicates: true,
     });
 
-    await prisma.conversationLog.update({
-      where: { id: params.id },
-      data: { status: ConversationStatus.PARTIAL },
-    });
     void processAllConversationJobs(params.id).catch((error) => {
       console.error("[POST /api/conversations/[id]/format] Background process failed:", error);
     });

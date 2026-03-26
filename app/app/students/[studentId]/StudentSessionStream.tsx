@@ -23,7 +23,11 @@ function assigneeText(name?: string) {
 }
 
 export function StudentSessionStream({ sessions, assigneeName, onOpenLog }: Props) {
-  const items = sessions.filter((session) => session.type === "INTERVIEW" && session.conversation?.id);
+  const items = sessions.filter(
+    (session) =>
+      session.type === "INTERVIEW" &&
+      (session.conversation?.id || ["TRANSCRIBING", "GENERATING", "DRAFT_READY"].includes(session.pipeline?.stage ?? ""))
+  );
 
   if (items.length === 0) {
     return <div className={styles.emptyState}>まだ面談ログはありません。録音が終わるとここに並びます。</div>;
@@ -36,14 +40,25 @@ export function StudentSessionStream({ sessions, assigneeName, onOpenLog }: Prop
           key={session.id}
           type="button"
           className={styles.row}
-          onClick={() => onOpenLog(session.conversation!.id)}
+          onClick={() => {
+            const logId = session.pipeline?.openLogId ?? session.conversation?.id;
+            if (logId) onOpenLog(logId);
+          }}
+          disabled={!session.pipeline?.openLogId && !session.conversation?.id}
         >
           <div className={styles.rowLeft}>
             <div className={styles.iconBubble} aria-hidden>
               <span className={styles.iconLine} />
               <span className={styles.iconLineSmall} />
             </div>
-            <div className={styles.rowText}>{buildSessionLabel(session)}</div>
+            <div className={styles.rowBody}>
+              <div className={styles.rowText}>{buildSessionLabel(session)}</div>
+              <div className={styles.rowMeta}>
+                {session.pipeline?.stage === "DRAFT_READY"
+                  ? "下書き確認可"
+                  : session.pipeline?.progress.title ?? "面談ログ"}
+              </div>
+            </div>
           </div>
           <div className={styles.assigneePill}>{assigneeText(assigneeName)}</div>
         </button>

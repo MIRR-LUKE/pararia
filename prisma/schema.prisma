@@ -137,18 +137,7 @@ model ConversationLog {
 
   // --- LLM outputs (final artifacts) ---
   summaryMarkdown      String?
-  timelineJson         Json?
-  nextActionsJson      Json?
-  profileDeltaJson     Json?
-  parentPackJson       Json?
-  studentStateJson     Json?
-  topicSuggestionsJson Json?
-  quickQuestionsJson   Json?
-  profileSectionsJson  Json?
-  observationJson      Json?
-  lessonReportJson     Json?
   formattedTranscript  String?
-  chunkAnalysisJson    Json?
   qualityMetaJson      Json?
 
   createdAt DateTime @default(now())
@@ -184,6 +173,27 @@ model ConversationJob {
   @@unique([conversationId, type])
   @@index([status, type])
   @@index([conversationId, type, status])
+}
+
+model SessionPartJob {
+  id            String             @id @default(cuid())
+  sessionPartId String
+  type          SessionPartJobType
+  status        JobStatus          @default(QUEUED)
+  attempts      Int                @default(0)
+  lastError     String?
+  outputJson    Json?
+  costMetaJson  Json?
+  startedAt     DateTime?
+  finishedAt    DateTime?
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+
+  sessionPart SessionPart @relation(fields: [sessionPartId], references: [id], onDelete: Cascade)
+
+  @@unique([sessionPartId, type])
+  @@index([status, type])
+  @@index([sessionPartId, type, status])
 }
 
 model Report {
@@ -291,7 +301,8 @@ model SessionPart {
   createdAt           DateTime               @default(now())
   updatedAt           DateTime               @updatedAt
 
-  session Session @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  session Session          @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  jobs    SessionPartJob[]
 
   @@unique([sessionId, partType])
   @@index([sessionId, status])
@@ -315,11 +326,14 @@ enum ConversationSourceType {
 }
 
 enum ConversationJobType {
-  CHUNK_ANALYZE
-  REDUCE
   FINALIZE
   FORMAT
-  REPORT
+}
+
+enum SessionPartJobType {
+  TRANSCRIBE_FILE
+  FINALIZE_LIVE_PART
+  PROMOTE_SESSION
 }
 
 enum JobStatus {

@@ -79,6 +79,14 @@ function withinCurrentMonth(value: string) {
 }
 
 function lessonSummaryLabel(session: SessionItem) {
+  if (session.pipeline?.stage === "WAITING_COUNTERPART") {
+    return session.pipeline.waitingForPart === "CHECK_IN"
+      ? "チェックアウト保存済み → チェックイン待ち"
+      : "チェックイン保存済み → チェックアウト待ち";
+  }
+  if (session.pipeline?.stage === "TRANSCRIBING") return session.pipeline.progress.title;
+  if (session.pipeline?.stage === "GENERATING") return "チェックインとチェックアウトを統合して下書きを生成中";
+  if (session.pipeline?.stage === "DRAFT_READY") return "下書き確認可（裏側で最終調整中）";
   const types = session.parts.map((part) => part.partType);
   if (types.includes("CHECK_IN") && types.includes("CHECK_OUT")) return "チェックイン + チェックアウト";
   if (types.includes("CHECK_OUT")) return "チェックアウト";
@@ -113,24 +121,43 @@ export default function StudentDetailPage({ params }: { params: { studentId: str
   const [periodFilter, setPeriodFilter] = useState<PeriodFilter>("all");
   const [sortOrder, setSortOrder] = useState<SortOrder>("desc");
 
-  const refresh = useCallback(async () => {
-    setLoading(true);
-    setError(null);
+  const refresh = useCallback(async (opts?: { silent?: boolean }) => {
+    const silent = opts?.silent ?? false;
+    if (!silent) {
+      setLoading(true);
+      setError(null);
+    }
     try {
       const res = await fetch(`/api/students/${params.studentId}/room`, { cache: "no-store" });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(body?.error ?? "生徒ルームの取得に失敗しました。");
       setRoom(body);
     } catch (nextError: any) {
-      setError(nextError?.message ?? "生徒ルームの取得に失敗しました。");
+      if (!silent) {
+        setError(nextError?.message ?? "生徒ルームの取得に失敗しました。");
+      }
     } finally {
-      setLoading(false);
+      if (!silent) {
+        setLoading(false);
+      }
     }
   }, [params.studentId]);
 
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  useEffect(() => {
+    if (!room?.sessions?.length) return;
+    const hasActivePipeline = room.sessions.some((session) =>
+      ["TRANSCRIBING", "GENERATING", "DRAFT_READY"].includes(session.pipeline?.stage ?? "")
+    );
+    if (!hasActivePipeline) return;
+    const timer = window.setTimeout(() => {
+      void refresh({ silent: true });
+    }, 2500);
+    return () => window.clearTimeout(timer);
+  }, [refresh, room?.sessions]);
 
   const syncUrl = useCallback(
     (changes: {
@@ -235,7 +262,7 @@ export default function StudentDetailPage({ params }: { params: { studentId: str
     if (!ongoingLessonSession) return;
     const state = getLessonReportPartState(ongoingLessonSession.parts ?? []);
     if (state.isComplete) return;
-    if (state.hasReadyCheckIn || state.hasReadyCheckOut) {
+    if (state.hasCheckIn || state.hasCheckOut) {
       setRecordingMode("LESSON_REPORT");
       setLessonPart(state.nextRecommendedPart);
       syncUrl({ mode: "LESSON_REPORT", part: state.nextRecommendedPart });
@@ -259,7 +286,12 @@ export default function StudentDetailPage({ params }: { params: { studentId: str
   }, [periodFilter, room?.sessions, sortOrder]);
 
   const lessonSessions = useMemo(() => {
-    const base = (room?.sessions ?? []).filter((session) => session.type === "LESSON_REPORT" && session.conversation?.id);
+    const base = (room?.sessions ?? []).filter(
+      (session) =>
+        session.type === "LESSON_REPORT" &&
+        (session.conversation?.id ||
+          ["TRANSCRIBING", "WAITING_COUNTERPART", "GENERATING", "DRAFT_READY"].includes(session.pipeline?.stage ?? ""))
+    );
     const filtered = periodFilter === "month" ? base.filter((session) => withinCurrentMonth(session.sessionDate)) : base;
     return [...filtered].sort((left, right) =>
       sortOrder === "desc"
@@ -511,8 +543,10 @@ export default function StudentDetailPage({ params }: { params: { studentId: str
                   type="button"
                   className={styles.historyRow}
                   onClick={() => {
-                    if (sessionItem.conversation?.id) openLog(sessionItem.conversation.id);
+                    const logId = sessionItem.pipeline?.openLogId ?? sessionItem.conversation?.id;
+                    if (logId) openLog(logId);
                   }}
+                  disabled={!sessionItem.pipeline?.openLogId && !sessionItem.conversation?.id}
                 >
                   <div className={styles.historyRowLeft}>
                     <div className={styles.historyIcon} aria-hidden>

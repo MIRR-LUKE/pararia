@@ -94,19 +94,16 @@ function estimateValue(steps: GenerationStep[]) {
 function getConversationErrorIndex(jobs: ConversationJobLike[]) {
   const firstError = jobs.find((job) => job.status === "ERROR");
   if (!firstError) return 0;
-  if (firstError.type === "FINALIZE" || firstError.type === "REDUCE") return 2;
-  if (firstError.type === "CHUNK_ANALYZE") return 2;
+  if (firstError.type === "FINALIZE") return 2;
   return 1;
 }
 
 function getConversationCurrentIndex(jobs: ConversationJobLike[]) {
   const byType = new Map(jobs.map((job) => [job.type, job.status]));
-  const analyze = byType.get("CHUNK_ANALYZE");
-  const reduce = byType.get("REDUCE");
   const finalize = byType.get("FINALIZE");
 
   if (finalize === "DONE") return 3;
-  if (finalize === "RUNNING" || reduce === "DONE" || reduce === "RUNNING" || analyze === "DONE" || analyze === "RUNNING") return 2;
+  if (finalize === "RUNNING" || finalize === "QUEUED") return 2;
   return 1;
 }
 

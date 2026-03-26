@@ -165,10 +165,10 @@ PARARIA は、塾・個別指導・学習コーチング向けの `Teaching OS` 
   - 面談モードなら `面談ログ`
   - 指導報告モードなら `指導報告ログ`
   - 現行の主保存物は `summaryMarkdown` と transcript 系 (`rawTextOriginal / rawTextCleaned / rawSegments / formattedTranscript`) と `qualityMetaJson`
-  - 旧 structured JSON カラムは schema 互換のため残るが、現行主導線では基本的に `null` として扱う
+  - 旧 structured artifact カラムは削除済み
 - `ConversationJob`
   - 現行主導線では通常 `FINALIZE` を enqueue し、必要時のみ `FORMAT` を追加する
-  - `CHUNK_ANALYZE / REDUCE` は補助経路・検証用として残る
+  - `FINALIZE` はログ本文 1 本を生成する唯一の標準 job
 - `Report`
   - 保護者レポート本体
   - `sourceLogIds` で使用ログを追う
@@ -190,9 +190,8 @@ PARARIA は、塾・個別指導・学習コーチング向けの `Teaching OS` 
 ### 6.1 入力経路
 
 1. `Student Room` からのセッション入力
-2. `POST /api/audio` の補助経路
-3. `POST /api/conversations` の transcript 直入力
-4. 主要な Student / Session / Conversation / Report API は NextAuth session の `organizationId` でスコープする
+2. `POST /api/conversations` の transcript 直入力
+3. 主要な Student / Session / Conversation / Report API は NextAuth session の `organizationId` でスコープする
 
 ### 6.2 面談モード
 
@@ -225,11 +224,11 @@ PARARIA は、塾・個別指導・学習コーチング向けの `Teaching OS` 
 
 1. モードを選ぶ
 2. 録音する
-3. STT と transcript 前処理を行う
-4. job を enqueue する
-5. 通常は保存直後に background worker (`processAllConversationJobs`) を起動する
-6. `FINALIZE` でログ本文を生成し、必要時のみ `FORMAT` で文字起こし表示を整形する
-7. `面談ログ` または `指導報告ログ` に保存する
+3. 保存 API は **保存受付だけ即時返す**
+4. `SessionPartJob` が STT / live finalize / promotion を非同期実行する
+5. session ready 後に `ConversationJob` を enqueue する
+6. `FINALIZE` で **ログ本文 1 本だけ** を生成して `DONE` にする
+7. 必要時のみ `FORMAT` で文字起こし表示を整形する
 8. Student Room / Logs の poll でも `?process=1` により worker を再キックできる
 9. Student Room に戻して一覧へ反映する
 
@@ -240,6 +239,7 @@ PARARIA は、塾・個別指導・学習コーチング向けの `Teaching OS` 
 - 保護者レポートは **選択したログだけ** を使う
 - 未選択ログは使わない
 - 追加候補は提案だけで、自動追加はしない
+- 入力素材は `selected summaryMarkdown only` とし、`previousReport / profileSnapshot / allLogsForSuggestions` は使わない
 
 ### 7.2 現在のレポート状態
 
@@ -295,13 +295,12 @@ UI 上では主に次で見せています。
 標準フロー:
 
 1. 録音またはアップロード
-2. 録音バリデーション
-3. transcript 前処理
-4. job enqueue
-5. `FINALIZE` ジョブで `generateConversationArtifactsSinglePass` を実行
-6. `summaryMarkdown` を `ConversationLog` に保存
-7. 必要時のみ `FORMAT` で文字起こし表示を整形する
-8. Student Room / Logs / Reports で表示
+2. 保存 API は part を `TRANSCRIBING` で受け付けて即時 return
+3. `SessionPartJob` が STT / live finalize / promotion を非同期実行
+4. session ready 後に `ConversationJob` を enqueue
+5. `FINALIZE` で `generateConversationDraftFast` を実行し、そのまま `DONE` にする
+6. 必要時のみ `FORMAT` で文字起こし表示を整形する
+7. Student Room / Logs / Reports で表示
 
 ### 8.1 モード別生成の扱い
 
@@ -309,13 +308,15 @@ UI 上では主に次で見せています。
 - `指導報告モード` では `CHECK_IN` と `CHECK_OUT` を同じ lesson session に集め、2 本がそろってから 1 本の指導報告ログを生成する
 - `面談モード` は `FULL -> CHECK_IN -> CHECK_OUT -> TEXT_NOTE` の順で transcript を組む
 - `指導報告モード` は `CHECK_IN -> FULL -> CHECK_OUT -> TEXT_NOTE` の順で transcript を組む
-- `lib/jobs/conversationJobs.ts` の現行標準導線は `FINALIZE` ジョブ中心で、面談ログ / 指導報告ログの本文を直接生成する
-- `CHUNK_ANALYZE / REDUCE / finalizeConversationArtifacts` は補助経路・検証用として残る
-- `/api/ai/analyze-conversation` と `lib/analytics/conversationAnalysis.ts` でも `sessionType` を受け取れるが、主導線は Student Room の録音導線
-- `POST /api/sessions/[id]/parts` は part 保存成功後に生成キックが失敗しても 500 にせず、クライアント側で `/api/sessions/[id]/generate` を再試行できる
+- `lib/jobs/sessionPartJobs.ts` が `TRANSCRIBE_FILE / FINALIZE_LIVE_PART / PROMOTE_SESSION` を扱う
+- `lib/jobs/conversationJobs.ts` は `FINALIZE` だけで面談ログ / 指導報告ログ本文を生成し、自動 `POLISH` は行わない
+- file upload は server-side chunking (`75s 以上で分割`, `30s chunk`, `最大 6 並列`) で STT を短縮する
+- `POST /api/sessions/[id]/parts` と `POST /api/sessions/[id]/parts/live` は STT を待たずに返し、`/api/sessions/[id]/progress` で進捗を追う
+- `POST /api/sessions/[id]/parts` と `POST /api/sessions/[id]/parts/live` は client + server の両方で `面談 60 分 / 指導報告 10 分(各 part)` を強制する
 - `POST /api/sessions` は lesson report の未完了 session を再利用するため、チェックイン後のチェックアウトが別 session に分かれにくい
 - Student Room では `面談 / 指導報告 / 保護者レポート` の全生成フローで progress bar を表示する
 - `GET /api/conversations/[id]?brief=1&process=1` は poll 用の軽量取得と worker 再キックを兼ねる
+- `GET /api/sessions/[id]/progress?process=1` は session 進捗取得と worker 再キックを兼ねる
 - `POST /api/conversations/[id]/regenerate` は再生成を開始し、既に同一ログが生成中なら `409` を返す
 - `POST /api/conversations/[id]/format` は `FORMAT` を queue し、即時 worker を起動する
 
@@ -323,20 +324,16 @@ UI 上では主に次で見せています。
 
 - `npm run lint`
 - `npm run typecheck`
-- `npm run test:conversation-modes`
 - `npm run test:generation-progress`
 - `npm run test:lesson-report-flow`
 - `npm run test:log-render-and-llm-retries`
 - `npm run test:live-transcription`
-- `npm run test:single-pass-fast-path`
 - `npm run build`
 
-`npm run test:conversation-modes` は OpenAI 実APIなしで `面談モード / 指導報告モード` の両方について、`analyze -> reduce -> finalize` と `single-pass` の生成経路を smoke test します。
 `npm run test:generation-progress` は Student Room の `面談 / 指導報告 / 保護者レポート` progress bar が期待どおりの段階を返すかを smoke test します。
 `npm run test:lesson-report-flow` は `CHECK_IN -> CHECK_OUT -> 合算生成` の lesson report 導線が想定どおりの next step を返すかを smoke test します。
 `npm run test:log-render-and-llm-retries` は ログ表示 parser が `基本情報 / 話者行 / 箇条書き` を崩さず解釈できることと、LLM 呼び出しの retry が 429 で復元できることを smoke test します。
 `npm run test:live-transcription` は live transcription 側の STT metadata 集約と回復系メタの扱いを smoke test します。
-`npm run test:single-pass-fast-path` は現行の主導線である `single-pass -> summaryMarkdown` の高速生成経路を smoke test します。
 
 代表的な成果物:
 
@@ -346,11 +343,6 @@ UI 上では主に次で見せています。
 - `rawTextCleaned`
 - `rawSegments`
 - `qualityMetaJson`
-
-補足:
-
-- 旧 structured JSON (`timelineJson` など) のカラムは schema 互換のため残る
-- ただし現行主導線では、API / Room / Logs / Reports の表示や保護者レポート生成でそれらを前提にしない
 
 ## 9. 録音ロックと保持方針
 
@@ -362,7 +354,7 @@ UI 上では主に次で見せています。
 
 ### 9.2 音声と transcript
 
-- 音声バイナリそのものは永続保存しない
+- アップロード音声と live chunk は `.data/session-audio/*` に一時保存し、STT worker が参照する
 - transcript と meta を保存する
 - raw transcript は TTL 付き
 
@@ -394,6 +386,8 @@ UI 上では主に次で見せています。
 - `GET/POST /api/sessions`
 - `GET/PATCH /api/sessions/[id]`
 - `POST /api/sessions/[id]/parts`
+- `POST /api/sessions/[id]/parts/live`
+- `GET /api/sessions/[id]/progress`
 - `POST /api/sessions/[id]/generate`
 
 ### 10.4 コミュニケーションログ
@@ -402,7 +396,6 @@ UI 上では主に次で見せています。
 - `GET/PATCH/DELETE /api/conversations/[id]`
 - `POST /api/conversations/[id]/regenerate`
 - `POST /api/conversations/[id]/format`
-- `POST /api/audio`
 
 補足:
 
@@ -424,6 +417,7 @@ UI 上では主に次で見せています。
 
 - `GET/POST /api/jobs/run`
 - `POST /api/jobs/conversation-logs/process`
+- `POST /api/jobs/session-parts/process`
 - `GET/POST /api/maintenance/cleanup`
 
 ## 11. 非目標 / 後回し
@@ -448,7 +442,9 @@ UI 上では主に次で見せています。
 - 保護者レポート: `lib/ai/parentReport.ts`
 - Operational Log: `lib/operational-log.ts`
 - セッション同期: `lib/session-service.ts`
+- Session 進捗: `lib/session-progress.ts`
 - 録音ロック: `lib/recording/lockService.ts`
 - 録音バリデーション: `lib/recording/validation.ts`
 - job runner: `lib/jobs/conversationJobs.ts`
+- session part job runner: `lib/jobs/sessionPartJobs.ts`
 - Student Room UI: `app/app/students/[studentId]/page.tsx`

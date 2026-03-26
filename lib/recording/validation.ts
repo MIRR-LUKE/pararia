@@ -8,6 +8,8 @@ import { parseBuffer } from "music-metadata";
 
 /** 両モード共通: これ未満の録音は STT に回さない（秒） */
 export const DEFAULT_MIN_RECORDING_DURATION_SEC = 60;
+export const DEFAULT_MAX_INTERVIEW_DURATION_SEC = 60 * 60;
+export const DEFAULT_MAX_LESSON_PART_DURATION_SEC = 10 * 60;
 
 /** 意味のある文字数の下限（日本語想定・空白除外後） */
 export const DEFAULT_MIN_SIGNIFICANT_CHARS = 35;
@@ -19,6 +21,13 @@ export type DurationGateResult =
       code: "recording_too_short";
       durationSeconds: number | null;
       minRequiredSeconds: number;
+      messageJa: string;
+    }
+  | {
+      ok: false;
+      code: "recording_too_long";
+      durationSeconds: number;
+      maxAllowedSeconds: number;
       messageJa: string;
     }
   | {
@@ -51,6 +60,15 @@ export function getTranscriptMinSignificantChars(): number {
   return Number.isFinite(n) && n > 0 ? n : DEFAULT_MIN_SIGNIFICANT_CHARS;
 }
 
+export function getRecordingMaxDurationSeconds(sessionType: "INTERVIEW" | "LESSON_REPORT") {
+  if (sessionType === "LESSON_REPORT") {
+    const n = Number(process.env.MAX_LESSON_PART_DURATION_SECONDS ?? DEFAULT_MAX_LESSON_PART_DURATION_SEC);
+    return Number.isFinite(n) && n > 0 ? n : DEFAULT_MAX_LESSON_PART_DURATION_SEC;
+  }
+  const n = Number(process.env.MAX_INTERVIEW_DURATION_SECONDS ?? DEFAULT_MAX_INTERVIEW_DURATION_SEC);
+  return Number.isFinite(n) && n > 0 ? n : DEFAULT_MAX_INTERVIEW_DURATION_SEC;
+}
+
 /** true のとき、長さが取れない音声は拒否（デフォルト: 取れない場合は STT へ進む） */
 export function isStrictAudioDurationRequired(): boolean {
   return process.env.RECORDING_REQUIRE_KNOWN_DURATION === "1";
@@ -75,16 +93,28 @@ export async function getAudioDurationSecondsFromBuffer(buffer: Buffer): Promise
 /**
  * ゲート A: 録音時間
  */
-export function evaluateDurationGate(durationSeconds: number | null): DurationGateResult {
-  const min = getRecordingMinDurationSeconds();
+export function evaluateDurationGate(
+  durationSeconds: number | null,
+  opts?: {
+    minSeconds?: number;
+    maxSeconds?: number;
+    rejectUnknown?: boolean;
+    tooLongMessageJa?: string;
+    unknownMessageJa?: string;
+  }
+): DurationGateResult {
+  const min = opts?.minSeconds ?? getRecordingMinDurationSeconds();
+  const max = opts?.maxSeconds;
+  const rejectUnknown = opts?.rejectUnknown ?? false;
 
   if (durationSeconds === null) {
-    if (isStrictAudioDurationRequired()) {
+    if (rejectUnknown || isStrictAudioDurationRequired()) {
       return {
         ok: false,
         code: "duration_unknown",
         durationSeconds: null,
         messageJa:
+          opts?.unknownMessageJa ||
           "音声の長さを確認できませんでした。別形式で保存し直すか、ファイルを分割してアップロードしてください。",
       };
     }
@@ -98,6 +128,18 @@ export function evaluateDurationGate(durationSeconds: number | null): DurationGa
       durationSeconds,
       minRequiredSeconds: min,
       messageJa: `録音が${min}秒未満のため、ログ生成を開始できません。${min}秒以上録音するか、十分な長さの音声ファイルをアップロードしてください。`,
+    };
+  }
+
+  if (typeof max === "number" && Number.isFinite(max) && durationSeconds > max) {
+    return {
+      ok: false,
+      code: "recording_too_long",
+      durationSeconds,
+      maxAllowedSeconds: max,
+      messageJa:
+        opts?.tooLongMessageJa ||
+        `録音が長すぎます。上限は${max}秒です。音声を分割するか、録音時間を短くしてください。`,
     };
   }
 

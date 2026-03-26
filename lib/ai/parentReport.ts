@@ -16,17 +16,7 @@ type ReportInput = {
   organizationName?: string;
   periodFrom?: string;
   periodTo?: string;
-  previousReport?: string;
-  profileSnapshot?: any;
   logs: Array<{
-    id: string;
-    sessionId?: string | null;
-    date: string;
-    mode: "INTERVIEW" | "LESSON_REPORT";
-    subType?: string | null;
-    summaryMarkdown?: string;
-  }>;
-  allLogsForSuggestions?: Array<{
     id: string;
     sessionId?: string | null;
     date: string;
@@ -256,22 +246,9 @@ export function buildReportBundle(input: ReportInput) {
     })
   );
 
-  const allLogs = (input.allLogsForSuggestions ?? input.logs).map((log) =>
-    buildReportBundleLog({
-      id: log.id,
-      sessionId: log.sessionId ?? null,
-      date: log.date,
-      mode: log.mode,
-      subType: log.subType ?? null,
-      sessionType: log.mode,
-      summaryMarkdown: log.summaryMarkdown,
-    })
-  );
-
   return {
     selected,
-    allLogs,
-    bundleQualityEval: buildBundleQualityEval(selected, allLogs),
+    bundleQualityEval: buildBundleQualityEval(selected, selected),
   };
 }
 
@@ -280,7 +257,6 @@ export async function generateParentReport(input: ReportInput): Promise<ParentRe
   const organizationName = input.organizationName ?? "PARARIA";
   const periodFrom = input.periodFrom ?? createdAt;
   const periodTo = input.periodTo ?? createdAt;
-  const previous = (input.previousReport ?? "").trim();
 
   const { bundleQualityEval } = buildReportBundle(input);
 
@@ -300,7 +276,8 @@ export async function generateParentReport(input: ReportInput): Promise<ParentRe
 - 英語の見出し、英語の定型句、英語逃げは禁止
 - 英字表記を残す場合も、日本語文の中で意味が分かるように説明する
 - 入力として渡されるのは、選択ログの cached なログ本文（summaryMarkdown）だけだと考える
-- 保護者レポート用の別要約がある前提で書かず、各ログ本文を直接読んで再構成する
+- 保護者レポート用の別要約、前回レポート、プロフィール情報がある前提で書かない
+- 各ログ本文を直接読んで再構成する
 - ログ本文の見出しや箇条書きを、そのままコピペせず保護者向け文章へ言い換える
 
 JSON schema:
@@ -337,12 +314,6 @@ JSON schema:
   const userPrompt = `生徒名: ${input.studentName}
 対象期間: ${periodFrom}〜${periodTo}
 作成日: ${createdAt}
-
-以前の保護者レポート:
-${previous || "なし"}
-
-最新プロフィール:
-${JSON.stringify(input.profileSnapshot ?? {}, null, 2)}
 
 選択中ログの束ね品質:
 ${buildBundlePreview(bundleQualityEval)}

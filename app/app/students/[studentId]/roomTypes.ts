@@ -1,10 +1,23 @@
 import type { ReportDeliveryState } from "@/lib/report-delivery";
+import type { GenerationProgressState } from "@/lib/generation-progress";
+
+export type SessionPipelineInfo = {
+  stage: string;
+  statusLabel: string;
+  canLeavePage: boolean;
+  canOpenLog: boolean;
+  openLogId: string | null;
+  waitingForPart: "CHECK_IN" | "CHECK_OUT" | null;
+  progress: GenerationProgressState;
+};
 
 export type SessionPartItem = {
   id: string;
   partType: string;
   status: string;
   fileName?: string | null;
+  previewText?: string | null;
+  qualityMetaJson?: any;
 };
 
 export type SessionItem = {
@@ -17,6 +30,7 @@ export type SessionItem = {
   heroOneLiner?: string | null;
   latestSummary?: string | null;
   parts: SessionPartItem[];
+  pipeline?: SessionPipelineInfo;
   conversation?: {
     id: string;
     status: string;

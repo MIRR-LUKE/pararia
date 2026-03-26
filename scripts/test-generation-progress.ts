@@ -17,8 +17,7 @@ const lessonProcessing = buildConversationGenerationProgress({
   mode: "LESSON_REPORT",
   stage: "processing",
   jobs: [
-    { type: "CHUNK_ANALYZE", status: "DONE" },
-    { type: "REDUCE", status: "RUNNING" },
+    { type: "FINALIZE", status: "RUNNING" },
   ],
 });
 

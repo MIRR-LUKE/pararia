@@ -1,24 +1,25 @@
 import { NextResponse } from "next/server";
-import { ConversationSourceType, SessionPartStatus, SessionPartType } from "@prisma/client";
-import { auth } from "@/auth";
+import { ConversationSourceType, SessionPartJobType, SessionPartStatus, SessionPartType } from "@prisma/client";
 import { prisma } from "@/lib/db";
-import { transcribeAudioForPipeline } from "@/lib/ai/stt";
-import { preprocessTranscript, preprocessTranscriptWithSegments } from "@/lib/transcript/preprocess";
+import { enqueueSessionPartJob, processAllSessionPartJobs } from "@/lib/jobs/sessionPartJobs";
 import {
-  ensureConversationForSession,
+  buildSummaryPreview,
+  toSessionPartMetaJson,
+} from "@/lib/session-part-meta";
+import { saveSessionPartUpload } from "@/lib/session-part-storage";
+import {
   updateSessionStatusFromParts,
 } from "@/lib/session-service";
 import {
-  enqueueConversationJobs,
-  processAllConversationJobs,
-} from "@/lib/jobs/conversationJobs";
-import {
   evaluateDurationGate,
   evaluateTranscriptSubstance,
+  getRecordingMaxDurationSeconds,
   getAudioDurationSecondsFromBuffer,
 } from "@/lib/recording/validation";
 import { releaseRecordingLock, verifyRecordingLockForAudioUpload } from "@/lib/recording/lockService";
+import { requireAuthorizedSession } from "@/lib/server/request-auth";
 import { toPrismaJson } from "@/lib/prisma-json";
+import { preprocessTranscript } from "@/lib/transcript/preprocess";
 
 function parsePartType(raw: string | null) {
   if (raw === SessionPartType.CHECK_IN) return SessionPartType.CHECK_IN;
@@ -36,10 +37,9 @@ export async function POST(
   let audioUserId: string | null = null;
 
   try {
-    const sessionAuth = await auth();
-    if (!sessionAuth?.user?.id || !sessionAuth.user.organizationId) {
-      return NextResponse.json({ error: "ログインが必要です。" }, { status: 401 });
-    }
+    const authResult = await requireAuthorizedSession();
+    if (authResult.response) return authResult.response;
+    const sessionAuth = authResult.session;
 
     const sessionRow = await prisma.session.findUnique({
       where: { id: params.id },
@@ -96,12 +96,27 @@ export async function POST(
     let rawTextCleaned = transcript;
     let rawSegments: any[] = [];
     let qualityMeta: Record<string, unknown> = {};
+    const expiresAt = new Date();
+    expiresAt.setDate(expiresAt.getDate() + 30);
 
     if (file) {
       sourceType = ConversationSourceType.AUDIO;
       const buffer = Buffer.from(await file.arrayBuffer());
       const durationSec = await getAudioDurationSecondsFromBuffer(buffer);
-      const durationGate = evaluateDurationGate(durationSec);
+      const maxDurationSeconds = getRecordingMaxDurationSeconds(sessionRow.type);
+      const maxLabel = sessionRow.type === "LESSON_REPORT" ? "10分" : "60分";
+      const durationGate = evaluateDurationGate(durationSec, {
+        maxSeconds: maxDurationSeconds,
+        rejectUnknown: true,
+        tooLongMessageJa:
+          sessionRow.type === "LESSON_REPORT"
+            ? `指導報告のチェックイン / チェックアウト音声は1回${maxLabel}までです。音声を分割して保存してください。`
+            : `面談音声は1回${maxLabel}までです。音声を分割して保存してください。`,
+        unknownMessageJa:
+          sessionRow.type === "LESSON_REPORT"
+            ? "指導報告音声の長さを確認できませんでした。10分以内のファイルを選び直してください。"
+            : "面談音声の長さを確認できませんでした。60分以内のファイルを選び直してください。",
+      });
       if (!durationGate.ok) {
         return NextResponse.json(
           {
@@ -109,54 +124,94 @@ export async function POST(
             code: durationGate.code,
             durationSeconds: durationGate.durationSeconds,
             minRequiredSeconds: "minRequiredSeconds" in durationGate ? durationGate.minRequiredSeconds : undefined,
+            maxAllowedSeconds: "maxAllowedSeconds" in durationGate ? durationGate.maxAllowedSeconds : undefined,
           },
           { status: 422 }
         );
       }
-
-      const sttStart = Date.now();
-      const stt = await transcribeAudioForPipeline({
+      const stored = await saveSessionPartUpload({
+        sessionId: params.id,
+        partType,
+        fileName: file.name,
         buffer,
-        filename: file.name,
-        mimeType: file.type,
-        language: "ja",
       });
-      const pre =
-        stt.segments.length > 0
-          ? preprocessTranscriptWithSegments(stt.rawTextOriginal, stt.segments ?? [])
-          : preprocessTranscript(stt.rawTextOriginal);
-      rawTextOriginal = pre.rawTextOriginal;
-      rawTextCleaned = pre.rawTextCleaned;
-      rawSegments = stt.segments ?? [];
       qualityMeta = {
-        sttSeconds: Math.round((Date.now() - sttStart) / 1000),
-        sttModel: stt.meta.model,
-        sttResponseFormat: stt.meta.responseFormat,
-        sttRecoveryUsed: stt.meta.recoveryUsed,
-        sttAttemptCount: stt.meta.attemptCount,
-        sttSegmentCount: stt.meta.segmentCount,
-        sttSpeakerCount: stt.meta.speakerCount,
-        sttQualityWarnings: stt.meta.qualityWarnings,
+        pipelineStage: "TRANSCRIBING",
+        uploadMode: "file_upload",
+        lastAcceptedAt: new Date().toISOString(),
+        lastQueuedAt: new Date().toISOString(),
         uploadedFileName: file.name,
         uploadedMimeType: file.type,
-        uploadedBytes: file.size,
+        uploadedBytes: stored.byteSize,
         audioDurationSeconds: durationGate.durationSeconds,
         durationGateSkipped: durationGate.skippedReason ?? null,
       };
+
+      const part = await prisma.sessionPart.upsert({
+        where: {
+          sessionId_partType: {
+            sessionId: params.id,
+            partType,
+          },
+        },
+        update: {
+          sourceType,
+          status: SessionPartStatus.TRANSCRIBING,
+          fileName: file.name,
+          mimeType: file.type || null,
+          byteSize: stored.byteSize,
+          storageUrl: stored.storageUrl,
+          rawTextOriginal: "",
+          rawTextCleaned: "",
+          rawSegments: toPrismaJson([]),
+          qualityMetaJson: toSessionPartMetaJson({}, qualityMeta as any),
+          transcriptExpiresAt: expiresAt,
+        },
+        create: {
+          sessionId: params.id,
+          partType,
+          sourceType,
+          status: SessionPartStatus.TRANSCRIBING,
+          fileName: file.name,
+          mimeType: file.type || null,
+          byteSize: stored.byteSize,
+          storageUrl: stored.storageUrl,
+          rawTextOriginal: "",
+          rawTextCleaned: "",
+          rawSegments: toPrismaJson([]),
+          qualityMetaJson: toSessionPartMetaJson({}, qualityMeta as any),
+          transcriptExpiresAt: expiresAt,
+        },
+      });
+
+      const session = await updateSessionStatusFromParts(params.id);
+      await enqueueSessionPartJob(part.id, SessionPartJobType.TRANSCRIBE_FILE);
+      void processAllSessionPartJobs(params.id).catch((error) => {
+        console.error("[POST /api/sessions/[id]/parts] Background session part processing failed:", error);
+      });
+
+      return NextResponse.json({
+        ok: true,
+        accepted: true,
+        generationDeferred: true,
+        part,
+        session,
+      });
     } else {
       const pre = preprocessTranscript(transcript);
       rawTextOriginal = pre.rawTextOriginal;
       rawTextCleaned = pre.rawTextCleaned;
       qualityMeta = {
         inputMode: "manual",
+        pipelineStage: "READY",
+        uploadMode: "manual",
+        lastAcceptedAt: new Date().toISOString(),
+        summaryPreview: buildSummaryPreview(pre.rawTextCleaned || pre.rawTextOriginal),
       };
     }
 
     const substance = evaluateTranscriptSubstance(rawTextCleaned || rawTextOriginal);
     if (!substance.ok) {
-      const expiresAtThin = new Date();
-      expiresAtThin.setDate(expiresAtThin.getDate() + 30);
-
       const rejectedPart = await prisma.sessionPart.upsert({
         where: {
           sessionId_partType: {
@@ -167,44 +222,44 @@ export async function POST(
         update: {
           sourceType,
           status: SessionPartStatus.ERROR,
-          fileName: file?.name ?? null,
-          mimeType: file?.type ?? null,
-          byteSize: file?.size ?? null,
+          fileName: null,
+          mimeType: null,
+          byteSize: null,
           rawTextOriginal,
           rawTextCleaned,
           rawSegments: toPrismaJson(rawSegments),
-          qualityMetaJson: toPrismaJson({
-            ...qualityMeta,
+          qualityMetaJson: toSessionPartMetaJson(qualityMeta, {
             validationRejection: {
               code: substance.code,
               messageJa: substance.messageJa,
               metrics: substance.metrics,
               at: new Date().toISOString(),
             },
+            pipelineStage: "REJECTED",
           }),
-          transcriptExpiresAt: expiresAtThin,
+          transcriptExpiresAt: expiresAt,
         },
         create: {
           sessionId: params.id,
           partType,
           sourceType,
           status: SessionPartStatus.ERROR,
-          fileName: file?.name ?? null,
-          mimeType: file?.type ?? null,
-          byteSize: file?.size ?? null,
+          fileName: null,
+          mimeType: null,
+          byteSize: null,
           rawTextOriginal,
           rawTextCleaned,
           rawSegments: toPrismaJson(rawSegments),
-          qualityMetaJson: toPrismaJson({
-            ...qualityMeta,
+          qualityMetaJson: toSessionPartMetaJson(qualityMeta, {
             validationRejection: {
               code: substance.code,
               messageJa: substance.messageJa,
               metrics: substance.metrics,
               at: new Date().toISOString(),
             },
+            pipelineStage: "REJECTED",
           }),
-          transcriptExpiresAt: expiresAtThin,
+          transcriptExpiresAt: expiresAt,
         },
       });
 
@@ -221,9 +276,6 @@ export async function POST(
       );
     }
 
-    const expiresAt = new Date();
-    expiresAt.setDate(expiresAt.getDate() + 30);
-
     const part = await prisma.sessionPart.upsert({
       where: {
         sessionId_partType: {
@@ -234,13 +286,16 @@ export async function POST(
       update: {
         sourceType,
         status: SessionPartStatus.READY,
-        fileName: file?.name ?? null,
-        mimeType: file?.type ?? null,
-        byteSize: file?.size ?? null,
+        fileName: null,
+        mimeType: null,
+        byteSize: null,
         rawTextOriginal,
         rawTextCleaned,
         rawSegments: toPrismaJson(rawSegments),
-        qualityMetaJson: toPrismaJson(qualityMeta),
+        qualityMetaJson: toSessionPartMetaJson(qualityMeta, {
+          pipelineStage: "READY",
+          summaryPreview: buildSummaryPreview(rawTextCleaned || rawTextOriginal),
+        }),
         transcriptExpiresAt: expiresAt,
       },
       create: {
@@ -248,45 +303,30 @@ export async function POST(
         partType,
         sourceType,
         status: SessionPartStatus.READY,
-        fileName: file?.name ?? null,
-        mimeType: file?.type ?? null,
-        byteSize: file?.size ?? null,
+        fileName: null,
+        mimeType: null,
+        byteSize: null,
         rawTextOriginal,
         rawTextCleaned,
         rawSegments: toPrismaJson(rawSegments),
-        qualityMetaJson: toPrismaJson(qualityMeta),
+        qualityMetaJson: toSessionPartMetaJson(qualityMeta, {
+          pipelineStage: "READY",
+          summaryPreview: buildSummaryPreview(rawTextCleaned || rawTextOriginal),
+        }),
         transcriptExpiresAt: expiresAt,
       },
     });
 
     const session = await updateSessionStatusFromParts(params.id);
-
-    let conversationId: string | null = null;
-    let generationError: string | null = null;
-    if (session && session.status === "PROCESSING") {
-      try {
-        conversationId = await ensureConversationForSession(params.id);
-        await enqueueConversationJobs(conversationId);
-        void processAllConversationJobs(conversationId).catch((error) => {
-          console.error("[POST /api/sessions/[id]/parts] Background processing failed:", error);
-        });
-      } catch (generationStartError: any) {
-        generationError = generationStartError?.message ?? "generation kickoff failed";
-        console.error("[POST /api/sessions/[id]/parts] Generation kickoff failed after part save:", {
-          sessionId: params.id,
-          conversationId,
-          error: generationError,
-          stack: generationStartError?.stack,
-        });
-      }
-    }
+    await enqueueSessionPartJob(part.id, SessionPartJobType.PROMOTE_SESSION);
+    void processAllSessionPartJobs(params.id).catch((error) => {
+      console.error("[POST /api/sessions/[id]/parts] Background session part promotion failed:", error);
+    });
 
     return NextResponse.json({
       part,
       session,
-      conversationId,
-      generationError,
-      generationDeferred: false,
+      generationDeferred: true,
     });
   } catch (error: any) {
     console.error("[POST /api/sessions/[id]/parts] Error:", error);

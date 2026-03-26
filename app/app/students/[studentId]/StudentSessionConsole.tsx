@@ -3,16 +3,23 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { GenerationProgress } from "@/components/ui/GenerationProgress";
-import { buildConversationGenerationProgress } from "@/lib/generation-progress";
 import { buildLessonReportFlowMessage, getLessonReportPartState } from "@/lib/lesson-report-flow";
 import { RECORDING_LOCK_HEARTBEAT_MS } from "@/lib/recording/lockConstants";
-import type { RecordingLockInfo, SessionItem } from "./roomTypes";
+import type { RecordingLockInfo, SessionItem, SessionPipelineInfo } from "./roomTypes";
 import styles from "./studentSessionConsole.module.css";
 
 export type SessionConsoleMode = "INTERVIEW" | "LESSON_REPORT";
 export type SessionConsoleLessonPart = "CHECK_IN" | "CHECK_OUT";
 
 type ConsoleState = "idle" | "recording" | "uploading" | "processing" | "success" | "error";
+
+type SessionProgressResponse = {
+  conversation?: {
+    id: string;
+    status: string;
+  } | null;
+  progress: SessionPipelineInfo;
+};
 
 type Props = {
   studentId: string;
@@ -68,6 +75,28 @@ function formatBytes(bytes: number) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+function readAudioDurationSeconds(file: File) {
+  return new Promise<number | null>((resolve) => {
+    const url = URL.createObjectURL(file);
+    const audio = document.createElement("audio");
+    const cleanup = () => {
+      URL.revokeObjectURL(url);
+      audio.src = "";
+    };
+    audio.preload = "metadata";
+    audio.onloadedmetadata = () => {
+      const duration = Number.isFinite(audio.duration) ? audio.duration : null;
+      cleanup();
+      resolve(duration);
+    };
+    audio.onerror = () => {
+      cleanup();
+      resolve(null);
+    };
+    audio.src = url;
+  });
+}
+
 function modeLabel(mode: SessionConsoleMode, part: SessionConsoleLessonPart) {
   if (mode === "INTERVIEW") return "面談";
   return part === "CHECK_OUT" ? "チェックアウト" : "チェックイン";
@@ -113,9 +142,8 @@ export function StudentSessionConsole({
   const [levels, setLevels] = useState([12, 18, 14, 24, 16, 20, 15]);
   const [estimatedSize, setEstimatedSize] = useState("0 B");
   const [createdConversationId, setCreatedConversationId] = useState<string | null>(null);
-  const [processingJobs, setProcessingJobs] = useState<Array<{ type?: string; status?: string; lastError?: string | null }>>([]);
+  const [sessionProgress, setSessionProgress] = useState<SessionPipelineInfo | null>(ongoingLessonSession?.pipeline ?? null);
   const [recoverableSessionId, setRecoverableSessionId] = useState<string | null>(null);
-  const [recoverableConversationId, setRecoverableConversationId] = useState<string | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -136,6 +164,17 @@ export function StudentSessionConsole({
 
   const lessonFlowState = getLessonReportPartState(ongoingLessonSession?.parts ?? []);
   const lessonFlowMessage = buildLessonReportFlowMessage(ongoingLessonSession);
+
+  useEffect(() => {
+    if (mode === "LESSON_REPORT") {
+      setSessionProgress(ongoingLessonSession?.pipeline ?? null);
+      if (ongoingLessonSession?.conversation?.id) {
+        setCreatedConversationId(ongoingLessonSession.conversation.id);
+      }
+      return;
+    }
+    setSessionProgress(null);
+  }, [mode, ongoingLessonSession?.conversation?.id, ongoingLessonSession?.pipeline]);
 
   const lockConflict =
     recordingLock?.active &&
@@ -271,130 +310,93 @@ export function StudentSessionConsole({
     return createSession();
   }, [createSession, mode, ongoingLessonSession?.id]);
 
-  const ensureGenerationStarted = useCallback(async (sessionId: string) => {
-    let lastError: Error | null = null;
-
-    for (let attempt = 0; attempt < 2; attempt += 1) {
-      setState("processing");
-      setMessage(attempt === 0 ? "生成を開始しています。" : "生成開始を再試行しています。");
-      const res = await fetch(`/api/sessions/${sessionId}/generate`, {
-        method: "POST",
-      });
-      const body = await res.json().catch(() => ({}));
-      if (res.ok && body?.conversationId) {
-        return body.conversationId as string;
-      }
-
-      lastError = new Error(body?.error ?? "生成の開始に失敗しました。");
-      await sleep(1200 * (attempt + 1));
-    }
-
-    throw lastError ?? new Error("生成の開始に失敗しました。");
-  }, []);
-
-  const pollConversation = useCallback(
-    async (conversationId: string, sessionId?: string | null) => {
+  const pollSessionProgress = useCallback(
+    async (sessionId: string) => {
       const startedAt = Date.now();
       let lastWorkerKickAt = 0;
-      let retried = false;
       setState("processing");
-      setMessage(mode === "LESSON_REPORT" ? "文字起こしと指導報告ログ生成を進めています。" : "文字起こしと面談ログ生成を進めています。");
-      setRecoverableConversationId(conversationId);
-      setRecoverableSessionId(sessionId ?? null);
+      setRecoverableSessionId(sessionId);
 
       while (Date.now() - startedAt < 300000) {
         const now = Date.now();
-        const shouldKickWorker = now - lastWorkerKickAt >= 4000;
+        const shouldKickWorker = now - lastWorkerKickAt >= 2500;
         if (shouldKickWorker) {
           lastWorkerKickAt = now;
         }
-        const res = await fetch(`/api/conversations/${conversationId}?brief=1${shouldKickWorker ? "&process=1" : ""}`, {
+        const res = await fetch(`/api/sessions/${sessionId}/progress${shouldKickWorker ? "?process=1" : ""}`, {
           cache: "no-store",
         });
-        const body = await res.json().catch(() => ({}));
-        if (!res.ok) {
-          await sleep(700);
+        const body = (await res.json().catch(() => ({}))) as SessionProgressResponse & { error?: string };
+        if (!res.ok || !body?.progress) {
+          await sleep(800);
           continue;
         }
-        setProcessingJobs(body?.conversation?.jobs ?? []);
-        if (body?.conversation?.status === "ERROR") {
-          if (!retried) {
-            retried = true;
-            setMessage("生成が一時的に止まったため、自動で再試行しています。");
-            const retryRes = await fetch(`/api/conversations/${conversationId}/regenerate`, {
-              method: "POST",
-            });
-            const retryBody = await retryRes.json().catch(() => ({}));
-            if (retryRes.ok) {
-              lastWorkerKickAt = 0;
-              setProcessingJobs([]);
-              await sleep(1200);
-              continue;
-            }
-            throw new Error(retryBody?.error ?? "生成の再試行に失敗しました。");
-          }
-          throw new Error(
-            body?.conversation?.jobs?.find?.((job: any) => job?.status === "ERROR")?.lastError ??
-              "生成に失敗しました。"
-          );
+
+        setSessionProgress(body.progress);
+        const openLogId = body.progress.openLogId ?? body.conversation?.id ?? null;
+        if (openLogId) {
+          setCreatedConversationId(openLogId);
         }
-        if (body?.conversation?.status === "DONE") {
-          setCreatedConversationId(conversationId);
-          setProcessingJobs(body?.conversation?.jobs ?? []);
-          setRecoverableConversationId(null);
+
+        if (body.progress.stage === "WAITING_COUNTERPART") {
           setRecoverableSessionId(null);
           setState("success");
-          setMessage(mode === "LESSON_REPORT" ? "生成が完了しました。指導報告ログを確認できます。" : "生成が完了しました。面談ログを確認できます。");
+          setError(null);
+          setMessage(body.progress.progress.description);
+          if (mode === "LESSON_REPORT") {
+            onLessonPartChange(body.progress.waitingForPart === "CHECK_IN" ? "CHECK_IN" : "CHECK_OUT");
+          }
           await onRefresh();
-          return;
+          return openLogId;
         }
-        await sleep(700);
+
+        if (body.progress.stage === "DRAFT_READY" || body.progress.stage === "READY") {
+          setRecoverableSessionId(null);
+          setState("success");
+          setError(null);
+          setMessage(body.progress.progress.description);
+          await onRefresh();
+          return openLogId;
+        }
+
+        if (body.progress.stage === "REJECTED" || body.progress.stage === "ERROR") {
+          setState("error");
+          setError(body.progress.progress.description);
+          await onRefresh();
+          return null;
+        }
+
+        await sleep(900);
       }
 
-      setCreatedConversationId(conversationId);
-      setRecoverableConversationId(null);
-      setRecoverableSessionId(null);
       setState("success");
-      setMessage("生成に時間がかかっています。ログ画面から続きの反映を確認できます。");
+      setMessage("処理を続けています。閉じても大丈夫です。ログや一覧から続きの反映を確認できます。");
       await onRefresh();
+      return null;
     },
-    [mode, onRefresh]
+    [mode, onLessonPartChange, onRefresh]
   );
 
   const handleSavedPartResponse = useCallback(
     async (body: any, sessionId: string) => {
-      const startedConversationId =
-        body?.conversationId ??
-        (body?.generationDeferred
-          ? null
-          : body?.session?.status === "PROCESSING"
-            ? await ensureGenerationStarted(sessionId)
-            : null);
-
-      if (startedConversationId) {
-        await pollConversation(startedConversationId, sessionId);
-        return startedConversationId as string;
-      }
-
-      setState("success");
+      setSessionProgress(null);
+      setRecoverableSessionId(sessionId);
+      setError(null);
+      setState("processing");
+      setMessage(
+        mode === "INTERVIEW"
+          ? "保存受付が完了しました。文字起こしと面談ログ生成を進めています。"
+          : lessonPart === "CHECK_IN"
+            ? "チェックインの保存受付が完了しました。まずは文字起こしを進めています。"
+            : "チェックアウトの保存受付が完了しました。文字起こし後に指導報告ログへ進みます。"
+      );
       if (mode === "LESSON_REPORT" && lessonPart === "CHECK_IN") {
         onLessonPartChange("CHECK_OUT");
       }
-      setMessage(
-        mode === "INTERVIEW"
-          ? "保存しました。面談ログはまもなく確認できます。"
-          : lessonPart === "CHECK_IN"
-            ? "チェックインを保存しました。次はチェックアウトを録音してください。"
-            : body?.session?.status === "COLLECTING"
-              ? "チェックアウトを保存しました。チェックインを追加すると指導報告が自動生成されます。"
-              : body?.generationDeferred
-                ? "チェックアウトを保存しました。チェックインとチェックアウトを合算して文字起こし・指導報告を生成中です。"
-                : "チェックアウトを保存しました。指導報告を生成中です。"
-      );
       await onRefresh();
-      return null;
+      return pollSessionProgress(sessionId);
     },
-    [ensureGenerationStarted, lessonPart, mode, onLessonPartChange, onRefresh, pollConversation]
+    [lessonPart, mode, onLessonPartChange, onRefresh, pollSessionProgress]
   );
 
   const queueLiveChunkUpload = useCallback(
@@ -487,44 +489,26 @@ export function StudentSessionConsole({
     setIsPaused(false);
     setEstimatedSize("0 B");
     setCreatedConversationId(null);
-    setProcessingJobs([]);
+    setSessionProgress(mode === "LESSON_REPORT" ? ongoingLessonSession?.pipeline ?? null : null);
     setRecoverableSessionId(null);
-    setRecoverableConversationId(null);
     autoStartedRef.current = false;
     resetLiveCapture();
-  }, [resetLiveCapture]);
+  }, [mode, ongoingLessonSession?.pipeline, resetLiveCapture]);
 
   const retryGeneration = useCallback(async () => {
     const sessionId = recoverableSessionId;
-    const conversationId = recoverableConversationId;
-    if (!sessionId && !conversationId) return;
+    if (!sessionId) return;
 
     setError(null);
     setState("processing");
-    setProcessingJobs([]);
 
     try {
-      const resumedConversationId = conversationId
-        ? (() => {
-            return fetch(`/api/conversations/${conversationId}/regenerate`, {
-              method: "POST",
-            })
-              .then(async (res) => {
-                const body = await res.json().catch(() => ({}));
-                if (!res.ok) {
-                  throw new Error(body?.error ?? "生成の再開に失敗しました。");
-                }
-                return (body?.conversationId as string) ?? conversationId;
-              });
-          })()
-        : ensureGenerationStarted(sessionId!);
-
-      await pollConversation(await resumedConversationId, sessionId);
+      await pollSessionProgress(sessionId);
     } catch (nextError: any) {
       setState("error");
       setError(nextError?.message ?? "生成の再開に失敗しました。");
     }
-  }, [ensureGenerationStarted, pollConversation, recoverableConversationId, recoverableSessionId]);
+  }, [pollSessionProgress, recoverableSessionId]);
 
   const finalizeLock = useCallback(async () => {
     stopHeartbeat();
@@ -538,7 +522,6 @@ export function StudentSessionConsole({
   const uploadAudioFile = useCallback(
     async (file: File) => {
       let savedSessionId: string | null = null;
-      let savedConversationId: string | null = null;
       let partSaved = false;
 
       setError(null);
@@ -548,9 +531,8 @@ export function StudentSessionConsole({
           : "音声を保存しています。"
       );
       setState("uploading");
-      setProcessingJobs([]);
+      setSessionProgress(null);
       setRecoverableSessionId(null);
-      setRecoverableConversationId(null);
 
       try {
         const token = await ensureLockForAudio();
@@ -570,14 +552,12 @@ export function StudentSessionConsole({
           throw new Error(body?.error ?? "音声の保存に失敗しました。");
         }
         partSaved = true;
-        savedConversationId = body?.conversationId ?? null;
-        savedConversationId = await handleSavedPartResponse(body, sessionId);
+        await handleSavedPartResponse(body, sessionId);
       } catch (nextError: any) {
         setState("error");
         if (partSaved) {
           setRecoverableSessionId(savedSessionId);
-          setRecoverableConversationId(savedConversationId);
-          setError(nextError?.message ?? "音声は保存済みですが、生成の開始に失敗しました。");
+          setError(nextError?.message ?? "音声は保存済みですが、処理の開始に失敗しました。");
         } else {
           setError(nextError?.message ?? "録音の保存に失敗しました。");
         }
@@ -599,6 +579,7 @@ export function StudentSessionConsole({
     setError(null);
     setMessage("");
     setCreatedConversationId(null);
+    setSessionProgress(null);
     setSeconds(0);
     setEstimatedSize("0 B");
     setIsPaused(false);
@@ -784,10 +765,20 @@ export function StudentSessionConsole({
         setError(`${recordingLock?.lock?.lockedByName ?? "他のユーザー"} が録音中です。終了後に開始してください。`);
         return;
       }
+      const durationSeconds = await readAudioDurationSeconds(file);
+      if (durationSeconds !== null && durationSeconds > MAX_SECONDS[mode]) {
+        setState("error");
+        setError(
+          mode === "LESSON_REPORT"
+            ? "指導報告のチェックイン / チェックアウト音声は1回10分までです。10分以内に分割してください。"
+            : "面談音声は1回60分までです。60分以内に分割してください。"
+        );
+        return;
+      }
       setCreatedConversationId(null);
       await uploadAudioFile(file);
     },
-    [lockConflict, recordingLock?.lock?.lockedByName, uploadAudioFile]
+    [lockConflict, mode, recordingLock?.lock?.lockedByName, uploadAudioFile]
   );
 
   const canRecord = !lockConflict && state !== "uploading" && state !== "processing";
@@ -795,12 +786,25 @@ export function StudentSessionConsole({
   const canStartFromCircle = canRecord && state !== "recording";
   const generationProgress =
     state === "uploading" || state === "processing"
-      ? buildConversationGenerationProgress({
-          mode,
-          stage: state === "uploading" ? "uploading" : "processing",
-          jobs: processingJobs,
-          lastError: error,
-        })
+      ? sessionProgress?.progress ?? {
+          title: "保存受付が完了しました",
+          description: "処理を開始しています。このまま閉じても大丈夫です。",
+          value: 18,
+          steps:
+            mode === "LESSON_REPORT"
+              ? [
+                  { id: "0-checkin", label: "チェックイン", status: "active" as const },
+                  { id: "1-checkout", label: "チェックアウト", status: "pending" as const },
+                  { id: "2-draft", label: "下書き", status: "pending" as const },
+                  { id: "3-done", label: "完了", status: "pending" as const },
+                ]
+              : [
+                  { id: "0-save", label: "保存受付", status: "complete" as const },
+                  { id: "1-stt", label: "文字起こし", status: "active" as const },
+                  { id: "2-draft", label: "下書き", status: "pending" as const },
+                  { id: "3-done", label: "完了", status: "pending" as const },
+                ],
+        }
       : null;
 
   const idleHeadline =
@@ -845,37 +849,37 @@ export function StudentSessionConsole({
               <button
                 type="button"
                 className={`${styles.lessonStep} ${
-                  lessonFlowState.hasReadyCheckIn
+                  lessonFlowState.hasCheckIn
                     ? styles.lessonStepDone
                     : lessonPart === "CHECK_IN"
                       ? styles.lessonStepCurrent
                       : styles.lessonStepPending
                 }`}
                 onClick={() => onLessonPartChange("CHECK_IN")}
-                disabled={state === "recording" || lessonFlowState.hasReadyCheckIn}
+                disabled={state === "recording" || lessonFlowState.hasCheckIn}
               >
                 <span className={styles.lessonStepNum}>
-                  {lessonFlowState.hasReadyCheckIn ? "✓" : "1"}
+                  {lessonFlowState.hasReadyCheckIn ? "✓" : lessonFlowState.hasCheckIn ? "…" : "1"}
                 </span>
                 <span>チェックイン</span>
               </button>
-              <div className={`${styles.lessonStepConnector} ${lessonFlowState.hasReadyCheckIn ? styles.lessonStepConnectorDone : ""}`} />
+              <div className={`${styles.lessonStepConnector} ${lessonFlowState.hasCheckIn ? styles.lessonStepConnectorDone : ""}`} />
               <button
                 type="button"
                 className={`${styles.lessonStep} ${
-                  lessonFlowState.hasReadyCheckOut
+                  lessonFlowState.hasCheckOut
                     ? styles.lessonStepDone
                     : lessonPart === "CHECK_OUT"
                       ? styles.lessonStepCurrent
-                      : !lessonFlowState.hasReadyCheckIn
+                      : !lessonFlowState.hasCheckIn
                         ? styles.lessonStepLocked
                         : styles.lessonStepPending
                 }`}
                 onClick={() => onLessonPartChange("CHECK_OUT")}
-                disabled={state === "recording" || !lessonFlowState.hasReadyCheckIn}
+                disabled={state === "recording" || !lessonFlowState.hasCheckIn}
               >
                 <span className={styles.lessonStepNum}>
-                  {lessonFlowState.hasReadyCheckOut ? "✓" : !lessonFlowState.hasReadyCheckIn ? "🔒" : "2"}
+                  {lessonFlowState.hasReadyCheckOut ? "✓" : lessonFlowState.hasCheckOut ? "…" : !lessonFlowState.hasCheckIn ? "🔒" : "2"}
                 </span>
                 <span>チェックアウト</span>
               </button>
@@ -923,8 +927,10 @@ export function StudentSessionConsole({
             </div>
             {ongoingLessonSession?.id && mode === "LESSON_REPORT" ? (
               <div className={styles.lessonMeta}>
-                {lessonFlowState.hasReadyCheckIn && !lessonFlowState.hasReadyCheckOut
-                  ? "チェックイン保存済み → チェックアウト待ち"
+                {lessonFlowState.hasCheckIn && !lessonFlowState.hasCheckOut
+                  ? lessonFlowState.hasReadyCheckIn
+                    ? "チェックイン保存済み → チェックアウト待ち"
+                    : "チェックイン受付済み → 裏で文字起こし中"
                   : "同じ授業セッションに追記されます"}
               </div>
             ) : null}
@@ -990,7 +996,7 @@ export function StudentSessionConsole({
             <div className={styles.errorBox}>
               <strong>処理に失敗しました</strong>
               <p>{error}</p>
-              {recoverableSessionId || recoverableConversationId ? (
+              {recoverableSessionId ? (
                 <div className={styles.inlineActions}>
                   <Button onClick={() => void retryGeneration()}>生成を再開する</Button>
                 </div>
