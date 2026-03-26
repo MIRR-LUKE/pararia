@@ -1,49 +1,13 @@
 const SUPPORTED_AUDIO_UPLOAD_EXTENSIONS = [
   "mp3",
   "m4a",
-  "mp4",
-  "wav",
-  "webm",
-  "weba",
-  "ogg",
-  "oga",
-  "opus",
-  "aac",
-  "flac",
-  "aif",
-  "aiff",
-  "caf",
-  "wma",
-  "mpga",
 ] as const;
 
 const SUPPORTED_AUDIO_UPLOAD_MIME_PATTERNS = [
   /^audio\/mpeg$/i,
   /^audio\/mp3$/i,
-  /^audio\/mpga$/i,
-  /^audio\/mpeg3$/i,
   /^audio\/mp4$/i,
   /^audio\/x-m4a$/i,
-  /^video\/mp4$/i,
-  /^application\/mp4$/i,
-  /^audio\/wav$/i,
-  /^audio\/x-wav$/i,
-  /^audio\/wave$/i,
-  /^audio\/vnd\.wave$/i,
-  /^audio\/webm$/i,
-  /^audio\/ogg$/i,
-  /^application\/ogg$/i,
-  /^audio\/opus$/i,
-  /^audio\/aac$/i,
-  /^audio\/x-aac$/i,
-  /^audio\/flac$/i,
-  /^audio\/x-flac$/i,
-  /^audio\/aiff$/i,
-  /^audio\/x-aiff$/i,
-  /^audio\/caf$/i,
-  /^audio\/x-caf$/i,
-  /^audio\/wma$/i,
-  /^audio\/x-ms-wma$/i,
 ] as const;
 
 export type SupportedAudioUploadExtension = (typeof SUPPORTED_AUDIO_UPLOAD_EXTENSIONS)[number];
@@ -69,11 +33,11 @@ export function getAudioUploadExtension(fileName?: string | null): SupportedAudi
 }
 
 export function isSupportedAudioUpload(input: { fileName?: string | null; mimeType?: string | null }) {
-  if (getAudioUploadExtension(input.fileName)) {
-    return true;
-  }
+  const ext = getAudioUploadExtension(input.fileName);
+  if (!ext) return false;
+
   const mimeType = String(input.mimeType || "").trim().toLowerCase();
-  if (!mimeType) return false;
+  if (!mimeType) return true;
   return SUPPORTED_AUDIO_UPLOAD_MIME_PATTERNS.some((pattern) => pattern.test(mimeType));
 }
 
@@ -84,32 +48,9 @@ export function buildUnsupportedAudioUploadErrorMessage() {
 export function guessAudioMimeTypeFromFileName(fileName: string, fallback = "audio/webm") {
   switch (getAudioUploadExtension(fileName)) {
     case "mp3":
-    case "mpga":
       return "audio/mpeg";
     case "m4a":
-    case "mp4":
       return "audio/mp4";
-    case "wav":
-      return "audio/wav";
-    case "webm":
-    case "weba":
-      return "audio/webm";
-    case "ogg":
-    case "oga":
-      return "audio/ogg";
-    case "opus":
-      return "audio/opus";
-    case "aac":
-      return "audio/aac";
-    case "flac":
-      return "audio/flac";
-    case "aif":
-    case "aiff":
-      return "audio/aiff";
-    case "caf":
-      return "audio/x-caf";
-    case "wma":
-      return "audio/x-ms-wma";
     default:
       return fallback;
   }

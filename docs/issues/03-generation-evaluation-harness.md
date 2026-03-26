@@ -4,6 +4,8 @@
 
 - 実装済み
 - GitHub Issue: `#16`
+- 最終更新: `2026-03-26`
+- 最新補足: `session progress` / `STT fallback` / `audio upload support` の回帰チェックも追加済み
 
 ## 何をするか
 
@@ -46,7 +48,10 @@ Pararia では見るべき点が多い。
 
 ## 確認
 
+- `npm run test:audio-upload-support`
 - `npm run test:conversation-eval -- --out .tmp/conversation-eval-report.md`
+- `npm run test:session-progress`
+- `npm run test:stt-fallback`
 - 現在の固定 2 ケースは `2/2 PASS`
 
 ## ラベル

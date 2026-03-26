@@ -158,23 +158,79 @@ function extractRejectedMessage(parts: SessionProgressPartLike[]) {
   return null;
 }
 
-function extractProcessingErrorMessage(parts: SessionProgressPartLike[]) {
+type SessionProcessingErrorState = {
+  title: string;
+  description: string;
+  stepIndex: number;
+};
+
+function partHasTranscript(part: SessionProgressPartLike, meta: ReturnType<typeof readSessionPartMeta>) {
+  return Boolean(part.rawTextCleaned?.trim() || part.rawTextOriginal?.trim() || meta.summaryPreview || meta.lastCompletedAt);
+}
+
+function extractProcessingErrorState(parts: SessionProgressPartLike[]): SessionProcessingErrorState | null {
   for (const part of parts) {
     const meta = readSessionPartMeta(part.qualityMetaJson);
     const rejectionMessage = meta.validationRejection?.messageJa?.trim();
-    if (rejectionMessage) return rejectionMessage;
+    if (rejectionMessage) {
+      return {
+        title: "文字起こしで問題が発生しました",
+        description: rejectionMessage,
+        stepIndex: 1,
+      };
+    }
     const lastError = typeof meta.lastError === "string" ? meta.lastError.trim() : "";
     if (!lastError) continue;
     if (/insufficient_quota/i.test(lastError)) {
-      return "音声処理のAPIクォータ上限に達したため停止しました。課金枠を確認して再試行してください。";
+      return {
+        title: "文字起こしで問題が発生しました",
+        description: "音声処理のAPIクォータ上限に達したため停止しました。課金枠を確認して再試行してください。",
+        stepIndex: 1,
+      };
     }
     if (/Audio file might be corrupted or unsupported|invalid_value/i.test(lastError)) {
-      return "音声ファイル形式を処理できず停止しました。MP3 / M4A を再書き出しするか、そのまま再試行してください。";
+      return {
+        title: "文字起こしで問題が発生しました",
+        description: "音声ファイル形式を処理できず停止しました。MP3 / M4A を再書き出しするか、そのまま再試行してください。",
+        stepIndex: 1,
+      };
+    }
+    if (/empty transcript/i.test(lastError)) {
+      return {
+        title: "文字起こしの再取得が必要です",
+        description: "音声は受け取れましたが、文字起こし結果を取得できませんでした。再開すると別方式も含めて再処理します。",
+        stepIndex: 1,
+      };
     }
     if (/recording_lock/i.test(lastError)) {
-      return "録音ロックを確認できず停止しました。画面を更新してからやり直してください。";
+      return {
+        title: "保存処理で問題が発生しました",
+        description: "録音ロックを確認できず停止しました。画面を更新してからやり直してください。",
+        stepIndex: 0,
+      };
     }
-    return "音声処理で問題が発生しました。少し待ってから再試行してください。";
+
+    const isPostTranscriptionFailure = meta.errorSource === "PROMOTION" || partHasTranscript(part, meta);
+    if (isPostTranscriptionFailure) {
+      if (/(Invalid prisma\.|Unknown arg|column .* does not exist|migration|schema)/i.test(lastError)) {
+        return {
+          title: "ログ生成の準備で問題が発生しました",
+          description: "文字起こしは完了しています。システム更新の反映後に生成を再開してください。",
+          stepIndex: 2,
+        };
+      }
+      return {
+        title: "ログ生成の準備で問題が発生しました",
+        description: "文字起こしは完了しています。生成を再開すると復旧できる場合があります。",
+        stepIndex: 2,
+      };
+    }
+
+    return {
+      title: "文字起こしで問題が発生しました",
+      description: "音声処理で問題が発生しました。少し待ってから再試行してください。",
+      stepIndex: 1,
+    };
   }
   return null;
 }
@@ -271,7 +327,11 @@ export function buildSessionProgressState(input: SessionProgressInput): SessionP
   }
 
   if (input.parts.some((part) => part.status === "ERROR")) {
-    const errorMessage = extractProcessingErrorMessage(input.parts) ?? "しばらく待ってから再試行してください。";
+    const errorState = extractProcessingErrorState(input.parts) ?? {
+      title: "文字起こしで問題が発生しました",
+      description: "しばらく待ってから再試行してください。",
+      stepIndex: 1,
+    };
     return {
       stage: "ERROR",
       statusLabel: "処理エラー",
@@ -279,7 +339,14 @@ export function buildSessionProgressState(input: SessionProgressInput): SessionP
       canOpenLog: Boolean(conversation?.id),
       openLogId: conversation?.id ?? null,
       waitingForPart: null,
-      progress: buildProgressPayload(labels, 1, "文字起こしで問題が発生しました", errorMessage, 1, 44),
+      progress: buildProgressPayload(
+        labels,
+        errorState.stepIndex,
+        errorState.title,
+        errorState.description,
+        errorState.stepIndex,
+        errorState.stepIndex >= 2 ? 82 : 44
+      ),
     };
   }
 

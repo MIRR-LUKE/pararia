@@ -4,6 +4,8 @@
 
 - 実装済み
 - GitHub Issue: `#17`
+- 最終更新: `2026-03-26`
+- 最新補足: recoverable な `TRANSCRIBE_FILE` / `FINALIZE_LIVE_PART` / `PROMOTE_SESSION` 失敗は再キュー可能
 
 ## 何をするか
 
@@ -49,10 +51,13 @@
 - stale な `RUNNING` job を回収して再実行できるようにした
 - retryable error のときは backoff 付きで `QUEUED` に戻すようにした
 - API から job の進行情報を見られるようにした
+- session part 側でも recoverable な文字起こし失敗と session promotion 失敗を `生成を再開する` から復旧できるようにした
 
 ## 確認
 
 - `npm run typecheck`
+- `npm run test:session-progress`
+- `npm run test:stt-fallback`
 - `npm run build`
 
 ## ラベル

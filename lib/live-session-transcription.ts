@@ -12,6 +12,7 @@ type LiveChunkMeta = {
   sttModel?: string;
   sttResponseFormat?: string;
   sttRecoveryUsed?: boolean;
+  sttFallbackUsed?: boolean;
   sttAttemptCount?: number;
   sttSegmentCount?: number;
   sttSpeakerCount?: number;
@@ -269,6 +270,7 @@ export async function startLiveChunkTranscription(sessionId: string, partType: S
           sttModel: stt.meta.model,
           sttResponseFormat: stt.meta.responseFormat,
           sttRecoveryUsed: stt.meta.recoveryUsed,
+          sttFallbackUsed: stt.meta.fallbackUsed,
           sttAttemptCount: stt.meta.attemptCount,
           sttSegmentCount: stt.meta.segmentCount,
           sttSpeakerCount: stt.meta.speakerCount,
@@ -360,6 +362,7 @@ export function buildFinalizedLivePartFromManifest(manifest: {
       sttModel: readyChunks[readyChunks.length - 1]?.meta?.sttModel ?? null,
       sttResponseFormat: readyChunks[readyChunks.length - 1]?.meta?.sttResponseFormat ?? null,
       sttRecoveryUsed: countRecoveredChunks(readyChunks) > 0,
+      sttFallbackUsed: readyChunks.some((chunk) => chunk.meta?.sttFallbackUsed),
       sttAttemptCount: readyChunks.reduce((total, chunk) => total + Number(chunk.meta?.sttAttemptCount ?? 1), 0),
       sttSegmentCount: readyChunks.reduce((total, chunk) => total + Number(chunk.meta?.sttSegmentCount ?? 0), 0),
       sttSpeakerCount:

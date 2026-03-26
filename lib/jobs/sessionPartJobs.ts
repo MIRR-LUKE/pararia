@@ -70,6 +70,8 @@ const FILE_SPLIT_CONCURRENCY_LESSON = readClampedEnvInt(
   1,
   8
 );
+const MAX_TRANSCRIPTION_RECOVERY_ATTEMPTS = 4;
+const MAX_PROMOTION_RECOVERY_ATTEMPTS = 5;
 
 function isUnsupportedAudioError(error: unknown) {
   const message = error instanceof Error ? error.message : String(error ?? "");
@@ -99,6 +101,20 @@ type SessionPartPayload = {
   sessionType: SessionType;
 };
 
+type SessionPartRecoveryPayload = {
+  id: string;
+  sessionId: string;
+  status: SessionPartStatus;
+  rawTextOriginal: string | null;
+  rawTextCleaned: string | null;
+  qualityMetaJson: Record<string, unknown> | null;
+  session: {
+    conversation: {
+      status: string;
+    } | null;
+  };
+};
+
 function waitForJobRetry(attempt: number) {
   const base = Math.min(3500, 500 * 2 ** attempt);
   const jitter = Math.floor(Math.random() * 200);
@@ -108,6 +124,24 @@ function waitForJobRetry(attempt: number) {
 function isRetryableJobError(error: unknown) {
   const message = error instanceof Error ? error.message : String(error ?? "");
   return /(429|500|502|503|504|timeout|temporar|network|ECONNRESET|ETIMEDOUT|rate limit)/i.test(message);
+}
+
+function isRecoverablePromotionErrorMessage(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  if (isRetryableJobError(message)) return true;
+  return /(Invalid prisma\.|Unknown arg|column .* does not exist|migration|schema|artifactJson|maxAttempts|executionId|nextRetryAt|leaseExpiresAt)/i.test(
+    message
+  );
+}
+
+function isRecoverableTranscriptionErrorMessage(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  if (isRetryableJobError(message)) return true;
+  return /empty transcript/i.test(message);
+}
+
+function partHasTranscript(part: Pick<SessionPartPayload, "rawTextOriginal" | "rawTextCleaned">) {
+  return Boolean(part.rawTextCleaned?.trim() || part.rawTextOriginal?.trim());
 }
 
 function offsetSegments(segments: any[], offsetMs: number) {
@@ -200,6 +234,7 @@ async function transcribeStoredFile(part: SessionPartPayload) {
         sttModel: stt.meta.model,
         sttResponseFormat: stt.meta.responseFormat,
         sttRecoveryUsed: stt.meta.recoveryUsed,
+        sttFallbackUsed: stt.meta.fallbackUsed,
         sttAttemptCount: stt.meta.attemptCount,
         sttSegmentCount: stt.meta.segmentCount,
         sttSpeakerCount: stt.meta.speakerCount,
@@ -270,6 +305,7 @@ async function transcribeStoredFile(part: SessionPartPayload) {
         sttModel: results[0]?.stt.meta.model ?? "gpt-4o-transcribe-diarize",
         sttResponseFormat: results[0]?.stt.meta.responseFormat ?? "diarized_json",
         sttRecoveryUsed: results.some((result) => result.stt.meta.recoveryUsed),
+        sttFallbackUsed: results.some((result) => result.stt.meta.fallbackUsed),
         sttAttemptCount: results.reduce((total, result) => total + Number(result.stt.meta.attemptCount ?? 1), 0),
         sttSegmentCount: combinedSegments.length,
         sttSpeakerCount: speakerCount,
@@ -344,7 +380,25 @@ async function markPartExecutionError(part: SessionPartPayload, errorMessage: st
       status: SessionPartStatus.ERROR,
       qualityMetaJson: toSessionPartMetaJson(meta, {
         pipelineStage: "ERROR",
+        errorSource: "TRANSCRIPTION",
         lastError: errorMessage,
+      }),
+    },
+  });
+  await updateSessionStatusFromParts(part.sessionId);
+}
+
+async function markPartPromotionError(part: SessionPartPayload, errorMessage: string) {
+  const meta = readSessionPartMeta(part.qualityMetaJson);
+  await prisma.sessionPart.update({
+    where: { id: part.id },
+    data: {
+      status: SessionPartStatus.ERROR,
+      qualityMetaJson: toSessionPartMetaJson(meta, {
+        pipelineStage: "ERROR",
+        errorSource: "PROMOTION",
+        lastError: errorMessage,
+        lastPromotionErrorAt: new Date().toISOString(),
       }),
     },
   });
@@ -376,6 +430,7 @@ async function markPartReady(input: {
       qualityMetaJson: toSessionPartMetaJson(input.part.qualityMetaJson, {
         ...input.qualityMeta,
         lastError: null,
+        errorSource: undefined,
         pipelineStage: "READY",
         summaryPreview: buildSummaryPreview(input.rawTextCleaned || input.rawTextOriginal),
         lastCompletedAt: new Date().toISOString(),
@@ -631,6 +686,151 @@ type ProcessSessionPartJobsOptions = {
   sessionId?: string;
 };
 
+async function requeueRecoverableTranscriptionJobs(opts?: ProcessSessionPartJobsOptions) {
+  const failedJobs = await prisma.sessionPartJob.findMany({
+    where: {
+      status: JobStatus.ERROR,
+      type: {
+        in: [SessionPartJobType.TRANSCRIBE_FILE, SessionPartJobType.FINALIZE_LIVE_PART],
+      },
+      attempts: {
+        lt: MAX_TRANSCRIPTION_RECOVERY_ATTEMPTS,
+      },
+      ...(opts?.sessionId
+        ? {
+            sessionPart: {
+              sessionId: opts.sessionId,
+            },
+          }
+        : {}),
+    },
+    select: {
+      id: true,
+      lastError: true,
+      sessionPart: {
+        select: {
+          id: true,
+          sessionId: true,
+          qualityMetaJson: true,
+        },
+      },
+    },
+  });
+
+  for (const failedJob of failedJobs) {
+    if (!isRecoverableTranscriptionErrorMessage(failedJob.lastError ?? "")) continue;
+
+    const queued = await prisma.sessionPartJob.updateMany({
+      where: {
+        id: failedJob.id,
+        status: JobStatus.ERROR,
+      },
+      data: {
+        status: JobStatus.QUEUED,
+        lastError: null,
+        outputJson: Prisma.DbNull,
+        costMetaJson: Prisma.DbNull,
+        startedAt: null,
+        finishedAt: null,
+      },
+    });
+    if (queued.count !== 1) continue;
+
+    await prisma.sessionPart.update({
+      where: { id: failedJob.sessionPart.id },
+      data: {
+        status: SessionPartStatus.TRANSCRIBING,
+        qualityMetaJson: toSessionPartMetaJson(failedJob.sessionPart.qualityMetaJson, {
+          pipelineStage: "TRANSCRIBING",
+          errorSource: undefined,
+          lastError: null,
+          transcriptionRetryQueuedAt: new Date().toISOString(),
+        }),
+      },
+    });
+    await updateSessionStatusFromParts(failedJob.sessionPart.sessionId);
+  }
+}
+
+async function requeueRecoverablePromotionJobs(opts?: ProcessSessionPartJobsOptions) {
+  const failedJobs = await prisma.sessionPartJob.findMany({
+    where: {
+      status: JobStatus.ERROR,
+      type: SessionPartJobType.PROMOTE_SESSION,
+      attempts: {
+        lt: MAX_PROMOTION_RECOVERY_ATTEMPTS,
+      },
+      ...(opts?.sessionId
+        ? {
+            sessionPart: {
+              sessionId: opts.sessionId,
+            },
+          }
+        : {}),
+    },
+    select: {
+      id: true,
+      lastError: true,
+      sessionPart: {
+        select: {
+          id: true,
+          sessionId: true,
+          status: true,
+          rawTextOriginal: true,
+          rawTextCleaned: true,
+          qualityMetaJson: true,
+          session: {
+            select: {
+              conversation: {
+                select: {
+                  status: true,
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  });
+
+  for (const failedJob of failedJobs) {
+    if (!isRecoverablePromotionErrorMessage(failedJob.lastError ?? "")) continue;
+    const part = failedJob.sessionPart as SessionPartRecoveryPayload;
+    if (!partHasTranscript(part)) continue;
+    if (part.session.conversation?.status === "DONE") continue;
+
+    const queued = await prisma.sessionPartJob.updateMany({
+      where: {
+        id: failedJob.id,
+        status: JobStatus.ERROR,
+      },
+      data: {
+        status: JobStatus.QUEUED,
+        lastError: null,
+        outputJson: Prisma.DbNull,
+        costMetaJson: Prisma.DbNull,
+        startedAt: null,
+        finishedAt: null,
+      },
+    });
+    if (queued.count !== 1) continue;
+
+    await prisma.sessionPart.update({
+      where: { id: part.id },
+      data: {
+        status: SessionPartStatus.READY,
+        qualityMetaJson: toSessionPartMetaJson(part.qualityMetaJson, {
+          pipelineStage: "GENERATING",
+          errorSource: undefined,
+          lastError: null,
+          promotionRetryQueuedAt: new Date().toISOString(),
+        }),
+      },
+    });
+    await updateSessionStatusFromParts(part.sessionId);
+  }
+}
+
 async function claimNextJob(opts?: ProcessSessionPartJobsOptions): Promise<SessionPartJobPayload | null> {
   while (true) {
     const next = await prisma.sessionPartJob.findFirst({
@@ -700,6 +900,9 @@ export async function processQueuedSessionPartJobs(
   concurrency = 1,
   opts?: ProcessSessionPartJobsOptions
 ): Promise<{ processed: number; errors: string[] }> {
+  await requeueRecoverableTranscriptionJobs(opts);
+  await requeueRecoverablePromotionJobs(opts);
+
   const maxLimit = Math.max(1, Math.floor(limit));
   const maxConcurrency = Math.max(1, Math.floor(concurrency));
   const workerCount = Math.min(maxLimit, maxConcurrency);
@@ -733,7 +936,11 @@ export async function processQueuedSessionPartJobs(
         });
         const part = await loadSessionPart(job).catch(() => null);
         if (part) {
-          await markPartExecutionError(part, message).catch(() => {});
+          if (job.type === SessionPartJobType.PROMOTE_SESSION && partHasTranscript(part)) {
+            await markPartPromotionError(part, message).catch(() => {});
+          } else {
+            await markPartExecutionError(part, message).catch(() => {});
+          }
         }
       }
     }

@@ -11,6 +11,8 @@ type TranscribeInput = {
 const STT_MODEL = "gpt-4o-transcribe-diarize";
 const STT_RESPONSE_FORMAT = "diarized_json" as const;
 const STT_CHUNKING_STRATEGY = "auto" as const;
+const STT_FALLBACK_MODEL = "gpt-4o-transcribe";
+const STT_FALLBACK_RESPONSE_FORMAT = "json" as const;
 
 export type TranscriptSegment = {
   id?: number | string;
@@ -31,6 +33,7 @@ export type PipelineTranscriptionResult = SegmentedTranscriptResult & {
     model: string;
     responseFormat: SttResponseFormat;
     recoveryUsed: boolean;
+    fallbackUsed: boolean;
     attemptCount: number;
     segmentCount: number;
     speakerCount: number;
@@ -38,7 +41,7 @@ export type PipelineTranscriptionResult = SegmentedTranscriptResult & {
   };
 };
 
-type SttResponseFormat = typeof STT_RESPONSE_FORMAT;
+type SttResponseFormat = typeof STT_RESPONSE_FORMAT | typeof STT_FALLBACK_RESPONSE_FORMAT;
 export type TranscriptQualityWarning =
   | "missing_speaker_labels"
   | "single_speaker_detected"
@@ -58,16 +61,22 @@ function getPrimaryTimeoutMs(bufferSize: number) {
   return Math.min(Math.max(60000, fileSizeMB * 15000), 120000);
 }
 
-function buildTranscriptionForm(input: TranscribeInput, model: string) {
+function buildTranscriptionForm(input: TranscribeInput, config: {
+  model: string;
+  responseFormat: SttResponseFormat;
+  chunkingStrategy?: typeof STT_CHUNKING_STRATEGY;
+}) {
   const form = new FormData();
   const blob = new Blob([new Uint8Array(input.buffer)], {
     type: input.mimeType || "application/octet-stream",
   });
   form.append("file", blob, input.filename || "audio.webm");
-  form.append("model", model);
+  form.append("model", config.model);
   form.append("language", input.language || "ja");
-  form.append("response_format", STT_RESPONSE_FORMAT);
-  form.append("chunking_strategy", STT_CHUNKING_STRATEGY);
+  form.append("response_format", config.responseFormat);
+  if (config.chunkingStrategy) {
+    form.append("chunking_strategy", config.chunkingStrategy);
+  }
 
   for (const sample of input.knownSpeakerSamples ?? []) {
     if (!sample?.name?.trim() || !sample?.referenceDataUrl?.trim()) continue;
@@ -309,10 +318,17 @@ function normalizeSegments(data: {
 async function transcribeAttempt(args: {
   input: TranscribeInput;
   model: string;
+  responseFormat: SttResponseFormat;
+  chunkingStrategy?: typeof STT_CHUNKING_STRATEGY;
+  fallbackUsed?: boolean;
   timeoutMs: number;
 }) {
   const data = (await callTranscriptionApi(
-    buildTranscriptionForm(args.input, args.model),
+    buildTranscriptionForm(args.input, {
+      model: args.model,
+      responseFormat: args.responseFormat,
+      chunkingStrategy: args.chunkingStrategy,
+    }),
     args.timeoutMs
   )) as {
     text?: string;
@@ -341,14 +357,20 @@ async function transcribeAttempt(args: {
     segments,
     meta: {
       model: args.model,
-      responseFormat: STT_RESPONSE_FORMAT,
+      responseFormat: args.responseFormat,
       recoveryUsed: false,
+      fallbackUsed: args.fallbackUsed === true,
       attemptCount: 1,
       segmentCount: segments.length,
       speakerCount,
       qualityWarnings: normalized.qualityWarnings,
     },
   };
+}
+
+function isEmptyTranscriptError(error: unknown) {
+  const message = String((error as any)?.message ?? "");
+  return /empty transcript/i.test(message);
 }
 
 function shouldRetryStt(error: unknown) {
@@ -380,26 +402,71 @@ export async function transcribeAudioForPipeline(input: TranscribeInput): Promis
     return await transcribeAttempt({
       input,
       model: STT_MODEL,
+      responseFormat: STT_RESPONSE_FORMAT,
+      chunkingStrategy: STT_CHUNKING_STRATEGY,
       timeoutMs: getPrimaryTimeoutMs(input.buffer.length),
     });
   } catch (error) {
+    if (isEmptyTranscriptError(error)) {
+      const fallback = await transcribeAttempt({
+        input,
+        model: STT_FALLBACK_MODEL,
+        responseFormat: STT_FALLBACK_RESPONSE_FORMAT,
+        fallbackUsed: true,
+        timeoutMs: getPrimaryTimeoutMs(input.buffer.length),
+      });
+
+      return {
+        ...fallback,
+        meta: {
+          ...fallback.meta,
+          attemptCount: 2,
+        },
+      };
+    }
+
     if (!shouldRetryStt(error)) {
       throw error;
     }
 
-    const recovered = await transcribeAttempt({
-      input,
-      model: STT_MODEL,
-      timeoutMs: getPrimaryTimeoutMs(input.buffer.length),
-    });
+    try {
+      const recovered = await transcribeAttempt({
+        input,
+        model: STT_MODEL,
+        responseFormat: STT_RESPONSE_FORMAT,
+        chunkingStrategy: STT_CHUNKING_STRATEGY,
+        timeoutMs: getPrimaryTimeoutMs(input.buffer.length),
+      });
 
-    return {
-      ...recovered,
-      meta: {
-        ...recovered.meta,
-        recoveryUsed: true,
-        attemptCount: 2,
-      },
-    };
+      return {
+        ...recovered,
+        meta: {
+          ...recovered.meta,
+          recoveryUsed: true,
+          attemptCount: 2,
+        },
+      };
+    } catch (retryError) {
+      if (!isEmptyTranscriptError(retryError)) {
+        throw retryError;
+      }
+
+      const fallback = await transcribeAttempt({
+        input,
+        model: STT_FALLBACK_MODEL,
+        responseFormat: STT_FALLBACK_RESPONSE_FORMAT,
+        fallbackUsed: true,
+        timeoutMs: getPrimaryTimeoutMs(input.buffer.length),
+      });
+
+      return {
+        ...fallback,
+        meta: {
+          ...fallback.meta,
+          recoveryUsed: true,
+          attemptCount: 3,
+        },
+      };
+    }
   }
 }

@@ -10,6 +10,10 @@ export type SessionPartPipelineStage =
   | "REJECTED"
   | "ERROR";
 
+export type SessionPartErrorSource =
+  | "TRANSCRIPTION"
+  | "PROMOTION";
+
 export type SessionPartValidationRejection = {
   code?: string;
   messageJa?: string;
@@ -23,10 +27,12 @@ export type SessionPartValidationRejection = {
 
 export type SessionPartMeta = {
   pipelineStage?: SessionPartPipelineStage;
+  errorSource?: SessionPartErrorSource;
   uploadMode?: "file_upload" | "direct_recording" | "manual";
   lastAcceptedAt?: string;
   lastQueuedAt?: string;
   lastCompletedAt?: string;
+  lastError?: string | null;
   summaryPreview?: string;
   validationRejection?: SessionPartValidationRejection;
   liveTranscription?: boolean;

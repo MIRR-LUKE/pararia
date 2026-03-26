@@ -86,7 +86,7 @@ PARARIA は、塾・個別指導・学習コーチング向けの `Teaching OS` 
   - `LESSON_REPORT`
   - `CHECK_IN / CHECK_OUT`
   - 録音開始
-  - 音声ファイル取り込み
+  - 音声ファイル取り込み（`.mp3` / `.m4a` のみ）
 - `StudentSessionStream`
   - 進行中または完了済みの面談ログを追う
 - 指導報告ログ一覧
@@ -200,10 +200,12 @@ PARARIA は、塾・個別指導・学習コーチング向けの `Teaching OS` 
 - hidden な polish を走らせない
 - transcript 表示整形は `FORMAT` に分離し、常時実行しない
 - file upload は server-side chunking を使う
+- ユーザーが選べる音声ファイルは `.mp3` / `.m4a` のみ
 - chunking 条件:
   - `75 秒以上` で分割
-  - `30 秒` chunk
-  - `最大 6 並列`
+  - 面談は `60 秒` chunk
+  - 指導報告は `45 秒` chunk
+  - `最大 8 並列`
 - session progress API で UI を早く戻す
 - poll で worker を再キックできる
 
@@ -324,14 +326,18 @@ PARARIA は、塾・個別指導・学習コーチング向けの `Teaching OS` 
 
 - `StudentSessionConsole` が録音秒数上限で停止
 - file upload 前に audio metadata を見て長すぎるファイルを reject
+- file picker では `.mp3` / `.m4a` 以外を選べない
+- 拡張子 / MIME が `.mp3` / `.m4a` に合わないファイルは reject する
 
 ### 11.2 server 側
 
 - `POST /api/sessions/[id]/parts`
   - file upload duration を解析して reject
+  - `.mp3` / `.m4a` 以外の file upload を reject
 - `POST /api/sessions/[id]/parts/live`
   - live chunk 累積 duration を見て reject
 - duration 不明なら strict に reject する経路を持つ
+- 面談の diarized STT が空で返った場合は、通常 transcription に 1 段フォールバックして救済する
 
 ## 12. 進捗表示
 
@@ -464,11 +470,14 @@ PARARIA_AUDIO_RETENTION_DAYS=14
 2026-03-26 に次を実行して通過確認済み:
 
 - `npm run typecheck`
+- `npm run test:audio-upload-support`
 - `npm run test:conversation-eval -- --out .tmp/conversation-eval-report.md`
 - `npm run test:generation-progress`
 - `npm run test:lesson-report-flow`
 - `npm run test:log-render-and-llm-retries`
 - `npm run test:live-transcription`
+- `npm run test:session-progress`
+- `npm run test:stt-fallback`
 - `npm run build`
 
 ## 17. やらないこと
