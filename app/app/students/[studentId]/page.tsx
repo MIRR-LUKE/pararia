@@ -85,8 +85,7 @@ function lessonSummaryLabel(session: SessionItem) {
       : "チェックイン保存済み → チェックアウト待ち";
   }
   if (session.pipeline?.stage === "TRANSCRIBING") return session.pipeline.progress.title;
-  if (session.pipeline?.stage === "GENERATING") return "チェックインとチェックアウトを統合して下書きを生成中";
-  if (session.pipeline?.stage === "DRAFT_READY") return "下書き確認可（裏側で最終調整中）";
+  if (session.pipeline?.stage === "GENERATING") return "チェックインとチェックアウトを統合して指導報告ログを生成中";
   const types = session.parts.map((part) => part.partType);
   if (types.includes("CHECK_IN") && types.includes("CHECK_OUT")) return "チェックイン + チェックアウト";
   if (types.includes("CHECK_OUT")) return "チェックアウト";
@@ -150,7 +149,7 @@ export default function StudentDetailPage({ params }: { params: { studentId: str
   useEffect(() => {
     if (!room?.sessions?.length) return;
     const hasActivePipeline = room.sessions.some((session) =>
-      ["TRANSCRIBING", "GENERATING", "DRAFT_READY"].includes(session.pipeline?.stage ?? "")
+      ["TRANSCRIBING", "GENERATING"].includes(session.pipeline?.stage ?? "")
     );
     if (!hasActivePipeline) return;
     const timer = window.setTimeout(() => {
@@ -290,7 +289,7 @@ export default function StudentDetailPage({ params }: { params: { studentId: str
       (session) =>
         session.type === "LESSON_REPORT" &&
         (session.conversation?.id ||
-          ["TRANSCRIBING", "WAITING_COUNTERPART", "GENERATING", "DRAFT_READY"].includes(session.pipeline?.stage ?? ""))
+          ["TRANSCRIBING", "WAITING_COUNTERPART", "GENERATING"].includes(session.pipeline?.stage ?? ""))
     );
     const filtered = periodFilter === "month" ? base.filter((session) => withinCurrentMonth(session.sessionDate)) : base;
     return [...filtered].sort((left, right) =>

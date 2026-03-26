@@ -144,7 +144,6 @@ export function ReportStudio({
         body: JSON.stringify({
           studentId,
           sessionIds: selectedSessionIds,
-          usePreviousReport: true,
         }),
       });
       const body = await res.json().catch(() => ({}));

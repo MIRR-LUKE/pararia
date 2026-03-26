@@ -5,7 +5,6 @@ export type SessionPartPipelineStage =
   | "TRANSCRIBING"
   | "WAITING_COUNTERPART"
   | "GENERATING"
-  | "DRAFT_READY"
   | "READY"
   | "REJECTED"
   | "ERROR";

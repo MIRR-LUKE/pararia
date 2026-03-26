@@ -7,7 +7,6 @@ export type SessionProgressStage =
   | "TRANSCRIBING"
   | "WAITING_COUNTERPART"
   | "GENERATING"
-  | "DRAFT_READY"
   | "READY"
   | "REJECTED"
   | "ERROR";
@@ -44,8 +43,8 @@ export type SessionProgressState = {
   progress: GenerationProgressState;
 };
 
-const INTERVIEW_STEP_LABELS = ["保存受付", "文字起こし", "下書き", "完了"];
-const LESSON_STEP_LABELS = ["チェックイン", "チェックアウト", "下書き", "完了"];
+const INTERVIEW_STEP_LABELS = ["保存受付", "文字起こし", "ログ生成", "完了"];
+const LESSON_STEP_LABELS = ["チェックイン", "チェックアウト", "ログ生成", "完了"];
 
 function buildSteps(labels: string[], currentIndex: number, errorIndex?: number): GenerationStep[] {
   return labels.map((label, index) => {
@@ -136,24 +135,6 @@ export function buildSessionProgressState(input: SessionProgressInput): SessionP
     };
   }
 
-  if (conversation?.status === "PARTIAL" && conversation.id) {
-    const steps = buildSteps(labels, 3);
-    return {
-      stage: "DRAFT_READY",
-      statusLabel: "下書き確認可",
-      canLeavePage: true,
-      canOpenLog: true,
-      openLogId: conversation.id,
-      waitingForPart: null,
-      progress: {
-        title: input.type === "LESSON_REPORT" ? "指導報告ログの下書きができました" : "面談ログの下書きができました",
-        description: "いま読むことができ、裏側で最終調整も続けています。",
-        value: estimateValue(steps),
-        steps,
-      },
-    };
-  }
-
   if (conversation?.status === "ERROR") {
     return {
       stage: "ERROR",
@@ -199,7 +180,7 @@ export function buildSessionProgressState(input: SessionProgressInput): SessionP
     if (hasReadyCheckIn && hasReadyCheckOut) {
       return {
         stage: "GENERATING",
-        statusLabel: "下書き生成中",
+        statusLabel: "ログ生成中",
         canLeavePage: true,
         canOpenLog: Boolean(conversation?.id),
         openLogId: conversation?.id ?? null,
@@ -208,7 +189,7 @@ export function buildSessionProgressState(input: SessionProgressInput): SessionP
           labels,
           2,
           "チェックインとチェックアウトを統合しています",
-          "文字起こしをまとめて、指導報告ログの下書きを作っています。"
+          "文字起こしをまとめて、指導報告ログを生成しています。"
         ),
       };
     }
@@ -319,7 +300,7 @@ export function buildSessionProgressState(input: SessionProgressInput): SessionP
     if (isReady(full)) {
       return {
         stage: "GENERATING",
-        statusLabel: "下書き生成中",
+        statusLabel: "ログ生成中",
         canLeavePage: true,
         canOpenLog: Boolean(conversation?.id),
         openLogId: conversation?.id ?? null,
@@ -328,7 +309,7 @@ export function buildSessionProgressState(input: SessionProgressInput): SessionP
           labels,
           2,
           "面談の要点を整理しています",
-          "文字起こしが終わり、面談ログの下書きを生成しています。"
+          "文字起こしが終わり、面談ログ本文を生成しています。"
         ),
       };
     }

@@ -211,16 +211,12 @@ model Report {
   periodFrom        DateTime?
   periodTo          DateTime?
   sourceLogIds      Json?
-  previousReportId  String?
   createdAt         DateTime     @default(now())
 
   organization Organization @relation(fields: [organizationId], references: [id])
   student      Student      @relation(fields: [studentId], references: [id])
   sentBy       User?        @relation("ReportSentBy", fields: [sentByUserId], references: [id])
   deliveryEvents ReportDeliveryEvent[]
-
-  previousReport Report?  @relation("ReportPrevious", fields: [previousReportId], references: [id])
-  nextReports    Report[] @relation("ReportPrevious")
 
   @@index([studentId, createdAt])
   @@index([organizationId, createdAt])
@@ -345,7 +341,6 @@ enum JobStatus {
 
 enum ConversationStatus {
   PROCESSING
-  PARTIAL
   DONE
   ERROR
 }

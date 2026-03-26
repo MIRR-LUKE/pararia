@@ -1,396 +1,357 @@
 # PARARIA SaaS
 
 PARARIA は、塾・個別指導・学習コーチング向けの `Teaching OS` です。  
-面談と指導報告のコミュニケーションを、`面談ログ / 指導報告ログ / 保護者レポート / 共有履歴` に変換して、次の指導と保護者共有に使える状態まで運びます。
+現在の実装は、**録音や会話メモから `面談ログ` または `指導報告ログ` を 1 本生成し、その保存済みログを選んで `保護者レポート` を作る** ことに絞っています。
 
-この README は、**2026-03-25 時点の実装コードに合わせた現行仕様書** です。  
-旧確認フロー前提の運用は、コード・schema・seed から削除済みです。
+この README は、**2026-03-26 時点の現行コードと一致する運用仕様書** です。
 
-## 1. 一言でいうと
+## 1. 先に結論
 
 - 主導線は `Student Room`
-- 録音は `面談モード / 指導報告モード` の 2 モード
-- 生成物は `面談ログ / 指導報告ログ`
-- `保護者レポート` は保存済みログを全部自動混在させず、**選択したログだけ** で都度生成する
-- `/app/logs` と `/app/reports` は補助面であり、主作業面ではない
+- 録音モードは `INTERVIEW` と `LESSON_REPORT` の 2 つ
+- 生成物はまず `面談ログ` または `指導報告ログ` の **本文 1 本だけ**
+- ログ生成は `ConversationJob.FINALIZE` の **単発実行**
+- 自動の後段 polish は **ない**
+- 旧 structured artifact は **生成しない / 保存しない / UI で使わない**
+- `保護者レポート` は **選択したログの `summaryMarkdown` だけ** から生成する
+- 未選択ログ、前回レポート、プロフィール snapshot はレポート本文生成に入れない
 
-## 2. 現在の主導線
+## 2. 非交渉の設計原則
 
-1. Tutor が `Student Room` で `面談モード` か `指導報告モード` を選ぶ
-2. 録音または音声取り込みを行う
-3. モードに応じた成果物を生成する
-4. 面談モードなら `面談ログ`、指導報告モードなら `指導報告ログ` に保存する
-5. 必要なログだけを選ぶ
-6. `保護者レポート` を生成する
-7. 内容を確認して共有する
+### 2.1 Log Only
 
-重要:
+- 面談モードの成果物は `面談ログ`
+- 指導報告モードの成果物は `指導報告ログ`
+- どちらも first-class output は `summaryMarkdown`
+- 補助表示として `formattedTranscript` または raw transcript を持つ
+- 旧 `timeline / nextActions / parentPack / profileDelta` 系の自動生成は廃止済み
 
-- 保護者レポートは **選択したログからのみ作成** します
-- 未選択ログは使いません
-- `/app/logs` と `/app/reports` は確認用の補助画面です
+### 2.2 Single Finalize Pass
 
-## 3. 用語
+- ログ本文は `FINALIZE` 1 回で `DONE` にする
+- 後段の追加仕上げ job や段階的 finalize は使わない
+- `FORMAT` は transcript 表示が必要なときだけ追加する
+- 生成途中の「下書き公開 + 裏で最終調整」はしない
 
-- `Tutor`
-  - 生徒ごとの daily work を進める講師
-- `Manager`
-  - 朝の優先順位付けと運用確認を行う責任者
-- `Guardian`
-  - 保護者レポートの共有先
-- `面談モード`
-  - 面談を記録して `面談ログ` を作るモード
-- `指導報告モード`
-  - 授業・指導報告を記録して `指導報告ログ` を作るモード
-- `面談ログ`
-  - 面談モードから生成されたログ
-- `指導報告ログ`
-  - 指導報告モードから生成されたログ
-- `保護者レポート`
-  - 選択したログから都度生成する共有用の文章
+### 2.3 Selected SummaryMarkdown Only
 
-## 4. 画面構成
+- 保護者レポートに入れる材料は選択済みログの `summaryMarkdown`
+- 未選択ログは本文生成に使わない
+- 前回レポートの本文は入れない
+- 生徒プロフィール snapshot は入れない
+- 候補ログ全件の自動束ねはしない
 
-### 4.1 ダッシュボード (`/app/dashboard`)
+### 2.4 Duration Enforcement On Both Sides
 
-現在の役割:
+- 面談は `60 分` まで
+- 指導報告は `CHECK_IN / CHECK_OUT` の各 part が `10 分` まで
+- client 側でも止める
+- server 側でも reject する
 
-- 今日すぐ動くべき生徒を優先順に出す
-- `面談を始める` / `授業を始める` の 2 CTA を先頭に出す
-- `面談未実施 / チェックアウト待ち / レポート未作成 / 共有待ち` を summary strip で見せる
+## 3. 体験の主導線
 
-実装上のポイント:
+1. 講師が `Student Room` を開く
+2. `面談` か `指導報告` を選ぶ
+3. 録音するか、音声ファイルを取り込む
+4. 保存 API は **受付だけ即時返す**
+5. 裏側で STT と session promotion を進める
+6. session が揃ったら `FINALIZE` でログ本文を 1 本生成する
+7. 講師は `ログ本文` と `文字起こし` を確認する
+8. 必要なログだけを選び、保護者レポートを作る
+9. 共有状態を更新する
 
-- KPI ダッシュボードではなく、**今日の優先キュー** 型
-- 管理者はここから Student Room に降りる
-- 招待 UI は `ADMIN / MANAGER` にだけ出す
+## 4. 画面の役割
 
-### 4.2 生徒一覧 (`/app/students`)
+### 4.1 `/app/dashboard`
 
-現在の役割:
+- 今日優先して動くべき生徒を見る
+- `面談を始める` / `授業を始める` に入る
+- 面談未実施、チェックアウト待ち、レポート未作成、共有待ちを確認する
+
+### 4.2 `/app/students`
 
 - 生徒検索
-- `すべて / 面談待ち / ログあり / 共有待ち` で絞り込み
-- 最小入力で生徒を追加
-- Student Room へ入る
+- 生徒追加
+- Student Room へ移動
 
-重要:
+### 4.3 `/app/students/[studentId]`
 
-- ここでは録音や保護者レポート生成を完結させない
-- 操作は Student Room に寄せる
+主作業面。
 
-### 4.3 Student Room (`/app/students/[studentId]`)
+- `StudentSessionConsole`
+  - `INTERVIEW`
+  - `LESSON_REPORT`
+  - `CHECK_IN / CHECK_OUT`
+  - 録音開始
+  - 音声ファイル取り込み
+- `StudentSessionStream`
+  - 進行中または完了済みの面談ログを追う
+- 指導報告ログ一覧
+- 保護者レポート生成カード
+- `LogView`
+- `ReportStudio`
 
-現在の主作業面です。
+### 4.4 `/app/logs`
 
-実装上の主要ブロック:
+- ログの補助参照面
+- `summaryMarkdown` と transcript を確認する
+- どのレポートに使われたかを追う
 
-1. `Header / 生徒情報`
-2. `StudentSessionConsole`
-   - `面談モード / 指導報告モード`
-   - 指導報告時の `CHECK_IN / CHECK_OUT`
-   - 録音開始 / 音声取り込み
-3. `保護者レポート生成カード`
-   - レポート候補ログの選択
-   - `保護者レポートを生成`
-4. `ワークスペース tab`
-   - `面談ログ`
-   - `指導報告ログ`
-   - `保護者レポートログ`
-5. `overlay`
-   - `LogView`（面談ログ / 指導報告ログ 共通）
-   - `ReportStudio`
-   - 保護者レポート詳細
+### 4.5 `/app/reports`
 
-この画面でやること:
-
-- モード切替
-- 録音
-- 面談ログ / 指導報告ログの確認
-- 保護者レポート用ログの選択
-- 保護者レポート生成
-- 送付済み更新
-
-### 4.4 ログ参照 (`/app/logs`)
-
-現在の役割:
-
-- 面談ログ / 指導報告ログの補助参照
-- ログ本文・文字起こしの確認
-- どの保護者レポートに使われたかを追うための補助面
-
-### 4.5 送付前レビュー (`/app/reports`)
-
-現在の役割:
-
-- `レポート未作成 / 共有待ち / 送付済み` の補助確認
+- レポート確認の補助面
 - 主作業は Student Room に戻す
 
-### 4.6 システム設定 (`/app/settings`)
+### 4.6 `/app/settings`
 
-現在の役割:
+- 運用設定
+- guardian 情報の補完確認
+- 保存方針の確認
 
-- UI 基盤メモ
-- モード別ログ生成と共有運用の方針メモ
-- 組織情報の下書き
-- 音声保持方針の下書き
+## 5. モード別仕様
 
-注意:
+### 5.1 面談モード
 
-- `Settings / Admin` では、組織名更新、guardian 連絡先カバレッジ確認、未入力生徒の guardianNames 補完、送信設定サマリー、権限人数、保存期間ポリシーを確認できます
-- 詳細な送信プロバイダ設定や LINE 連携の編集 UI は、引き続き `task.md` の P0/P1 で拡張します
+- `Session.type = INTERVIEW`
+- part は `FULL` 1 本
+- 最大長は `60 分`
+- ready になった transcript をまとめて 1 本の `面談ログ` を作る
+- 生成完了後は `ConversationLog.status = DONE`
 
-## 5. データモデル
+生成されるもの:
 
-### 5.1 組織 / ユーザー
+- `summaryMarkdown`
+- `rawTextOriginal`
+- `rawTextCleaned`
+- `rawSegments`
+- 必要時の `formattedTranscript`
+- `qualityMetaJson`
 
-- `Organization`
-- `User`
-  - ロール: `ADMIN | MANAGER | TEACHER | INSTRUCTOR`
-- `OrganizationInvitation`
+生成しないもの:
 
-### 5.2 生徒と記録
+- timeline JSON
+- next action JSON
+- parent pack JSON
+- profile delta JSON
+- 話題候補タブ向け補助成果物
+
+### 5.2 指導報告モード
+
+- `Session.type = LESSON_REPORT`
+- part は `CHECK_IN` と `CHECK_OUT`
+- 各 part の最大長は `10 分`
+- 両方揃ってから 1 本の `指導報告ログ` を作る
+- `CHECK_IN` だけではログ生成しない
+- `CHECK_OUT` だけでもログ生成しない
+
+生成されるもの:
+
+- `summaryMarkdown`
+- `rawTextOriginal`
+- `rawTextCleaned`
+- `rawSegments`
+- 必要時の `formattedTranscript`
+- `qualityMetaJson`
+
+生成しないもの:
+
+- lesson report 補助 JSON
+- 親共有 pack
+- observation JSON
+- student state JSON
+
+## 6. 同期 / 非同期の分割
+
+### 6.1 同期でやること
+
+- 認可
+- 入力バリデーション
+- duration 上限チェック
+- SessionPart の保存
+- live chunk 保存
+- job enqueue
+- 進捗 API の返却
+
+### 6.2 非同期でやること
+
+- file upload 後の STT
+- live recording finalize
+- Session promotion
+- transcript 統合
+- `FINALIZE`
+- 任意の `FORMAT`
+
+## 7. 速度設計
+
+目標:
+
+- 保存受付は数秒以内
+- 一般的なケースでは STT 完了後に `20〜60 秒` でログ本文を返せる構成
+- 何分もかかる後段 LLM 連鎖を作らない
+
+そのための実装:
+
+- ログ生成は `FINALIZE` の 1 call に寄せる
+- hidden な polish を走らせない
+- transcript 表示整形は `FORMAT` に分離し、常時実行しない
+- file upload は server-side chunking を使う
+- chunking 条件:
+  - `75 秒以上` で分割
+  - `30 秒` chunk
+  - `最大 6 並列`
+- session progress API で UI を早く戻す
+- poll で worker を再キックできる
+
+### 7.1 速度を落とすものとして明示的にやめたこと
+
+- analyze -> reduce -> finalize の多段 LLM
+- 自動の追加仕上げ job
+- 旧 structured artifact の同時生成
+- 保護者レポート素材の裏生成
+- ログ本体以外の hidden output を同時に作ること
+
+## 8. ジョブ設計
+
+### 8.1 `SessionPartJob`
+
+型:
+
+- `TRANSCRIBE_FILE`
+- `FINALIZE_LIVE_PART`
+- `PROMOTE_SESSION`
+
+責務:
+
+- 音声を transcript に変える
+- live chunk を part に確定する
+- session を `ConversationLog` 化できる状態へ進める
+
+### 8.2 `ConversationJob`
+
+型:
+
+- `FINALIZE`
+- `FORMAT`
+
+責務:
+
+- `FINALIZE`
+  - transcript からログ本文を 1 本作る
+  - 完了時に `ConversationLog.status = DONE`
+- `FORMAT`
+  - transcript 表示を整形する
+  - 本文生成の必須条件ではない
+
+## 9. データモデル
+
+### 9.1 中核モデル
 
 - `Student`
 - `StudentProfile`
 - `Session`
-  - 1 回の面談または指導報告
 - `SessionPart`
-  - 面談なら `FULL`
-  - 指導報告なら `CHECK_IN / CHECK_OUT`
-
-### 5.3 ログとレポート
-
+- `SessionPartJob`
 - `ConversationLog`
-  - 面談モードなら `面談ログ`
-  - 指導報告モードなら `指導報告ログ`
-  - 現行の主保存物は `summaryMarkdown` と transcript 系 (`rawTextOriginal / rawTextCleaned / rawSegments / formattedTranscript`) と `qualityMetaJson`
-  - 旧 structured artifact カラムは削除済み
 - `ConversationJob`
-  - 現行主導線では通常 `FINALIZE` を enqueue し、必要時のみ `FORMAT` を追加する
-  - `FINALIZE` はログ本文 1 本を生成する唯一の標準 job
 - `Report`
-  - 保護者レポート本体
-  - `sourceLogIds` で使用ログを追う
+- `ReportDeliveryEvent`
 - `AuditLog`
-
-### 5.4 録音ロック
-
 - `StudentRecordingLock`
-  - 同一生徒の同時録音を防ぐ
 
-削除済み:
+### 9.2 `ConversationLog` の現在の意味
 
-- 旧確認用テーブル
-- 旧確認用カラム
-- 旧確認用集計値
+- `summaryMarkdown`
+  - 現行の本命成果物
+- `rawTextOriginal`
+  - 元 transcript
+- `rawTextCleaned`
+  - 前処理後 transcript
+- `rawSegments`
+  - STT segment
+- `formattedTranscript`
+  - 必要時だけ整形
+- `qualityMetaJson`
+  - STT 時間、モデル、警告、生成時間など
 
-## 6. 録音とログ生成
+## 10. 保護者レポート
 
-### 6.1 入力経路
+### 10.1 入力ルール
 
-1. `Student Room` からのセッション入力
-2. `POST /api/conversations` の transcript 直入力
-3. 主要な Student / Session / Conversation / Report API は NextAuth session の `organizationId` でスコープする
+- 選択したログだけを使う
+- 本文生成に入るのは各ログの `summaryMarkdown`
+- 未選択ログは入れない
+- 前回レポートは入れない
+- profile snapshot は入れない
 
-### 6.2 面談モード
+### 10.2 UI ルール
 
-- 1 セッション = 1 part (`FULL`)
-- 上限 60 分
-- 生成物:
-  - `面談ログ`
-  - `文字起こし`（`formattedTranscript` が無ければ raw transcript をそのまま表示）
+- 追加候補は提案だけ
+- 自動追加しない
+- `Report.sourceLogIds` に利用ログを残す
 
-重要:
-
-- 現行のユーザー向け成果物は `面談ログ` 本体と `文字起こし` のみ
-- 話題候補 / 根拠タブ / 補助生成物タブは削除済み
-
-### 6.3 指導報告モード
-
-- 1 セッション内で `CHECK_IN` と `CHECK_OUT`
-- 両方揃うと生成開始
-- 上限 10 分 / part
-- 生成物:
-  - `指導報告ログ`
-  - `文字起こし`（`formattedTranscript` が無ければ raw transcript をそのまま表示）
-
-重要:
-
-- `CHECK_IN` と `CHECK_OUT` は同じ lesson session に集約し、そろった時点で 1 本の `指導報告ログ` を生成する
-- ユーザー向けには `指導報告ログ` 本体を見せ、裏側の別成果物は増やさない
-
-### 6.4 録音後の標準フロー
-
-1. モードを選ぶ
-2. 録音する
-3. 保存 API は **保存受付だけ即時返す**
-4. `SessionPartJob` が STT / live finalize / promotion を非同期実行する
-5. session ready 後に `ConversationJob` を enqueue する
-6. `FINALIZE` で **ログ本文 1 本だけ** を生成して `DONE` にする
-7. 必要時のみ `FORMAT` で文字起こし表示を整形する
-8. Student Room / Logs の poll でも `?process=1` により worker を再キックできる
-9. Student Room に戻して一覧へ反映する
-
-## 7. 保護者レポート
-
-### 7.1 重要ルール
-
-- 保護者レポートは **選択したログだけ** を使う
-- 未選択ログは使わない
-- 追加候補は提案だけで、自動追加はしない
-- 入力素材は `selected summaryMarkdown only` とし、`previousReport / profileSnapshot / allLogsForSuggestions` は使わない
-
-### 7.2 現在のレポート状態
-
-DB の `Report.status` は現時点で次の 3 状態です。
+### 10.3 状態
 
 - `DRAFT`
 - `REVIEWED`
 - `SENT`
 
-UI 上では主に次で見せています。
+## 11. 録音制約
 
-- `未作成`
-- `下書きあり`
-- `確認済み`
-- `送付済み`
+### 11.1 client 側
 
-補足:
+- `StudentSessionConsole` が録音秒数上限で停止
+- file upload 前に audio metadata を見て長すぎるファイルを reject
 
-- `failed / bounced / delivered / manually_confirmed / resent / draft_created` の delivery event は実装済みです
-- Student Room / Reports / Logs は最新 event をもとに共有状態を表示します。Dashboard では `average time-to-share` まで確認でき、Settings では guardianNames 補完まで進められます
+### 11.2 server 側
 
-### 7.3 生成から共有まで
+- `POST /api/sessions/[id]/parts`
+  - file upload duration を解析して reject
+- `POST /api/sessions/[id]/parts/live`
+  - live chunk 累積 duration を見て reject
+- duration 不明なら strict に reject する経路を持つ
 
-1. Student Room でログを選択
-2. `保護者レポートを生成`
-3. `ReportStudio` でドラフトを確認
-4. `POST /api/reports/[id]/send` で `SENT` に更新
+## 12. 進捗表示
 
-### 7.4 使用ログの追跡
+### 12.1 session progress の段階
 
-- `Report.sourceLogIds` に使用ログを保存
-- Reports / Logs / Student Room から、どのログを使ったかを参照できる
+- `IDLE`
+- `RECEIVED`
+- `TRANSCRIBING`
+- `WAITING_COUNTERPART`
+- `GENERATING`
+- `READY`
+- `REJECTED`
+- `ERROR`
 
-### 7.5 日本語保証
+### 12.2 重要な約束
 
-`lib/ai/parentReport.ts` では次の順で日本語品質を担保しています。
+- 「下書き公開して裏で最終調整」はしない
+- `READY` はそのまま確認してよい最終ログ
+- `WAITING_COUNTERPART` は lesson report 特有
 
-1. prompt で日本語を要求
-2. 選択ログ束ねで材料をそろえる
-3. JSON parse
-4. sanitize
-5. markdown render
+## 13. API 一覧
 
-## 8. 生成パイプライン
-
-主要ファイル:
-
-- `lib/jobs/conversationJobs.ts`
-- `lib/ai/conversationPipeline.ts`
-- `lib/operational-log.ts`
-- `lib/session-service.ts`
-
-標準フロー:
-
-1. 録音またはアップロード
-2. 保存 API は part を `TRANSCRIBING` で受け付けて即時 return
-3. `SessionPartJob` が STT / live finalize / promotion を非同期実行
-4. session ready 後に `ConversationJob` を enqueue
-5. `FINALIZE` で `generateConversationDraftFast` を実行し、そのまま `DONE` にする
-6. 必要時のみ `FORMAT` で文字起こし表示を整形する
-7. Student Room / Logs / Reports で表示
-
-### 8.1 モード別生成の扱い
-
-- `lib/session-service.ts` は `READY` の part だけを transcript にまとめる
-- `指導報告モード` では `CHECK_IN` と `CHECK_OUT` を同じ lesson session に集め、2 本がそろってから 1 本の指導報告ログを生成する
-- `面談モード` は `FULL -> CHECK_IN -> CHECK_OUT -> TEXT_NOTE` の順で transcript を組む
-- `指導報告モード` は `CHECK_IN -> FULL -> CHECK_OUT -> TEXT_NOTE` の順で transcript を組む
-- `lib/jobs/sessionPartJobs.ts` が `TRANSCRIBE_FILE / FINALIZE_LIVE_PART / PROMOTE_SESSION` を扱う
-- `lib/jobs/conversationJobs.ts` は `FINALIZE` だけで面談ログ / 指導報告ログ本文を生成し、自動 `POLISH` は行わない
-- file upload は server-side chunking (`75s 以上で分割`, `30s chunk`, `最大 6 並列`) で STT を短縮する
-- `POST /api/sessions/[id]/parts` と `POST /api/sessions/[id]/parts/live` は STT を待たずに返し、`/api/sessions/[id]/progress` で進捗を追う
-- `POST /api/sessions/[id]/parts` と `POST /api/sessions/[id]/parts/live` は client + server の両方で `面談 60 分 / 指導報告 10 分(各 part)` を強制する
-- `POST /api/sessions` は lesson report の未完了 session を再利用するため、チェックイン後のチェックアウトが別 session に分かれにくい
-- Student Room では `面談 / 指導報告 / 保護者レポート` の全生成フローで progress bar を表示する
-- `GET /api/conversations/[id]?brief=1&process=1` は poll 用の軽量取得と worker 再キックを兼ねる
-- `GET /api/sessions/[id]/progress?process=1` は session 進捗取得と worker 再キックを兼ねる
-- `POST /api/conversations/[id]/regenerate` は再生成を開始し、既に同一ログが生成中なら `409` を返す
-- `POST /api/conversations/[id]/format` は `FORMAT` を queue し、即時 worker を起動する
-
-### 8.2 今回の検証コマンド
-
-- `npm run lint`
-- `npm run typecheck`
-- `npm run test:generation-progress`
-- `npm run test:lesson-report-flow`
-- `npm run test:log-render-and-llm-retries`
-- `npm run test:live-transcription`
-- `npm run build`
-
-`npm run test:generation-progress` は Student Room の `面談 / 指導報告 / 保護者レポート` progress bar が期待どおりの段階を返すかを smoke test します。
-`npm run test:lesson-report-flow` は `CHECK_IN -> CHECK_OUT -> 合算生成` の lesson report 導線が想定どおりの next step を返すかを smoke test します。
-`npm run test:log-render-and-llm-retries` は ログ表示 parser が `基本情報 / 話者行 / 箇条書き` を崩さず解釈できることと、LLM 呼び出しの retry が 429 で復元できることを smoke test します。
-`npm run test:live-transcription` は live transcription 側の STT metadata 集約と回復系メタの扱いを smoke test します。
-
-代表的な成果物:
-
-- `summaryMarkdown`
-- `formattedTranscript`
-- `rawTextOriginal`
-- `rawTextCleaned`
-- `rawSegments`
-- `qualityMetaJson`
-
-## 9. 録音ロックと保持方針
-
-### 9.1 録音ロック
-
-- API: `GET/POST/PATCH/DELETE /api/students/[id]/recording-lock`
-- DB: `StudentRecordingLock`
-- heartbeat が止まった lock は TTL で失効
-
-### 9.2 音声と transcript
-
-- アップロード音声と live chunk は `.data/session-audio/*` に一時保存し、STT worker が参照する
-- transcript と meta を保存する
-- raw transcript は TTL 付き
-
-### 9.3 cleanup
-
-`/api/maintenance/cleanup` は次を削除します。
-
-- `ConversationLog.rawTextOriginal`
-- `ConversationLog.rawTextCleaned`
-- `ConversationLog.rawSegments`
-
-## 10. API 一覧
-
-### 10.1 認証
+### 13.1 認証
 
 - `POST /api/auth/login`
 - `GET/POST /api/auth/[...nextauth]`
-- 主要な `Student / Session / Conversation / Report` API は NextAuth session を要求し、`organizationId` でスコープする
 
-### 10.2 生徒
+### 13.2 生徒
 
 - `GET/POST /api/students`
 - `GET/PUT /api/students/[id]`
 - `GET /api/students/[id]/room`
 - `GET/POST/PATCH/DELETE /api/students/[id]/recording-lock`
 
-### 10.3 セッション
+### 13.3 セッション
 
 - `GET/POST /api/sessions`
 - `GET/PATCH /api/sessions/[id]`
 - `POST /api/sessions/[id]/parts`
 - `POST /api/sessions/[id]/parts/live`
 - `GET /api/sessions/[id]/progress`
-- `POST /api/sessions/[id]/generate`
 
-### 10.4 コミュニケーションログ
+### 13.4 コミュニケーションログ
 
 - `GET/POST /api/conversations`
 - `GET/PATCH/DELETE /api/conversations/[id]`
@@ -399,52 +360,65 @@ UI 上では主に次で見せています。
 
 補足:
 
-- `POST /api/conversations` は transcript 直入力を受け取り、job enqueue 後に background worker を即起動する
-- `GET /api/conversations/[id]?brief=1&process=1` は poll 用の軽量レスポンスを返しつつ worker 再キックにも使う
-- `POST /api/conversations/[id]/regenerate?format=1` は再生成に加えて `FORMAT` も再実行する
+- `POST /api/conversations`
+  - transcript 直入力を受けて background worker を起動する
+- `GET /api/conversations/[id]?brief=1&process=1`
+  - 軽量取得 + worker 再キック
+- `POST /api/conversations/[id]/regenerate?format=1`
+  - 再生成に加えて transcript 整形も再実行
 
-### 10.5 保護者レポート
+### 13.5 保護者レポート
 
 - `POST /api/ai/generate-report`
 - `POST /api/reports/[id]/send`
 
-### 10.6 招待
-
-- `GET/POST /api/invitations`
-- `POST /api/invitations/accept`
-
-### 10.7 ジョブ / メンテナンス
+### 13.6 ジョブ / メンテナンス
 
 - `GET/POST /api/jobs/run`
 - `POST /api/jobs/conversation-logs/process`
 - `POST /api/jobs/session-parts/process`
 - `GET/POST /api/maintenance/cleanup`
 
-## 11. 非目標 / 後回し
+## 14. 主要ファイル
 
-- `Campus` 正規モデル
-- campus 比較
-- LINE 第二チャネル
-- 週次レビュー card / reminder / digest
-- 広い SIS
-  - 出欠
-  - 請求
-  - 会計
-  - 時間割
+- `lib/ai/conversationPipeline.ts`
+  - ログ本文生成
+- `lib/jobs/conversationJobs.ts`
+  - `FINALIZE / FORMAT`
+- `lib/jobs/sessionPartJobs.ts`
+  - STT、live finalize、session promotion
+- `lib/session-service.ts`
+  - part から conversation を作る
+- `lib/session-progress.ts`
+  - Student Room の進捗状態
+- `lib/recording/validation.ts`
+  - duration gate
+- `lib/ai/parentReport.ts`
+  - selected summaryMarkdown only のレポート生成
+- `lib/operational-log.ts`
+  - 保存済みログ本文から report bundle preview を作る
+- `app/app/students/[studentId]/StudentSessionConsole.tsx`
+  - 録音と file upload
+- `app/api/sessions/[id]/parts/route.ts`
+  - file upload 入口
+- `app/api/sessions/[id]/parts/live/route.ts`
+  - live recording 入口
+- `app/api/sessions/[id]/progress/route.ts`
+  - 進捗 API
 
-## 12. どこを見れば何が分かるか
+## 15. 現在の smoke check
 
-- 認証: `auth.ts`, `middleware.ts`, `app/api/auth/*`
-- schema: `prisma/schema.prisma`
-- seed: `prisma/seed.ts`
-- 会話生成: `lib/ai/conversationPipeline.ts`
-- transcript 整形: `lib/ai/llm.ts`
-- 保護者レポート: `lib/ai/parentReport.ts`
-- Operational Log: `lib/operational-log.ts`
-- セッション同期: `lib/session-service.ts`
-- Session 進捗: `lib/session-progress.ts`
-- 録音ロック: `lib/recording/lockService.ts`
-- 録音バリデーション: `lib/recording/validation.ts`
-- job runner: `lib/jobs/conversationJobs.ts`
-- session part job runner: `lib/jobs/sessionPartJobs.ts`
-- Student Room UI: `app/app/students/[studentId]/page.tsx`
+- `npm run typecheck`
+- `npm run test:generation-progress`
+- `npm run test:lesson-report-flow`
+- `npm run test:log-render-and-llm-retries`
+- `npm run test:live-transcription`
+- `npm run build`
+
+## 16. やらないこと
+
+- ログ生成と同時に別成果物を量産すること
+- ログ本文の裏で高コストな polish を回すこと
+- 旧 structured artifact を UI やレポートの前提に戻すこと
+- 未選択ログを勝手に保護者レポートへ混ぜること
+- client 側だけで duration 制約を信じること

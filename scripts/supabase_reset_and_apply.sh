@@ -30,6 +30,6 @@ drop schema public cascade;
 create schema public;
 SQL
 
-psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f prisma/migrations/manual_mvp.sql
+npx prisma db push --skip-generate
 
 echo "✅ Schema applied."

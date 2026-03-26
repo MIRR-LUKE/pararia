@@ -61,7 +61,6 @@ function sessionTypeLabel(type?: string | null) {
 function statusLabel(status: string) {
   if (status === "DONE") return "生成完了";
   if (status === "PROCESSING") return "生成中";
-  if (status === "PARTIAL") return "一部表示";
   if (status === "ERROR") return "エラー";
   return "処理中";
 }

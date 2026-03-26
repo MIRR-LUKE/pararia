@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/Button";
 import { StructuredMarkdown } from "@/components/ui/StructuredMarkdown";
 import styles from "./[logId]/logView.module.css";
 
-type ConversationStatus = "PROCESSING" | "PARTIAL" | "DONE" | "ERROR";
+type ConversationStatus = "PROCESSING" | "DONE" | "ERROR";
 type TabKey = "summary" | "transcript";
 
 type ConversationLog = {
@@ -33,7 +33,6 @@ const TAB_LABELS: Array<{ key: TabKey; label: string }> = [
 
 const STATUS_LABEL: Record<ConversationStatus, string> = {
   PROCESSING: "生成中",
-  PARTIAL: "一部完了",
   DONE: "確認可能",
   ERROR: "エラー",
 };
@@ -41,8 +40,7 @@ const STATUS_LABEL: Record<ConversationStatus, string> = {
 function toneFromStatus(status: ConversationStatus): "neutral" | "low" | "medium" | "high" {
   if (status === "DONE") return "low";
   if (status === "ERROR") return "high";
-  if (status === "PROCESSING") return "medium";
-  return "neutral";
+  return "medium";
 }
 
 function logTitle(type?: string | null) {
@@ -84,7 +82,7 @@ export function LogView({ logId, showHeader = true, onBack }: Props) {
   }, [fetchLog]);
 
   useEffect(() => {
-    if (!log || (log.status !== "PROCESSING" && log.status !== "PARTIAL")) return;
+    if (!log || log.status !== "PROCESSING") return;
     const timer = window.setTimeout(() => {
       void fetchLog({ silent: true });
     }, 2500);
@@ -141,8 +139,8 @@ export function LogView({ logId, showHeader = true, onBack }: Props) {
         ))}
       </div>
 
-      {log.status === "PROCESSING" || log.status === "PARTIAL" ? (
-        <div className={styles.progressBanner}>生成途中のため自動で更新しています。内容が少しずつ整っていきます。</div>
+      {log.status === "PROCESSING" ? (
+        <div className={styles.progressBanner}>生成途中のため自動で更新しています。ログ本文ができしだい表示されます。</div>
       ) : null}
 
       {tab === "summary" ? (

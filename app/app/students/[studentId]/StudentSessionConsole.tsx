@@ -350,7 +350,7 @@ export function StudentSessionConsole({
           return openLogId;
         }
 
-        if (body.progress.stage === "DRAFT_READY" || body.progress.stage === "READY") {
+        if (body.progress.stage === "READY") {
           setRecoverableSessionId(null);
           setState("success");
           setError(null);
@@ -795,13 +795,13 @@ export function StudentSessionConsole({
               ? [
                   { id: "0-checkin", label: "チェックイン", status: "active" as const },
                   { id: "1-checkout", label: "チェックアウト", status: "pending" as const },
-                  { id: "2-draft", label: "下書き", status: "pending" as const },
+                  { id: "2-generate", label: "ログ生成", status: "pending" as const },
                   { id: "3-done", label: "完了", status: "pending" as const },
                 ]
               : [
                   { id: "0-save", label: "保存受付", status: "complete" as const },
                   { id: "1-stt", label: "文字起こし", status: "active" as const },
-                  { id: "2-draft", label: "下書き", status: "pending" as const },
+                  { id: "2-generate", label: "ログ生成", status: "pending" as const },
                   { id: "3-done", label: "完了", status: "pending" as const },
                 ],
         }

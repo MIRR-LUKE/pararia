@@ -26,7 +26,7 @@ export function StudentSessionStream({ sessions, assigneeName, onOpenLog }: Prop
   const items = sessions.filter(
     (session) =>
       session.type === "INTERVIEW" &&
-      (session.conversation?.id || ["TRANSCRIBING", "GENERATING", "DRAFT_READY"].includes(session.pipeline?.stage ?? ""))
+      (session.conversation?.id || ["TRANSCRIBING", "GENERATING"].includes(session.pipeline?.stage ?? ""))
   );
 
   if (items.length === 0) {
@@ -54,9 +54,7 @@ export function StudentSessionStream({ sessions, assigneeName, onOpenLog }: Prop
             <div className={styles.rowBody}>
               <div className={styles.rowText}>{buildSessionLabel(session)}</div>
               <div className={styles.rowMeta}>
-                {session.pipeline?.stage === "DRAFT_READY"
-                  ? "下書き確認可"
-                  : session.pipeline?.progress.title ?? "面談ログ"}
+                {session.pipeline?.progress.title ?? "面談ログ"}
               </div>
             </div>
           </div>
