@@ -14,6 +14,7 @@
 .filterRow,
 .filterGroup,
 .overlayHeader,
+.overlayActions,
 .detailActions,
 .detailMetaRow,
 .topBar {
@@ -443,6 +444,17 @@
   margin: 0;
 }
 
+.overlayActions {
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
+.deleteButton {
+  color: #ff9f99;
+  border-color: rgba(255, 159, 153, 0.18);
+}
+
 .overlayContent {
   overflow: auto;
   padding: 20px;
@@ -512,6 +524,7 @@
   .reportSelectionHead,
   .reportActions,
   .overlayHeader,
+  .overlayActions,
   .detailMetaRow {
     flex-direction: column;
   }

@@ -23,7 +23,7 @@ export async function pruneExpiredRecordingLock(studentId: string) {
     where: { studentId },
   });
   if (row && row.expiresAt <= now) {
-    await prisma.studentRecordingLock.delete({ where: { studentId } }).catch(() => {});
+    await prisma.studentRecordingLock.deleteMany({ where: { studentId } });
   }
 }
 
@@ -42,7 +42,7 @@ export async function getRecordingLockView(opts: {
 
   const now = new Date();
   if (row.expiresAt <= now) {
-    await prisma.studentRecordingLock.delete({ where: { studentId: opts.studentId } }).catch(() => {});
+    await prisma.studentRecordingLock.deleteMany({ where: { studentId: opts.studentId } });
     return { active: false as const, lock: null };
   }
 
@@ -153,9 +153,7 @@ export async function heartbeatRecordingLock(opts: {
     where: { studentId: opts.studentId },
   });
   if (!row || row.expiresAt <= now) {
-    await prisma.studentRecordingLock
-      .delete({ where: { studentId: opts.studentId } })
-      .catch(() => {});
+    await prisma.studentRecordingLock.deleteMany({ where: { studentId: opts.studentId } });
     return { ok: false as const, code: "stale_or_missing" as const };
   }
   if (row.lockedByUserId !== opts.userId || row.lockTokenHash !== hash) {
@@ -181,13 +179,13 @@ export async function releaseRecordingLock(opts: {
   });
   if (!row) return { ok: true as const };
   if (row.expiresAt <= now) {
-    await prisma.studentRecordingLock.delete({ where: { studentId: opts.studentId } }).catch(() => {});
+    await prisma.studentRecordingLock.deleteMany({ where: { studentId: opts.studentId } });
     return { ok: true as const };
   }
   if (row.lockedByUserId !== opts.userId || row.lockTokenHash !== hash) {
     return { ok: false as const, code: "token_mismatch" as const };
   }
-  await prisma.studentRecordingLock.delete({ where: { studentId: opts.studentId } });
+  await prisma.studentRecordingLock.deleteMany({ where: { studentId: opts.studentId } });
   return { ok: true as const };
 }
 
@@ -212,9 +210,7 @@ export async function forceReleaseRecordingLock(opts: {
   actorUserId: string;
   reason?: string;
 }) {
-  await prisma.studentRecordingLock
-    .delete({ where: { studentId: opts.studentId } })
-    .catch(() => {});
+  await prisma.studentRecordingLock.deleteMany({ where: { studentId: opts.studentId } });
   await prisma.auditLog.create({
     data: {
       userId: opts.actorUserId,

@@ -67,11 +67,19 @@
 }
 
 .row {
+  display: grid;
+  gap: 12px;
   padding: 18px;
   border-radius: var(--card-radius);
   border: 1px solid var(--border);
   background: var(--surface-2);
   transition: border-color 0.16s ease, background 0.16s ease, transform 0.16s ease;
+}
+
+.rowLink {
+  display: block;
+  color: inherit;
+  text-decoration: none;
 }
 
 .row:hover {
@@ -143,6 +151,16 @@
   font-weight: 700;
 }
 
+.rowActions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.deleteButton {
+  color: #ff9f99;
+  border-color: rgba(255, 159, 153, 0.18);
+}
+
 .empty,
 .error {
   min-height: 220px;
@@ -168,5 +186,9 @@
 @media (max-width: 980px) {
   .summaryRow {
     grid-template-columns: 1fr;
+  }
+
+  .rowActions {
+    justify-content: flex-start;
   }
 }

@@ -1,6 +1,13 @@
+import path from "node:path";
 import { JobStatus, Prisma, SessionPartJobType, SessionPartStatus, SessionPartType, SessionType } from "@prisma/client";
 import { transcribeAudioForPipeline } from "@/lib/ai/stt";
-import { cleanupChunkDirectory, getAudioDurationMs, guessAudioMimeType, splitAudioIntoChunks } from "@/lib/audio-chunking";
+import {
+  cleanupChunkDirectory,
+  getAudioDurationMs,
+  guessAudioMimeType,
+  normalizeAudioForStt,
+  splitAudioIntoChunks,
+} from "@/lib/audio-chunking";
 import { prisma } from "@/lib/db";
 import { finalizeLiveTranscriptionPart } from "@/lib/live-session-transcription";
 import {
@@ -25,9 +32,48 @@ import {
 
 const JOB_EXECUTION_RETRIES = 2;
 const activeSessionRuns = new Set<string>();
-const FILE_SPLIT_MIN_SECONDS = Math.max(60, Number(process.env.FILE_SPLIT_MIN_SECONDS ?? 75));
-const FILE_SPLIT_CHUNK_SECONDS = Math.max(20, Number(process.env.FILE_SPLIT_CHUNK_SECONDS ?? 30));
-const FILE_SPLIT_CONCURRENCY = Math.max(1, Math.min(8, Number(process.env.FILE_SPLIT_CONCURRENCY ?? 6)));
+
+function readClampedEnvInt(names: string[], fallback: number, min: number, max: number) {
+  for (const name of names) {
+    const raw = process.env[name];
+    if (raw === undefined) continue;
+    const value = Number(raw);
+    if (!Number.isFinite(value)) continue;
+    return Math.max(min, Math.min(max, Math.floor(value)));
+  }
+  return Math.max(min, Math.min(max, Math.floor(fallback)));
+}
+
+const FILE_SPLIT_MIN_SECONDS = readClampedEnvInt(["FILE_SPLIT_MIN_SECONDS"], 75, 60, 300);
+const FILE_SPLIT_CHUNK_SECONDS_INTERVIEW = readClampedEnvInt(
+  ["FILE_SPLIT_CHUNK_SECONDS_INTERVIEW", "FILE_SPLIT_CHUNK_SECONDS"],
+  60,
+  20,
+  120
+);
+const FILE_SPLIT_CHUNK_SECONDS_LESSON = readClampedEnvInt(
+  ["FILE_SPLIT_CHUNK_SECONDS_LESSON", "FILE_SPLIT_CHUNK_SECONDS"],
+  45,
+  20,
+  120
+);
+const FILE_SPLIT_CONCURRENCY_INTERVIEW = readClampedEnvInt(
+  ["FILE_SPLIT_CONCURRENCY_INTERVIEW", "FILE_SPLIT_CONCURRENCY"],
+  8,
+  1,
+  8
+);
+const FILE_SPLIT_CONCURRENCY_LESSON = readClampedEnvInt(
+  ["FILE_SPLIT_CONCURRENCY_LESSON", "FILE_SPLIT_CONCURRENCY"],
+  8,
+  1,
+  8
+);
+
+function isUnsupportedAudioError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  return /Audio file might be corrupted or unsupported|invalid_value|unsupported/i.test(message);
+}
 
 type SessionPartJobPayload = {
   id: string;
@@ -101,17 +147,45 @@ async function transcribeStoredFile(part: SessionPartPayload) {
     typeof part.qualityMetaJson?.audioDurationSeconds === "number"
       ? Number(part.qualityMetaJson.audioDurationSeconds)
       : null;
+  const splitChunkSeconds =
+    part.sessionType === SessionType.LESSON_REPORT
+      ? FILE_SPLIT_CHUNK_SECONDS_LESSON
+      : FILE_SPLIT_CHUNK_SECONDS_INTERVIEW;
+  const splitConcurrency =
+    part.sessionType === SessionType.LESSON_REPORT
+      ? FILE_SPLIT_CONCURRENCY_LESSON
+      : FILE_SPLIT_CONCURRENCY_INTERVIEW;
   const shouldSplit = durationSeconds !== null && Number.isFinite(durationSeconds) && durationSeconds >= FILE_SPLIT_MIN_SECONDS;
   const startedAt = Date.now();
 
   if (!shouldSplit) {
     const buffer = await readSessionPartUpload(part.storageUrl);
-    const stt = await transcribeAudioForPipeline({
-      buffer,
-      filename: part.fileName || "audio.webm",
-      mimeType: part.mimeType || "audio/webm",
-      language: "ja",
-    });
+    let stt;
+    let normalizedRetryUsed = false;
+    try {
+      stt = await transcribeAudioForPipeline({
+        buffer,
+        filename: part.fileName || "audio.webm",
+        mimeType: part.mimeType || "audio/webm",
+        language: "ja",
+      });
+    } catch (error) {
+      if (!isUnsupportedAudioError(error)) throw error;
+      const normalizedPath = `${part.storageUrl}.stt-normalized.m4a`;
+      try {
+        await normalizeAudioForStt(part.storageUrl, normalizedPath);
+        const normalizedBuffer = await readSessionPartUpload(normalizedPath);
+        stt = await transcribeAudioForPipeline({
+          buffer: normalizedBuffer,
+          filename: "audio-normalized.m4a",
+          mimeType: "audio/mp4",
+          language: "ja",
+        });
+        normalizedRetryUsed = true;
+      } finally {
+        await cleanupChunkDirectory(normalizedPath);
+      }
+    }
     const pre =
       stt.segments.length > 0
         ? preprocessTranscriptWithSegments(stt.rawTextOriginal, stt.segments ?? [])
@@ -130,12 +204,13 @@ async function transcribeStoredFile(part: SessionPartPayload) {
         sttSpeakerCount: stt.meta.speakerCount,
         sttQualityWarnings: stt.meta.qualityWarnings,
         fileSplitUsed: false,
+        sttNormalizedRetryUsed: normalizedRetryUsed,
       },
     };
   }
 
   const chunkDir = `${part.storageUrl}.chunks`;
-  const chunkPaths = await splitAudioIntoChunks(part.storageUrl, chunkDir, FILE_SPLIT_CHUNK_SECONDS);
+  const chunkPaths = await splitAudioIntoChunks(part.storageUrl, chunkDir, splitChunkSeconds);
   const durationsMs = await Promise.all(chunkPaths.map((chunkPath) => getAudioDurationMs(chunkPath)));
   const offsetsMs: number[] = [];
   let cursorMs = 0;
@@ -145,12 +220,12 @@ async function transcribeStoredFile(part: SessionPartPayload) {
   }
 
   try {
-    const results = await mapWithConcurrency(chunkPaths, FILE_SPLIT_CONCURRENCY, async (chunkPath, index) => {
+    const results = await mapWithConcurrency(chunkPaths, splitConcurrency, async (chunkPath, index) => {
       const chunkStartedAt = Date.now();
       const buffer = await readSessionPartUpload(chunkPath);
       const stt = await transcribeAudioForPipeline({
         buffer,
-        filename: part.fileName || `chunk-${index}.m4a`,
+        filename: path.basename(chunkPath) || `chunk-${index}.m4a`,
         mimeType: guessAudioMimeType(chunkPath),
         language: "ja",
       });
@@ -200,8 +275,8 @@ async function transcribeStoredFile(part: SessionPartPayload) {
         sttQualityWarnings: qualityWarnings,
         fileSplitUsed: true,
         fileChunkCount: chunkPaths.length,
-        fileChunkSeconds: FILE_SPLIT_CHUNK_SECONDS,
-        fileChunkConcurrency: FILE_SPLIT_CONCURRENCY,
+        fileChunkSeconds: splitChunkSeconds,
+        fileChunkConcurrency: splitConcurrency,
         fileChunkWallClockSeconds: results.map((result) => result.wallClockSeconds),
       },
     };
@@ -301,6 +376,7 @@ async function markPartReady(input: {
       rawSegments: toPrismaJson(input.rawSegments),
       qualityMetaJson: toSessionPartMetaJson(input.part.qualityMetaJson, {
         ...input.qualityMeta,
+        lastError: null,
         pipelineStage: "READY",
         summaryPreview: buildSummaryPreview(input.rawTextCleaned || input.rawTextOriginal),
         lastCompletedAt: new Date().toISOString(),

@@ -4,6 +4,7 @@ import { spawn } from "node:child_process";
 import path from "node:path";
 import ffmpegPath from "ffmpeg-static";
 import { parseFile } from "music-metadata";
+import { guessAudioMimeTypeFromFileName } from "@/lib/audio-upload-support";
 
 function getFfmpegPath() {
   const bundledPath = typeof ffmpegPath === "string" ? ffmpegPath : "";
@@ -40,22 +41,57 @@ function runFfmpeg(args: string[]) {
   });
 }
 
+function prefersCopySegmenting(inputPath: string) {
+  return /\.(m4a|mp4|aac)$/i.test(inputPath);
+}
+
 export async function getAudioDurationMs(filePath: string) {
   const metadata = await parseFile(filePath);
   return Math.max(0, Math.round((metadata.format.duration ?? 0) * 1000));
 }
 
 export function guessAudioMimeType(filePath: string) {
-  if (/\.(m4a|mp4)$/i.test(filePath)) return "audio/mp4";
-  if (/\.mp3$/i.test(filePath)) return "audio/mpeg";
-  if (/\.wav$/i.test(filePath)) return "audio/wav";
-  if (/\.ogg$/i.test(filePath)) return "audio/ogg";
-  return "audio/webm";
+  return guessAudioMimeTypeFromFileName(filePath, "audio/webm");
 }
 
 export async function splitAudioIntoChunks(inputPath: string, targetDir: string, segmentSeconds: number) {
   await mkdir(targetDir, { recursive: true });
-  try {
+  if (prefersCopySegmenting(inputPath)) {
+    try {
+      await runFfmpeg([
+        "-y",
+        "-i",
+        inputPath,
+        "-f",
+        "segment",
+        "-segment_time",
+        String(segmentSeconds),
+        "-reset_timestamps",
+        "1",
+        "-c",
+        "copy",
+        path.join(targetDir, "chunk-%03d.m4a"),
+      ]);
+    } catch {
+      await runFfmpeg([
+        "-y",
+        "-i",
+        inputPath,
+        "-f",
+        "segment",
+        "-segment_time",
+        String(segmentSeconds),
+        "-reset_timestamps",
+        "1",
+        "-vn",
+        "-c:a",
+        "aac",
+        "-b:a",
+        "96k",
+        path.join(targetDir, "chunk-%03d.m4a"),
+      ]);
+    }
+  } else {
     await runFfmpeg([
       "-y",
       "-i",
@@ -66,21 +102,7 @@ export async function splitAudioIntoChunks(inputPath: string, targetDir: string,
       String(segmentSeconds),
       "-reset_timestamps",
       "1",
-      "-c",
-      "copy",
-      path.join(targetDir, "chunk-%03d.m4a"),
-    ]);
-  } catch {
-    await runFfmpeg([
-      "-y",
-      "-i",
-      inputPath,
-      "-f",
-      "segment",
-      "-segment_time",
-      String(segmentSeconds),
-      "-reset_timestamps",
-      "1",
+      "-vn",
       "-c:a",
       "aac",
       "-b:a",
@@ -94,6 +116,21 @@ export async function splitAudioIntoChunks(inputPath: string, targetDir: string,
     .filter((name) => /^chunk-\d+\./.test(name))
     .sort()
     .map((name) => path.join(targetDir, name));
+}
+
+export async function normalizeAudioForStt(inputPath: string, outputPath: string) {
+  await runFfmpeg([
+    "-y",
+    "-i",
+    inputPath,
+    "-vn",
+    "-c:a",
+    "aac",
+    "-b:a",
+    "128k",
+    outputPath,
+  ]);
+  return outputPath;
 }
 
 export async function cleanupChunkDirectory(targetDir: string) {

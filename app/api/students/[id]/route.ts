@@ -1,6 +1,25 @@
 import { NextResponse } from "next/server";
+import { writeAuditLog } from "@/lib/audit";
 import { prisma } from "@/lib/db";
 import { requireAuthorizedSession } from "@/lib/server/request-auth";
+
+function normalizeGuardianNames(value: unknown) {
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  }
+  if (Array.isArray(value)) {
+    const joined = value
+      .filter((entry): entry is string => typeof entry === "string")
+      .map((entry) => entry.trim())
+      .filter(Boolean)
+      .join(" / ");
+    return joined.length > 0 ? joined : null;
+  }
+  throw new TypeError("guardianNames must be a string, string[], or null");
+}
 
 export async function GET(
   _request: Request,
@@ -38,34 +57,132 @@ export async function PUT(
   request: Request,
   { params }: { params: { id: string } }
 ) {
-  const authResult = await requireAuthorizedSession();
-  if (authResult.response) return authResult.response;
+  try {
+    const authResult = await requireAuthorizedSession();
+    if (authResult.response) return authResult.response;
 
-  const existing = await prisma.student.findFirst({
-    where: { id: params.id, organizationId: authResult.session.user.organizationId },
-    select: { id: true },
-  });
-  if (!existing) {
-    return NextResponse.json({ error: "not found" }, { status: 404 });
+    const existing = await prisma.student.findFirst({
+      where: { id: params.id, organizationId: authResult.session.user.organizationId },
+      select: { id: true },
+    });
+    if (!existing) {
+      return NextResponse.json({ error: "not found" }, { status: 404 });
+    }
+
+    const body = await request.json();
+    const { name, nameKana, grade, course, guardianNames, enrollmentDate, birthdate } = body ?? {};
+
+    const data: Record<string, unknown> = {};
+    if (name !== undefined) data.name = name;
+    if (nameKana !== undefined) data.nameKana = nameKana;
+    if (grade !== undefined) data.grade = grade;
+    if (course !== undefined) data.course = course;
+    if (guardianNames !== undefined) data.guardianNames = normalizeGuardianNames(guardianNames);
+    if (enrollmentDate !== undefined)
+      data.enrollmentDate = enrollmentDate ? new Date(enrollmentDate) : null;
+    if (birthdate !== undefined) data.birthdate = birthdate ? new Date(birthdate) : null;
+
+    const student = await prisma.student.update({
+      where: { id: existing.id },
+      data,
+    });
+
+    return NextResponse.json({ student });
+  } catch (e: any) {
+    if (e instanceof TypeError) {
+      return NextResponse.json({ error: e.message }, { status: 400 });
+    }
+    console.error("[PUT /api/students/[id]] Error:", {
+      error: e?.message,
+      stack: e?.stack,
+    });
+    return NextResponse.json(
+      { error: e?.message ?? "Internal Server Error" },
+      { status: 500 }
+    );
   }
+}
 
-  const body = await request.json();
-  const { name, nameKana, grade, course, guardianNames, enrollmentDate, birthdate } = body ?? {};
+export async function DELETE(
+  _request: Request,
+  { params }: { params: { id: string } }
+) {
+  try {
+    const authResult = await requireAuthorizedSession();
+    if (authResult.response) return authResult.response;
 
-  const data: Record<string, unknown> = {};
-  if (name !== undefined) data.name = name;
-  if (nameKana !== undefined) data.nameKana = nameKana;
-  if (grade !== undefined) data.grade = grade;
-  if (course !== undefined) data.course = course;
-  if (guardianNames !== undefined) data.guardianNames = guardianNames;
-  if (enrollmentDate !== undefined)
-    data.enrollmentDate = enrollmentDate ? new Date(enrollmentDate) : null;
-  if (birthdate !== undefined) data.birthdate = birthdate ? new Date(birthdate) : null;
+    const student = await prisma.student.findFirst({
+      where: { id: params.id, organizationId: authResult.session.user.organizationId },
+      select: {
+        id: true,
+        name: true,
+        _count: {
+          select: {
+            conversations: true,
+            sessions: true,
+            reports: true,
+            profiles: true,
+          },
+        },
+      },
+    });
 
-  const student = await prisma.student.update({
-    where: { id: existing.id },
-    data,
-  });
+    if (!student) {
+      return NextResponse.json({ error: "not found" }, { status: 404 });
+    }
 
-  return NextResponse.json({ student });
+    const conversationIds = await prisma.conversationLog.findMany({
+      where: { studentId: student.id, organizationId: authResult.session.user.organizationId },
+      select: { id: true },
+    });
+
+    await prisma.$transaction(async (tx) => {
+      if (conversationIds.length > 0) {
+        await tx.conversationJob.deleteMany({
+          where: { conversationId: { in: conversationIds.map((conversation) => conversation.id) } },
+        });
+      }
+
+      await tx.report.deleteMany({
+        where: { studentId: student.id, organizationId: authResult.session.user.organizationId },
+      });
+      await tx.conversationLog.deleteMany({
+        where: { studentId: student.id, organizationId: authResult.session.user.organizationId },
+      });
+      await tx.studentProfile.deleteMany({ where: { studentId: student.id } });
+      await tx.studentRecordingLock.deleteMany({ where: { studentId: student.id } });
+      await tx.session.deleteMany({
+        where: { studentId: student.id, organizationId: authResult.session.user.organizationId },
+      });
+      await tx.student.delete({ where: { id: student.id } });
+    });
+
+    await writeAuditLog({
+      userId: authResult.session.user.id,
+      action: "student.delete",
+      detail: {
+        studentId: student.id,
+        studentName: student.name,
+        conversationCount: student._count.conversations,
+        sessionCount: student._count.sessions,
+        reportCount: student._count.reports,
+        profileCount: student._count.profiles,
+      },
+    });
+
+    return NextResponse.json({
+      success: true,
+      message: "student deleted",
+      studentId: student.id,
+    });
+  } catch (e: any) {
+    console.error("[DELETE /api/students/[id]] Error:", {
+      error: e?.message,
+      stack: e?.stack,
+    });
+    return NextResponse.json(
+      { error: e?.message ?? "Internal Server Error" },
+      { status: 500 }
+    );
+  }
 }

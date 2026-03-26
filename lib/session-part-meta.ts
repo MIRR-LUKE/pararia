@@ -1,4 +1,5 @@
 import { toPrismaJson } from "@/lib/prisma-json";
+import { sanitizeTranscriptText } from "@/lib/user-facing-japanese";
 
 export type SessionPartPipelineStage =
   | "RECEIVED"
@@ -56,7 +57,7 @@ export function toSessionPartMetaJson(existing: unknown, patch: SessionPartMeta)
 }
 
 export function buildSummaryPreview(text?: string | null) {
-  const compact = String(text ?? "")
+  const compact = sanitizeTranscriptText(text ?? "")
     .replace(/\s+/g, " ")
     .trim();
   if (!compact) return undefined;

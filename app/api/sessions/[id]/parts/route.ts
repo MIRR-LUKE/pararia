@@ -16,6 +16,12 @@ import {
   getRecordingMaxDurationSeconds,
   getAudioDurationSecondsFromBuffer,
 } from "@/lib/recording/validation";
+import {
+  AUDIO_UPLOAD_EXTENSIONS_LABEL,
+  SUPPORTED_AUDIO_UPLOAD_EXTENSIONS,
+  buildUnsupportedAudioUploadErrorMessage,
+  isSupportedAudioUpload,
+} from "@/lib/audio-upload-support";
 import { releaseRecordingLock, verifyRecordingLockForAudioUpload } from "@/lib/recording/lockService";
 import { requireAuthorizedSession } from "@/lib/server/request-auth";
 import { toPrismaJson } from "@/lib/prisma-json";
@@ -89,6 +95,17 @@ export async function POST(
       audioLockToken = lockTokenRaw;
       audioStudentId = sessionRow.studentId;
       audioUserId = sessionAuth.user.id;
+      if (!isSupportedAudioUpload({ fileName: file.name, mimeType: file.type })) {
+        return NextResponse.json(
+          {
+            error: buildUnsupportedAudioUploadErrorMessage(),
+            code: "unsupported_audio_format",
+            supportedExtensions: SUPPORTED_AUDIO_UPLOAD_EXTENSIONS,
+            supportedExtensionsLabel: AUDIO_UPLOAD_EXTENSIONS_LABEL,
+          },
+          { status: 415 }
+        );
+      }
     }
 
     let sourceType: ConversationSourceType = ConversationSourceType.MANUAL;
@@ -102,7 +119,10 @@ export async function POST(
     if (file) {
       sourceType = ConversationSourceType.AUDIO;
       const buffer = Buffer.from(await file.arrayBuffer());
-      const durationSec = await getAudioDurationSecondsFromBuffer(buffer);
+      const durationSec = await getAudioDurationSecondsFromBuffer(buffer, {
+        fileName: file.name,
+        mimeType: file.type,
+      });
       const maxDurationSeconds = getRecordingMaxDurationSeconds(sessionRow.type);
       const maxLabel = sessionRow.type === "LESSON_REPORT" ? "10分" : "60分";
       const durationGate = evaluateDurationGate(durationSec, {

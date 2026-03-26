@@ -77,9 +77,19 @@ export function isStrictAudioDurationRequired(): boolean {
 /**
  * バッファから再生時間（秒）を取得。解析不能時は null。
  */
-export async function getAudioDurationSecondsFromBuffer(buffer: Buffer): Promise<number | null> {
+export async function getAudioDurationSecondsFromBuffer(
+  buffer: Buffer,
+  fileInfo?: { fileName?: string | null; mimeType?: string | null }
+): Promise<number | null> {
   try {
-    const meta = await parseBuffer(buffer, undefined, { duration: true });
+    const meta = await parseBuffer(
+      buffer,
+      {
+        path: fileInfo?.fileName || undefined,
+        mimeType: fileInfo?.mimeType || undefined,
+      },
+      { duration: true }
+    );
     const d = meta.format.duration;
     if (typeof d === "number" && Number.isFinite(d) && d >= 0) {
       return d;

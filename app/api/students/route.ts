@@ -5,6 +5,24 @@ import { requireAuthorizedSession } from "@/lib/server/request-auth";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
+function normalizeGuardianNames(value: unknown) {
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  }
+  if (Array.isArray(value)) {
+    const joined = value
+      .filter((entry): entry is string => typeof entry === "string")
+      .map((entry) => entry.trim())
+      .filter(Boolean)
+      .join(" / ");
+    return joined.length > 0 ? joined : null;
+  }
+  throw new TypeError("guardianNames must be a string, string[], or null");
+}
+
 export async function GET(request: Request) {
   try {
     const authResult = await requireAuthorizedSession();
@@ -143,30 +161,44 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const authResult = await requireAuthorizedSession();
-  if (authResult.response) return authResult.response;
+  try {
+    const authResult = await requireAuthorizedSession();
+    if (authResult.response) return authResult.response;
 
-  const body = await request.json();
-  const { name, nameKana, grade, course, enrollmentDate, birthdate, guardianNames } = body ?? {};
-  if (!name) {
+    const body = await request.json();
+    const { name, nameKana, grade, course, enrollmentDate, birthdate, guardianNames } = body ?? {};
+    if (!name) {
+      return NextResponse.json(
+        { error: "name is required" },
+        { status: 400 }
+      );
+    }
+
+    const student = await prisma.student.create({
+      data: {
+        organizationId: authResult.session.user.organizationId,
+        name,
+        nameKana,
+        grade,
+        course,
+        enrollmentDate: enrollmentDate ? new Date(enrollmentDate) : undefined,
+        birthdate: birthdate ? new Date(birthdate) : undefined,
+        guardianNames: normalizeGuardianNames(guardianNames),
+      },
+    });
+
+    return NextResponse.json({ student }, { status: 201 });
+  } catch (e: any) {
+    if (e instanceof TypeError) {
+      return NextResponse.json({ error: e.message }, { status: 400 });
+    }
+    console.error("[POST /api/students] Error:", {
+      error: e?.message,
+      stack: e?.stack,
+    });
     return NextResponse.json(
-      { error: "name is required" },
-      { status: 400 }
+      { error: e?.message ?? "Internal Server Error" },
+      { status: 500 }
     );
   }
-
-  const student = await prisma.student.create({
-    data: {
-      organizationId: authResult.session.user.organizationId,
-      name,
-      nameKana,
-      grade,
-      course,
-      enrollmentDate: enrollmentDate ? new Date(enrollmentDate) : undefined,
-      birthdate: birthdate ? new Date(birthdate) : undefined,
-      guardianNames,
-    },
-  });
-
-  return NextResponse.json({ student }, { status: 201 });
 }

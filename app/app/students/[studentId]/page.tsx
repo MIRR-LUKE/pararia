@@ -1,10 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { Button } from "@/components/ui/Button";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { StructuredMarkdown } from "@/components/ui/StructuredMarkdown";
 import { getLessonReportPartState, pickOngoingLessonReportSession } from "@/lib/lesson-report-flow";
 import { LogView } from "../../logs/LogView";
@@ -27,6 +28,10 @@ type OverlayState =
   | { kind: "log"; logId: string }
   | { kind: "report"; view: ReportStudioView }
   | { kind: "parentReport"; reportId: string };
+
+type DeleteTarget =
+  | { kind: "conversation"; id: string; label: string; detail: string }
+  | { kind: "report"; id: string; label: string; detail: string };
 
 function normalizeTab(value: string | null): TabKey {
   if (value === "lessonReports") return "lessonReports";
@@ -119,11 +124,17 @@ export default function StudentDetailPage({ params }: { params: { studentId: str
   );
   const [periodFilter, setPeriodFilter] = useState<PeriodFilter>("all");
   const [sortOrder, setSortOrder] = useState<SortOrder>("desc");
+  const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null);
+  const [isDeletingTarget, setIsDeletingTarget] = useState(false);
+  const hasLoadedRoomRef = useRef(false);
 
   const refresh = useCallback(async (opts?: { silent?: boolean }) => {
     const silent = opts?.silent ?? false;
-    if (!silent) {
+    const shouldBlock = !silent && !hasLoadedRoomRef.current;
+    if (shouldBlock) {
       setLoading(true);
+      setError(null);
+    } else if (!silent) {
       setError(null);
     }
     try {
@@ -131,12 +142,13 @@ export default function StudentDetailPage({ params }: { params: { studentId: str
       const body = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(body?.error ?? "生徒ルームの取得に失敗しました。");
       setRoom(body);
+      hasLoadedRoomRef.current = true;
     } catch (nextError: any) {
-      if (!silent) {
+      if (shouldBlock) {
         setError(nextError?.message ?? "生徒ルームの取得に失敗しました。");
       }
     } finally {
-      if (!silent) {
+      if (shouldBlock) {
         setLoading(false);
       }
     }
@@ -366,8 +378,83 @@ export default function StudentDetailPage({ params }: { params: { studentId: str
     setOverlay({ kind: "none" });
     syncUrl({ panel: null, logId: null, reportId: null, lessonSessionId: null });
   }, [syncUrl]);
+
+  const activeLogSession =
+    overlay.kind === "log"
+      ? (room?.sessions ?? []).find((sessionItem) => sessionItem.conversation?.id === overlay.logId) ?? null
+      : null;
   const activeParentReport =
     overlay.kind === "parentReport" ? parentReports.find((report) => report.id === overlay.reportId) ?? null : null;
+  const activeLogReportUsageCount =
+    overlay.kind === "log"
+      ? (room?.reports ?? []).filter((report) => report.sourceLogIds?.includes(overlay.logId)).length
+      : 0;
+
+  const openDeleteDialogForLog = useCallback(() => {
+    if (overlay.kind !== "log") return;
+
+    const label = activeLogSession ? formatSessionLabel(activeLogSession) : "このログ";
+    const usageDetail =
+      activeLogReportUsageCount > 0
+        ? `${activeLogReportUsageCount}件の保護者レポートで使われている source trace からも外れます。`
+        : "保護者レポートの参照中でなければ、関連トレースはありません。";
+
+    setDeleteTarget({
+      kind: "conversation",
+      id: overlay.logId,
+      label,
+      detail: `${label}の本文と文字起こしを削除します。${usageDetail}`,
+    });
+  }, [activeLogReportUsageCount, activeLogSession, overlay]);
+
+  const openDeleteDialogForReport = useCallback(() => {
+    if (!activeParentReport) return;
+
+    setDeleteTarget({
+      kind: "report",
+      id: activeParentReport.id,
+      label: `${formatReportDate(activeParentReport.createdAt)} の保護者レポート`,
+      detail: "レポート本文と共有履歴をまとめて削除します。",
+    });
+  }, [activeParentReport]);
+
+  const deleteSelectedTarget = useCallback(async () => {
+    if (!deleteTarget) return;
+
+    setIsDeletingTarget(true);
+    try {
+      const res = await fetch(
+        deleteTarget.kind === "conversation"
+          ? `/api/conversations/${deleteTarget.id}`
+          : `/api/reports/${deleteTarget.id}`,
+        {
+          method: "DELETE",
+        }
+      );
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(
+          body?.error ??
+            (deleteTarget.kind === "conversation"
+              ? "ログの削除に失敗しました。"
+              : "保護者レポートの削除に失敗しました。")
+        );
+      }
+
+      setDeleteTarget(null);
+      closeOverlay();
+      await refresh();
+    } catch (nextError: any) {
+      alert(
+        nextError?.message ??
+          (deleteTarget.kind === "conversation"
+            ? "ログの削除に失敗しました。"
+            : "保護者レポートの削除に失敗しました。")
+      );
+    } finally {
+      setIsDeletingTarget(false);
+    }
+  }, [closeOverlay, deleteTarget, refresh]);
 
   if (loading) {
     return <div className={styles.loadingState}>生徒詳細を読み込んでいます...</div>;
@@ -601,11 +688,11 @@ export default function StudentDetailPage({ params }: { params: { studentId: str
           }}
         >
           <div className={styles.overlayPanel} role="dialog" aria-modal="true">
-            <div className={styles.overlayHeader}>
-              <div className={styles.overlayTitleBlock}>
-                <div className={styles.overlayEyebrow}>
-                  {overlay.kind === "log"
-                    ? "ログ"
+              <div className={styles.overlayHeader}>
+                <div className={styles.overlayTitleBlock}>
+                  <div className={styles.overlayEyebrow}>
+                    {overlay.kind === "log"
+                      ? "ログ"
                     : overlay.kind === "report"
                       ? "保護者レポート"
                       : "保護者レポートログ"}
@@ -616,12 +703,32 @@ export default function StudentDetailPage({ params }: { params: { studentId: str
                     : overlay.kind === "report"
                       ? "保護者レポートを確認する"
                       : "保護者レポートを確認する"}
-                </h3>
+                  </h3>
+                </div>
+                <div className={styles.overlayActions}>
+                  {overlay.kind === "log" ? (
+                    <Button
+                      variant="ghost"
+                      className={styles.deleteButton}
+                      onClick={openDeleteDialogForLog}
+                    >
+                      このログを削除
+                    </Button>
+                  ) : null}
+                  {overlay.kind === "parentReport" ? (
+                    <Button
+                      variant="ghost"
+                      className={styles.deleteButton}
+                      onClick={openDeleteDialogForReport}
+                    >
+                      このレポートを削除
+                    </Button>
+                  ) : null}
+                  <Button variant="secondary" onClick={closeOverlay}>
+                    閉じる
+                  </Button>
+                </div>
               </div>
-              <Button variant="secondary" onClick={closeOverlay}>
-                閉じる
-              </Button>
-            </div>
 
             <div className={styles.overlayContent}>
               {overlay.kind === "log" ? <LogView logId={overlay.logId} showHeader={false} onBack={closeOverlay} /> : null}
@@ -676,6 +783,25 @@ export default function StudentDetailPage({ params }: { params: { studentId: str
           </div>
         </div>
       ) : null}
+
+      <ConfirmDialog
+        open={Boolean(deleteTarget)}
+        title={deleteTarget ? `${deleteTarget.label}を削除しますか？` : ""}
+        description={deleteTarget?.detail ?? ""}
+        details={[
+          "この操作は取り消せません。",
+          "削除後は一覧と関連導線から即時に消えます。",
+        ]}
+        confirmLabel="削除する"
+        cancelLabel="戻る"
+        tone="danger"
+        pending={isDeletingTarget}
+        onConfirm={() => void deleteSelectedTarget()}
+        onCancel={() => {
+          if (isDeletingTarget) return;
+          setDeleteTarget(null);
+        }}
+      />
     </div>
   );
 }

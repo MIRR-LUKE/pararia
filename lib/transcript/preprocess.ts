@@ -1,4 +1,5 @@
 import { createHash } from "crypto";
+import { sanitizeTranscriptSegments, sanitizeTranscriptText } from "@/lib/user-facing-japanese";
 
 type WhisperSegment = {
   id?: number | string;
@@ -209,7 +210,7 @@ function buildBlocks(segments: string[], maxTokens = 4200, targetMin = 2600) {
 }
 
 export function preprocessTranscript(rawTextOriginal: string): PreprocessResult {
-  const normalized = normalizeJa(rawTextOriginal);
+  const normalized = sanitizeTranscriptText(normalizeJa(rawTextOriginal));
   const noFillers = removeFillers(normalized);
   const dedupedLines = dedupeAdjacentLines(noFillers);
   const chunks = dedupeChunkNearDuplicates(chunkByPunctuation(dedupedLines));
@@ -275,15 +276,16 @@ export function preprocessTranscriptWithSegments(
   rawTextOriginal: string,
   segments: WhisperSegment[] | null | undefined
 ): PreprocessResult {
-  if (!segments?.length) {
+  const sanitizedSegments = sanitizeTranscriptSegments(segments ?? []);
+  if (!sanitizedSegments.length) {
     return preprocessTranscript(rawTextOriginal);
   }
-  const normalized = normalizeJa(rawTextOriginal);
+  const normalized = sanitizeTranscriptText(normalizeJa(rawTextOriginal));
   const noFillers = removeFillers(normalized);
   const dedupedLines = dedupeAdjacentLines(noFillers);
   const chunks = dedupeChunkNearDuplicates(chunkByPunctuation(dedupedLines));
   const rawTextCleaned = normalizeJa(chunks.join("\n"));
-  const timingSegments = buildTimingSegments(segments, {});
+  const timingSegments = buildTimingSegments(sanitizedSegments, {});
   const blocks = buildBlocks(timingSegments.length ? timingSegments : splitByTopicBoundaries(rawTextCleaned));
   return { rawTextOriginal: normalized, rawTextCleaned, chunks, blocks };
 }

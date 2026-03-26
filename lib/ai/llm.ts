@@ -1,4 +1,9 @@
 import { DEFAULT_TEACHER_FULL_NAME } from "@/lib/constants";
+import {
+  sanitizeFormattedTranscript,
+  sanitizeTranscriptSegments,
+  sanitizeTranscriptText,
+} from "@/lib/user-facing-japanese";
 
 const LLM_API_KEY = process.env.LLM_API_KEY || process.env.OPENAI_API_KEY || "";
 const MODEL_FAST = process.env.LLM_MODEL_FAST || process.env.LLM_MODEL || "gpt-5.4";
@@ -321,7 +326,7 @@ export async function formatTranscriptFromSegments(
   segments: Array<{ start?: number; end?: number; text?: string; speaker?: string }>,
   opts?: { studentName?: string; teacherName?: string }
 ): Promise<string> {
-  const sourceSegments: DiarizedSegment[] = segments
+  const sourceSegments: DiarizedSegment[] = sanitizeTranscriptSegments(segments)
     .map((segment, index) => ({
       index,
       start: segment.start,
@@ -343,7 +348,7 @@ export async function formatTranscriptFromSegments(
     };
   });
 
-  return joinConsecutiveSpeakerLines(normalized, opts);
+  return sanitizeFormattedTranscript(joinConsecutiveSpeakerLines(normalized, opts));
 }
 
 function parseInlineSpeakerLine(
@@ -379,7 +384,7 @@ export async function formatTranscriptFromText(
   rawText: string,
   opts?: { studentName?: string; teacherName?: string }
 ): Promise<string> {
-  const source = String(rawText ?? "").trim();
+  const source = sanitizeTranscriptText(rawText);
   if (!source) return "";
 
   const parts = source
@@ -389,5 +394,5 @@ export async function formatTranscriptFromText(
     .filter((line) => line.text);
 
   if (parts.length === 0) return "";
-  return joinConsecutiveSpeakerLines(parts, opts);
+  return sanitizeFormattedTranscript(joinConsecutiveSpeakerLines(parts, opts));
 }

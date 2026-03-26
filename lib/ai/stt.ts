@@ -1,3 +1,5 @@
+import { sanitizeTranscriptSegments, sanitizeTranscriptText } from "@/lib/user-facing-japanese";
+
 type TranscribeInput = {
   buffer: Buffer;
   filename?: string;
@@ -318,15 +320,21 @@ async function transcribeAttempt(args: {
   };
 
   const normalized = normalizeSegments(data);
-  const segments = normalized.segments;
+  const segments = sanitizeTranscriptSegments(normalized.segments);
   const rawTextOriginal =
-    (buildRawTextFromSegments(segments) ||
-      (typeof data.text === "string" ? normalizeSegmentText(data.text) : ""))
+    (sanitizeTranscriptText(buildRawTextFromSegments(segments)) ||
+      (typeof data.text === "string" ? sanitizeTranscriptText(normalizeSegmentText(data.text)) : ""))
       .trim();
 
   if (!rawTextOriginal) {
     throw new Error("STT returned an empty transcript.");
   }
+
+  const speakerCount = new Set(
+    segments
+      .map((segment) => (typeof segment.speaker === "string" ? segment.speaker.trim() : ""))
+      .filter(Boolean)
+  ).size;
 
   return {
     rawTextOriginal,
@@ -337,7 +345,7 @@ async function transcribeAttempt(args: {
       recoveryUsed: false,
       attemptCount: 1,
       segmentCount: segments.length,
-      speakerCount: normalized.speakerCount,
+      speakerCount,
       qualityWarnings: normalized.qualityWarnings,
     },
   };

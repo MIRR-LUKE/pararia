@@ -39,6 +39,14 @@ export async function GET(
             status: true,
             summaryMarkdown: true,
             createdAt: true,
+            jobs: {
+              select: {
+                type: true,
+                status: true,
+                startedAt: true,
+                finishedAt: true,
+              },
+            },
           },
         },
       },

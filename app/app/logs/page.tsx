@@ -1,11 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { Badge } from "@/components/ui/Badge";
+import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { deriveReportDeliveryState, reportDeliveryStateLabel } from "@/lib/report-delivery";
 import styles from "./logsList.module.css";
 
@@ -108,8 +110,10 @@ export default function LogsListPage() {
   const [students, setStudents] = useState<StudentRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [logToDelete, setLogToDelete] = useState<LogItem | null>(null);
+  const [isDeletingLog, setIsDeletingLog] = useState(false);
 
-  useEffect(() => {
+  const refresh = useCallback(async () => {
     setLoading(true);
     setError(null);
 
@@ -117,25 +121,32 @@ export default function LogsListPage() {
     if (studentId) conversationParams.set("studentId", studentId);
     conversationParams.set("limit", studentId ? "100" : "80");
 
-    Promise.all([
-      fetch(`/api/conversations?${conversationParams.toString()}`, { cache: "no-store" }).then(async (res) => {
-        const body = await res.json();
-        if (!res.ok) throw new Error(body?.error ?? "ログ一覧の読み込みに失敗しました。");
-        return body.conversations ?? [];
-      }),
-      fetch("/api/students?limit=200", { cache: "no-store" }).then(async (res) => {
-        const body = await res.json();
-        if (!res.ok) throw new Error(body?.error ?? "生徒情報の読み込みに失敗しました。");
-        return body.students ?? [];
-      }),
-    ])
-      .then(([conversationRows, studentRows]) => {
-        setConversations(conversationRows);
-        setStudents(studentRows);
-      })
-      .catch((fetchError: Error) => setError(fetchError.message))
-      .finally(() => setLoading(false));
+    try {
+      const [conversationRows, studentRows] = await Promise.all([
+        fetch(`/api/conversations?${conversationParams.toString()}`, { cache: "no-store" }).then(async (res) => {
+          const body = await res.json();
+          if (!res.ok) throw new Error(body?.error ?? "ログ一覧の読み込みに失敗しました。");
+          return body.conversations ?? [];
+        }),
+        fetch("/api/students?limit=200", { cache: "no-store" }).then(async (res) => {
+          const body = await res.json();
+          if (!res.ok) throw new Error(body?.error ?? "生徒情報の読み込みに失敗しました。");
+          return body.students ?? [];
+        }),
+      ]);
+
+      setConversations(conversationRows);
+      setStudents(studentRows);
+    } catch (fetchError: any) {
+      setError(fetchError?.message ?? "ログ一覧の読み込みに失敗しました。");
+    } finally {
+      setLoading(false);
+    }
   }, [studentId]);
+
+  useEffect(() => {
+    void refresh();
+  }, [refresh]);
 
   const filtered = useMemo(() => {
     if (tab === "interview") return conversations.filter((item) => item.sessionType !== "LESSON_REPORT");
@@ -176,6 +187,28 @@ export default function LogsListPage() {
   }, [students]);
 
   const baseLogsPath = studentId ? `/app/logs?studentId=${encodeURIComponent(studentId)}` : "/app/logs";
+
+  const deleteLog = async () => {
+    if (!logToDelete) return;
+
+    setIsDeletingLog(true);
+    try {
+      const res = await fetch(`/api/conversations/${logToDelete.id}`, {
+        method: "DELETE",
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(body?.error ?? "ログの削除に失敗しました。");
+      }
+
+      setLogToDelete(null);
+      await refresh();
+    } catch (nextError: any) {
+      alert(nextError?.message ?? "ログの削除に失敗しました。");
+    } finally {
+      setIsDeletingLog(false);
+    }
+  };
 
   return (
     <div className={styles.page}>
@@ -225,47 +258,79 @@ export default function LogsListPage() {
             {filtered.map((log) => {
               const traces = traceByLogId.get(log.id) ?? [];
               return (
-                <Link key={log.id} href={`/app/logs/${log.id}`} className={styles.row}>
-                  <div className={styles.rowMain}>
-                    <div className={styles.rowTop}>
-                      <div>
-                        <div className={styles.studentName}>{log.student?.name ?? "担当未設定"}</div>
-                        <div className={styles.meta}>{log.student?.grade ?? "学年未設定"}</div>
-                      </div>
-                      <div className={styles.badgeRow}>
-                        <Badge label={sessionTypeLabel(log.sessionType)} tone="neutral" />
-                        <Badge label={statusLabel(log.status)} tone={statusTone(log.status)} />
-                      </div>
-                    </div>
-
-                    <p className={styles.summary}>{excerpt(log.summaryMarkdown)}</p>
-
-                    <div className={styles.tracePanel}>
-                      <div className={styles.traceLabel}>このログが使われた保護者レポート</div>
-                      {traces.length === 0 ? (
-                        <p className={styles.traceEmpty}>まだ source trace はありません。</p>
-                      ) : (
-                        <div className={styles.traceChips}>
-                          {traces.map((trace) => (
-                            <span key={`${trace.reportId}-${trace.studentId}`} className={styles.traceChip}>
-                              {trace.studentName} / {trace.reportLabel} / {trace.sourceCount}件
-                            </span>
-                          ))}
+                <article key={log.id} className={styles.row}>
+                  <Link href={`/app/logs/${log.id}`} className={styles.rowLink}>
+                    <div className={styles.rowMain}>
+                      <div className={styles.rowTop}>
+                        <div>
+                          <div className={styles.studentName}>{log.student?.name ?? "担当未設定"}</div>
+                          <div className={styles.meta}>{log.student?.grade ?? "学年未設定"}</div>
                         </div>
-                      )}
-                    </div>
+                        <div className={styles.badgeRow}>
+                          <Badge label={sessionTypeLabel(log.sessionType)} tone="neutral" />
+                          <Badge label={statusLabel(log.status)} tone={statusTone(log.status)} />
+                        </div>
+                      </div>
 
-                    <div className={styles.footerRow}>
-                      <span className={styles.meta}>{new Date(log.createdAt).toLocaleDateString("ja-JP")}</span>
-                      <span className={styles.linkLabel}>開く</span>
+                      <p className={styles.summary}>{excerpt(log.summaryMarkdown)}</p>
+
+                      <div className={styles.tracePanel}>
+                        <div className={styles.traceLabel}>このログが使われた保護者レポート</div>
+                        {traces.length === 0 ? (
+                          <p className={styles.traceEmpty}>まだ source trace はありません。</p>
+                        ) : (
+                          <div className={styles.traceChips}>
+                            {traces.map((trace) => (
+                              <span key={`${trace.reportId}-${trace.studentId}`} className={styles.traceChip}>
+                                {trace.studentName} / {trace.reportLabel} / {trace.sourceCount}件
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
+                      <div className={styles.footerRow}>
+                        <span className={styles.meta}>{new Date(log.createdAt).toLocaleDateString("ja-JP")}</span>
+                        <span className={styles.linkLabel}>開く</span>
+                      </div>
                     </div>
+                  </Link>
+
+                  <div className={styles.rowActions}>
+                    <Button
+                      variant="ghost"
+                      size="small"
+                      className={styles.deleteButton}
+                      onClick={() => setLogToDelete(log)}
+                    >
+                      削除
+                    </Button>
                   </div>
-                </Link>
+                </article>
               );
             })}
           </div>
         )}
       </Card>
+
+      <ConfirmDialog
+        open={Boolean(logToDelete)}
+        title={logToDelete ? `${sessionTypeLabel(logToDelete.sessionType)}ログを削除しますか？` : ""}
+        description="削除したログ本文と文字起こしは元に戻せません。保護者レポートで参照中なら source trace からも外れます。"
+        details={[
+          "削除後は一覧から即時に消えます。",
+          "必要なら削除前に内容を確認してください。",
+        ]}
+        confirmLabel="削除する"
+        cancelLabel="戻る"
+        tone="danger"
+        pending={isDeletingLog}
+        onConfirm={() => void deleteLog()}
+        onCancel={() => {
+          if (isDeletingLog) return;
+          setLogToDelete(null);
+        }}
+      />
     </div>
   );
 }

@@ -3,6 +3,7 @@ import { ConversationJobType, ConversationStatus, JobStatus, Prisma, SessionStat
 import { estimateTokens, generateConversationDraftFast, getPromptVersion } from "@/lib/ai/conversationPipeline";
 import { formatTranscriptFromSegments, formatTranscriptFromText } from "@/lib/ai/llm";
 import { DEFAULT_TEACHER_FULL_NAME } from "@/lib/constants";
+import { sanitizeFormattedTranscript, sanitizeTranscriptText } from "@/lib/user-facing-japanese";
 import type { ConversationQualityMeta } from "@/lib/types/conversation";
 import { syncSessionAfterConversation } from "@/lib/session-service";
 import { toPrismaJson } from "@/lib/prisma-json";
@@ -76,14 +77,16 @@ async function executeJobWithRetry(job: JobPayload) {
 }
 
 function normalizeSourceText(payload: ConversationPayload) {
-  if (payload.rawTextCleaned?.trim()) return payload.rawTextCleaned;
-  if (payload.rawTextOriginal?.trim()) return payload.rawTextOriginal;
+  if (payload.rawTextCleaned?.trim()) return sanitizeTranscriptText(payload.rawTextCleaned);
+  if (payload.rawTextOriginal?.trim()) return sanitizeTranscriptText(payload.rawTextOriginal);
   if (payload.formattedTranscript?.trim()) {
-    return payload.formattedTranscript
+    return sanitizeTranscriptText(
+      payload.formattedTranscript
       .split("\n")
       .map((line) => line.replace(/^\*\*[^*]+\*\*:\s*/g, ""))
       .join("\n")
-      .trim();
+      .trim()
+    );
   }
   return "";
 }
@@ -301,11 +304,12 @@ async function executeFormatJob(job: JobPayload, convo: ConversationPayload) {
   }
 
   const duration = Date.now() - start;
+  const cleanedFormatted = sanitizeFormattedTranscript(formatted ?? "");
 
   await prisma.conversationLog.update({
     where: { id: convo.id },
     data: {
-      formattedTranscript: formatted ?? undefined,
+      formattedTranscript: cleanedFormatted || undefined,
       qualityMetaJson: toPrismaJson({
         ...(convo.qualityMetaJson ?? {}),
         jobSecondsFormat: Math.round(duration / 1000),
@@ -320,7 +324,7 @@ async function executeFormatJob(job: JobPayload, convo: ConversationPayload) {
       finishedAt: new Date(),
       model: "hybrid",
       outputJson: toPrismaJson({
-        formattedLength: formatted?.length ?? 0,
+        formattedLength: cleanedFormatted.length,
       }),
       costMetaJson: toPrismaJson({
         promptVersion: getPromptVersion(),
@@ -331,7 +335,7 @@ async function executeFormatJob(job: JobPayload, convo: ConversationPayload) {
 
   await updateConversationStatus(convo.id);
 
-  return { formatted, duration };
+  return { formatted: cleanedFormatted, duration };
 }
 
 async function executeJob(job: JobPayload) {

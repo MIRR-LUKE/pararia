@@ -142,6 +142,11 @@
   color: #ffffff;
 }
 
+.uploadFormats {
+  width: min(320px, 100%);
+  word-break: break-word;
+}
+
 .statusLine {
   font-size: 12px;
   line-height: 1.65;

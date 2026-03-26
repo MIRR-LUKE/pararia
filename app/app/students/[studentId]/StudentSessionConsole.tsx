@@ -3,6 +3,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { GenerationProgress } from "@/components/ui/GenerationProgress";
+import {
+  AUDIO_UPLOAD_ACCEPT_ATTR,
+  AUDIO_UPLOAD_EXTENSIONS_LABEL,
+  buildUnsupportedAudioUploadErrorMessage,
+  isSupportedAudioUpload,
+} from "@/lib/audio-upload-support";
 import { buildLessonReportFlowMessage, getLessonReportPartState } from "@/lib/lesson-report-flow";
 import { RECORDING_LOCK_HEARTBEAT_MS } from "@/lib/recording/lockConstants";
 import type { RecordingLockInfo, SessionItem, SessionPipelineInfo } from "./roomTypes";
@@ -382,17 +388,21 @@ export function StudentSessionConsole({
       setSessionProgress(null);
       setRecoverableSessionId(sessionId);
       setError(null);
+      if (mode === "LESSON_REPORT" && lessonPart === "CHECK_IN") {
+        setRecoverableSessionId(null);
+        setState("idle");
+        setMessage("チェックインを保存しました。チェックアウトへ進んでください。文字起こしは裏で続けます。");
+        onLessonPartChange("CHECK_OUT");
+        await onRefresh();
+        return null;
+      }
+
       setState("processing");
       setMessage(
         mode === "INTERVIEW"
           ? "保存受付が完了しました。文字起こしと面談ログ生成を進めています。"
-          : lessonPart === "CHECK_IN"
-            ? "チェックインの保存受付が完了しました。まずは文字起こしを進めています。"
-            : "チェックアウトの保存受付が完了しました。文字起こし後に指導報告ログへ進みます。"
+          : "チェックアウトの保存受付が完了しました。文字起こし後に指導報告ログへ進みます。"
       );
-      if (mode === "LESSON_REPORT" && lessonPart === "CHECK_IN") {
-        onLessonPartChange("CHECK_OUT");
-      }
       await onRefresh();
       return pollSessionProgress(sessionId);
     },
@@ -755,9 +765,9 @@ export function StudentSessionConsole({
   const handleFileSelection = useCallback(
     async (file: File | null) => {
       if (!file) return;
-      if (!file.type.startsWith("audio/") && !file.name.match(/\.(webm|ogg|mp3|wav|m4a)$/i)) {
+      if (!isSupportedAudioUpload({ fileName: file.name, mimeType: file.type })) {
         setState("error");
-        setError("音声ファイルを選択してください。");
+        setError(buildUnsupportedAudioUploadErrorMessage());
         return;
       }
       if (lockConflict) {
@@ -806,6 +816,9 @@ export function StudentSessionConsole({
                 ],
         }
       : null;
+  const showGenerationProgress =
+    Boolean(generationProgress) &&
+    !(mode === "LESSON_REPORT" && lessonPart === "CHECK_IN");
 
   const idleHeadline =
     mode === "INTERVIEW"
@@ -969,17 +982,20 @@ export function StudentSessionConsole({
                 ref={fileInputRef}
                 hidden
                 type="file"
-                accept="audio/*"
+                accept={AUDIO_UPLOAD_ACCEPT_ATTR}
                 onChange={(event) => {
                   const file = event.target.files?.[0] ?? null;
                   event.currentTarget.value = "";
                   void handleFileSelection(file);
                 }}
               />
+              <div className={`${styles.supportLine} ${styles.uploadFormats}`}>
+                対応拡張子: {AUDIO_UPLOAD_EXTENSIONS_LABEL}
+              </div>
             </>
           )}
 
-          {state === "processing" || state === "uploading" ? (
+          {showGenerationProgress ? (
             generationProgress ? <GenerationProgress progress={generationProgress} /> : null
           ) : null}
 

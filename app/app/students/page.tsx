@@ -1,11 +1,12 @@
 ﻿"use client";
 
 import { useEffect, useMemo, useState } from "react";
-import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { buildReportDeliverySummary } from "@/lib/report-delivery";
 import styles from "./students.module.css";
 
@@ -136,6 +137,7 @@ function summarize(student: StudentRow) {
 }
 
 export default function StudentsPage() {
+  const router = useRouter();
   const [students, setStudents] = useState<StudentRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -149,6 +151,8 @@ export default function StudentsPage() {
     course: "",
     guardianNames: "",
   });
+  const [studentToDelete, setStudentToDelete] = useState<StudentRow | null>(null);
+  const [isDeletingStudent, setIsDeletingStudent] = useState(false);
 
   const refresh = async () => {
     setLoading(true);
@@ -238,6 +242,28 @@ export default function StudentsPage() {
     setShowCreate(false);
     setNewStudent({ name: "", nameKana: "", grade: "", course: "", guardianNames: "" });
     await refresh();
+  };
+
+  const deleteStudent = async () => {
+    if (!studentToDelete) return;
+
+    setIsDeletingStudent(true);
+    try {
+      const res = await fetch(`/api/students/${studentToDelete.id}`, {
+        method: "DELETE",
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(body?.error ?? "生徒の削除に失敗しました。");
+      }
+
+      setStudentToDelete(null);
+      await refresh();
+    } catch (nextError: any) {
+      alert(nextError?.message ?? "生徒の削除に失敗しました。");
+    } finally {
+      setIsDeletingStudent(false);
+    }
   };
 
   return (
@@ -330,46 +356,75 @@ export default function StudentsPage() {
         ) : (
           <div className={styles.list}>
             {filtered.map((student) => (
-              <Link key={student.id} href={student.href} className={styles.row}>
-                <div className={styles.rowIdentity}>
-                  <div className={styles.rowTop}>
-                    <strong className={styles.rowName}>{student.name}</strong>
-                    {student.grade ? <span className={styles.meta}>{student.grade}</span> : null}
-                    <Badge label={student.state} tone={student.viewKey === "report" ? "high" : "medium"} />
+              <article key={student.id} className={styles.row}>
+                <div className={styles.rowContent}>
+                  <div className={styles.rowIdentity}>
+                    <div className={styles.rowTop}>
+                      <strong className={styles.rowName}>{student.name}</strong>
+                      {student.grade ? <span className={styles.meta}>{student.grade}</span> : null}
+                      <Badge label={student.state} tone={student.viewKey === "report" ? "high" : "medium"} />
+                    </div>
+                    <p className={styles.oneLiner}>{student.oneLiner}</p>
                   </div>
-                  <p className={styles.oneLiner}>{student.oneLiner}</p>
-                </div>
 
-                <div className={styles.rowMetaColumn}>
-                  <div>
-                    <div className={styles.metaLabel}>次にやること</div>
-                    <div className={styles.metaValue}>{student.nextAction}</div>
+                  <div className={styles.rowMetaColumn}>
+                    <div>
+                      <div className={styles.metaLabel}>次にやること</div>
+                      <div className={styles.metaValue}>{student.nextAction}</div>
+                    </div>
+                    <div>
+                      <div className={styles.metaLabel}>プロフィール</div>
+                      <div className={styles.metaValue}>{student.completeness}%</div>
+                    </div>
                   </div>
-                  <div>
-                    <div className={styles.metaLabel}>プロフィール</div>
-                    <div className={styles.metaValue}>{student.completeness}%</div>
-                  </div>
-                </div>
 
-                <div className={styles.rowMetaColumn}>
-                  <div>
-                    <div className={styles.metaLabel}>セッション</div>
-                    <div className={styles.metaValue}>{student._count?.sessions ?? 0} 件</div>
-                  </div>
-                  <div>
-                    <div className={styles.metaLabel}>レポート</div>
-                    <div className={styles.metaValue}>{student._count?.reports ?? 0} 件</div>
+                  <div className={styles.rowMetaColumn}>
+                    <div>
+                      <div className={styles.metaLabel}>セッション</div>
+                      <div className={styles.metaValue}>{student._count?.sessions ?? 0} 件</div>
+                    </div>
+                    <div>
+                      <div className={styles.metaLabel}>レポート</div>
+                      <div className={styles.metaValue}>{student._count?.reports ?? 0} 件</div>
+                    </div>
                   </div>
                 </div>
 
                 <div className={styles.rowAction}>
-                  <Button>生徒詳細へ</Button>
+                  <Button onClick={() => router.push(student.href)}>生徒詳細へ</Button>
+                  <Button
+                    variant="ghost"
+                    size="small"
+                    className={styles.deleteButton}
+                    onClick={() => setStudentToDelete(student)}
+                  >
+                    削除
+                  </Button>
                 </div>
-              </Link>
+              </article>
             ))}
           </div>
         )}
       </Card>
+
+      <ConfirmDialog
+        open={Boolean(studentToDelete)}
+        title={studentToDelete ? `${studentToDelete.name} を削除しますか？` : ""}
+        description="生徒本体に加えて、関連する面談ログ・指導報告ログ・保護者レポートもまとめて削除します。"
+        details={[
+          "この操作は取り消せません。",
+          "削除後は生徒一覧と関連ログ一覧から即時に消えます。",
+        ]}
+        confirmLabel="削除する"
+        cancelLabel="戻る"
+        tone="danger"
+        pending={isDeletingStudent}
+        onConfirm={() => void deleteStudent()}
+        onCancel={() => {
+          if (isDeletingStudent) return;
+          setStudentToDelete(null);
+        }}
+      />
     </div>
   );
 }

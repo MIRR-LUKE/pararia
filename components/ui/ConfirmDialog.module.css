@@ -1,0 +1,92 @@
+.backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.72);
+  backdrop-filter: blur(10px);
+}
+
+.dialog {
+  width: min(460px, 100%);
+  border-radius: 20px;
+  border: 1px solid var(--border);
+  background: #1f1f1f;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.4);
+  display: grid;
+  gap: 0;
+  overflow: hidden;
+}
+
+.body {
+  display: grid;
+  gap: 12px;
+  padding: 22px 22px 18px;
+}
+
+.eyebrow {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.title {
+  margin: 0;
+  font-size: 22px;
+  line-height: 1.2;
+}
+
+.description,
+.detailItem {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.7;
+}
+
+.detailList {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border-radius: 16px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+}
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 0 22px 22px;
+  flex-wrap: wrap;
+}
+
+.dangerButton {
+  background: #e35d56;
+  border-color: #e35d56;
+  color: #ffffff;
+}
+
+.dangerButton:hover {
+  box-shadow: 0 10px 24px rgba(227, 93, 86, 0.22);
+}
+
+@media (max-width: 720px) {
+  .backdrop {
+    padding: 16px;
+    align-items: flex-end;
+  }
+
+  .dialog {
+    width: 100%;
+    border-radius: 20px 20px 0 0;
+  }
+
+  .actions {
+    flex-direction: column-reverse;
+  }
+}

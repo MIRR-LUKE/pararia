@@ -9,6 +9,21 @@ type ChatCompletionResponse = {
   }>;
 };
 
+type ResponsesApiResponse = {
+  output_text?: string;
+  output?: Array<{
+    type?: string;
+    content?: Array<{
+      type?: string;
+      text?: string;
+      refusal?: string;
+    }>;
+  }>;
+  incomplete_details?: {
+    reason?: string;
+  };
+};
+
 type ChatResult = {
   raw: string;
   contentText: string | null;
@@ -17,7 +32,7 @@ type ChatResult = {
 };
 
 const LLM_API_KEY = process.env.LLM_API_KEY || process.env.OPENAI_API_KEY || "";
-const PROMPT_VERSION = "v4.0";
+const PROMPT_VERSION = "v4.1";
 const DEFAULT_LLM_TIMEOUT_MS = clampInt(Number(process.env.LLM_CALL_TIMEOUT_MS ?? 90000), 10000, 180000);
 
 function clampInt(value: number, min: number, max: number) {
@@ -66,6 +81,33 @@ function extractChatCompletionContent(data: ChatCompletionResponse) {
     contentText: null,
     finishReason: choice?.finish_reason,
     refusal: choice?.message?.refusal,
+  };
+}
+
+function extractResponsesContent(data: ResponsesApiResponse) {
+  if (typeof data.output_text === "string" && data.output_text.trim()) {
+    return {
+      contentText: data.output_text.trim(),
+      finishReason: data.incomplete_details?.reason,
+      refusal: undefined,
+    };
+  }
+
+  const message = Array.isArray(data.output)
+    ? data.output.find((item) => item?.type === "message" && Array.isArray(item.content))
+    : null;
+  const contentText = message?.content
+    ?.filter((item) => item?.type === "output_text" && typeof item.text === "string")
+    .map((item) => item.text?.trim() || "")
+    .filter(Boolean)
+    .join("\n")
+    .trim();
+  const refusal = message?.content?.find((item) => item?.type === "refusal")?.refusal;
+
+  return {
+    contentText: contentText || null,
+    finishReason: data.incomplete_details?.reason,
+    refusal,
   };
 }
 
@@ -170,6 +212,135 @@ async function callChatCompletions(params: {
   throw new Error("LLM API retry budget exceeded.");
 }
 
+function toResponsesPromptCacheRetention(retention?: "in_memory" | "24h") {
+  if (retention === "24h") return "24h";
+  if (retention === "in_memory") return "in-memory";
+  return undefined;
+}
+
+async function callResponsesApi(params: {
+  model: string;
+  messages: Array<{ role: "system" | "user"; content: string }>;
+  max_output_tokens?: number;
+  timeoutMs?: number;
+  prompt_cache_key?: string;
+  prompt_cache_retention?: "in_memory" | "24h";
+  verbosity?: "low" | "medium" | "high";
+}): Promise<ChatResult> {
+  if (!LLM_API_KEY) {
+    throw new Error("LLM_API_KEY (or OPENAI_API_KEY) is not set.");
+  }
+
+  const timeoutMs = Math.max(10000, params.timeoutMs ?? DEFAULT_LLM_TIMEOUT_MS);
+  let body: Record<string, unknown> = {
+    model: params.model,
+    input: params.messages,
+    store: false,
+    reasoning: { effort: "none" },
+    text: {
+      format: { type: "text" },
+      ...(params.verbosity ? { verbosity: params.verbosity } : {}),
+    },
+    ...(params.max_output_tokens ? { max_output_tokens: params.max_output_tokens } : {}),
+    ...(params.prompt_cache_key ? { prompt_cache_key: params.prompt_cache_key } : {}),
+    ...(toResponsesPromptCacheRetention(params.prompt_cache_retention)
+      ? { prompt_cache_retention: toResponsesPromptCacheRetention(params.prompt_cache_retention) }
+      : {}),
+  };
+
+  const requestOnce = async (requestBody: Record<string, unknown>) => {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const res = await fetch("https://api.openai.com/v1/responses", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${LLM_API_KEY}`,
+        },
+        body: JSON.stringify(requestBody),
+        signal: controller.signal,
+      });
+      const raw = await res.text().catch(() => "");
+      return { res, raw };
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  };
+
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    try {
+      const { res, raw } = await requestOnce(body);
+      if (!res.ok) {
+        const retryBody = { ...body };
+        let changed = false;
+        if (/(prompt_cache_key|prompt_cache_retention)/i.test(raw)) {
+          delete retryBody.prompt_cache_key;
+          delete retryBody.prompt_cache_retention;
+          changed = true;
+        }
+        if (/verbosity/i.test(raw)) {
+          const nextText =
+            retryBody.text && typeof retryBody.text === "object" && !Array.isArray(retryBody.text)
+              ? { ...(retryBody.text as Record<string, unknown>) }
+              : {};
+          delete nextText.verbosity;
+          retryBody.text = nextText;
+          changed = true;
+        }
+        if (changed) {
+          body = retryBody;
+          continue;
+        }
+        if (attempt < 3 && isRetryableLlmStatus(res.status, raw)) {
+          await waitForLlmRetry(attempt);
+          continue;
+        }
+        throw new Error(`Responses API failed (${res.status}): ${raw}`);
+      }
+
+      const data = tryParseJson<ResponsesApiResponse>(raw);
+      if (!data) return { raw, contentText: null };
+      return { raw, ...extractResponsesContent(data) };
+    } catch (error) {
+      if (attempt < 3 && isRetryableLlmError(error)) {
+        await waitForLlmRetry(attempt);
+        continue;
+      }
+      throw error;
+    }
+  }
+
+  throw new Error("Responses API retry budget exceeded.");
+}
+
+async function callTextGeneration(params: {
+  model: string;
+  messages: Array<{ role: "system" | "user"; content: string }>;
+  max_output_tokens?: number;
+  timeoutMs?: number;
+  prompt_cache_key?: string;
+  prompt_cache_retention?: "in_memory" | "24h";
+  verbosity?: "low" | "medium" | "high";
+}) {
+  try {
+    return await callResponsesApi(params);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error ?? "");
+    if (!/(Responses API failed|Responses API retry budget exceeded|404|400|unsupported|invalid)/i.test(message)) {
+      throw error;
+    }
+    return callChatCompletions({
+      model: params.model,
+      messages: params.messages,
+      timeoutMs: params.timeoutMs,
+      max_completion_tokens: params.max_output_tokens,
+      prompt_cache_key: params.prompt_cache_key,
+      prompt_cache_retention: params.prompt_cache_retention,
+    });
+  }
+}
+
 export function estimateTokens(text: string) {
   return Math.ceil(String(text ?? "").length / 2);
 }
@@ -225,29 +396,89 @@ function dedupeKeepOrder(lines: string[]) {
   return out;
 }
 
+const INTERVIEW_KEYWORD_RE =
+  /学習|学校|生活|睡眠|宿題|部活|進路|志望|不安|課題|目標|復習|模試|受験|成績|提出|習慣|過去問|共通テスト|私大|数学|英語|国語|理科|社会|ベクトル|数列|微分|積分/;
+const LESSON_KEYWORD_RE =
+  /宿題|授業|演習|理解|つまず|復習|次回|課題|単元|解説|確認|極限|三角関数|ベクトル|数列|微分|積分|学校|講習|化学|英語|数学/;
+
+function countJapaneseChars(text: string) {
+  return (text.match(/[一-龯ぁ-んァ-ヶー]/g) ?? []).length;
+}
+
+function countAsciiLetters(text: string) {
+  return (text.match(/[A-Za-z]/g) ?? []).length;
+}
+
+function isLikelyNoiseLine(line: string) {
+  const normalized = normalizeWhitespace(line);
+  if (!normalized) return true;
+  if (/^(はい|ええ|うん|了解|わかりました|オッケー|OK|ないです|特にない|大丈夫|以上です|お疲れさま)[。！!？?]*$/i.test(normalized)) {
+    return true;
+  }
+  const japaneseChars = countJapaneseChars(normalized);
+  const asciiLetters = countAsciiLetters(normalized);
+  if (asciiLetters >= 10 && japaneseChars < asciiLetters) return true;
+  if (/^[\s,，、。.・!?？！-]+$/.test(normalized)) return true;
+  if (japaneseChars < 5 && normalized.length < 10) return true;
+  return false;
+}
+
+function scoreEvidenceLine(line: string, keywordRegex: RegExp) {
+  const normalized = normalizeWhitespace(line);
+  const keywordBoost = keywordRegex.test(normalized) ? 30 : 0;
+  const japaneseScore = Math.min(countJapaneseChars(normalized), 60);
+  const lengthScore = Math.min(normalized.length, 90);
+  const asciiPenalty = countAsciiLetters(normalized) > 8 ? 16 : 0;
+  const fillerPenalty = /^(はい|ええ|うん|そう|なるほど|たしかに)/.test(normalized) ? 18 : 0;
+  return japaneseScore + lengthScore + keywordBoost - asciiPenalty - fillerPenalty;
+}
+
+function pickInformativeLines(lines: string[], keywordRegex: RegExp, limit: number) {
+  return lines
+    .map((line, index) => ({
+      line,
+      index,
+      score: isLikelyNoiseLine(line) ? -999 : scoreEvidenceLine(line, keywordRegex),
+    }))
+    .filter((item) => item.score > 0)
+    .sort((left, right) => {
+      if (right.score !== left.score) return right.score - left.score;
+      return left.index - right.index;
+    })
+    .slice(0, limit)
+    .sort((left, right) => left.index - right.index)
+    .map((item) => item.line);
+}
+
 function pickInterviewLines(transcript: string) {
-  const lines = transcriptLines(transcript);
-  const keywordLines = lines.filter((line) =>
-    /学習|学校|生活|睡眠|宿題|部活|進路|志望|不安|課題|目標|復習|模試|受験|成績|提出|習慣/.test(line)
-  );
+  const lines = transcriptLines(transcript).filter((line) => !isLikelyNoiseLine(line));
+  const keywordLines = lines.filter((line) => INTERVIEW_KEYWORD_RE.test(line));
+  const informativeLines = pickInformativeLines(lines, INTERVIEW_KEYWORD_RE, 12);
   return dedupeKeepOrder([
     ...lines.slice(0, 10),
     ...keywordLines.slice(0, 14),
-    ...lines.slice(-10),
-  ]).slice(0, 28);
+    ...informativeLines,
+    ...lines.slice(-8),
+  ]).slice(0, 32);
 }
 
 function pickLessonLines(transcript: string) {
-  const checkIn = transcriptLines(extractMarkdownSectionBody(transcript, "授業前チェックイン")).slice(0, 12);
-  const checkOut = transcriptLines(extractMarkdownSectionBody(transcript, "授業後チェックアウト")).slice(0, 14);
-  const all = transcriptLines(transcript);
-  const keywordLines = all.filter((line) => /宿題|授業|演習|理解|つまず|復習|次回|課題|単元|解説|確認/.test(line));
+  const checkIn = transcriptLines(extractMarkdownSectionBody(transcript, "授業前チェックイン"))
+    .filter((line) => !isLikelyNoiseLine(line))
+    .slice(0, 10);
+  const checkOut = transcriptLines(extractMarkdownSectionBody(transcript, "授業後チェックアウト"))
+    .filter((line) => !isLikelyNoiseLine(line))
+    .slice(0, 12);
+  const all = transcriptLines(transcript).filter((line) => !isLikelyNoiseLine(line));
+  const keywordLines = all.filter((line) => LESSON_KEYWORD_RE.test(line));
+  const informativeLines = pickInformativeLines(all, LESSON_KEYWORD_RE, 14);
   return dedupeKeepOrder([
     ...checkIn,
     ...checkOut,
-    ...keywordLines.slice(0, 16),
-    ...all.slice(-8),
-  ]).slice(0, 36);
+    ...keywordLines.slice(0, 18),
+    ...informativeLines,
+    ...all.slice(-6),
+  ]).slice(0, 42);
 }
 
 function buildFastDraftEvidenceText(sessionType: SessionMode, transcript: string) {
@@ -263,6 +494,20 @@ function buildFastDraftEvidenceText(sessionType: SessionMode, transcript: string
     "### 面談ログの重要発話",
     ...lines.map((line) => `- ${line}`),
   ].join("\n");
+}
+
+function buildDraftInputBlock(sessionType: SessionMode, transcript: string) {
+  const normalizedTranscript = String(transcript ?? "").replace(/\r/g, "").trim();
+  if (estimateTokens(normalizedTranscript) <= 3500) {
+    return {
+      label: "文字起こし全文",
+      content: normalizedTranscript,
+    };
+  }
+  return {
+    label: "圧縮済み証拠",
+    content: buildFastDraftEvidenceText(sessionType, normalizedTranscript),
+  };
 }
 
 function formatStudentLabel(studentName?: string | null) {
@@ -285,22 +530,45 @@ function formatSessionDateLabel(value?: string | Date | null) {
 function buildSummaryMarkdownSpec(isLesson: boolean) {
   if (isLesson) {
     return [
-      "出力構成は必ず次の4セクションに固定すること:",
-      "■ 基本情報",
-      "■ 1. 本日の指導サマリー（室長向け要約）",
-      "■ 2. 課題と指導成果（Before → After）",
-      "■ 3. 学習方針と次回アクション（自学習の設計）",
-      "■ 4. 室長・他講師への共有・連携事項",
+      "必ず次の4セクションに固定すること。",
+      "■ 基本情報: 各項目を改行して1行ずつ書く。",
+      "■ 1. 本日の指導サマリー（室長向け要約）: 2-3段落で、授業で扱った内容・理解状況・全体判断を具体的に書く。",
+      "■ 2. 課題と指導成果（Before → After）: 2-3論点。各論点は `【論点名】` → `現状（Before）:` → `成果（After）:` → 必要なら `※特記事項:` の順で書く。",
+      "■ 3. 学習方針と次回アクション（自学習の設計）: `生徒:` `次回までの宿題:` `次回の確認（テスト）事項:` を見出しとして入れ、それぞれ箇条書きで具体化する。",
+      "■ 4. 室長・他講師への共有・連携事項: 2-4項目の箇条書き。",
+      "授業前チェックイン / 授業後チェックアウト の逐語転写は禁止。",
+      "ノイズ音声、言い淀み、壊れた固有名詞をそのまま出さない。",
+      "抽象語だけで済ませず、理解したこと・残課題・次回確認事項を具体化する。",
     ];
   }
   return [
-    "出力構成は必ず次の4セクションに固定すること:",
-    "■ 基本情報",
-    "■ 1. サマリー",
-    "■ 2. ポジティブな話題",
-    "■ 3. 改善・対策が必要な話題",
-    "■ 4. 保護者への共有ポイント",
+    "必ず次の4セクションに固定すること。",
+    "■ 基本情報: 各項目を改行して1行ずつ書く。",
+    "■ 1. サマリー: 2-4段落で、主論点・現状認識・講師の判断・今後の方向性を具体的に要約する。箇条書き禁止。",
+    "■ 2. ポジティブな話題: 3-5項目の箇条書き。各項目は『良かった事実 → その意味』まで書く。",
+    "■ 3. 改善・対策が必要な話題: 3-6項目の箇条書き。各項目は `現状の課題は ... -> 背景には ... -> 今後は ...` の流れで具体的に書く。",
+    "■ 4. 保護者への共有ポイント: 2-4項目の箇条書き。安心材料と注意点を混ぜて書く。",
+    "ノイズ音声、言い淀み、壊れた引用の貼り付けは禁止。",
+    "抽象語だけで済ませず、単元名・受験方針・学習行動など具体語を残す。",
   ];
+}
+
+function buildDraftSystemPrompt(sessionType: SessionMode) {
+  if (sessionType === "LESSON_REPORT") {
+    return [
+      "あなたは学習塾の教務責任者です。口語の授業 transcript を、管理者がそのまま使える正式な指導報告ログへ書き直してください。",
+      "出力は markdown 本文のみ。逐語録の貼り付け、疑問文の転載、言い差し、相づち、話し言葉のままの引用を禁止します。",
+      "必ず教務文体へ言い換え、扱った単元・理解状況・残課題・次回確認事項を具体語で残してください。",
+      "短中尺の入力では全文を渡すことがあるが、出力では要点だけを整理すること。",
+      ...buildSummaryMarkdownSpec(true),
+    ].join("\n");
+  }
+  return [
+    "あなたは学習塾の教務責任者です。口語の面談 transcript を、管理者がそのまま使える正式な面談ログへ書き直してください。",
+    "出力は markdown 本文のみ。逐語録の貼り付け、疑問文の転載、言い差し、相づち、話し言葉のままの引用を禁止します。",
+    "必ず教務文体へ言い換え、単元名・受験方針・学習行動など具体語を残してください。",
+    ...buildSummaryMarkdownSpec(false),
+  ].join("\n");
 }
 
 function cleanupSummaryMarkdown(text: string) {
@@ -308,16 +576,50 @@ function cleanupSummaryMarkdown(text: string) {
     .replace(/\r/g, "")
     .replace(/[ \t]+\n/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
-    .replace(/^[#*-]+\s*/gm, "")
+    .replace(/^#{1,6}\s*/gm, "")
+    .replace(/^[•・*]\s+/gm, "- ")
+    .trim();
+}
+
+function repairSummaryMarkdownFormatting(text: string) {
+  return cleanupSummaryMarkdown(text)
+    .replace(/\*\*(生徒:|次回までの宿題:|次回の確認（テスト）事項:)\*\*/g, "$1")
+    .replace(/^\*\*\s*$/gm, "")
+    .replace(/対象\s*\n\s*生徒:/g, "対象生徒:")
+    .replace(/(■ 基本情報)\s*(対象生徒:)/, "$1\n$2")
+    .replace(/([^\n])(面談日:|指導日:|面談時間:|教科・単元:|担当チューター:|面談目的:)/g, "$1\n$2")
+    .replace(/([^\n])(■ \d+\.)/g, "$1\n$2")
+    .replace(/([^\n])(【)/g, "$1\n$2")
+    .replace(/([^\n])(現状（Before）:|成果（After）:|※特記事項:|生徒:|次回までの宿題:|次回の確認（テスト）事項:)/g, "$1\n$2")
+    .replace(/\n{3,}/g, "\n\n")
     .trim();
 }
 
 function isValidDraftMarkdown(markdown: string | null | undefined, sessionType: SessionMode, minChars: number) {
-  const trimmed = cleanupSummaryMarkdown(String(markdown ?? ""));
+  const trimmed = repairSummaryMarkdownFormatting(String(markdown ?? ""));
   if (!trimmed.includes("■ 基本情報")) return false;
   if (sessionType === "LESSON_REPORT" && !trimmed.includes("■ 4. 室長・他講師への共有・連携事項")) return false;
   if (sessionType !== "LESSON_REPORT" && !trimmed.includes("■ 4. 保護者への共有ポイント")) return false;
   return trimmed.length >= Math.min(Math.max(minChars, 260), 1000);
+}
+
+function isWeakDraftMarkdown(markdown: string | null | undefined, sessionType: SessionMode, minChars: number) {
+  const trimmed = repairSummaryMarkdownFormatting(String(markdown ?? ""));
+  if (!isValidDraftMarkdown(trimmed, sessionType, minChars)) return true;
+  if (/##\s*授業前チェックイン|##\s*授業後チェックアウト|録音始めた|何喋ろうか忘れちゃった|質問もありますか|以上です。お疲れ/.test(trimmed)) {
+    return true;
+  }
+  if (sessionType === "LESSON_REPORT") {
+    if ((trimmed.match(/現状（Before）:/g) ?? []).length < 2) return true;
+    if ((trimmed.match(/成果（After）:/g) ?? []).length < 2) return true;
+    if (!trimmed.includes("次回までの宿題:")) return true;
+    if (!trimmed.includes("次回の確認（テスト）事項:")) return true;
+    if (!trimmed.includes("【")) return true;
+    return false;
+  }
+  if ((trimmed.match(/\n- /g) ?? []).length < 6) return true;
+  if (/面談日:[^\n]+面談時間:/.test(trimmed)) return true;
+  return false;
 }
 
 function joinFallbackSentence(lines: string[], fallback: string) {
@@ -332,7 +634,10 @@ function buildInterviewDraftFallbackMarkdown(input: {
   sessionDate?: string | Date | null;
 }) {
   const lines = pickInterviewLines(input.transcript);
-  return cleanupSummaryMarkdown([
+  const positiveLines = dedupeKeepOrder(lines.slice(0, 6)).slice(0, 4);
+  const issueLines = dedupeKeepOrder(lines.slice(6, 12)).slice(0, 4);
+  const parentLines = dedupeKeepOrder(lines.slice(12, 16)).slice(0, 3);
+  return repairSummaryMarkdownFormatting([
     "■ 基本情報",
     `対象生徒: ${formatStudentLabel(input.studentName)} 様`,
     `面談日: ${formatSessionDateLabel(input.sessionDate) || "未記録"}`,
@@ -341,16 +646,17 @@ function buildInterviewDraftFallbackMarkdown(input: {
     "面談目的: 学習状況の確認と次回方針の整理",
     "",
     "■ 1. サマリー",
-    joinFallbackSentence(lines.slice(0, 8), "今回の面談で確認できた内容を整理した。"),
+    joinFallbackSentence(lines.slice(0, 5), "今回の面談で確認できた内容を整理した。"),
+    joinFallbackSentence(lines.slice(5, 10), "今後の学習方針と次回までの確認事項を整理した。"),
     "",
     "■ 2. ポジティブな話題",
-    ...dedupeKeepOrder(lines.slice(0, 5)).map((line) => `- ${line}`),
+    ...positiveLines.map((line) => `- ${line}。前向きな材料として継続確認したい。`),
     "",
     "■ 3. 改善・対策が必要な話題",
-    ...dedupeKeepOrder(lines.slice(5, 10)).map((line) => `- ${line}`),
+    ...issueLines.map((line) => `- 現状の課題は ${line}。背景には再現性や運用面の詰め不足があるため、次回までに対策を具体化する。`),
     "",
     "■ 4. 保護者への共有ポイント",
-    joinFallbackSentence(lines.slice(10, 14), "次回までの実行状況と、止まった理由の確認が必要。"),
+    ...parentLines.map((line) => `- ${line}。家庭では進め方と確認ポイントをセットで共有したい。`),
   ].join("\n"));
 }
 
@@ -361,7 +667,13 @@ function buildLessonDraftFallbackMarkdown(input: {
   sessionDate?: string | Date | null;
 }) {
   const lines = pickLessonLines(input.transcript);
-  return cleanupSummaryMarkdown([
+  const checkInLines = transcriptLines(extractMarkdownSectionBody(input.transcript, "授業前チェックイン"))
+    .filter((line) => !isLikelyNoiseLine(line))
+    .slice(0, 6);
+  const checkOutLines = transcriptLines(extractMarkdownSectionBody(input.transcript, "授業後チェックアウト"))
+    .filter((line) => !isLikelyNoiseLine(line))
+    .slice(0, 6);
+  return repairSummaryMarkdownFormatting([
     "■ 基本情報",
     `対象生徒: ${formatStudentLabel(input.studentName)} 様`,
     `指導日: ${formatSessionDateLabel(input.sessionDate) || "未記録"}`,
@@ -369,16 +681,30 @@ function buildLessonDraftFallbackMarkdown(input: {
     `担当チューター: ${formatTeacherLabel(input.teacherName)}`,
     "",
     "■ 1. 本日の指導サマリー（室長向け要約）",
-    joinFallbackSentence(lines.slice(0, 10), "本日の授業内容と生徒の反応を整理した。"),
+    joinFallbackSentence([...checkInLines.slice(0, 2), ...lines.slice(0, 2)], "本日の授業内容と生徒の反応を整理した。"),
+    joinFallbackSentence([...checkOutLines.slice(0, 2), ...lines.slice(2, 4)], "理解状況と次回への接続を確認した。"),
     "",
     "■ 2. 課題と指導成果（Before → After）",
-    ...dedupeKeepOrder(lines.slice(4, 12)).map((line) => `- ${line}`),
+    "【授業前の理解状況】",
+    `現状（Before）: ${joinFallbackSentence(checkInLines.slice(0, 3), "授業前の理解状況を確認した。")}`,
+    `成果（After）: ${joinFallbackSentence(checkOutLines.slice(0, 3), "授業後に理解の手応えを確認した。")}`,
+    "※特記事項: 次回も同論点の再現性を確認する。",
+    "",
+    "【授業中の主要論点】",
+    `現状（Before）: ${joinFallbackSentence(lines.slice(3, 6), "授業中に重点確認が必要な論点があった。")}`,
+    `成果（After）: ${joinFallbackSentence(lines.slice(6, 10), "授業内で考え方を整理し、次回へつながる状態にした。")}`,
+    "※特記事項: 説明できる状態まで演習で固める必要がある。",
     "",
     "■ 3. 学習方針と次回アクション（自学習の設計）",
-    ...dedupeKeepOrder(lines.slice(12, 18)).map((line) => `- ${line}`),
+    "生徒:",
+    ...dedupeKeepOrder(lines.slice(10, 13)).map((line) => `- ${line}`),
+    "次回までの宿題:",
+    ...dedupeKeepOrder(lines.slice(13, 16)).map((line) => `- ${line}`),
+    "次回の確認（テスト）事項:",
+    ...dedupeKeepOrder(lines.slice(16, 19)).map((line) => `- ${line}`),
     "",
     "■ 4. 室長・他講師への共有・連携事項",
-    joinFallbackSentence(lines.slice(18, 24), "次回授業では、今回止まった論点の再確認が必要。"),
+    ...dedupeKeepOrder(lines.slice(19, 23)).map((line) => `- ${line}`),
   ].join("\n"));
 }
 
@@ -398,50 +724,74 @@ export async function generateConversationDraftFast(input: {
   inputTokensEstimate: number;
 }> {
   const sessionType = input.sessionType ?? "INTERVIEW";
-  const evidenceText = buildFastDraftEvidenceText(sessionType, input.transcript);
+  const draftInput = buildDraftInputBlock(sessionType, input.transcript);
   const model = getFastModel();
-  const system = [
-    "あなたは学習塾の教務責任者です。",
-    sessionType === "LESSON_REPORT"
-      ? "圧縮した授業記録から、管理者がそのまま使える指導報告ログ本文を markdown で完成させてください。"
-      : "圧縮した面談記録から、管理者がそのまま使える面談ログ本文を markdown で完成させてください。",
-    "出力は markdown 本文のみ。前置き・JSON・英語見出しは禁止。",
-    "証拠にない内容は足さず、断定しすぎない。",
-    "逐語録の貼り付けは禁止。ノイズと重複は捨てる。",
-    "文末は基本的に『。』で閉じる。",
-    ...buildSummaryMarkdownSpec(sessionType === "LESSON_REPORT"),
-  ].join("\n");
+  const system = buildDraftSystemPrompt(sessionType);
   const user = [
     `生徒: ${formatStudentLabel(input.studentName)}`,
     `講師: ${formatTeacherLabel(input.teacherName)}`,
     `日付: ${formatSessionDateLabel(input.sessionDate) || "不明"}`,
     `最低文字数目安: ${input.minSummaryChars}`,
     "",
-    "圧縮済み証拠:",
-    evidenceText,
+    `${draftInput.label}:`,
+    draftInput.content,
   ].join("\n");
   const promptInputTokensEstimate = estimateTokens(system) + estimateTokens(user);
 
+  let apiCalls = 0;
   try {
-    const { contentText, raw } = await callChatCompletions({
+    apiCalls += 1;
+    const { contentText, raw } = await callTextGeneration({
       model,
       messages: [
         { role: "system", content: system },
         { role: "user", content: user },
       ],
-      temperature: 0.2,
       timeoutMs: DEFAULT_LLM_TIMEOUT_MS,
-      max_completion_tokens: sessionType === "LESSON_REPORT" ? 1700 : 1300,
+      max_output_tokens: sessionType === "LESSON_REPORT" ? 2200 : 2400,
       prompt_cache_key: buildPromptCacheKey("draft-fast", sessionType),
       prompt_cache_retention: supportsExtendedPromptCaching(model) ? "24h" : "in_memory",
+      verbosity: "medium",
     });
-    const cleaned = cleanupSummaryMarkdown(contentText ?? raw);
-    if (isValidDraftMarkdown(cleaned, sessionType, input.minSummaryChars)) {
+    const cleaned = repairSummaryMarkdownFormatting(contentText ?? raw);
+    if (!isWeakDraftMarkdown(cleaned, sessionType, input.minSummaryChars)) {
       return {
         summaryMarkdown: cleaned,
         model,
-        apiCalls: 1,
-        evidenceChars: evidenceText.length,
+        apiCalls,
+        evidenceChars: draftInput.content.length,
+        usedFallback: false,
+        inputTokensEstimate: promptInputTokensEstimate,
+      };
+    }
+  } catch {
+    // chat-completions retry below
+  }
+
+  try {
+    apiCalls += 1;
+    const { contentText, raw } = await callTextGeneration({
+      model,
+      messages: [
+        {
+          role: "system",
+          content: `${system}\n前回出力では要件を満たさなかったため、構造・具体性・改行を厳守して再生成してください。口語の引用や断片文を絶対に残さず、すべて教務文体へ言い換えてください。`,
+        },
+        { role: "user", content: user },
+      ],
+      timeoutMs: DEFAULT_LLM_TIMEOUT_MS,
+      max_output_tokens: sessionType === "LESSON_REPORT" ? 2400 : 2600,
+      prompt_cache_key: buildPromptCacheKey("draft-fast-retry", sessionType),
+      prompt_cache_retention: supportsExtendedPromptCaching(model) ? "24h" : "in_memory",
+      verbosity: "high",
+    });
+    const cleaned = repairSummaryMarkdownFormatting(contentText ?? raw);
+    if (!isWeakDraftMarkdown(cleaned, sessionType, input.minSummaryChars)) {
+      return {
+        summaryMarkdown: cleaned,
+        model,
+        apiCalls,
+        evidenceChars: draftInput.content.length,
         usedFallback: false,
         inputTokensEstimate: promptInputTokensEstimate,
       };
@@ -457,8 +807,8 @@ export async function generateConversationDraftFast(input: {
   return {
     summaryMarkdown: fallback,
     model,
-    apiCalls: 1,
-    evidenceChars: evidenceText.length,
+    apiCalls: Math.max(apiCalls, 1),
+    evidenceChars: draftInput.content.length,
     usedFallback: true,
     inputTokensEstimate: promptInputTokensEstimate,
   };

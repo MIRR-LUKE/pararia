@@ -20,10 +20,19 @@ type SessionProgressPartLike = {
   qualityMetaJson?: unknown;
 };
 
+type SessionProgressConversationJobLike = {
+  type?: string | null;
+  status?: string | null;
+  startedAt?: Date | string | null;
+  finishedAt?: Date | string | null;
+};
+
 type SessionProgressConversationLike = {
   id: string;
   status: string;
   summaryMarkdown?: string | null;
+  createdAt?: Date | string | null;
+  jobs?: SessionProgressConversationJobLike[];
 };
 
 type SessionProgressInput = {
@@ -77,6 +86,99 @@ function estimateValue(steps: GenerationStep[]) {
   return Math.max(8, Math.min(96, Math.round(((completed + (active ? 0.55 : 0.25)) / total) * 100)));
 }
 
+function clamp(value: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, value));
+}
+
+function toTimestamp(value: Date | string | null | undefined) {
+  if (!value) return null;
+  const date = value instanceof Date ? value : new Date(value);
+  const timestamp = date.getTime();
+  return Number.isFinite(timestamp) ? timestamp : null;
+}
+
+function readNonNegativeNumber(value: unknown) {
+  const num = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(num) || num < 0) return null;
+  return num;
+}
+
+function progressFromRatio(start: number, end: number, ratio: number) {
+  return clamp(Math.round(start + (end - start) * ratio), start, end);
+}
+
+function estimateElapsedProgress(start: number, end: number, startedAt: Date | string | null | undefined, expectedMs: number) {
+  const startedAtMs = toTimestamp(startedAt);
+  if (!startedAtMs) return Math.round((start + end) / 2);
+  const elapsedMs = Math.max(0, Date.now() - startedAtMs);
+  const safeExpectedMs = Math.max(1_000, expectedMs);
+  const ratio = clamp(elapsedMs / safeExpectedMs, 0.08, 0.94);
+  return progressFromRatio(start, end, ratio);
+}
+
+function estimatePartProgress(part: SessionProgressPartLike | null, start: number, end: number) {
+  if (!part) return start;
+  const meta = readSessionPartMeta(part.qualityMetaJson);
+  const liveChunkCount = readNonNegativeNumber(meta.liveChunkCount);
+  const liveReadyChunkCount = readNonNegativeNumber(meta.liveReadyChunkCount) ?? 0;
+  const liveErrorChunkCount = readNonNegativeNumber(meta.liveErrorChunkCount) ?? 0;
+
+  if (liveChunkCount && liveChunkCount > 0) {
+    const completedChunks = clamp(liveReadyChunkCount + liveErrorChunkCount, 0, liveChunkCount);
+    const ratio = clamp(completedChunks / liveChunkCount, 0.08, 0.96);
+    return progressFromRatio(start, end, ratio);
+  }
+
+  const audioDurationSeconds =
+    readNonNegativeNumber(meta.audioDurationSeconds) ?? readNonNegativeNumber(meta.liveDurationSeconds);
+  const expectedMs = audioDurationSeconds
+    ? clamp(Math.round(audioDurationSeconds * 180), 10_000, 45_000)
+    : 18_000;
+
+  return estimateElapsedProgress(start, end, (meta.lastQueuedAt as string | undefined) ?? (meta.lastAcceptedAt as string | undefined), expectedMs);
+}
+
+function estimateConversationProgress(conversation: SessionProgressConversationLike | null | undefined, start: number, end: number) {
+  const finalizeJob = conversation?.jobs?.find((job) => job.type === "FINALIZE") ?? null;
+  if (!finalizeJob) {
+    return clamp(start + 6, start, end);
+  }
+  if (finalizeJob.status === "DONE") return end;
+  if (finalizeJob.status === "QUEUED") return clamp(start + 8, start, end);
+  if (finalizeJob.status === "ERROR") return clamp(end - 4, start, end);
+  return estimateElapsedProgress(start, end, finalizeJob.startedAt ?? conversation?.createdAt, 16_000);
+}
+
+function extractRejectedMessage(parts: SessionProgressPartLike[]) {
+  for (const part of parts) {
+    const meta = readSessionPartMeta(part.qualityMetaJson);
+    const rejectionMessage = meta.validationRejection?.messageJa?.trim();
+    if (rejectionMessage) return rejectionMessage;
+  }
+  return null;
+}
+
+function extractProcessingErrorMessage(parts: SessionProgressPartLike[]) {
+  for (const part of parts) {
+    const meta = readSessionPartMeta(part.qualityMetaJson);
+    const rejectionMessage = meta.validationRejection?.messageJa?.trim();
+    if (rejectionMessage) return rejectionMessage;
+    const lastError = typeof meta.lastError === "string" ? meta.lastError.trim() : "";
+    if (!lastError) continue;
+    if (/insufficient_quota/i.test(lastError)) {
+      return "音声処理のAPIクォータ上限に達したため停止しました。課金枠を確認して再試行してください。";
+    }
+    if (/Audio file might be corrupted or unsupported|invalid_value/i.test(lastError)) {
+      return "音声ファイル形式を処理できず停止しました。MP3 / M4A を再書き出しするか、そのまま再試行してください。";
+    }
+    if (/recording_lock/i.test(lastError)) {
+      return "録音ロックを確認できず停止しました。画面を更新してからやり直してください。";
+    }
+    return "音声処理で問題が発生しました。少し待ってから再試行してください。";
+  }
+  return null;
+}
+
 function getPart(parts: SessionProgressPartLike[], partType: string) {
   return parts.find((part) => part.partType === partType) ?? null;
 }
@@ -103,13 +205,14 @@ function buildProgressPayload(
   currentIndex: number,
   title: string,
   description: string,
-  errorIndex?: number
+  errorIndex?: number,
+  valueOverride?: number
 ) {
   const steps = typeof errorIndex === "number" ? buildSteps(labels, errorIndex, errorIndex) : buildSteps(labels, currentIndex);
   return {
     title,
     description,
-    value: estimateValue(steps),
+    value: typeof valueOverride === "number" ? valueOverride : estimateValue(steps),
     steps,
   };
 }
@@ -143,11 +246,19 @@ export function buildSessionProgressState(input: SessionProgressInput): SessionP
       canOpenLog: Boolean(conversation.id),
       openLogId: conversation?.id ?? null,
       waitingForPart: null,
-      progress: buildProgressPayload(labels, 2, "ログ生成で問題が発生しました", "再試行すると復旧できる場合があります。", 2),
+      progress: buildProgressPayload(
+        labels,
+        2,
+        "ログ生成で問題が発生しました",
+        "再試行すると復旧できる場合があります。",
+        2,
+        88
+      ),
     };
   }
 
   if (hasRejectedPart(input.parts)) {
+    const rejectionMessage = extractRejectedMessage(input.parts) ?? "録音し直すか、内容を補足して再保存してください。";
     return {
       stage: "REJECTED",
       statusLabel: "内容不足",
@@ -155,11 +266,12 @@ export function buildSessionProgressState(input: SessionProgressInput): SessionP
       canOpenLog: false,
       openLogId: null,
       waitingForPart: null,
-      progress: buildProgressPayload(labels, 1, "会話量が足りず停止しました", "録音し直すか、内容を補足して再保存してください。", 1),
+      progress: buildProgressPayload(labels, 1, "会話量が足りず停止しました", rejectionMessage, 1, 42),
     };
   }
 
   if (input.parts.some((part) => part.status === "ERROR")) {
+    const errorMessage = extractProcessingErrorMessage(input.parts) ?? "しばらく待ってから再試行してください。";
     return {
       stage: "ERROR",
       statusLabel: "処理エラー",
@@ -167,7 +279,7 @@ export function buildSessionProgressState(input: SessionProgressInput): SessionP
       canOpenLog: Boolean(conversation?.id),
       openLogId: conversation?.id ?? null,
       waitingForPart: null,
-      progress: buildProgressPayload(labels, 1, "文字起こしで問題が発生しました", "しばらく待ってから再試行してください。", 1),
+      progress: buildProgressPayload(labels, 1, "文字起こしで問題が発生しました", errorMessage, 1, 44),
     };
   }
 
@@ -189,7 +301,9 @@ export function buildSessionProgressState(input: SessionProgressInput): SessionP
           labels,
           2,
           "チェックインとチェックアウトを統合しています",
-          "文字起こしをまとめて、指導報告ログを生成しています。"
+          "文字起こしをまとめて、指導報告ログを生成しています。",
+          undefined,
+          estimateConversationProgress(conversation, 78, 96)
         ),
       };
     }
@@ -206,7 +320,9 @@ export function buildSessionProgressState(input: SessionProgressInput): SessionP
           labels,
           1,
           "チェックインを保存しました",
-          "次はチェックアウトを録音またはアップロードしてください。"
+          "次はチェックアウトを録音またはアップロードしてください。",
+          undefined,
+          52
         ),
       };
     }
@@ -223,7 +339,9 @@ export function buildSessionProgressState(input: SessionProgressInput): SessionP
           labels,
           1,
           "チェックアウトを文字起こし中です",
-          "保存受付は完了しています。このまま閉じても大丈夫です。"
+          "保存受付は完了しています。このまま閉じても大丈夫です。",
+          undefined,
+          estimatePartProgress(checkOut, 56, 76)
         ),
       };
     }
@@ -240,7 +358,9 @@ export function buildSessionProgressState(input: SessionProgressInput): SessionP
           labels,
           0,
           "チェックアウトを保存しました",
-          "チェックインを追加すると、指導報告ログの生成に進みます。"
+          "チェックインを追加すると、指導報告ログの生成に進みます。",
+          undefined,
+          34
         ),
       };
     }
@@ -257,7 +377,9 @@ export function buildSessionProgressState(input: SessionProgressInput): SessionP
           labels,
           0,
           "チェックインを文字起こし中です",
-          "保存受付は完了しています。このまま閉じても大丈夫です。"
+          "保存受付は完了しています。このまま閉じても大丈夫です。",
+          undefined,
+          estimatePartProgress(checkIn, 18, 42)
         ),
       };
     }
@@ -274,7 +396,9 @@ export function buildSessionProgressState(input: SessionProgressInput): SessionP
           labels,
           0,
           "チェックインを受け付けました",
-          "まずは文字起こしを進めています。このまま閉じても大丈夫です。"
+          "まずは文字起こしを進めています。このまま閉じても大丈夫です。",
+          undefined,
+          estimatePartProgress(checkIn, 16, 36)
         ),
       };
     }
@@ -291,7 +415,9 @@ export function buildSessionProgressState(input: SessionProgressInput): SessionP
           labels,
           1,
           "チェックアウトを受け付けました",
-          "文字起こしが終わりしだい、指導報告ログに進みます。"
+          "文字起こしが終わりしだい、指導報告ログに進みます。",
+          undefined,
+          estimatePartProgress(checkOut, 50, 72)
         ),
       };
     }
@@ -309,7 +435,9 @@ export function buildSessionProgressState(input: SessionProgressInput): SessionP
           labels,
           2,
           "面談の要点を整理しています",
-          "文字起こしが終わり、面談ログ本文を生成しています。"
+          "文字起こしが終わり、面談ログ本文を生成しています。",
+          undefined,
+          estimateConversationProgress(conversation, 76, 96)
         ),
       };
     }
@@ -326,7 +454,9 @@ export function buildSessionProgressState(input: SessionProgressInput): SessionP
           labels,
           1,
           "音声を受け付けました",
-          "文字起こしを進めています。このまま閉じても大丈夫です。"
+          "文字起こしを進めています。このまま閉じても大丈夫です。",
+          undefined,
+          estimatePartProgress(full, 24, 68)
         ),
       };
     }
@@ -340,7 +470,7 @@ export function buildSessionProgressState(input: SessionProgressInput): SessionP
       canOpenLog: false,
       openLogId: null,
       waitingForPart: input.type === "LESSON_REPORT" ? "CHECK_IN" : null,
-      progress: buildProgressPayload(labels, 0, "保存を受け付けました", "処理を順番に開始します。"),
+      progress: buildProgressPayload(labels, 0, "保存を受け付けました", "処理を順番に開始します。", undefined, 16),
     };
   }
 

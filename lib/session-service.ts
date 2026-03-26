@@ -9,6 +9,7 @@ import {
 } from "@prisma/client";
 import { prisma } from "./db";
 import { toPrismaJson } from "./prisma-json";
+import { sanitizeTranscriptSegments, sanitizeTranscriptText } from "./user-facing-japanese";
 
 type SessionPartLike = {
   id: string;
@@ -65,7 +66,7 @@ export function buildSessionTranscript(sessionType: SessionType, parts: SessionP
 
   const chunks = ordered
     .map((part) => {
-      const body = part.rawTextCleaned?.trim() || part.rawTextOriginal?.trim() || "";
+      const body = sanitizeTranscriptText(part.rawTextCleaned?.trim() || part.rawTextOriginal?.trim() || "");
       if (!body) return null;
       return `## ${PART_LABEL[part.partType]}\n${body}`;
     })
@@ -77,7 +78,7 @@ export function buildSessionTranscript(sessionType: SessionType, parts: SessionP
 
 function normalizePartSegments(rawSegments: unknown): SessionTranscriptSegment[] {
   if (!Array.isArray(rawSegments)) return [];
-  const parsed: Array<SessionTranscriptSegment | null> = rawSegments
+  const parsed: Array<SessionTranscriptSegment | null> = sanitizeTranscriptSegments(rawSegments as Array<Record<string, unknown>>)
     .map((segment) => {
       if (!segment || typeof segment !== "object" || Array.isArray(segment)) return null;
       const current = segment as Record<string, unknown>;
@@ -104,7 +105,7 @@ export function buildSessionTranscriptSegments(sessionType: SessionType, parts: 
   let cursorSeconds = 0;
 
   for (const part of ordered) {
-    const body = part.rawTextCleaned?.trim() || part.rawTextOriginal?.trim() || "";
+    const body = sanitizeTranscriptText(part.rawTextCleaned?.trim() || part.rawTextOriginal?.trim() || "");
     const segments = normalizePartSegments(part.rawSegments);
 
     if (segments.length > 0) {

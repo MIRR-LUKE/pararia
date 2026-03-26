@@ -1,8 +1,14 @@
 import { NextResponse } from "next/server";
+import { writeAuditLog } from "@/lib/audit";
 import { processAllConversationJobs } from "@/lib/jobs/conversationJobs";
 import { prisma } from "@/lib/db";
 import { requireAuthorizedSession } from "@/lib/server/request-auth";
-import { sanitizeSummaryMarkdown } from "@/lib/user-facing-japanese";
+import { sanitizeFormattedTranscript, sanitizeSummaryMarkdown, sanitizeTranscriptText } from "@/lib/user-facing-japanese";
+
+function toStringArray(value: unknown) {
+  if (!Array.isArray(value)) return [];
+  return value.filter((entry): entry is string => typeof entry === "string");
+}
 
 export async function GET(
   request: Request,
@@ -93,14 +99,17 @@ export async function GET(
     }
 
     const summaryMarkdown = sanitizeSummaryMarkdown(conversation.summaryMarkdown ?? "");
+    const formattedTranscript = sanitizeFormattedTranscript(conversation.formattedTranscript ?? "");
+    const rawTextOriginal = sanitizeTranscriptText(conversation.rawTextOriginal ?? "");
+    const rawTextCleaned = sanitizeTranscriptText(conversation.rawTextCleaned ?? "");
 
     return NextResponse.json({
       conversation: {
         id: conversation.id,
         status: conversation.status,
-        formattedTranscript: conversation.formattedTranscript,
-        rawTextOriginal: conversation.rawTextOriginal,
-        rawTextCleaned: conversation.rawTextCleaned,
+        formattedTranscript,
+        rawTextOriginal,
+        rawTextCleaned,
         student: conversation.student,
         user: conversation.user,
         session: conversation.session,
@@ -137,15 +146,61 @@ export async function DELETE(
       return NextResponse.json({ error: "conversation not found" }, { status: 404 });
     }
 
-    await prisma.conversationJob.deleteMany({ where: { conversationId: params.id } });
-    await prisma.conversationLog.delete({ where: { id: params.id } });
+    const relatedReports = await prisma.report.findMany({
+      where: {
+        organizationId,
+        studentId: conversation.studentId,
+      },
+      select: {
+        id: true,
+        sourceLogIds: true,
+      },
+    });
 
-    if (conversation.sessionId) {
-      await prisma.session.update({
-        where: { id: conversation.sessionId },
-        data: { status: "DRAFT" },
-      });
-    }
+    const detachedReportIds = relatedReports
+      .filter((report) => toStringArray(report.sourceLogIds).includes(params.id))
+      .map((report) => report.id);
+
+    await prisma.$transaction(async (tx) => {
+      for (const report of relatedReports) {
+        const sourceLogIds = toStringArray(report.sourceLogIds);
+        if (!sourceLogIds.includes(params.id)) continue;
+
+        await tx.report.update({
+          where: { id: report.id },
+          data: {
+            sourceLogIds: sourceLogIds.filter((logId) => logId !== params.id),
+          },
+        });
+      }
+
+      await tx.conversationJob.deleteMany({ where: { conversationId: params.id } });
+      await tx.conversationLog.delete({ where: { id: params.id } });
+
+      if (conversation.sessionId) {
+        await tx.session.updateMany({
+          where: { id: conversation.sessionId },
+          data: {
+            status: "DRAFT",
+            heroStateLabel: null,
+            heroOneLiner: null,
+            latestSummary: null,
+            completedAt: null,
+          },
+        });
+      }
+    });
+
+    await writeAuditLog({
+      userId: authResult.session.user.id,
+      action: "conversation.delete",
+      detail: {
+        conversationId: params.id,
+        studentId: conversation.studentId,
+        sessionId: conversation.sessionId,
+        detachedReportCount: detachedReportIds.length,
+      },
+    });
 
     return NextResponse.json({
       success: true,
@@ -184,7 +239,7 @@ export async function PATCH(
 
     const updateData: any = {};
     if (summaryMarkdown !== undefined) updateData.summaryMarkdown = summaryMarkdown;
-    if (formattedTranscript !== undefined) updateData.formattedTranscript = formattedTranscript;
+    if (formattedTranscript !== undefined) updateData.formattedTranscript = sanitizeFormattedTranscript(formattedTranscript);
 
     const updated = await prisma.conversationLog.update({
       where: { id: conversation.id },
