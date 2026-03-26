@@ -25,6 +25,7 @@ import {
 import { releaseRecordingLock, verifyRecordingLockForAudioUpload } from "@/lib/recording/lockService";
 import { requireAuthorizedSession } from "@/lib/server/request-auth";
 import { toPrismaJson } from "@/lib/prisma-json";
+import { getAudioExpiryDate, getTranscriptExpiryDate } from "@/lib/system-config";
 import { preprocessTranscript } from "@/lib/transcript/preprocess";
 
 function parsePartType(raw: string | null) {
@@ -113,8 +114,10 @@ export async function POST(
     let rawTextCleaned = transcript;
     let rawSegments: any[] = [];
     let qualityMeta: Record<string, unknown> = {};
-    const expiresAt = new Date();
-    expiresAt.setDate(expiresAt.getDate() + 30);
+    const expiresAt =
+      file
+        ? getAudioExpiryDate()
+        : getTranscriptExpiryDate();
 
     if (file) {
       sourceType = ConversationSourceType.AUDIO;

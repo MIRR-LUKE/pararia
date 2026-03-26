@@ -10,6 +10,24 @@ export function getTranscriptRetentionDays() {
   return parsePositiveInt(process.env.PARARIA_TRANSCRIPT_RETENTION_DAYS, 30);
 }
 
+export function getAudioRetentionDays() {
+  return parsePositiveInt(process.env.PARARIA_AUDIO_RETENTION_DAYS, getTranscriptRetentionDays());
+}
+
+export function buildRetentionExpiryDate(days: number, baseDate = new Date()) {
+  const expiresAt = new Date(baseDate);
+  expiresAt.setDate(expiresAt.getDate() + Math.floor(days));
+  return expiresAt;
+}
+
+export function getTranscriptExpiryDate(baseDate = new Date()) {
+  return buildRetentionExpiryDate(getTranscriptRetentionDays(), baseDate);
+}
+
+export function getAudioExpiryDate(baseDate = new Date()) {
+  return buildRetentionExpiryDate(getAudioRetentionDays(), baseDate);
+}
+
 export function getReportDeliveryEventRetentionDays() {
   return parsePositiveInt(process.env.PARARIA_REPORT_DELIVERY_EVENT_RETENTION_DAYS, 365);
 }

@@ -10,6 +10,7 @@
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
     "test:generation-progress": "tsx scripts/test-generation-progress.ts",
+    "test:conversation-eval": "tsx scripts/test-conversation-eval.ts",
     "test:lesson-report-flow": "tsx scripts/test-lesson-report-flow.ts",
     "test:log-render-and-llm-retries": "tsx scripts/test-log-render-and-llm-retries.ts",
     "test:live-transcription": "tsx scripts/test-live-transcription.ts",

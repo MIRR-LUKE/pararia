@@ -2,7 +2,15 @@ import { NextResponse } from "next/server";
 import { writeAuditLog } from "@/lib/audit";
 import { processAllConversationJobs } from "@/lib/jobs/conversationJobs";
 import { prisma } from "@/lib/db";
+import {
+  buildConversationArtifactFromMarkdown,
+  parseConversationArtifact,
+  renderConversationArtifactMarkdown,
+  renderConversationArtifactOrFallback,
+} from "@/lib/conversation-artifact";
 import { requireAuthorizedSession } from "@/lib/server/request-auth";
+import { toPrismaJson } from "@/lib/prisma-json";
+import { syncSessionAfterConversation } from "@/lib/session-service";
 import { sanitizeFormattedTranscript, sanitizeSummaryMarkdown, sanitizeTranscriptText } from "@/lib/user-facing-japanese";
 
 function toStringArray(value: unknown) {
@@ -36,8 +44,18 @@ export async function GET(
               id: true,
               type: true,
               status: true,
+              executionId: true,
+              attempts: true,
+              maxAttempts: true,
               startedAt: true,
               finishedAt: true,
+              nextRetryAt: true,
+              leaseExpiresAt: true,
+              lastHeartbeatAt: true,
+              failedAt: true,
+              completedAt: true,
+              lastRunDurationMs: true,
+              lastQueueLagMs: true,
               lastError: true,
             },
           },
@@ -82,9 +100,19 @@ export async function GET(
             id: true,
             type: true,
             status: true,
+            executionId: true,
             model: true,
+            attempts: true,
+            maxAttempts: true,
             startedAt: true,
             finishedAt: true,
+            nextRetryAt: true,
+            leaseExpiresAt: true,
+            lastHeartbeatAt: true,
+            failedAt: true,
+            completedAt: true,
+            lastRunDurationMs: true,
+            lastQueueLagMs: true,
             lastError: true,
           },
         },
@@ -98,7 +126,11 @@ export async function GET(
       void processAllConversationJobs(params.id).catch(() => {});
     }
 
-    const summaryMarkdown = sanitizeSummaryMarkdown(conversation.summaryMarkdown ?? "");
+    const renderedSummary = renderConversationArtifactOrFallback(
+      conversation.artifactJson,
+      conversation.summaryMarkdown
+    );
+    const summaryMarkdown = sanitizeSummaryMarkdown(renderedSummary);
     const formattedTranscript = sanitizeFormattedTranscript(conversation.formattedTranscript ?? "");
     const rawTextOriginal = sanitizeTranscriptText(conversation.rawTextOriginal ?? "");
     const rawTextCleaned = sanitizeTranscriptText(conversation.rawTextCleaned ?? "");
@@ -115,6 +147,7 @@ export async function GET(
         session: conversation.session,
         jobs: conversation.jobs,
         createdAt: conversation.createdAt,
+        artifactJson: conversation.artifactJson,
         summaryMarkdown,
         qualityMetaJson: conversation.qualityMetaJson as any,
       },
@@ -228,27 +261,61 @@ export async function PATCH(
 
     const conversation = await prisma.conversationLog.findFirst({
       where: { id: params.id, organizationId },
-      select: { id: true },
+      select: {
+        id: true,
+        summaryMarkdown: true,
+        artifactJson: true,
+        session: { select: { type: true } },
+      },
     });
     if (!conversation) {
       return NextResponse.json({ error: "conversation not found" }, { status: 404 });
     }
 
     const body = await request.json();
-    const { summaryMarkdown, formattedTranscript } = body ?? {};
+    const { summaryMarkdown, formattedTranscript, artifactJson } = body ?? {};
 
     const updateData: any = {};
-    if (summaryMarkdown !== undefined) updateData.summaryMarkdown = summaryMarkdown;
+    const sessionType = conversation.session?.type === "LESSON_REPORT" ? "LESSON_REPORT" : "INTERVIEW";
+
+    if (summaryMarkdown !== undefined) {
+      const sanitizedSummary = sanitizeSummaryMarkdown(summaryMarkdown);
+      updateData.summaryMarkdown = sanitizedSummary;
+      updateData.artifactJson = sanitizedSummary
+        ? toPrismaJson(
+            buildConversationArtifactFromMarkdown({
+              sessionType,
+              summaryMarkdown: sanitizedSummary,
+            })
+          )
+        : toPrismaJson(null);
+    }
+
+    if (artifactJson !== undefined) {
+      const parsedArtifact = parseConversationArtifact(artifactJson);
+      if (!parsedArtifact) {
+        return NextResponse.json({ error: "artifactJson is invalid" }, { status: 400 });
+      }
+      updateData.artifactJson = toPrismaJson(parsedArtifact);
+      if (summaryMarkdown === undefined) {
+        updateData.summaryMarkdown = renderConversationArtifactMarkdown(parsedArtifact);
+      }
+    }
+
     if (formattedTranscript !== undefined) updateData.formattedTranscript = sanitizeFormattedTranscript(formattedTranscript);
 
     const updated = await prisma.conversationLog.update({
       where: { id: conversation.id },
       data: updateData,
     });
+    await syncSessionAfterConversation(updated.id);
 
     return NextResponse.json({
       conversation: {
         ...updated,
+        summaryMarkdown: sanitizeSummaryMarkdown(
+          renderConversationArtifactOrFallback(updated.artifactJson, updated.summaryMarkdown)
+        ),
         qualityMetaJson: updated.qualityMetaJson as any,
       },
     });

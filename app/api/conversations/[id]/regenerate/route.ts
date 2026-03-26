@@ -71,6 +71,7 @@ export async function POST(
       where: { id: params.id },
       data: {
         status: ConversationStatus.PROCESSING,
+        artifactJson: Prisma.DbNull,
         summaryMarkdown: null,
         qualityMetaJson: Prisma.DbNull,
         formattedTranscript: keepFormattedTranscriptAsSource ? conversation.formattedTranscript : null,

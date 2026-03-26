@@ -9,11 +9,11 @@ PARARIA は、塾・個別指導・学習コーチング向けの `Teaching OS` 
 
 - 主導線は `Student Room`
 - 録音モードは `INTERVIEW` と `LESSON_REPORT` の 2 つ
-- 生成物はまず `面談ログ` または `指導報告ログ` の **本文 1 本だけ**
-- ログ生成は `ConversationJob.FINALIZE` の **単発実行**
+- 会話ログの正本は `ConversationLog.artifactJson`
+- `summaryMarkdown` は画面表示や互換用に保存する派生物
+- ログ生成は `ConversationJob.FINALIZE` を中心に動き、失敗時は retry / stale recovery を持つ
 - 自動の後段 polish は **ない**
-- 旧 structured artifact は **生成しない / 保存しない / UI で使わない**
-- `保護者レポート` は **選択したログの `summaryMarkdown` だけ** から生成する
+- `保護者レポート` は **選択したログだけ** を使い、`artifactJson` を優先して `summaryMarkdown` で補う
 - 未選択ログ、前回レポート、プロフィール snapshot はレポート本文生成に入れない
 
 ## 2. 非交渉の設計原則
@@ -22,9 +22,10 @@ PARARIA は、塾・個別指導・学習コーチング向けの `Teaching OS` 
 
 - 面談モードの成果物は `面談ログ`
 - 指導報告モードの成果物は `指導報告ログ`
-- どちらも first-class output は `summaryMarkdown`
+- どちらも正本は `artifactJson`
+- `summaryMarkdown` は `artifactJson` から render した表示用の派生物
 - 補助表示として `formattedTranscript` または raw transcript を持つ
-- 旧 `timeline / nextActions / parentPack / profileDelta` 系の自動生成は廃止済み
+- 旧 `timeline / nextActions / parentPack / profileDelta` を別成果物として増やす構成はやめ、必要な情報は `artifactJson` に集約する
 
 ### 2.2 Single Finalize Pass
 
@@ -33,9 +34,11 @@ PARARIA は、塾・個別指導・学習コーチング向けの `Teaching OS` 
 - `FORMAT` は transcript 表示が必要なときだけ追加する
 - 生成途中の「下書き公開 + 裏で最終調整」はしない
 
-### 2.3 Selected SummaryMarkdown Only
+### 2.3 Selected Artifact First
 
-- 保護者レポートに入れる材料は選択済みログの `summaryMarkdown`
+- 保護者レポートに入れる材料は選択済みログだけ
+- 正本としては各ログの `artifactJson` を使う
+- `summaryMarkdown` は文脈確認用の派生物として補助的に使う
 - 未選択ログは本文生成に使わない
 - 前回レポートの本文は入れない
 - 生徒プロフィール snapshot は入れない
@@ -120,6 +123,7 @@ PARARIA は、塾・個別指導・学習コーチング向けの `Teaching OS` 
 
 生成されるもの:
 
+- `artifactJson`
 - `summaryMarkdown`
 - `rawTextOriginal`
 - `rawTextCleaned`
@@ -146,6 +150,7 @@ PARARIA は、塾・個別指導・学習コーチング向けの `Teaching OS` 
 
 生成されるもの:
 
+- `artifactJson`
 - `summaryMarkdown`
 - `rawTextOriginal`
 - `rawTextCleaned`
@@ -236,11 +241,25 @@ PARARIA は、塾・個別指導・学習コーチング向けの `Teaching OS` 
 責務:
 
 - `FINALIZE`
-  - transcript からログ本文を 1 本作る
+  - transcript から `artifactJson` と `summaryMarkdown` を作る
   - 完了時に `ConversationLog.status = DONE`
 - `FORMAT`
   - transcript 表示を整形する
   - 本文生成の必須条件ではない
+
+持つ観測情報:
+
+- `executionId`
+- `attempts / maxAttempts`
+- `nextRetryAt`
+- `leaseExpiresAt / lastHeartbeatAt`
+- `failedAt / completedAt`
+- `lastRunDurationMs / lastQueueLagMs`
+
+補足:
+
+- retryable error は backoff 付きで再試行する
+- stale な `RUNNING` job は lease 期限切れで再回収する
 
 ## 9. データモデル
 
@@ -260,8 +279,11 @@ PARARIA は、塾・個別指導・学習コーチング向けの `Teaching OS` 
 
 ### 9.2 `ConversationLog` の現在の意味
 
+- `artifactJson`
+  - 会話ログの正本
+  - `summary / facts / changes / assessment / nextActions / sharePoints / sections` を持つ
 - `summaryMarkdown`
-  - 現行の本命成果物
+  - `artifactJson` から render される表示用の本文
 - `rawTextOriginal`
   - 元 transcript
 - `rawTextCleaned`
@@ -271,14 +293,15 @@ PARARIA は、塾・個別指導・学習コーチング向けの `Teaching OS` 
 - `formattedTranscript`
   - 必要時だけ整形
 - `qualityMetaJson`
-  - STT 時間、モデル、警告、生成時間など
+  - STT 時間、モデル、警告、生成時間、job retry 情報など
 
 ## 10. 保護者レポート
 
 ### 10.1 入力ルール
 
 - 選択したログだけを使う
-- 本文生成に入るのは各ログの `summaryMarkdown`
+- 本文生成では各ログの `artifactJson` を優先して使う
+- `summaryMarkdown` は必要時だけ補助材料として使う
 - 未選択ログは入れない
 - 前回レポートは入れない
 - profile snapshot は入れない
@@ -382,9 +405,13 @@ PARARIA は、塾・個別指導・学習コーチング向けの `Teaching OS` 
 ## 14. 主要ファイル
 
 - `lib/ai/conversationPipeline.ts`
-  - ログ本文生成
+  - 互換用の入口
+- `lib/ai/conversation/`
+  - spec / generate / normalize / fallback / transport の本体
+- `lib/conversation-artifact.ts`
+  - 正本 artifact の schema / render / parse
 - `lib/jobs/conversationJobs.ts`
-  - `FINALIZE / FORMAT`
+  - `FINALIZE / FORMAT` と retry / observability
 - `lib/jobs/sessionPartJobs.ts`
   - STT、live finalize、session promotion
 - `lib/session-service.ts`
@@ -394,9 +421,13 @@ PARARIA は、塾・個別指導・学習コーチング向けの `Teaching OS` 
 - `lib/recording/validation.ts`
   - duration gate
 - `lib/ai/parentReport.ts`
-  - selected summaryMarkdown only のレポート生成
+  - selected artifact first のレポート生成
 - `lib/operational-log.ts`
-  - 保存済みログ本文から report bundle preview を作る
+  - artifact / 保存済みログ本文から report bundle preview を作る
+- `lib/runtime-paths.ts`
+  - runtime 保存先の共通化
+- `lib/runtime-cleanup.ts`
+  - runtime file の安全な削除
 - `app/app/students/[studentId]/StudentSessionConsole.tsx`
   - 録音と file upload
 - `app/api/sessions/[id]/parts/route.ts`
@@ -406,19 +437,44 @@ PARARIA は、塾・個別指導・学習コーチング向けの `Teaching OS` 
 - `app/api/sessions/[id]/progress/route.ts`
   - 進捗 API
 
-## 15. 現在の smoke check
+## 15. ローカル保存先ルール
+
+- runtime data は source code と分けて扱う
+- 音声アップロード、live chunk、manifest などの runtime file は `PARARIA_RUNTIME_DIR` 配下へ保存する
+- `PARARIA_RUNTIME_DIR` 未設定時は後方互換のため repo 配下の `.data/` を使う
+- `PARARIA_RUNTIME_DIR` を repo 外へ向けると、uploads / temp audio を完全に分離できる
+- `.data/` と `.tmp/` は Git 管理対象に入れない
+- benchmark や検証スクリプトの出力は `.tmp/` などの ignore 済みディレクトリへ出す
+- 保存期間は `PARARIA_TRANSCRIPT_RETENTION_DAYS` / `PARARIA_AUDIO_RETENTION_DAYS` / `PARARIA_REPORT_DELIVERY_EVENT_RETENTION_DAYS` で調整する
+- 削除ポリシーの詳細は `docs/data-retention-policy.md` を参照する
+
+開発時の推奨:
+
+```bash
+# 例: repo の外に runtime 保存先を置く
+PARARIA_RUNTIME_DIR=../pararia-runtime
+
+# 例: TTL をローカルで短くする
+PARARIA_TRANSCRIPT_RETENTION_DAYS=14
+PARARIA_AUDIO_RETENTION_DAYS=14
+```
+
+## 16. 現在の smoke check
+
+2026-03-26 に次を実行して通過確認済み:
 
 - `npm run typecheck`
+- `npm run test:conversation-eval -- --out .tmp/conversation-eval-report.md`
 - `npm run test:generation-progress`
 - `npm run test:lesson-report-flow`
 - `npm run test:log-render-and-llm-retries`
 - `npm run test:live-transcription`
 - `npm run build`
 
-## 16. やらないこと
+## 17. やらないこと
 
 - ログ生成と同時に別成果物を量産すること
 - ログ本文の裏で高コストな polish を回すこと
-- 旧 structured artifact を UI やレポートの前提に戻すこと
+- `artifactJson` 以外の別正本を増やすこと
 - 未選択ログを勝手に保護者レポートへ混ぜること
 - client 側だけで duration 制約を信じること

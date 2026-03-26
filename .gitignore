@@ -9,3 +9,8 @@ node_modules
 .next
 out
 tsconfig.tsbuildinfo
+
+# runtime / temp artifacts
+.data/
+.tmp/
+.runtime/

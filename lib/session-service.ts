@@ -9,6 +9,8 @@ import {
 } from "@prisma/client";
 import { prisma } from "./db";
 import { toPrismaJson } from "./prisma-json";
+import { parseConversationArtifact, renderConversationArtifactOrFallback } from "./conversation-artifact";
+import { getTranscriptExpiryDate } from "./system-config";
 import { sanitizeTranscriptSegments, sanitizeTranscriptText } from "./user-facing-japanese";
 
 type SessionPartLike = {
@@ -170,9 +172,6 @@ export async function ensureConversationForSession(sessionId: string) {
   const hasAudio = readyParts.some((part) => part.sourceType === ConversationSourceType.AUDIO);
   const sourceType = hasAudio ? ConversationSourceType.AUDIO : ConversationSourceType.MANUAL;
 
-  const expiresAt = new Date();
-  expiresAt.setDate(expiresAt.getDate() + 30);
-
   const data: Prisma.ConversationLogUncheckedCreateInput = {
     organizationId: session.organizationId,
     studentId: session.studentId,
@@ -183,7 +182,7 @@ export async function ensureConversationForSession(sessionId: string) {
     rawTextOriginal: combinedText,
     rawTextCleaned: combinedText,
     rawSegments: toPrismaJson(combinedSegments),
-    rawTextExpiresAt: expiresAt,
+    rawTextExpiresAt: getTranscriptExpiryDate(),
   };
 
   if (session.conversation?.id) {
@@ -191,6 +190,7 @@ export async function ensureConversationForSession(sessionId: string) {
       where: { id: session.conversation.id },
       data: {
         ...data,
+        artifactJson: Prisma.DbNull,
         summaryMarkdown: null,
         formattedTranscript: null,
         qualityMetaJson: Prisma.DbNull,
@@ -232,6 +232,7 @@ export async function syncSessionAfterConversation(conversationId: string) {
       sessionId: true,
       studentId: true,
       status: true,
+      artifactJson: true,
       summaryMarkdown: true,
       session: {
         select: {
@@ -242,7 +243,13 @@ export async function syncSessionAfterConversation(conversationId: string) {
   });
   if (!conversation?.sessionId) return;
   const heroStateLabel = conversation.session?.type === SessionType.LESSON_REPORT ? "指導報告ログ" : "面談ログ";
-  const heroOneLiner = extractHeroOneLiner(conversation.summaryMarkdown);
+  const renderedSummary = renderConversationArtifactOrFallback(
+    conversation.artifactJson,
+    conversation.summaryMarkdown
+  );
+  const parsedArtifact = parseConversationArtifact(conversation.artifactJson);
+  const heroOneLiner =
+    parsedArtifact?.summary?.[0]?.slice(0, 100) || extractHeroOneLiner(renderedSummary);
 
   await prisma.session.update({
     where: { id: conversation.sessionId },
@@ -250,7 +257,7 @@ export async function syncSessionAfterConversation(conversationId: string) {
       status: mapConversationToSessionStatus(conversation.status),
       heroStateLabel,
       heroOneLiner,
-      latestSummary: conversation.summaryMarkdown ?? null,
+      latestSummary: renderedSummary || null,
       completedAt: conversation.status === ConversationStatus.DONE ? new Date() : null,
     },
   });

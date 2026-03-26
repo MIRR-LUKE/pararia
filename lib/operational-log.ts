@@ -1,6 +1,9 @@
+import { parseConversationArtifact } from "@/lib/conversation-artifact";
+
 export type OperationalLogInput = {
   sessionType?: string | null;
   createdAt?: string | Date | null;
+  artifactJson?: unknown;
   summaryMarkdown?: string | null;
 };
 
@@ -132,6 +135,19 @@ function firstSentences(values: string[], limit: number, fallback: string[]) {
 }
 
 export function buildOperationalLog(input: OperationalLogInput): OperationalLog {
+  const artifact = parseConversationArtifact(input.artifactJson);
+  if (artifact) {
+    const theme = ensureSentence(artifact.summary[0] ?? "今回のログ要点を整理した");
+    return {
+      theme,
+      facts: firstSentences(artifact.facts, 4, [theme]),
+      changes: firstSentences(artifact.changes, 4, ["今回の変化は正本データから確認できる。"]),
+      assessment: firstSentences(artifact.assessment, 4, ["次回に向けた判断材料を整理した。"]),
+      nextChecks: firstSentences(artifact.nextActions, 4, ["次回までの実行状況を確認する。"]),
+      parentShare: firstSentences(artifact.sharePoints, 4, ["保護者共有に必要なポイントを整理する。"]),
+    };
+  }
+
   const parsed = parseSummarySections(input.summaryMarkdown);
   const theme = parsed.theme.length > 0 ? ensureSentence(parsed.theme[0]) : fallbackTheme(input.summaryMarkdown);
 
@@ -238,6 +254,9 @@ export function buildReportBundleLog(
     date: input.date,
     mode: input.mode,
     subType: input.subType ?? null,
-    operationalLog: buildOperationalLog(input),
+    operationalLog: buildOperationalLog({
+      ...input,
+      artifactJson: input.artifactJson,
+    }),
   };
 }

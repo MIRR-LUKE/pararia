@@ -4,6 +4,8 @@ import { ConversationSourceType, ConversationStatus } from "@prisma/client";
 import { preprocessTranscript } from "@/lib/transcript/preprocess";
 import { enqueueConversationJobs, processAllConversationJobs } from "@/lib/jobs/conversationJobs";
 import { requireAuthorizedSession } from "@/lib/server/request-auth";
+import { renderConversationArtifactOrFallback } from "@/lib/conversation-artifact";
+import { getTranscriptExpiryDate } from "@/lib/system-config";
 import { sanitizeSummaryMarkdown } from "@/lib/user-facing-japanese";
 
 export async function GET(request: Request) {
@@ -38,6 +40,7 @@ export async function GET(request: Request) {
           studentId: true,
           sessionId: true,
           status: true,
+          artifactJson: true,
           summaryMarkdown: true,
           formattedTranscript: true,
           createdAt: true,
@@ -51,7 +54,10 @@ export async function GET(request: Request) {
         studentId: conversation.studentId,
         sessionId: conversation.sessionId,
         status: conversation.status,
-        summaryMarkdown: sanitizeSummaryMarkdown(conversation.summaryMarkdown),
+        artifactJson: conversation.artifactJson,
+        summaryMarkdown: sanitizeSummaryMarkdown(
+          renderConversationArtifactOrFallback(conversation.artifactJson, conversation.summaryMarkdown)
+        ),
         formattedTranscript: conversation.formattedTranscript,
         createdAt: conversation.createdAt,
         date: new Date(conversation.createdAt).toLocaleDateString("ja-JP"),
@@ -77,6 +83,7 @@ export async function GET(request: Request) {
         studentId: true,
         sessionId: true,
         status: true,
+        artifactJson: true,
         summaryMarkdown: true,
         createdAt: true,
         student: { select: { id: true, name: true, grade: true } },
@@ -89,7 +96,10 @@ export async function GET(request: Request) {
       studentId: c.studentId,
       sessionId: c.sessionId,
       status: c.status,
-      summaryMarkdown: sanitizeSummaryMarkdown(c.summaryMarkdown),
+      artifactJson: c.artifactJson,
+      summaryMarkdown: sanitizeSummaryMarkdown(
+        renderConversationArtifactOrFallback(c.artifactJson, c.summaryMarkdown)
+      ),
       createdAt: c.createdAt,
       date: new Date(c.createdAt).toLocaleDateString("ja-JP"),
       student: c.student,
@@ -136,8 +146,6 @@ export async function POST(request: Request) {
     }
 
     const pre = preprocessTranscript(transcript);
-    const expiresAt = new Date();
-    expiresAt.setDate(expiresAt.getDate() + 30);
     const conversation = await prisma.conversationLog.create({
       data: {
         organizationId,
@@ -148,7 +156,7 @@ export async function POST(request: Request) {
         status: ConversationStatus.PROCESSING,
         rawTextOriginal: pre.rawTextOriginal,
         rawTextCleaned: pre.rawTextCleaned,
-        rawTextExpiresAt: expiresAt,
+        rawTextExpiresAt: getTranscriptExpiryDate(),
       },
     });
 

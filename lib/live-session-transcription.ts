@@ -2,6 +2,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { SessionPartType } from "@prisma/client";
 import { transcribeAudioForPipeline, type TranscriptSegment } from "@/lib/ai/stt";
+import { getRuntimePath } from "@/lib/runtime-paths";
 import { preprocessTranscript, preprocessTranscriptWithSegments } from "@/lib/transcript/preprocess";
 
 type LiveChunkStatus = "PENDING" | "TRANSCRIBING" | "READY" | "ERROR";
@@ -64,7 +65,7 @@ type FinalizedLivePart = {
   qualityMeta: Record<string, unknown>;
 };
 
-const LIVE_AUDIO_ROOT = path.join(process.cwd(), ".data", "session-audio", "live");
+const LIVE_AUDIO_ROOT = getRuntimePath("session-audio", "live");
 const manifestLocks = new Map<string, Promise<void>>();
 const chunkTranscriptionRuns = new Map<string, Promise<void>>();
 

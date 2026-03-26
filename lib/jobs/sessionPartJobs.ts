@@ -24,6 +24,7 @@ import {
   updateSessionStatusFromParts,
 } from "@/lib/session-service";
 import { readSessionPartUpload } from "@/lib/session-part-storage";
+import { getAudioExpiryDate } from "@/lib/system-config";
 import { preprocessTranscript, preprocessTranscriptWithSegments } from "@/lib/transcript/preprocess";
 import {
   enqueueConversationJobs,
@@ -361,8 +362,6 @@ async function markPartReady(input: {
   rawSegments: any[];
   qualityMeta: Record<string, unknown>;
 }) {
-  const expiresAt = new Date();
-  expiresAt.setDate(expiresAt.getDate() + 30);
   await prisma.sessionPart.update({
     where: { id: input.part.id },
     data: {
@@ -381,7 +380,7 @@ async function markPartReady(input: {
         summaryPreview: buildSummaryPreview(input.rawTextCleaned || input.rawTextOriginal),
         lastCompletedAt: new Date().toISOString(),
       }),
-      transcriptExpiresAt: expiresAt,
+      transcriptExpiresAt: getAudioExpiryDate(),
     },
   });
   await updateSessionStatusFromParts(input.part.sessionId);

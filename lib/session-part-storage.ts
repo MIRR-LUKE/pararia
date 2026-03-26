@@ -1,8 +1,9 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { SessionPartType } from "@prisma/client";
+import { getRuntimePath } from "@/lib/runtime-paths";
 
-const SESSION_PART_AUDIO_ROOT = path.join(process.cwd(), ".data", "session-audio", "uploads");
+const SESSION_PART_AUDIO_ROOT = getRuntimePath("session-audio", "uploads");
 
 function sanitizeFileName(name: string) {
   const base = String(name || "audio.webm").trim();

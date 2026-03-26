@@ -4,6 +4,7 @@ import { auth } from "@/auth";
 import { writeAuditLog } from "@/lib/audit";
 import { prisma } from "@/lib/db";
 import { generateParentReport } from "@/lib/ai/parentReport";
+import { renderConversationArtifactOrFallback } from "@/lib/conversation-artifact";
 
 export async function POST(request: Request) {
   try {
@@ -59,6 +60,7 @@ export async function POST(request: Request) {
         id: true,
         sessionId: true,
         createdAt: true,
+        artifactJson: true,
         summaryMarkdown: true,
         session: {
           select: {
@@ -72,7 +74,9 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "selected logs not found" }, { status: 400 });
     }
 
-    const pendingLogs = selectedLogs.filter((log) => !log.summaryMarkdown?.trim());
+    const pendingLogs = selectedLogs.filter(
+      (log) => !renderConversationArtifactOrFallback(log.artifactJson, log.summaryMarkdown).trim()
+    );
     if (pendingLogs.length > 0) {
       return NextResponse.json(
         { error: "選択したログ本文がまだ生成されていません。面談ログ / 指導報告ログの生成完了後に再実行してください。" },
@@ -80,7 +84,9 @@ export async function POST(request: Request) {
       );
     }
 
-    const logs = selectedLogs.filter((log) => Boolean(log.summaryMarkdown?.trim()));
+    const logs = selectedLogs.filter((log) =>
+      Boolean(renderConversationArtifactOrFallback(log.artifactJson, log.summaryMarkdown).trim())
+    );
 
     const { markdown, reportJson, bundleQualityEval } = await generateParentReport({
       studentName: student.name,
@@ -92,7 +98,8 @@ export async function POST(request: Request) {
         sessionId: log.sessionId,
         date: log.createdAt.toISOString().slice(0, 10),
         mode: log.session?.type === "LESSON_REPORT" ? "LESSON_REPORT" : "INTERVIEW",
-        summaryMarkdown: log.summaryMarkdown ?? "",
+        artifactJson: log.artifactJson,
+        summaryMarkdown: renderConversationArtifactOrFallback(log.artifactJson, log.summaryMarkdown),
       })),
     });
 

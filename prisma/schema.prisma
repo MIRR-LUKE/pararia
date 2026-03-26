@@ -136,6 +136,7 @@ model ConversationLog {
   rawTextExpiresAt DateTime?
 
   // --- LLM outputs (final artifacts) ---
+  artifactJson          Json?
   summaryMarkdown      String?
   formattedTranscript  String?
   qualityMetaJson      Json?
@@ -158,9 +159,18 @@ model ConversationJob {
   conversationId String
   type           ConversationJobType
   status         JobStatus           @default(QUEUED)
+  executionId    String?
   model          String?
   attempts       Int                 @default(0)
+  maxAttempts    Int                 @default(3)
   lastError      String?
+  nextRetryAt    DateTime?
+  leaseExpiresAt DateTime?
+  lastHeartbeatAt DateTime?
+  failedAt       DateTime?
+  completedAt    DateTime?
+  lastRunDurationMs Int?
+  lastQueueLagMs Int?
   outputJson     Json?
   costMetaJson   Json?
   startedAt      DateTime?
@@ -172,7 +182,9 @@ model ConversationJob {
 
   @@unique([conversationId, type])
   @@index([status, type])
+  @@index([status, nextRetryAt, type])
   @@index([conversationId, type, status])
+  @@index([conversationId, leaseExpiresAt])
 }
 
 model SessionPartJob {

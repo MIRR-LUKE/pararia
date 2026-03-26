@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { writeAuditLog } from "@/lib/audit";
 import { prisma } from "@/lib/db";
+import { deleteRuntimeEntries } from "@/lib/runtime-cleanup";
 import { requireAuthorizedSession } from "@/lib/server/request-auth";
 
 function normalizeGuardianNames(value: unknown) {
@@ -135,6 +136,18 @@ export async function DELETE(
       where: { studentId: student.id, organizationId: authResult.session.user.organizationId },
       select: { id: true },
     });
+    const sessionParts = await prisma.sessionPart.findMany({
+      where: {
+        session: {
+          studentId: student.id,
+          organizationId: authResult.session.user.organizationId,
+        },
+      },
+      select: {
+        storageUrl: true,
+      },
+    });
+    const runtimePaths = sessionParts.map((part) => part.storageUrl);
 
     await prisma.$transaction(async (tx) => {
       if (conversationIds.length > 0) {
@@ -156,6 +169,7 @@ export async function DELETE(
       });
       await tx.student.delete({ where: { id: student.id } });
     });
+    const runtimeDeletion = await deleteRuntimeEntries(runtimePaths);
 
     await writeAuditLog({
       userId: authResult.session.user.id,
@@ -167,6 +181,7 @@ export async function DELETE(
         sessionCount: student._count.sessions,
         reportCount: student._count.reports,
         profileCount: student._count.profiles,
+        deletedRuntimeEntryCount: runtimeDeletion.deletedCount,
       },
     });
 
@@ -174,6 +189,7 @@ export async function DELETE(
       success: true,
       message: "student deleted",
       studentId: student.id,
+      deletedRuntimeEntryCount: runtimeDeletion.deletedCount,
     });
   } catch (e: any) {
     console.error("[DELETE /api/students/[id]] Error:", {

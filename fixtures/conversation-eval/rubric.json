@@ -1,0 +1,114 @@
+{
+  "scoreThreshold": 80,
+  "cases": [
+    {
+      "id": "interview-sleep-and-study",
+      "modeLabel": "面談",
+      "requiredHeadings": [
+        "基本情報",
+        "1. サマリー",
+        "2. ポジティブな話題",
+        "3. 改善・対策が必要な話題",
+        "4. 保護者への共有ポイント"
+      ],
+      "requiredKeywords": [
+        "睡眠",
+        "英語",
+        "宿題",
+        "ベクトル",
+        "受験"
+      ],
+      "forbiddenPhrases": [
+        "逐語録",
+        "録音をそのまま",
+        "会話をそのまま",
+        "言い差し"
+      ],
+      "sectionRules": [
+        {
+          "heading": "1. サマリー",
+          "kind": "paragraphs",
+          "minCount": 2,
+          "mustInclude": [
+            "睡眠",
+            "英語"
+          ]
+        },
+        {
+          "heading": "2. ポジティブな話題",
+          "kind": "bullets",
+          "minCount": 3
+        },
+        {
+          "heading": "3. 改善・対策が必要な話題",
+          "kind": "bullets",
+          "minCount": 3
+        },
+        {
+          "heading": "4. 保護者への共有ポイント",
+          "kind": "bullets",
+          "minCount": 2
+        }
+      ]
+    },
+    {
+      "id": "lesson-structure-and-repetition",
+      "modeLabel": "指導報告",
+      "requiredHeadings": [
+        "基本情報",
+        "1. 本日の指導サマリー（室長向け要約）",
+        "2. 課題と指導成果（Before → After）",
+        "3. 学習方針と次回アクション（自学習の設計）",
+        "4. 室長・他講師への共有・連携事項"
+      ],
+      "requiredKeywords": [
+        "数列",
+        "条件整理",
+        "最初の式",
+        "宿題",
+        "図",
+        "再現"
+      ],
+      "forbiddenPhrases": [
+        "逐語録",
+        "録音をそのまま",
+        "会話をそのまま",
+        "相づち"
+      ],
+      "sectionRules": [
+        {
+          "heading": "1. 本日の指導サマリー（室長向け要約）",
+          "kind": "paragraphs",
+          "minCount": 2,
+          "mustInclude": [
+            "数列",
+            "条件整理"
+          ]
+        },
+        {
+          "heading": "2. 課題と指導成果（Before → After）",
+          "kind": "contains",
+          "mustInclude": [
+            "現状（Before）",
+            "成果（After）",
+            "※特記事項"
+          ]
+        },
+        {
+          "heading": "3. 学習方針と次回アクション（自学習の設計）",
+          "kind": "contains",
+          "mustInclude": [
+            "生徒:",
+            "次回までの宿題:",
+            "次回の確認（テスト）事項:"
+          ]
+        },
+        {
+          "heading": "4. 室長・他講師への共有・連携事項",
+          "kind": "bullets",
+          "minCount": 2
+        }
+      ]
+    }
+  ]
+}

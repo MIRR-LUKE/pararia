@@ -18,6 +18,7 @@ import {
   startLiveChunkTranscription,
 } from "@/lib/live-session-transcription";
 import { requireAuthorizedSession } from "@/lib/server/request-auth";
+import { getAudioExpiryDate } from "@/lib/system-config";
 
 function parsePartType(raw: string | null) {
   if (raw === SessionPartType.CHECK_IN) return SessionPartType.CHECK_IN;
@@ -115,8 +116,7 @@ export async function POST(
       });
       const progress = await getLiveTranscriptionProgress(params.id, partType);
 
-      const expiresAt = new Date();
-      expiresAt.setDate(expiresAt.getDate() + 30);
+      const expiresAt = getAudioExpiryDate();
 
       const existingPart = await prisma.sessionPart.findUnique({
         where: { sessionId_partType: { sessionId: params.id, partType } },
@@ -203,8 +203,7 @@ export async function POST(
       );
     }
 
-    const expiresAt = new Date();
-    expiresAt.setDate(expiresAt.getDate() + 30);
+    const expiresAt = getAudioExpiryDate();
     const existingPart = await prisma.sessionPart.findUnique({
       where: { sessionId_partType: { sessionId: params.id, partType } },
       select: {

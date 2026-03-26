@@ -1,7 +1,9 @@
+import { randomUUID } from "node:crypto";
 import { prisma } from "@/lib/db";
 import { ConversationJobType, ConversationStatus, JobStatus, Prisma, SessionStatus, SessionType } from "@prisma/client";
 import { estimateTokens, generateConversationDraftFast, getPromptVersion } from "@/lib/ai/conversationPipeline";
 import { formatTranscriptFromSegments, formatTranscriptFromText } from "@/lib/ai/llm";
+import { buildConversationArtifactFromMarkdown, renderConversationArtifactMarkdown } from "@/lib/conversation-artifact";
 import { DEFAULT_TEACHER_FULL_NAME } from "@/lib/constants";
 import { sanitizeFormattedTranscript, sanitizeTranscriptText } from "@/lib/user-facing-japanese";
 import type { ConversationQualityMeta } from "@/lib/types/conversation";
@@ -14,13 +16,27 @@ const JOB_PRIORITY: Partial<Record<ConversationJobType, number>> = {
   [ConversationJobType.FINALIZE]: 0,
   [ConversationJobType.FORMAT]: 1,
 };
-const JOB_EXECUTION_RETRIES = Math.max(0, Math.min(3, Number(process.env.JOB_EXECUTION_RETRIES ?? 2)));
+
+function readClampedEnvInt(name: string, fallback: number, min: number, max: number) {
+  const value = Number(process.env[name] ?? fallback);
+  if (!Number.isFinite(value)) return fallback;
+  return Math.max(min, Math.min(max, Math.floor(value)));
+}
+
+const JOB_MAX_ATTEMPTS = readClampedEnvInt("JOB_MAX_ATTEMPTS", 3, 1, 10);
+const JOB_LEASE_MS = readClampedEnvInt("JOB_LEASE_MS", 5 * 60 * 1000, 30_000, 15 * 60 * 1000);
+const JOB_RETRY_BASE_MS = readClampedEnvInt("JOB_RETRY_BASE_MS", 15_000, 1_000, 5 * 60 * 1000);
 
 type JobPayload = {
   id: string;
   conversationId: string;
   type: ConversationJobType;
-  attempts: number;
+  attempt: number;
+  maxAttempts: number;
+  executionId: string;
+  createdAt: Date;
+  startedAt: Date;
+  lastQueueLagMs: number;
 };
 
 type ProcessJobsOptions = {
@@ -29,6 +45,7 @@ type ProcessJobsOptions = {
 
 type ConversationPayload = {
   id: string;
+  studentId: string;
   sessionId?: string | null;
   sessionType?: SessionType | null;
   sessionDate?: Date | string | null;
@@ -36,7 +53,6 @@ type ConversationPayload = {
   rawTextCleaned?: string | null;
   rawSegments?: any[] | null;
   formattedTranscript?: string | null;
-  summaryMarkdown?: string | null;
   studentName?: string | null;
   teacherName?: string | null;
   qualityMetaJson?: ConversationQualityMeta | null;
@@ -56,24 +72,9 @@ function isRetryableJobError(error: unknown) {
   );
 }
 
-function waitForJobRetry(attempt: number) {
-  const base = Math.min(5000, 700 * 2 ** attempt);
-  const jitter = Math.floor(Math.random() * 300);
-  return new Promise((resolve) => setTimeout(resolve, base + jitter));
-}
-
-async function executeJobWithRetry(job: JobPayload) {
-  for (let attempt = 0; attempt <= JOB_EXECUTION_RETRIES; attempt += 1) {
-    try {
-      await executeJob(job);
-      return;
-    } catch (error) {
-      if (attempt >= JOB_EXECUTION_RETRIES || !isRetryableJobError(error)) {
-        throw error;
-      }
-      await waitForJobRetry(attempt);
-    }
-  }
+function getRetryDelayMs(attempt: number) {
+  const jitter = Math.floor(Math.random() * 500);
+  return Math.min(5 * 60 * 1000, JOB_RETRY_BASE_MS * 2 ** Math.max(0, attempt - 1)) + jitter;
 }
 
 function normalizeSourceText(payload: ConversationPayload) {
@@ -82,10 +83,10 @@ function normalizeSourceText(payload: ConversationPayload) {
   if (payload.formattedTranscript?.trim()) {
     return sanitizeTranscriptText(
       payload.formattedTranscript
-      .split("\n")
-      .map((line) => line.replace(/^\*\*[^*]+\*\*:\s*/g, ""))
-      .join("\n")
-      .trim()
+        .split("\n")
+        .map((line) => line.replace(/^\*\*[^*]+\*\*:\s*/g, ""))
+        .join("\n")
+        .trim()
     );
   }
   return "";
@@ -114,6 +115,121 @@ function dependencySatisfied(
   return false;
 }
 
+function buildJobContext(job: JobPayload, convo?: ConversationPayload) {
+  return {
+    conversationId: job.conversationId,
+    jobId: job.id,
+    executionId: job.executionId,
+    jobType: job.type,
+    attempt: job.attempt,
+    maxAttempts: job.maxAttempts,
+    studentId: convo?.studentId ?? null,
+    sessionId: convo?.sessionId ?? null,
+  };
+}
+
+function logJobInfo(message: string, context: Record<string, unknown>) {
+  console.info("[conversation-jobs]", message, context);
+}
+
+function logJobWarn(message: string, context: Record<string, unknown>) {
+  console.warn("[conversation-jobs]", message, context);
+}
+
+function logJobError(message: string, context: Record<string, unknown>) {
+  console.error("[conversation-jobs]", message, context);
+}
+
+async function touchJobLease(job: JobPayload) {
+  const now = new Date();
+  await prisma.conversationJob.updateMany({
+    where: {
+      id: job.id,
+      status: JobStatus.RUNNING,
+      executionId: job.executionId,
+    },
+    data: {
+      lastHeartbeatAt: now,
+      leaseExpiresAt: new Date(now.getTime() + JOB_LEASE_MS),
+    },
+  });
+}
+
+async function updateConversationStatus(conversationId: string, statusHint?: ConversationStatus) {
+  const jobs = await prisma.conversationJob.findMany({
+    where: { conversationId, type: { in: ACTIVE_JOB_TYPES } },
+    select: { type: true, status: true },
+  });
+
+  const finalizeJob = jobs.find((job) => job.type === ConversationJobType.FINALIZE);
+  let status: ConversationStatus = ConversationStatus.PROCESSING;
+  if (finalizeJob?.status === JobStatus.DONE) {
+    status = ConversationStatus.DONE;
+  } else if (finalizeJob?.status === JobStatus.ERROR) {
+    status = ConversationStatus.ERROR;
+  }
+  if (statusHint) status = statusHint;
+
+  await prisma.conversationLog.update({
+    where: { id: conversationId },
+    data: { status },
+  });
+}
+
+async function recoverExpiredRunningJobs(opts?: ProcessJobsOptions) {
+  const now = new Date();
+  const staleJobs = await prisma.conversationJob.findMany({
+    where: {
+      status: JobStatus.RUNNING,
+      leaseExpiresAt: { lt: now },
+      type: { in: ACTIVE_JOB_TYPES },
+      ...(opts?.conversationId ? { conversationId: opts.conversationId } : {}),
+    },
+    select: {
+      id: true,
+      conversationId: true,
+      type: true,
+      attempts: true,
+      maxAttempts: true,
+    },
+  });
+
+  for (const stale of staleJobs) {
+    const exhausted = stale.attempts >= stale.maxAttempts;
+    const updated = await prisma.conversationJob.updateMany({
+      where: { id: stale.id, status: JobStatus.RUNNING },
+      data: {
+        status: exhausted ? JobStatus.ERROR : JobStatus.QUEUED,
+        lastError: exhausted ? "lease expired and max attempts reached" : "lease expired; requeued",
+        nextRetryAt: exhausted ? null : now,
+        leaseExpiresAt: null,
+        lastHeartbeatAt: now,
+        failedAt: now,
+        finishedAt: now,
+      },
+    });
+    if (updated.count !== 1) continue;
+
+    if (stale.type === ConversationJobType.FINALIZE) {
+      await updateConversationStatus(
+        stale.conversationId,
+        exhausted ? ConversationStatus.ERROR : ConversationStatus.PROCESSING
+      );
+    } else {
+      await updateConversationStatus(stale.conversationId);
+    }
+
+    logJobWarn("recovered_stale_job", {
+      conversationId: stale.conversationId,
+      jobId: stale.id,
+      jobType: stale.type,
+      attempts: stale.attempts,
+      maxAttempts: stale.maxAttempts,
+      exhausted,
+    });
+  }
+}
+
 async function claimNextJob(opts?: ProcessJobsOptions): Promise<JobPayload | null> {
   await prisma.conversationJob.deleteMany({
     where: {
@@ -122,15 +238,26 @@ async function claimNextJob(opts?: ProcessJobsOptions): Promise<JobPayload | nul
     },
   });
 
+  await recoverExpiredRunningJobs(opts);
+
+  const now = new Date();
   const queued = await prisma.conversationJob.findMany({
     where: {
       status: JobStatus.QUEUED,
       type: { in: ACTIVE_JOB_TYPES },
       ...(opts?.conversationId ? { conversationId: opts.conversationId } : {}),
+      OR: [{ nextRetryAt: null }, { nextRetryAt: { lte: now } }],
     },
     orderBy: [{ createdAt: "asc" }],
     take: 50,
-    select: { id: true, conversationId: true, type: true, attempts: true, createdAt: true },
+    select: {
+      id: true,
+      conversationId: true,
+      type: true,
+      attempts: true,
+      maxAttempts: true,
+      createdAt: true,
+    },
   });
   if (queued.length === 0) return null;
 
@@ -159,11 +286,22 @@ async function claimNextJob(opts?: ProcessJobsOptions): Promise<JobPayload | nul
     });
 
   for (const job of eligible) {
+    const claimedAt = new Date();
+    const executionId = randomUUID();
+    const lastQueueLagMs = Math.max(0, claimedAt.getTime() - job.createdAt.getTime());
     const updated = await prisma.conversationJob.updateMany({
       where: { id: job.id, status: JobStatus.QUEUED },
       data: {
         status: JobStatus.RUNNING,
-        startedAt: new Date(),
+        executionId,
+        startedAt: claimedAt,
+        finishedAt: null,
+        failedAt: null,
+        completedAt: null,
+        nextRetryAt: null,
+        leaseExpiresAt: new Date(claimedAt.getTime() + JOB_LEASE_MS),
+        lastHeartbeatAt: claimedAt,
+        lastQueueLagMs,
         attempts: { increment: 1 },
       },
     });
@@ -172,33 +310,17 @@ async function claimNextJob(opts?: ProcessJobsOptions): Promise<JobPayload | nul
         id: job.id,
         conversationId: job.conversationId,
         type: job.type,
-        attempts: job.attempts,
+        attempt: job.attempts + 1,
+        maxAttempts: job.maxAttempts,
+        executionId,
+        createdAt: job.createdAt,
+        startedAt: claimedAt,
+        lastQueueLagMs,
       };
     }
   }
 
   return null;
-}
-
-async function updateConversationStatus(conversationId: string, statusHint?: ConversationStatus) {
-  const jobs = await prisma.conversationJob.findMany({
-    where: { conversationId, type: { in: ACTIVE_JOB_TYPES } },
-    select: { type: true, status: true },
-  });
-
-  const finalizeJob = jobs.find((job) => job.type === ConversationJobType.FINALIZE);
-  let status: ConversationStatus = ConversationStatus.PROCESSING;
-  if (finalizeJob?.status === JobStatus.DONE) {
-    status = ConversationStatus.DONE;
-  } else if (finalizeJob?.status === JobStatus.ERROR) {
-    status = ConversationStatus.ERROR;
-  }
-  if (statusHint) status = statusHint;
-
-  await prisma.conversationLog.update({
-    where: { id: conversationId },
-    data: { status },
-  });
 }
 
 async function executeFinalizeJob(job: JobPayload, convo: ConversationPayload) {
@@ -211,7 +333,10 @@ async function executeFinalizeJob(job: JobPayload, convo: ConversationPayload) {
     sessionType: convo.sessionType,
     sourceText,
   });
+  await touchJobLease(job);
+
   const start = Date.now();
+  const sessionType = convo.sessionType === SessionType.LESSON_REPORT ? "LESSON_REPORT" : "INTERVIEW";
   const {
     summaryMarkdown,
     model,
@@ -225,7 +350,7 @@ async function executeFinalizeJob(job: JobPayload, convo: ConversationPayload) {
     teacherName: convo.teacherName ?? undefined,
     sessionDate: convo.sessionDate ?? undefined,
     minSummaryChars,
-    sessionType: convo.sessionType === SessionType.LESSON_REPORT ? "LESSON_REPORT" : "INTERVIEW",
+    sessionType,
   });
   const duration = Date.now() - start;
   const cleanedSummary = summaryMarkdown.trim();
@@ -233,24 +358,42 @@ async function executeFinalizeJob(job: JobPayload, convo: ConversationPayload) {
     throw new Error("summary generation returned empty markdown");
   }
 
+  const artifact = buildConversationArtifactFromMarkdown({
+    sessionType,
+    summaryMarkdown: cleanedSummary,
+  });
+  const renderedSummary = renderConversationArtifactMarkdown(artifact);
+
   const qualityMeta: ConversationQualityMeta = {
     ...(convo.qualityMetaJson ?? {}),
     modelFinalize: model,
-    summaryCharCount: cleanedSummary.length,
+    summaryCharCount: renderedSummary.length,
     jobSecondsFinalize: Math.round(duration / 1000),
     llmApiCallsFinalize: apiCalls,
     promptVersion: getPromptVersion(),
     generatedAt: new Date().toISOString(),
     inputTokensEstimate,
-    outputTokensEstimate: estimateTokens(cleanedSummary),
+    outputTokensEstimate: estimateTokens(renderedSummary),
     usedFallbackSummary: usedFallback,
+    finalizeJob: {
+      jobId: job.id,
+      executionId: job.executionId,
+      attempt: job.attempt,
+      maxAttempts: job.maxAttempts,
+      queueLagMs: job.lastQueueLagMs,
+      durationMs: duration,
+    } as any,
   };
 
+  await touchJobLease(job);
+
+  const finishedAt = new Date();
   await prisma.conversationLog.update({
     where: { id: convo.id },
     data: {
       status: ConversationStatus.DONE,
-      summaryMarkdown: cleanedSummary,
+      artifactJson: toPrismaJson(artifact),
+      summaryMarkdown: renderedSummary,
       qualityMetaJson: toPrismaJson(qualityMeta),
     },
   });
@@ -259,20 +402,29 @@ async function executeFinalizeJob(job: JobPayload, convo: ConversationPayload) {
     where: { id: job.id },
     data: {
       status: JobStatus.DONE,
-      finishedAt: new Date(),
+      finishedAt,
+      completedAt: finishedAt,
+      lastHeartbeatAt: finishedAt,
+      leaseExpiresAt: null,
       model,
+      lastRunDurationMs: duration,
       outputJson: toPrismaJson({
-        summaryCharCount: cleanedSummary.length,
+        summaryCharCount: renderedSummary.length,
         evidenceChars,
         llmApiCalls: apiCalls,
         usedFallback,
+        executionId: job.executionId,
+        attempt: job.attempt,
+        studentId: convo.studentId,
+        sessionId: convo.sessionId,
       }),
       costMetaJson: toPrismaJson({
         promptVersion: getPromptVersion(),
         inputTokensEstimate,
-        outputTokensEstimate: estimateTokens(cleanedSummary),
+        outputTokensEstimate: estimateTokens(renderedSummary),
         seconds: Math.round(duration / 1000),
         llmApiCalls: apiCalls,
+        queueLagMs: job.lastQueueLagMs,
       }),
     },
   });
@@ -280,8 +432,15 @@ async function executeFinalizeJob(job: JobPayload, convo: ConversationPayload) {
   await updateConversationStatus(convo.id, ConversationStatus.DONE);
   await syncSessionAfterConversation(convo.id);
 
+  logJobInfo("job_completed", {
+    ...buildJobContext(job, convo),
+    model,
+    durationMs: duration,
+    usedFallback,
+  });
+
   return {
-    summaryMarkdown: cleanedSummary,
+    summaryMarkdown: renderedSummary,
     duration,
   };
 }
@@ -290,6 +449,8 @@ async function executeFormatJob(job: JobPayload, convo: ConversationPayload) {
   const sourceText = normalizeSourceText(convo);
   const start = Date.now();
   let formatted: string | null = null;
+
+  await touchJobLease(job);
 
   if (Array.isArray(convo.rawSegments) && convo.rawSegments.length > 0) {
     formatted = await formatTranscriptFromSegments(convo.rawSegments, {
@@ -305,6 +466,7 @@ async function executeFormatJob(job: JobPayload, convo: ConversationPayload) {
 
   const duration = Date.now() - start;
   const cleanedFormatted = sanitizeFormattedTranscript(formatted ?? "");
+  const finishedAt = new Date();
 
   await prisma.conversationLog.update({
     where: { id: convo.id },
@@ -313,6 +475,14 @@ async function executeFormatJob(job: JobPayload, convo: ConversationPayload) {
       qualityMetaJson: toPrismaJson({
         ...(convo.qualityMetaJson ?? {}),
         jobSecondsFormat: Math.round(duration / 1000),
+        formatJob: {
+          jobId: job.id,
+          executionId: job.executionId,
+          attempt: job.attempt,
+          maxAttempts: job.maxAttempts,
+          queueLagMs: job.lastQueueLagMs,
+          durationMs: duration,
+        },
       }),
     },
   });
@@ -321,19 +491,34 @@ async function executeFormatJob(job: JobPayload, convo: ConversationPayload) {
     where: { id: job.id },
     data: {
       status: JobStatus.DONE,
-      finishedAt: new Date(),
+      finishedAt,
+      completedAt: finishedAt,
+      lastHeartbeatAt: finishedAt,
+      leaseExpiresAt: null,
       model: "hybrid",
+      lastRunDurationMs: duration,
       outputJson: toPrismaJson({
         formattedLength: cleanedFormatted.length,
+        executionId: job.executionId,
+        attempt: job.attempt,
+        studentId: convo.studentId,
+        sessionId: convo.sessionId,
       }),
       costMetaJson: toPrismaJson({
         promptVersion: getPromptVersion(),
         seconds: Math.round(duration / 1000),
+        queueLagMs: job.lastQueueLagMs,
       }),
     },
   });
 
   await updateConversationStatus(convo.id);
+
+  logJobInfo("job_completed", {
+    ...buildJobContext(job, convo),
+    model: "hybrid",
+    durationMs: duration,
+  });
 
   return { formatted: cleanedFormatted, duration };
 }
@@ -342,7 +527,7 @@ async function executeJob(job: JobPayload) {
   const convo = await prisma.conversationLog.findUnique({
     where: { id: job.conversationId },
     include: {
-      student: { select: { name: true } },
+      student: { select: { id: true, name: true } },
       user: { select: { name: true } },
       session: { select: { id: true, type: true, sessionDate: true } },
     },
@@ -351,6 +536,7 @@ async function executeJob(job: JobPayload) {
 
   const payload: ConversationPayload = {
     id: convo.id,
+    studentId: convo.studentId,
     sessionId: convo.sessionId,
     sessionType: convo.session?.type ?? null,
     sessionDate: convo.session?.sessionDate ?? null,
@@ -358,11 +544,12 @@ async function executeJob(job: JobPayload) {
     rawTextCleaned: convo.rawTextCleaned,
     rawSegments: (convo.rawSegments as any[]) ?? [],
     formattedTranscript: convo.formattedTranscript,
-    summaryMarkdown: convo.summaryMarkdown,
     studentName: convo.student?.name ?? null,
     teacherName: convo.user?.name ?? DEFAULT_TEACHER_FULL_NAME,
     qualityMetaJson: (convo.qualityMetaJson as ConversationQualityMeta) ?? null,
   };
+
+  logJobInfo("job_started", buildJobContext(job, payload));
 
   if (job.type === ConversationJobType.FINALIZE) return executeFinalizeJob(job, payload);
   if (job.type === ConversationJobType.FORMAT) return executeFormatJob(job, payload);
@@ -392,7 +579,17 @@ export async function enqueueConversationJobs(
         },
         update: {
           status: JobStatus.QUEUED,
+          executionId: null,
+          attempts: 0,
+          maxAttempts: JOB_MAX_ATTEMPTS,
           lastError: null,
+          nextRetryAt: null,
+          leaseExpiresAt: null,
+          lastHeartbeatAt: null,
+          failedAt: null,
+          completedAt: null,
+          lastRunDurationMs: null,
+          lastQueueLagMs: null,
           outputJson: Prisma.DbNull,
           costMetaJson: Prisma.DbNull,
           startedAt: null,
@@ -402,10 +599,98 @@ export async function enqueueConversationJobs(
           conversationId,
           type,
           status: JobStatus.QUEUED,
+          maxAttempts: JOB_MAX_ATTEMPTS,
         },
       })
     )
   );
+}
+
+async function handleJobFailure(job: JobPayload, error: unknown) {
+  const message = error instanceof Error ? error.message : String(error ?? "unknown error");
+  const retryable = isRetryableJobError(error);
+  const canRetry = retryable && job.attempt < job.maxAttempts;
+  const durationMs = Math.max(0, Date.now() - job.startedAt.getTime());
+  const failedAt = new Date();
+  const nextRetryAt = canRetry ? new Date(Date.now() + getRetryDelayMs(job.attempt)) : null;
+
+  await prisma.conversationJob.update({
+    where: { id: job.id },
+    data: {
+      status: canRetry ? JobStatus.QUEUED : JobStatus.ERROR,
+      lastError: message,
+      nextRetryAt,
+      leaseExpiresAt: null,
+      lastHeartbeatAt: failedAt,
+      failedAt,
+      finishedAt: failedAt,
+      lastRunDurationMs: durationMs,
+      outputJson: toPrismaJson({
+        executionId: job.executionId,
+        attempt: job.attempt,
+        retryable,
+        nextRetryAt,
+      }),
+    },
+  });
+
+  const existing = await prisma.conversationLog.findUnique({
+    where: { id: job.conversationId },
+    select: { qualityMetaJson: true, sessionId: true, studentId: true },
+  });
+  const prev = (existing?.qualityMetaJson as ConversationQualityMeta) ?? {};
+  await prisma.conversationLog.update({
+    where: { id: job.conversationId },
+    data: {
+      qualityMetaJson: toPrismaJson({
+        ...prev,
+        errors: [...(prev.errors ?? []), message],
+        lastJobFailure: {
+          jobId: job.id,
+          executionId: job.executionId,
+          jobType: job.type,
+          attempt: job.attempt,
+          maxAttempts: job.maxAttempts,
+          retryable,
+          nextRetryAt,
+          failedAt: failedAt.toISOString(),
+        },
+      }),
+    },
+  });
+
+  if (job.type === ConversationJobType.FINALIZE) {
+    await updateConversationStatus(
+      job.conversationId,
+      canRetry ? ConversationStatus.PROCESSING : ConversationStatus.ERROR
+    );
+    if (existing?.sessionId) {
+      await prisma.session.update({
+        where: { id: existing.sessionId },
+        data: { status: canRetry ? SessionStatus.PROCESSING : SessionStatus.ERROR },
+      });
+    }
+  } else {
+    await updateConversationStatus(job.conversationId);
+  }
+
+  const logContext = {
+    ...buildJobContext(job, existing ? { id: job.conversationId, studentId: existing.studentId, sessionId: existing.sessionId } : undefined),
+    retryable,
+    nextRetryAt: nextRetryAt?.toISOString() ?? null,
+    durationMs,
+    message,
+  };
+  if (canRetry) {
+    logJobWarn("job_retry_scheduled", logContext);
+  } else {
+    logJobError("job_failed", logContext);
+  }
+
+  return {
+    message,
+    canRetry,
+  };
 }
 
 export async function processQueuedJobs(
@@ -442,43 +727,16 @@ export async function processQueuedJobs(
         await new Promise((resolve) => setTimeout(resolve, 200));
         continue;
       }
+
       idle = 0;
       try {
-        await executeJobWithRetry(job);
+        await executeJob(job);
         processed += 1;
-      } catch (error: any) {
-        const message = error?.message ?? "unknown error";
-        errors.push(message);
-        await prisma.conversationJob.update({
-          where: { id: job.id },
-          data: { status: JobStatus.ERROR, lastError: message, finishedAt: new Date() },
-        });
-        const existing = await prisma.conversationLog.findUnique({
-          where: { id: job.conversationId },
-          select: { qualityMetaJson: true, sessionId: true },
-        });
-        const prev = (existing?.qualityMetaJson as ConversationQualityMeta) ?? {};
-        await prisma.conversationLog.update({
-          where: { id: job.conversationId },
-          data: {
-            qualityMetaJson: toPrismaJson({
-              ...prev,
-              errors: [...(prev.errors ?? []), message],
-            }),
-          },
-        });
-
-        if (job.type === ConversationJobType.FINALIZE) {
-          await updateConversationStatus(job.conversationId, ConversationStatus.ERROR);
-          if (existing?.sessionId) {
-            await prisma.session.update({
-              where: { id: existing.sessionId },
-              data: { status: SessionStatus.ERROR },
-            });
-          }
-        } else {
-          await updateConversationStatus(job.conversationId);
-        }
+      } catch (error) {
+        const failure = await handleJobFailure(job, error);
+        errors.push(failure.message);
+      } finally {
+        releaseSlot();
       }
     }
   };

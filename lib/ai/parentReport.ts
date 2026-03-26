@@ -4,6 +4,7 @@ import {
   buildBundleQualityEval,
   type BundleQualityEval,
 } from "@/lib/operational-log";
+import { parseConversationArtifact, renderConversationArtifactOrFallback } from "@/lib/conversation-artifact";
 
 const REPORT_MODEL =
   process.env.LLM_MODEL_REPORT ||
@@ -22,6 +23,7 @@ type ReportInput = {
     date: string;
     mode: "INTERVIEW" | "LESSON_REPORT";
     subType?: string | null;
+    artifactJson?: unknown;
     summaryMarkdown?: string;
   }>;
 };
@@ -242,6 +244,7 @@ export function buildReportBundle(input: ReportInput) {
       mode: log.mode,
       subType: log.subType ?? null,
       sessionType: log.mode,
+      artifactJson: log.artifactJson,
       summaryMarkdown: log.summaryMarkdown,
     })
   );
@@ -275,9 +278,9 @@ export async function generateParentReport(input: ReportInput): Promise<ParentRe
 - 本文・見出し・要約はすべて日本語で書く
 - 英語の見出し、英語の定型句、英語逃げは禁止
 - 英字表記を残す場合も、日本語文の中で意味が分かるように説明する
-- 入力として渡されるのは、選択ログの cached なログ本文（summaryMarkdown）だけだと考える
+- 入力には structuredArtifact と derivedMarkdown がある。正本は structuredArtifact とみなし、derivedMarkdown は表示用の派生物として扱う
 - 保護者レポート用の別要約、前回レポート、プロフィール情報がある前提で書かない
-- 各ログ本文を直接読んで再構成する
+- 各ログの structuredArtifact を優先して読み、必要に応じて derivedMarkdown で文脈を補う
 - ログ本文の見出しや箇条書きを、そのままコピペせず保護者向け文章へ言い換える
 
 JSON schema:
@@ -299,16 +302,20 @@ JSON schema:
 }`;
 
   const logPayload = input.logs
-    .map((log, index) =>
-      [
+    .map((log, index) => {
+      const artifact = parseConversationArtifact(log.artifactJson);
+      const derivedMarkdown = renderConversationArtifactOrFallback(log.artifactJson, log.summaryMarkdown);
+      return [
         `# Log ${index + 1}`,
         `id: ${log.id}`,
         `date: ${log.date}`,
         `mode: ${log.mode}`,
-        `cachedLogBody:`,
-        log.summaryMarkdown?.trim() || "",
-      ].join("\n")
-    )
+        "structuredArtifact:",
+        artifact ? JSON.stringify(artifact, null, 2) : "null",
+        "derivedMarkdown:",
+        derivedMarkdown.trim(),
+      ].join("\n");
+    })
     .join("\n\n");
 
   const userPrompt = `生徒名: ${input.studentName}
@@ -329,7 +336,7 @@ ${logPayload}
 - 「リスクとその意味」では、煽らずに判断根拠として書く
 - 「次回までの方針」では、次に何を確認し何を決めるかを書く
 - 「ご家庭で見てほしいこと」では、家庭で確認しやすい一言や見守りポイントにする
-- cachedLogBody に書かれていない内容は足さない`;
+- structuredArtifact / derivedMarkdown のどちらにもない内容は足さない`;
 
   const contentText = await callReportModel(systemPrompt, userPrompt);
   const jsonText = extractJsonCandidate(contentText) ?? contentText;

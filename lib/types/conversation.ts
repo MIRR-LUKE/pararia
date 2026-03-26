@@ -19,4 +19,7 @@ export type ConversationQualityMeta = {
   outputTokensEstimate?: number;
   usedFallbackSummary?: boolean;
   errors?: string[];
+  finalizeJob?: Record<string, unknown>;
+  formatJob?: Record<string, unknown>;
+  lastJobFailure?: Record<string, unknown>;
 };
