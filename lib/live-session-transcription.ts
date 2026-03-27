@@ -61,6 +61,7 @@ type FinalizedLivePart = {
   byteSize: number;
   storageUrl: string;
   rawTextOriginal: string;
+  displayTranscript: string;
   rawTextCleaned: string;
   rawSegments: TranscriptSegment[];
   qualityMeta: Record<string, unknown>;
@@ -263,7 +264,7 @@ export async function startLiveChunkTranscription(sessionId: string, partType: S
         if (!current) return;
         current.status = "READY";
         current.rawTextOriginal = pre.rawTextOriginal;
-        current.rawTextCleaned = pre.rawTextCleaned;
+        current.rawTextCleaned = pre.displayTranscript;
         current.rawSegments = stt.segments ?? [];
         current.meta = {
           sttSeconds: Math.round((Date.now() - sttStart) / 1000),
@@ -352,7 +353,8 @@ export function buildFinalizedLivePartFromManifest(manifest: {
     byteSize: readyChunks.reduce((total, chunk) => total + chunk.byteSize, 0),
     storageUrl: getManifestPath(manifest.sessionId, manifest.partType),
     rawTextOriginal: pre.rawTextOriginal,
-    rawTextCleaned: pre.rawTextCleaned,
+    displayTranscript: pre.displayTranscript,
+    rawTextCleaned: pre.displayTranscript,
     rawSegments: combinedSegments,
     qualityMeta: {
       liveTranscription: true,

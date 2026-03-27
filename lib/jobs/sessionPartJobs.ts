@@ -471,7 +471,7 @@ async function enqueuePromotionJob(sessionPartId: string) {
 async function executeTranscribeFileJob(job: SessionPartJobPayload, part: SessionPartPayload) {
   const { pre, segments, qualityMeta } = await transcribeStoredFile(part);
 
-  const substance = evaluateTranscriptSubstance(pre.rawTextCleaned || pre.rawTextOriginal);
+  const substance = evaluateTranscriptSubstance(pre.displayTranscript || pre.rawTextOriginal);
 
   if (!substance.ok) {
     await markPartRejected(part, substance.messageJa, {
@@ -500,7 +500,7 @@ async function executeTranscribeFileJob(job: SessionPartJobPayload, part: Sessio
   await markPartReady({
     part,
     rawTextOriginal: pre.rawTextOriginal,
-    rawTextCleaned: pre.rawTextCleaned,
+    rawTextCleaned: pre.displayTranscript,
     rawSegments: segments,
     qualityMeta,
   });
@@ -514,7 +514,7 @@ async function executeTranscribeFileJob(job: SessionPartJobPayload, part: Sessio
       finishedAt: new Date(),
       outputJson: toPrismaJson({
         rawLength: pre.rawTextOriginal.length,
-        cleanedLength: pre.rawTextCleaned.length,
+        displayLength: pre.displayTranscript.length,
         segmentCount: segments.length,
         fileSplitUsed: qualityMeta.fileSplitUsed === true,
       }),
@@ -528,7 +528,7 @@ async function executeTranscribeFileJob(job: SessionPartJobPayload, part: Sessio
 async function executeFinalizeLivePartJob(job: SessionPartJobPayload, part: SessionPartPayload) {
   const startedAt = Date.now();
   const finalized = await finalizeLiveTranscriptionPart(part.sessionId, part.partType);
-  const substance = evaluateTranscriptSubstance(finalized.rawTextCleaned || finalized.rawTextOriginal);
+  const substance = evaluateTranscriptSubstance(finalized.displayTranscript || finalized.rawTextOriginal);
 
   if (!substance.ok) {
     await markPartRejected(part, substance.messageJa, {
@@ -561,7 +561,7 @@ async function executeFinalizeLivePartJob(job: SessionPartJobPayload, part: Sess
     byteSize: finalized.byteSize,
     storageUrl: finalized.storageUrl,
     rawTextOriginal: finalized.rawTextOriginal,
-    rawTextCleaned: finalized.rawTextCleaned,
+    rawTextCleaned: finalized.displayTranscript,
     rawSegments: finalized.rawSegments,
     qualityMeta: finalized.qualityMeta,
   });
@@ -575,7 +575,7 @@ async function executeFinalizeLivePartJob(job: SessionPartJobPayload, part: Sess
       finishedAt: new Date(),
       outputJson: toPrismaJson({
         rawLength: finalized.rawTextOriginal.length,
-        cleanedLength: finalized.rawTextCleaned.length,
+        displayLength: finalized.displayTranscript.length,
         segmentCount: finalized.rawSegments.length,
       }),
       costMetaJson: toPrismaJson({

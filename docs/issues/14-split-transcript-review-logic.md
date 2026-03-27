@@ -45,7 +45,10 @@
 - `suggestion.ts` に token span 抽出、類似度計算、draft 生成を移した
 - `review-assessment.ts` に reviewRequired 判定と理由生成を移した
 - `reviewed-text.ts` に suggestion 適用ロジックを移した
-- `review-service.ts` に DB 同期と orchestration を寄せ、`review.ts` は薄い export にした
+- `review-composition.ts` に session transcript 合成を出した
+- `review-persistence.ts` に suggestion の DB 同期と review 保存を出した
+- `review-list.ts` に review API 向けの一覧整形を出した
+- `review-service.ts` は orchestration 中心に寄せ、`review.ts` は薄い export にした
 
 ## 確認
 

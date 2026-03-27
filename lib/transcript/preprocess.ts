@@ -13,6 +13,8 @@ type WhisperSegment = {
 
 export type PreprocessResult = {
   rawTextOriginal: string;
+  // Main display / preview transcript used by UI-facing reads.
+  displayTranscript: string;
   // legacy storage field `rawTextCleaned` stores this display / preview text.
   rawTextCleaned: string;
   // sentence-ish chunks (not perfect; used for lightweight downstream prompts if needed)
@@ -211,16 +213,36 @@ function buildBlocks(segments: string[], maxTokens = 4200, targetMin = 2600) {
   return blocks;
 }
 
-export function preprocessTranscript(rawTextOriginal: string): PreprocessResult {
+function buildDisplayTranscript(rawTextOriginal: string) {
   const sourceText = normalizeRawTranscriptText(rawTextOriginal);
   const normalized = sanitizeTranscriptText(normalizeJa(sourceText));
   const noFillers = removeFillers(normalized);
   const dedupedLines = dedupeAdjacentLines(noFillers);
   const chunks = dedupeChunkNearDuplicates(chunkByPunctuation(dedupedLines));
-  const rawTextCleaned = normalizeJa(chunks.join("\n"));
-  const topicSegments = splitByTopicBoundaries(rawTextCleaned);
-  const blocks = buildBlocks(topicSegments);
-  return { rawTextOriginal: sourceText, rawTextCleaned, chunks, blocks };
+  const displayTranscript = normalizeJa(chunks.join("\n"));
+  return {
+    sourceText,
+    displayTranscript,
+    chunks,
+  };
+}
+
+function buildPromptBlocks(displayTranscript: string, timingSegments?: string[]) {
+  const segments =
+    timingSegments && timingSegments.length > 0 ? timingSegments : splitByTopicBoundaries(displayTranscript);
+  return buildBlocks(segments);
+}
+
+export function preprocessTranscript(rawTextOriginal: string): PreprocessResult {
+  const { sourceText, displayTranscript, chunks } = buildDisplayTranscript(rawTextOriginal);
+  const blocks = buildPromptBlocks(displayTranscript);
+  return {
+    rawTextOriginal: sourceText,
+    displayTranscript,
+    rawTextCleaned: displayTranscript,
+    chunks,
+    blocks,
+  };
 }
 
 function buildTimingSegments(
@@ -283,15 +305,16 @@ export function preprocessTranscriptWithSegments(
   if (!sanitizedSegments.length) {
     return preprocessTranscript(rawTextOriginal);
   }
-  const sourceText = normalizeRawTranscriptText(rawTextOriginal);
-  const normalized = sanitizeTranscriptText(normalizeJa(sourceText));
-  const noFillers = removeFillers(normalized);
-  const dedupedLines = dedupeAdjacentLines(noFillers);
-  const chunks = dedupeChunkNearDuplicates(chunkByPunctuation(dedupedLines));
-  const rawTextCleaned = normalizeJa(chunks.join("\n"));
+  const { sourceText, displayTranscript, chunks } = buildDisplayTranscript(rawTextOriginal);
   const timingSegments = buildTimingSegments(sanitizedSegments, {});
-  const blocks = buildBlocks(timingSegments.length ? timingSegments : splitByTopicBoundaries(rawTextCleaned));
-  return { rawTextOriginal: sourceText, rawTextCleaned, chunks, blocks };
+  const blocks = buildPromptBlocks(displayTranscript, timingSegments);
+  return {
+    rawTextOriginal: sourceText,
+    displayTranscript,
+    rawTextCleaned: displayTranscript,
+    chunks,
+    blocks,
+  };
 }
 
 export function segmentsToText(segments: WhisperSegment[] | undefined | null) {

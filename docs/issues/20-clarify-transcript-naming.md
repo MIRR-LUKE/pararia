@@ -40,6 +40,7 @@ transcript 周りの名前を整理して、役割が名前からすぐ分かる
 - `pickStoredDisplayTranscriptSource()` と `pickDisplayTranscriptText()` を追加して display path を明示した
 - `pickEvidenceTranscriptText()` に evidence path の意味をコメントで固定した
 - `rawTextCleaned` は legacy の display / preview 用カラムだと schema と preprocess に明記した
+- `preprocessTranscript()` は `displayTranscript` を返し、保存時だけ `rawTextCleaned` に写す形へ寄せた
 - UI / API の preview 系は helper 経由で reviewed transcript を優先するように揃えた
 - `session-service` でも evidence transcript と legacy display snapshot の役割を分けて読めるようにした
 - `conversation route` の表示 transcript も evidence / display helper に寄せた
@@ -47,6 +48,7 @@ transcript 周りの名前を整理して、役割が名前からすぐ分かる
 ## 確認
 
 - `npm run typecheck`
+- `npm run test:transcript-preprocess`
 - `npm run test:transcript-review`
 - `npm run build`
 

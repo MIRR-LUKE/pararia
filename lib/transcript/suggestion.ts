@@ -1,5 +1,11 @@
 import { ProperNounSuggestionSource, ProperNounSuggestionStatus } from "@prisma/client";
-import type { GlossaryCandidate, StoredSuggestion, SuggestionDraft, SuggestionSpan } from "@/lib/transcript/review-types";
+import type {
+  GlossaryCandidate,
+  StoredSuggestion,
+  SuggestionDraft,
+  SuggestionDraftWithState,
+  SuggestionSpan,
+} from "@/lib/transcript/review-types";
 import { CANDIDATE_STOP_WORDS, normalizeCompareText, normalizeTokenText } from "@/lib/transcript/review-shared";
 
 const segmenter =
@@ -212,7 +218,10 @@ function suggestionKey(input: { rawValue: string; suggestedValue: string; span: 
   return [input.span.start, input.span.end, input.rawValue, input.suggestedValue].join(":");
 }
 
-export function mergeDraftsWithStored(drafts: SuggestionDraft[], stored: StoredSuggestion[]) {
+export function mergeDraftsWithStored(
+  drafts: SuggestionDraft[],
+  stored: StoredSuggestion[]
+): SuggestionDraftWithState[] {
   const storedByKey = new Map<string, StoredSuggestion>();
   for (const item of stored) {
     const span = parseSpan(item.spanJson);

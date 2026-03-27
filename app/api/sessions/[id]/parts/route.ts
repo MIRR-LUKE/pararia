@@ -112,7 +112,7 @@ export async function POST(
 
     let sourceType: ConversationSourceType = ConversationSourceType.MANUAL;
     let rawTextOriginal = transcript;
-    let rawTextCleaned = transcript;
+    let displayTranscript = transcript;
     let rawSegments: any[] = [];
     let qualityMeta: Record<string, unknown> = {};
     const expiresAt =
@@ -228,17 +228,17 @@ export async function POST(
     } else {
       const pre = preprocessTranscript(transcript);
       rawTextOriginal = pre.rawTextOriginal;
-      rawTextCleaned = pre.rawTextCleaned;
+      displayTranscript = pre.displayTranscript;
       qualityMeta = {
         inputMode: "manual",
         pipelineStage: "READY",
         uploadMode: "manual",
         lastAcceptedAt: new Date().toISOString(),
-        summaryPreview: buildSummaryPreview(pre.rawTextCleaned || pre.rawTextOriginal),
+        summaryPreview: buildSummaryPreview(pre.displayTranscript || pre.rawTextOriginal),
       };
     }
 
-    const substance = evaluateTranscriptSubstance(rawTextCleaned || rawTextOriginal);
+    const substance = evaluateTranscriptSubstance(displayTranscript || rawTextOriginal);
     if (!substance.ok) {
       const rejectedPart = await prisma.sessionPart.upsert({
         where: {
@@ -254,7 +254,7 @@ export async function POST(
           mimeType: null,
           byteSize: null,
           rawTextOriginal,
-          rawTextCleaned,
+          rawTextCleaned: displayTranscript,
           reviewedText: null,
           reviewState: "REQUIRED",
           rawSegments: toPrismaJson(rawSegments),
@@ -278,7 +278,7 @@ export async function POST(
           mimeType: null,
           byteSize: null,
           rawTextOriginal,
-          rawTextCleaned,
+          rawTextCleaned: displayTranscript,
           reviewedText: null,
           reviewState: "REQUIRED",
           rawSegments: toPrismaJson(rawSegments),
@@ -322,13 +322,13 @@ export async function POST(
         mimeType: null,
         byteSize: null,
         rawTextOriginal,
-        rawTextCleaned,
+        rawTextCleaned: displayTranscript,
         reviewedText: null,
         reviewState: "NONE",
         rawSegments: toPrismaJson(rawSegments),
         qualityMetaJson: toSessionPartMetaJson(qualityMeta, {
           pipelineStage: "READY",
-          summaryPreview: buildSummaryPreview(rawTextCleaned || rawTextOriginal),
+          summaryPreview: buildSummaryPreview(displayTranscript || rawTextOriginal),
         }),
         transcriptExpiresAt: expiresAt,
       },
@@ -341,13 +341,13 @@ export async function POST(
         mimeType: null,
         byteSize: null,
         rawTextOriginal,
-        rawTextCleaned,
+        rawTextCleaned: displayTranscript,
         reviewedText: null,
         reviewState: "NONE",
         rawSegments: toPrismaJson(rawSegments),
         qualityMetaJson: toSessionPartMetaJson(qualityMeta, {
           pipelineStage: "READY",
-          summaryPreview: buildSummaryPreview(rawTextCleaned || rawTextOriginal),
+          summaryPreview: buildSummaryPreview(displayTranscript || rawTextOriginal),
         }),
         transcriptExpiresAt: expiresAt,
       },

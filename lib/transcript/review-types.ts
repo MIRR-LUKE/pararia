@@ -33,6 +33,12 @@ export type SuggestionDraft = {
   glossaryEntryId?: string | null;
 };
 
+export type SuggestionDraftWithState = SuggestionDraft & {
+  id?: string;
+  status: ProperNounSuggestionStatus;
+  finalValue?: string | null;
+};
+
 export type StoredSuggestion = {
   id: string;
   kind: ProperNounKind;

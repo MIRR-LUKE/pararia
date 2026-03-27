@@ -160,7 +160,7 @@ export async function POST(request: Request) {
           sourceType === "AUDIO" ? ConversationSourceType.AUDIO : ConversationSourceType.MANUAL,
         status: ConversationStatus.PROCESSING,
         rawTextOriginal: pre.rawTextOriginal,
-        rawTextCleaned: pre.rawTextCleaned,
+        rawTextCleaned: pre.displayTranscript,
         reviewedText: null,
         reviewState: "NONE",
         rawTextExpiresAt: getTranscriptExpiryDate(),

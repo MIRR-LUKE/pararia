@@ -33,6 +33,7 @@ PARARIA は、塾・個別指導・学習コーチング向けの `Teaching OS` 
 - transcript の正本は `rawTextOriginal`
 - `reviewedText` は固有名詞候補を反映した確認用 transcript
 - `rawTextCleaned` は後方互換のために残している legacy の display / preview transcript
+- `preprocessTranscript()` は `displayTranscript` を返し、保存時だけ legacy カラム `rawTextCleaned` に入れる
 - `summaryMarkdown` は `artifactJson` から render した表示用の派生物
 - 補助表示として `formattedTranscript` または raw transcript を持つ
 - 旧 `timeline / nextActions / parentPack / profileDelta` を別成果物として増やす構成はやめ、必要な情報は `artifactJson` に集約する
@@ -466,8 +467,16 @@ PARARIA は、塾・個別指導・学習コーチング向けの `Teaching OS` 
   - 内部辞書と provider hint 用語の読み出し
 - `lib/transcript/review-service.ts`
   - proper noun suggestion と reviewed transcript の orchestration
+- `lib/transcript/review-composition.ts`
+  - session part を review 用 transcript に合成する
+- `lib/transcript/review-persistence.ts`
+  - suggestion の DB 同期と review state の保存
+- `lib/transcript/review-list.ts`
+  - review API 向けの suggestion 一覧を組み立てる
 - `lib/transcript/review-assessment.ts`
   - reviewState と review 理由の判定
+- `lib/transcript/preprocess.ts`
+  - raw transcript から display / preview transcript と prompt block を作る
 - `lib/recording/validation.ts`
   - duration gate
 - `lib/ai/parentReport.ts`
@@ -523,6 +532,7 @@ PARARIA_AUDIO_RETENTION_DAYS=14
 - `npm run test:live-transcription`
 - `npm run test:session-progress`
 - `npm run test:stt-fallback`
+- `npm run test:transcript-preprocess`
 - `npm run test:transcript-review`
 - `npx tsx scripts/test-conversation-artifact-semantics.ts`
 - `npm run build`

@@ -18,6 +18,7 @@
     "test:log-render-and-llm-retries": "tsx scripts/test-log-render-and-llm-retries.ts",
     "test:live-transcription": "tsx scripts/test-live-transcription.ts",
     "test:transcript-review": "tsx scripts/test-transcript-review.ts",
+    "test:transcript-preprocess": "tsx scripts/test-transcript-preprocess.ts",
     "verify": "npm run lint && npm run typecheck && npm run build",
     "postinstall": "prisma generate",
     "prisma:generate": "prisma generate",

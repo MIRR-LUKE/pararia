@@ -1,5 +1,6 @@
 import { ProperNounSuggestionStatus } from "@prisma/client";
 import type { SuggestionSpan } from "@/lib/transcript/review-types";
+import { parseSpan } from "@/lib/transcript/suggestion";
 import { normalizeTokenText } from "@/lib/transcript/review-shared";
 
 export function resolveSuggestionReplacement(input: {
@@ -44,4 +45,21 @@ export function applySuggestionsToText(
     next = `${next.slice(0, suggestion.span.start)}${replacement}${next.slice(suggestion.span.end)}`;
   }
   return next;
+}
+
+export function selectSuggestionsWithSpan<
+  T extends {
+    rawValue: string;
+    suggestedValue: string;
+    finalValue?: string | null;
+    status: ProperNounSuggestionStatus;
+    spanJson: unknown;
+  },
+>(suggestions: T[]) {
+  return suggestions
+    .map((suggestion) => ({
+      ...suggestion,
+      span: parseSpan(suggestion.spanJson),
+    }))
+    .filter((suggestion): suggestion is T & { span: SuggestionSpan } => Boolean(suggestion.span));
 }
