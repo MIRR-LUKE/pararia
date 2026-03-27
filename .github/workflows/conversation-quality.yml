@@ -25,6 +25,7 @@ jobs:
           --health-retries 5
     env:
       DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/pararia_ci?schema=public
+      DIRECT_URL: postgresql://postgres:postgres@127.0.0.1:5432/pararia_ci?schema=public
     steps:
       - name: Checkout
         uses: actions/checkout@v4

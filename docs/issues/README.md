@@ -103,6 +103,42 @@
 - `#18` と `#22` と `#29` は、artifact 先行生成に合わせて本文も更新した
 - `#32` は `test:conversation-draft-quality` と CI 実行内容まで最新化した
 
+次に切る UI Issue:
+
+1. [21-transcript-review-screen.md](./21-transcript-review-screen.md)
+2. [22-log-review-screen.md](./22-log-review-screen.md)
+3. [23-student-detail-review-guidance.md](./23-student-detail-review-guidance.md)
+4. [24-dashboard-review-queue.md](./24-dashboard-review-queue.md)
+5. [25-report-generation-reliability-display.md](./25-report-generation-reliability-display.md)
+6. [26-glossary-management-screen.md](./26-glossary-management-screen.md)
+7. [27-delivery-operations-screen.md](./27-delivery-operations-screen.md)
+8. [28-log-and-report-list-clarity.md](./28-log-and-report-list-clarity.md)
+9. [29-unify-empty-loading-error-states.md](./29-unify-empty-loading-error-states.md)
+
+対応する GitHub Issue:
+
+- `#34` UI: 文字起こし確認画面を作る
+- `#35` UI: ログ確認画面を、信頼できるか判断できる画面に作り直す
+- `#36` UI: 生徒詳細に「要確認」の導線を足す
+- `#37` UI: ダッシュボードに「文字起こし確認待ち」を入れる
+- `#38` UI: 保護者レポート生成画面に、ログの信頼性が見える表示を足す
+- `#39` UI: 辞書管理画面を作る
+- `#40` UI: 共有・送付まわりの運用画面を作る
+- `#41` UI: ログ一覧とレポート一覧を、もっと見やすく整理する
+- `#42` UI: エラー・空状態・生成中状態の表示を全部そろえる
+
+UI の優先順:
+
+1. 文字起こし確認画面
+2. ログ確認画面の強化
+3. 生徒詳細の要確認導線
+4. ダッシュボードの要確認キュー
+5. 保護者レポート生成画面の信頼性表示
+6. 辞書管理画面
+7. 共有・送付の運用画面
+8. 一覧画面の見やすさ改善
+9. 空状態・エラー状態の統一
+
 補足:
 
 - このディレクトリの Markdown は、GitHub Issue の本文更新にも使う
