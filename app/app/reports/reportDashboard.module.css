@@ -167,4 +167,19 @@
     flex-direction: column;
     align-items: flex-start;
   }
+
+  .page {
+    gap: 18px;
+  }
+
+  .summaryCard,
+  .linkCard {
+    padding: 16px;
+  }
+
+  .footer,
+  .footer :global(a),
+  .footer :global(button) {
+    width: 100%;
+  }
 }

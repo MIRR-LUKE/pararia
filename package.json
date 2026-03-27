@@ -19,6 +19,7 @@
     "test:live-transcription": "tsx scripts/test-live-transcription.ts",
     "test:transcript-review": "tsx scripts/test-transcript-review.ts",
     "test:transcript-preprocess": "tsx scripts/test-transcript-preprocess.ts",
+    "test:conversation-draft-quality": "tsx scripts/test-conversation-draft-quality.ts",
     "verify": "npm run lint && npm run typecheck && npm run build",
     "postinstall": "prisma generate",
     "prisma:generate": "prisma generate",

@@ -48,7 +48,9 @@ artifact と prompt を evidence-grounded 前提に寄せて、unsupported claim
 ## 今回入れた内容
 
 - prompt を `根拠:` 前提の出力ルールへ寄せた
-- fallback は transcript から拾えた文だけを並べる保守的な形にした
+- 生成の主経路を `structured artifact` 先行にして、JSON で artifact を作ってから markdown を render する形へ寄せた
+- 弱い markdown を前提に fallback する作りをやめて、deterministic recovery は最後の救済だけにした
+- fallback は transcript から拾えた文だけを使う保守的な形へ縮めた
 - artifact を `summary / claims / nextActions / sharePoints` に evidence を持てる形へ広げた
 - `operational-log` も structured artifact を優先して、盛った補完文を足さないようにした
 - conversation job は reviewed transcript を優先して生成するようにした
@@ -56,6 +58,7 @@ artifact と prompt を evidence-grounded 前提に寄せて、unsupported claim
 ## 確認
 
 - `npm run typecheck`
+- `npm run test:conversation-draft-quality`
 - `npm run test:log-render-and-llm-retries`
 - `npm run test:conversation-eval -- --out .tmp/conversation-eval-report.md`
 - `npm run build`

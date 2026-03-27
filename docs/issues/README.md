@@ -31,6 +31,13 @@
 8. [19-make-faithfulness-eval-a-ci-gate.md](./19-make-faithfulness-eval-a-ci-gate.md)
 9. [20-clarify-transcript-naming.md](./20-clarify-transcript-naming.md)
 
+直近の追加仕上げ:
+
+- ログ生成の主経路を `structured artifact を 1 回で作る` 形へ寄せた
+- `summaryMarkdown` は artifact から render する派生物に固定した
+- deterministic recovery は最後の保険だけにして、fallback 前提の流れをやめた
+- `test:conversation-draft-quality` を追加して、長文コピペ型の弱い出力を回帰テストで止めるようにした
+
 今回の実装順:
 
 1. 生文字起こしを本当にそのまま残すようにする
@@ -90,6 +97,11 @@
 - `#31` 運用ログ向けの要約を、報告用アクションと分けて整理する: 実装済み
 - `#32` faithfulness テストを CI の品質ゲートにする: 実装済み
 - `#33` transcript 周りの命名を整理して、見ただけで意味が分かるようにする: 実装済み
+
+今回の最終調整メモ:
+
+- `#18` と `#22` と `#29` は、artifact 先行生成に合わせて本文も更新した
+- `#32` は `test:conversation-draft-quality` と CI 実行内容まで最新化した
 
 補足:
 

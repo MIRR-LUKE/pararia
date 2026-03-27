@@ -27,6 +27,10 @@
 
   .content {
     max-width: none;
-    padding: 20px 14px 40px;
+    padding:
+      20px
+      max(14px, env(safe-area-inset-right))
+      calc(40px + env(safe-area-inset-bottom))
+      max(14px, env(safe-area-inset-left));
   }
 }

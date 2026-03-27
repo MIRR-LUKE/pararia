@@ -236,10 +236,16 @@
 @media (max-width: 1080px) {
   .hero,
   .lowerGrid,
-  .statusStrip,
-  .queueRow,
-  .directorySummary {
+  .queueRow {
     grid-template-columns: 1fr;
+  }
+
+  .statusStrip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .directorySummary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .queueActionBlock {
@@ -248,6 +254,10 @@
 }
 
 @media (max-width: 720px) {
+  .page {
+    gap: 18px;
+  }
+
   .hero,
   .queueRow,
   .statusItem,
@@ -257,5 +267,56 @@
 
   .heroTitle {
     font-size: 28px;
+  }
+
+  .hero {
+    gap: 16px;
+    padding: 18px;
+  }
+
+  .heroText {
+    max-width: none;
+  }
+
+  .statusStrip,
+  .directorySummary {
+    grid-template-columns: 1fr;
+  }
+
+  .statusItem {
+    min-height: 0;
+  }
+
+  .queueRow {
+    gap: 14px;
+  }
+
+  .queueNameRow {
+    gap: 6px;
+  }
+
+  .inviteRow {
+    align-items: stretch;
+  }
+
+  .inviteInput {
+    min-width: 0;
+  }
+}
+
+@media (max-width: 560px) {
+  .summaryValue,
+  .statusItem strong {
+    font-size: 24px;
+  }
+
+  .queueActionBlock,
+  .heroActions {
+    width: 100%;
+  }
+
+  .queueActionBlock a,
+  .heroActions a {
+    width: 100%;
   }
 }

@@ -45,10 +45,12 @@
 - GitHub Actions では PostgreSQL service container を立てて、`npm run prisma:test:prepare` で Prisma migration を当てるようにした
 - eval report は GitHub Actions artifact として保存するようにした
 - eval 側で session date など metadata 由来の語を unsupported claim から除外した
+- `test:conversation-draft-quality` を追加して、長文コピペ型の弱い生成を早い段階で検知するようにした
 - fallback 改善後のケースで `test:conversation-eval` が quality gate として通るところまで整えた
 
 ## 確認
 
+- `npm run test:conversation-draft-quality`
 - `npm run test:conversation-eval -- --out .tmp/conversation-eval-report.md`
 - `npm run test:transcript-review`
 - `npm run typecheck`

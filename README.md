@@ -12,7 +12,9 @@ PARARIA は、塾・個別指導・学習コーチング向けの `Teaching OS` 
 - 会話ログの正本は `ConversationLog.artifactJson`
 - transcript は `raw / reviewed / display` の役割を分ける
 - ログ生成は `reviewedText` があればそれを優先し、なければ raw transcript を使う
-- 通常生成 / retry / fallback は同じ evidence-first 方針でそろえる
+- ログ生成の主経路は `structured artifact` を 1 回で作ること
+- `summaryMarkdown` は artifact から render する派生物
+- retry と deterministic recovery は最後の保険で、fallback 前提の設計にはしない
 - `reviewState` が transcript review の現在状態を表す正本
 - `qualityMetaJson.transcriptReview` は review が必要な理由と件数の説明だけを持つ
 - 固有名詞辞書は `内部用` と `外部 STT ヒント用` を分け、provider に送る語は `sendToProvider=true` だけに絞る
@@ -37,6 +39,8 @@ PARARIA は、塾・個別指導・学習コーチング向けの `Teaching OS` 
 - `summaryMarkdown` は `artifactJson` から render した表示用の派生物
 - 補助表示として `formattedTranscript` または raw transcript を持つ
 - 旧 `timeline / nextActions / parentPack / profileDelta` を別成果物として増やす構成はやめ、必要な情報は `artifactJson` に集約する
+- `generate.ts` は JSON で artifact を先に返させ、markdown は後から render する
+- deterministic recovery は「JSON が壊れた」「出力が弱すぎる」ときの最後の救済だけにする
 
 ### 2.2 Single Finalize Pass
 
@@ -212,6 +216,7 @@ PARARIA は、塾・個別指導・学習コーチング向けの `Teaching OS` 
 そのための実装:
 
 - ログ生成は `FINALIZE` の 1 call に寄せる
+- 1 回の生成で structured artifact を作り、表示用 markdown はそこから派生させる
 - hidden な polish を走らせない
 - transcript 表示整形は `FORMAT` に分離し、常時実行しない
 - file upload は server-side chunking を使う
@@ -258,7 +263,7 @@ PARARIA は、塾・個別指導・学習コーチング向けの `Teaching OS` 
 責務:
 
 - `FINALIZE`
-  - transcript から `artifactJson` と `summaryMarkdown` を作る
+  - transcript から `artifactJson` を先に作り、そこから `summaryMarkdown` を render する
   - 完了時に `ConversationLog.status = DONE`
 - `FORMAT`
   - transcript 表示を整形する
@@ -302,6 +307,7 @@ PARARIA は、塾・個別指導・学習コーチング向けの `Teaching OS` 
   - 各 entry は `text / evidence / basis / humanCheckNeeded / confidence / claimType / actionType` を持てる
 - `summaryMarkdown`
   - `artifactJson` から render される表示用の本文
+  - markdown そのものを正本として再解釈しない
 - `rawTextOriginal`
   - 元 transcript
   - provider の返り値を意味を変えずに保存する evidence の保存先
@@ -450,7 +456,8 @@ PARARIA は、塾・個別指導・学習コーチング向けの `Teaching OS` 
   - 互換用の入口
 - `lib/ai/conversation/`
   - spec / generate / normalize / fallback / transport の本体
-  - `spec.ts` を prompt 方針の正本にし、retry も同じルールを使う
+  - `spec.ts` を prompt 方針の正本にし、通常生成も retry も JSON で artifact を作る
+  - `generate.ts` は artifact 先行、`transport.ts` は JSON 生成経路を持つ
 - `lib/conversation-artifact.ts`
   - 正本 artifact の schema / render / parse
 - `lib/jobs/conversationJobs.ts`
@@ -525,6 +532,7 @@ PARARIA_AUDIO_RETENTION_DAYS=14
 
 - `npm run typecheck`
 - `npm run test:audio-upload-support`
+- `npm run test:conversation-draft-quality`
 - `npm run test:conversation-eval -- --out .tmp/conversation-eval-report.md`
 - `npm run test:generation-progress`
 - `npm run test:lesson-report-flow`
@@ -548,6 +556,7 @@ PARARIA_AUDIO_RETENTION_DAYS=14
   - `npm run typecheck`
   - `npm run test:transcript-review`
   - `npx tsx scripts/test-conversation-artifact-semantics.ts`
+  - `npm run test:conversation-draft-quality`
   - `npm run test:conversation-eval -- --out artifacts/conversation-eval-report.md`
 - `conversation-eval` のレポートは artifact として保存する
 - 目的は「コードは通るが、盛ったログや固有名詞崩れが入った」を PR 時点で止めること

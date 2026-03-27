@@ -130,6 +130,40 @@
     flex-direction: column;
   }
 
+  .workbenchSection {
+    gap: 14px;
+  }
+
+  .workbenchTitle {
+    font-size: 22px;
+    line-height: 1.12;
+  }
+
+  .metricGrid,
+  .qualityColumns {
+    display: grid;
+    gap: 10px;
+  }
+
+  .metricCard,
+  .qualityCard,
+  .issueCard,
+  .reportBlock,
+  .previewPanel,
+  .emptyWorkbench,
+  .inlineError {
+    padding: 14px;
+  }
+
+  .previewText {
+    font-size: 14px;
+    line-height: 1.72;
+  }
+
+  .inlineActions {
+    width: 100%;
+  }
+
   .inlineActions :global(button),
   .actionStack :global(button) {
     width: 100%;

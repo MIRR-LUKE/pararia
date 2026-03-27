@@ -3,7 +3,7 @@ import { prisma } from "@/lib/db";
 import { ConversationJobType, ConversationStatus, JobStatus, Prisma, SessionStatus, SessionType } from "@prisma/client";
 import { estimateTokens, generateConversationDraftFast, getPromptVersion } from "@/lib/ai/conversationPipeline";
 import { formatTranscriptFromSegments, formatTranscriptFromText } from "@/lib/ai/llm";
-import { buildConversationArtifactFromMarkdown, renderConversationArtifactMarkdown } from "@/lib/conversation-artifact";
+import { renderConversationArtifactMarkdown } from "@/lib/conversation-artifact";
 import { DEFAULT_TEACHER_FULL_NAME } from "@/lib/constants";
 import { sanitizeFormattedTranscript } from "@/lib/user-facing-japanese";
 import type { ConversationQualityMeta } from "@/lib/types/conversation";
@@ -345,6 +345,7 @@ async function executeFinalizeJob(job: JobPayload, convo: ConversationPayload) {
   const sessionType = convo.sessionType === SessionType.LESSON_REPORT ? "LESSON_REPORT" : "INTERVIEW";
   const {
     summaryMarkdown,
+    artifact,
     model,
     apiCalls,
     evidenceChars,
@@ -364,10 +365,6 @@ async function executeFinalizeJob(job: JobPayload, convo: ConversationPayload) {
     throw new Error("summary generation returned empty markdown");
   }
 
-  const artifact = buildConversationArtifactFromMarkdown({
-    sessionType,
-    summaryMarkdown: cleanedSummary,
-  });
   const renderedSummary = renderConversationArtifactMarkdown(artifact);
 
   const qualityMeta: ConversationQualityMeta = {

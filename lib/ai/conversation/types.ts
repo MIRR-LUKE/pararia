@@ -1,3 +1,5 @@
+import type { ConversationArtifact } from "@/lib/conversation-artifact";
+
 export type SessionMode = "INTERVIEW" | "LESSON_REPORT";
 
 export type ChatResult = {
@@ -18,6 +20,7 @@ export type DraftGenerationInput = {
 
 export type DraftGenerationResult = {
   summaryMarkdown: string;
+  artifact: ConversationArtifact;
   model: string;
   apiCalls: number;
   evidenceChars: number;

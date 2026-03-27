@@ -56,6 +56,8 @@ type TraceRow = {
   sourceCount: number;
 };
 
+const EMPTY_SEARCH_PARAMS = new URLSearchParams();
+
 function sessionTypeLabel(type?: string | null) {
   return type === "LESSON_REPORT" ? "指導報告" : "面談";
 }
@@ -102,8 +104,9 @@ function reportDeliveryLabel(report?: LatestReport | null) {
 
 export default function LogsListPage() {
   const searchParams = useSearchParams();
-  const studentId = searchParams.get("studentId");
-  const typeParam = searchParams.get("type");
+  const queryParams = searchParams ?? EMPTY_SEARCH_PARAMS;
+  const studentId = queryParams.get("studentId");
+  const typeParam = queryParams.get("type");
   const tab: TabType =
     typeParam === "lessonReport" ? "lesson" : typeParam === "interview" ? "interview" : "all";
   const [conversations, setConversations] = useState<LogItem[]>([]);

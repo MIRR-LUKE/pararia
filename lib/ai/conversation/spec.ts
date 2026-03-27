@@ -2,7 +2,7 @@ import type { SessionMode } from "./types";
 
 function buildEvidenceFirstRules() {
   return [
-    "指示:",
+    "transcript にない事実は足さず、指定した JSON オブジェクトだけを返してください。",
     "- transcript にない事実は足さない。",
     "- reviewedTranscript があればそれを優先し、なければ raw transcript を使う。",
     "- 推測は推測、観察は観察、不足は不足として分ける。",
@@ -11,6 +11,10 @@ function buildEvidenceFirstRules() {
     "- 固有名詞が怪しいときは断定しない。",
     "- fallback でも意味を盛らない。",
     "- 指示は先に、入力や背景はあとにまとめる。",
+    "- 本文に長い逐語転写を貼らない。会話の往復をそのまま並べない。",
+    "- 各本文行は短く要点化し、同じ内容を別セクションで繰り返さない。",
+    "- `根拠:` は短い引用や要点の抜き出しにし、長い transcript の丸貼りにしない。",
+    "- `では録音を始め...` のような導入、相づち、言い淀み、質問文の連打は本文に残さない。",
   ];
 }
 
@@ -18,26 +22,28 @@ function buildPromptContextLines(sessionType: SessionMode) {
   if (sessionType === "LESSON_REPORT") {
     return [
       "文脈:",
-      "あなたは学習塾の教務責任者です。口語の授業 transcript を、管理者がそのまま使える正式な指導報告ログへ書き直してください。",
-      "短中尺の入力では全文を渡すことがあるが、出力では要点だけを整理すること。",
+      "あなたは学習塾の教務責任者です。口語の授業 transcript から、管理者が使う指導報告の元データを抽出してください。",
+      "完成した文章を書くのではなく、根拠付きの構造化データを返してください。",
     ];
   }
 
   return [
     "文脈:",
-    "あなたは学習塾の教務責任者です。口語の面談 transcript を、管理者がそのまま使える正式な面談ログへ書き直してください。",
+    "あなたは学習塾の教務責任者です。口語の面談 transcript から、管理者が使う面談ログの元データを抽出してください。",
+    "完成した文章を書くのではなく、根拠付きの構造化データを返してください。",
   ];
 }
 
-export function buildSummaryMarkdownSpec(isLesson: boolean) {
+export function buildStructuredArtifactSpec(isLesson: boolean) {
   if (isLesson) {
     return [
-      "必ず次の4セクションに固定すること。",
-      "■ 基本情報: 各項目を改行して1行ずつ書く。",
-      "■ 1. 本日の指導サマリー（室長向け要約）: 2-3段落。各段落は確認できた内容だけを書く。評価語や因果説明は足さない。各段落の直後に `根拠:` 行を 1-2 本付ける。",
-      "■ 2. 課題と指導成果（Before → After）: 2-3論点。各論点は `観察:` `推測:` `不足:` のどれかで始める。`【論点名】` があるときはその後ろに続けて書く。各行に `根拠:` を付け、言い換えは最小限にする。",
-      "■ 3. 学習方針と次回アクション（自学習の設計）: `生徒:` `次回までの宿題:` `次回の確認（テスト）事項:` を見出しとして入れたうえで、箇条書きは `判断:` と `次回確認:` に分ける。各箇条書きの直後に `根拠:` を 1 本以上付ける。未確認の推測は書かない。",
-      "■ 4. 室長・他講師への共有・連携事項: 2-4項目の箇条書き。各項目に `根拠:` を付ける。本文は transcript の文言を優先し、要約のための抽象語を増やしすぎない。",
+      "出力 JSON の shape:",
+      '{ "basicInfo": { "student": string, "teacher": string, "date": string, "subjectUnit": string }, "summary": [{ "text": string, "evidence": string[] }], "claims": [{ "label": string, "claimType": "observed" | "inferred" | "missing", "text": string, "evidence": string[] }], "nextActions": [{ "label": string, "actionType": "assessment" | "nextCheck", "text": string, "evidence": string[] }], "sharePoints": [{ "text": string, "evidence": string[] }] }',
+      "summary は 2-3 件。各 text は 1-2 文の短い要点だけにする。",
+      "claims は 2-4 件。`label` は `条件整理` や `再現確認` のような短い論点名にする。",
+      "nextActions は最低 3 件。`生徒` `次回までの宿題` `次回の確認（テスト）事項` が読み取れるように `label` を付ける。",
+      "sharePoints は 2-4 件。",
+      "各 evidence は短い根拠断片 1-2 本に絞る。長い transcript の丸貼りは禁止。",
       "授業前チェックイン / 授業後チェックアウト の逐語転写は禁止。",
       "ノイズ音声、言い淀み、壊れた固有名詞をそのまま出さない。",
       "抽象語だけで済ませず、確認できた事実・残課題・次回確認事項を具体化する。",
@@ -45,12 +51,13 @@ export function buildSummaryMarkdownSpec(isLesson: boolean) {
     ];
   }
   return [
-    "必ず次の4セクションに固定すること。",
-    "■ 基本情報: 各項目を改行して1行ずつ書く。",
-    "■ 1. サマリー: 2-4段落で、主論点・現状認識・講師の判断・今後の方向性を確認できた内容だけで書く。評価語や原因説明は足さない。各段落の直後に `根拠:` 行を 1-2 本付ける。",
-    "■ 2. ポジティブな話題: 3-5項目の箇条書き。各項目は `観察:` `推測:` `不足:` のどれかで始める。`良かった` 以上の意味を足しすぎない。各項目の直後に `根拠:` を付ける。",
-    "■ 3. 改善・対策が必要な話題: 3-6項目の箇条書き。各項目は `観察:` `推測:` `不足:` のどれかで始める。`背景には...` のような推測は根拠があるときだけ書く。",
-    "■ 4. 保護者への共有ポイント: 2-4項目の箇条書き。安心材料と注意点を混ぜるが、各項目に `根拠:` を付ける。本文は transcript の文言を優先する。",
+    "出力 JSON の shape:",
+    '{ "basicInfo": { "student": string, "teacher": string, "date": string, "purpose": string }, "summary": [{ "text": string, "evidence": string[] }], "claims": [{ "claimType": "observed" | "inferred" | "missing", "text": string, "evidence": string[] }], "nextActions": [{ "label": string, "actionType": "assessment" | "nextCheck", "text": string, "evidence": string[] }], "sharePoints": [{ "text": string, "evidence": string[] }] }',
+    "summary は 2-4 件。各 text は 1-2 文の短い要点だけにする。",
+    "claims は 3-5 件で、主に `2. ポジティブな話題` に相当する内容を入れる。",
+    "nextActions は 3-6 件で、主に `3. 改善・対策が必要な話題` に相当する内容を入れる。",
+    "sharePoints は 2-4 件。",
+    "各 evidence は短い根拠断片 1-2 本に絞る。長い transcript の丸貼りは禁止。",
     "ノイズ音声、言い淀み、壊れた引用の貼り付けは禁止。",
     "抽象語だけで済ませず、単元名・受験方針・学習行動など確認できた具体語を残す。",
     "意味を盛らず、根拠のない断定や感想を足さない。",
@@ -61,7 +68,7 @@ function buildPromptBody(sessionType: SessionMode) {
   return [
     ...buildEvidenceFirstRules(),
     ...buildPromptContextLines(sessionType),
-    ...buildSummaryMarkdownSpec(sessionType === "LESSON_REPORT"),
+    ...buildStructuredArtifactSpec(sessionType === "LESSON_REPORT"),
   ];
 }
 
@@ -71,7 +78,7 @@ function buildRetrySupplementLines() {
     "- 直前の出力は要件を満たしていない。",
     "- 根拠が弱い内容は削り、根拠がある項目だけを残す。",
     "- 観察 / 推測 / 不足 と 判断 / 次回確認 の分離を崩さない。",
-    "- 文章をきれいに見せるための言い換えより、元 transcript に沿った教務ログを優先する。",
+    "- 文章をきれいに見せるための言い換えより、元 transcript に沿った構造化データを優先する。",
   ];
 }
 

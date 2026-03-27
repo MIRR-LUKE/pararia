@@ -176,8 +176,38 @@
     grid-template-columns: 1fr;
   }
 
-  .formActions,
+  .page {
+    gap: 18px;
+  }
+
   .filters {
+    gap: 8px;
+  }
+
+  .filterChip {
+    min-height: 33px;
+    padding: 0 12px;
+  }
+
+  .row {
+    padding: 16px;
+    gap: 14px;
+  }
+
+  .rowContent {
+    gap: 14px;
+  }
+
+  .rowAction {
+    width: 100%;
+  }
+
+  .rowAction :global(a),
+  .rowAction :global(button) {
+    width: 100%;
+  }
+
+  .formActions {
     flex-direction: column;
     align-items: stretch;
   }

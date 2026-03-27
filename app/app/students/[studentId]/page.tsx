@@ -33,6 +33,8 @@ type DeleteTarget =
   | { kind: "conversation"; id: string; label: string; detail: string }
   | { kind: "report"; id: string; label: string; detail: string };
 
+const EMPTY_SEARCH_PARAMS = new URLSearchParams();
+
 function normalizeTab(value: string | null): TabKey {
   if (value === "lessonReports") return "lessonReports";
   if (value === "parentReports") return "parentReports";
@@ -107,20 +109,22 @@ function userBadge(name?: string | null) {
 export default function StudentDetailPage({ params }: { params: { studentId: string } }) {
   const router = useRouter();
   const pathname = usePathname();
+  const currentPathname = pathname ?? `/app/students/${params.studentId}`;
   const searchParams = useSearchParams();
+  const queryParams = searchParams ?? EMPTY_SEARCH_PARAMS;
   const { data: session } = useSession();
 
   const [room, setRoom] = useState<RoomResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<TabKey>(normalizeTab(searchParams.get("tab")));
+  const [activeTab, setActiveTab] = useState<TabKey>(normalizeTab(queryParams.get("tab")));
   const [overlay, setOverlay] = useState<OverlayState>({ kind: "none" });
   const [selectedSessionIds, setSelectedSessionIds] = useState<string[]>([]);
   const [recordingMode, setRecordingMode] = useState<SessionConsoleMode>(
-    normalizeRecordingMode(searchParams.get("mode")) ?? "INTERVIEW"
+    normalizeRecordingMode(queryParams.get("mode")) ?? "INTERVIEW"
   );
   const [lessonPart, setLessonPart] = useState<SessionConsoleLessonPart>(
-    normalizeLessonPart(searchParams.get("part")) ?? "CHECK_IN"
+    normalizeLessonPart(queryParams.get("part")) ?? "CHECK_IN"
   );
   const [periodFilter, setPeriodFilter] = useState<PeriodFilter>("all");
   const [sortOrder, setSortOrder] = useState<SortOrder>("desc");
@@ -181,7 +185,7 @@ export default function StudentDetailPage({ params }: { params: { studentId: str
       mode?: SessionConsoleMode | null;
       part?: SessionConsoleLessonPart | null;
     }) => {
-      const nextParams = new URLSearchParams(searchParams.toString());
+      const nextParams = new URLSearchParams(queryParams.toString());
       const apply = (key: string, value?: string | null) => {
         if (typeof value === "undefined") return;
         if (!value) nextParams.delete(key);
@@ -201,28 +205,28 @@ export default function StudentDetailPage({ params }: { params: { studentId: str
         else nextParams.delete("sessionIds");
       }
 
-      const nextUrl = nextParams.toString() ? `${pathname}?${nextParams.toString()}` : pathname;
+      const nextUrl = nextParams.toString() ? `${currentPathname}?${nextParams.toString()}` : currentPathname;
       router.replace(nextUrl, { scroll: false });
     },
-    [pathname, router, searchParams]
+    [currentPathname, queryParams, router]
   );
 
   useEffect(() => {
     if (!room) return;
 
     const validIds = new Set(room.sessions.map((session) => session.id));
-    const requestedIds = (searchParams.get("sessionIds") ?? "")
+    const requestedIds = (queryParams.get("sessionIds") ?? "")
       .split(",")
       .filter(Boolean)
       .filter((id) => validIds.has(id));
 
     setSelectedSessionIds((current) => (arraysEqual(current, requestedIds) ? current : requestedIds));
-    setActiveTab(normalizeTab(searchParams.get("tab")));
+    setActiveTab(normalizeTab(queryParams.get("tab")));
 
-    const panel = searchParams.get("panel");
-    const logId = searchParams.get("logId");
-    const reportId = searchParams.get("reportId");
-    const lessonSessionId = searchParams.get("lessonSessionId");
+    const panel = queryParams.get("panel");
+    const logId = queryParams.get("logId");
+    const reportId = queryParams.get("reportId");
+    const lessonSessionId = queryParams.get("lessonSessionId");
 
     if (panel === "log" && logId) {
       setOverlay({ kind: "log", logId });
@@ -244,7 +248,7 @@ export default function StudentDetailPage({ params }: { params: { studentId: str
       return;
     }
     setOverlay({ kind: "none" });
-  }, [room, searchParams]);
+  }, [queryParams, room]);
 
   const ongoingLessonSession = useMemo(
     () => pickOngoingLessonReportSession(room?.sessions ?? []),
@@ -252,13 +256,13 @@ export default function StudentDetailPage({ params }: { params: { studentId: str
   );
 
   useEffect(() => {
-    const requestedMode = normalizeRecordingMode(searchParams.get("mode"));
+    const requestedMode = normalizeRecordingMode(queryParams.get("mode"));
     if (!requestedMode) return;
     setRecordingMode((current) => (current === requestedMode ? current : requestedMode));
-  }, [searchParams]);
+  }, [queryParams]);
 
   useEffect(() => {
-    const requestedPart = normalizeLessonPart(searchParams.get("part"));
+    const requestedPart = normalizeLessonPart(queryParams.get("part"));
     if (requestedPart) {
       setLessonPart((current) => (current === requestedPart ? current : requestedPart));
       return;
@@ -267,7 +271,7 @@ export default function StudentDetailPage({ params }: { params: { studentId: str
     const recommendedPart = getLessonReportPartState(ongoingLessonSession?.parts ?? []).nextRecommendedPart;
     if (recordingMode !== "LESSON_REPORT") return;
     setLessonPart((current) => (current === recommendedPart ? current : recommendedPart));
-  }, [ongoingLessonSession?.id, ongoingLessonSession?.parts, recordingMode, searchParams]);
+  }, [ongoingLessonSession?.id, ongoingLessonSession?.parts, queryParams, recordingMode]);
 
   useEffect(() => {
     if (!ongoingLessonSession) return;

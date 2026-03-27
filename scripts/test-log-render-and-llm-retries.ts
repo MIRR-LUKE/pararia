@@ -46,9 +46,11 @@ async function main() {
   const basePrompt = buildDraftSystemPrompt("INTERVIEW");
   const retryPrompt = buildDraftRetrySystemPrompt("INTERVIEW");
   assert.match(basePrompt, /transcript にない事実は足さない。/);
+  assert.match(basePrompt, /長い逐語転写を貼らない。/);
   assert.match(retryPrompt, /根拠がある項目だけを残す。/);
   assert.match(retryPrompt, /fallback でも意味を盛らない。/);
   assert.match(retryPrompt, /観察 \/ 推測 \/ 不足 と 判断 \/ 次回確認 の分離を崩さない。/);
+  assert.match(retryPrompt, /長い transcript の丸貼りにしない。/);
   assert.doesNotMatch(retryPrompt, /すべて教務文体へ言い換える/);
   assert.doesNotMatch(retryPrompt, /口語の引用や断片文を絶対に残さず/);
 

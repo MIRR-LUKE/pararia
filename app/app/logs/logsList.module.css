@@ -192,3 +192,26 @@
     justify-content: flex-start;
   }
 }
+
+@media (max-width: 720px) {
+  .page {
+    gap: 18px;
+  }
+
+  .summaryCard,
+  .row {
+    padding: 16px;
+  }
+
+  .filterRow,
+  .rowTop,
+  .footerRow,
+  .badgeRow {
+    gap: 10px;
+  }
+
+  .rowActions,
+  .rowActions :global(button) {
+    width: 100%;
+  }
+}

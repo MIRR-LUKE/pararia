@@ -14,11 +14,41 @@ export function normalizeWhitespace(text: string) {
   return text.replace(/\r/g, "").replace(/[ \t]+/g, " ").trim();
 }
 
+const TRANSCRIPT_BREAK_HINT_RE =
+  /\s+(?=(?:講師|生徒)\s*[:：]|次回は|次回まで|宿題は|今日は|本日は|まず|ただ|それで|確認事項|授業前|授業後|挟み打ち|極限|三角関数|条件整理|再現)/g;
+
+const TRANSCRIPT_NOISE_RE =
+  /(録音を始|では録音|録音開始|オッケー|OK\b|質問もありますか|分からなかったことはない|特にない|お疲れ|以上です|じゃあ特にない)/i;
+
+function splitTranscriptFragments(line: string) {
+  const normalized = normalizeWhitespace(line);
+  if (!normalized) return [];
+
+  let parts = [normalized]
+    .flatMap((part) => part.split(/(?=(?:講師|生徒)\s*[:：])/))
+    .flatMap((part) => part.split(/(?<=[。！？?])\s*/))
+    .flatMap((part) => (part.length > 88 ? part.split(TRANSCRIPT_BREAK_HINT_RE) : [part]))
+    .map((part) => normalizeWhitespace(part))
+    .filter(Boolean);
+
+  if (parts.length === 0) return [];
+
+  const merged: string[] = [];
+  for (const part of parts) {
+    if (merged.length > 0 && part.length < 10) {
+      merged[merged.length - 1] = normalizeWhitespace(`${merged[merged.length - 1]} ${part}`);
+      continue;
+    }
+    merged.push(part);
+  }
+  return merged;
+}
+
 export function transcriptLines(transcript: string) {
   return transcript
     .replace(/\r/g, "")
     .split("\n")
-    .map((line) => normalizeWhitespace(line))
+    .flatMap((line) => splitTranscriptFragments(line))
     .filter(Boolean)
     .filter((line) => !/^##\s+/.test(line))
     .filter((line) => !/^授業前チェックイン$/.test(line))
@@ -59,6 +89,7 @@ function countAsciiLetters(text: string) {
 export function isLikelyNoiseLine(line: string) {
   const normalized = normalizeWhitespace(line);
   if (!normalized) return true;
+  if (TRANSCRIPT_NOISE_RE.test(normalized)) return true;
   if (/^(はい|ええ|うん|了解|わかりました|オッケー|OK|ないです|特にない|大丈夫|以上です|お疲れさま)[。！!？?]*$/i.test(normalized)) {
     return true;
   }
@@ -132,28 +163,29 @@ function buildFastDraftEvidenceText(sessionType: SessionMode, transcript: string
   if (sessionType === "LESSON_REPORT") {
     const lines = pickLessonLines(transcript);
     return [
-      "### 授業ログの重要発話",
+      "### 抽出済みの重要発話",
       ...lines.map((line) => `- ${line}`),
     ].join("\n");
   }
   const lines = pickInterviewLines(transcript);
   return [
-    "### 面談ログの重要発話",
+    "### 抽出済みの重要発話",
     ...lines.map((line) => `- ${line}`),
   ].join("\n");
 }
 
 export function buildDraftInputBlock(sessionType: SessionMode, transcript: string) {
   const normalizedTranscript = String(transcript ?? "").replace(/\r/g, "").trim();
+  const evidenceBlock = buildFastDraftEvidenceText(sessionType, normalizedTranscript);
   if (estimateTokens(normalizedTranscript) <= 3500) {
     return {
-      label: "文字起こし全文",
-      content: normalizedTranscript,
+      label: "抽出済み重要発話 + 文字起こし全文",
+      content: [evidenceBlock, "", "### 文字起こし全文", normalizedTranscript].join("\n"),
     };
   }
   return {
     label: "圧縮済み証拠",
-    content: buildFastDraftEvidenceText(sessionType, normalizedTranscript),
+    content: evidenceBlock,
   };
 }
 

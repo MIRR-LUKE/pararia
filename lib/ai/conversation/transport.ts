@@ -123,6 +123,7 @@ async function callChatCompletions(params: {
   messages: Array<{ role: "system" | "user"; content: string }>;
   max_completion_tokens?: number;
   temperature?: number;
+  response_format?: { type: "json_object" };
   timeoutMs?: number;
   prompt_cache_key?: string;
   prompt_cache_retention?: "in_memory" | "24h";
@@ -137,6 +138,7 @@ async function callChatCompletions(params: {
     messages: params.messages,
     ...(params.max_completion_tokens ? { max_completion_tokens: params.max_completion_tokens } : {}),
     ...(typeof params.temperature === "number" ? { temperature: params.temperature } : {}),
+    ...(params.response_format ? { response_format: params.response_format } : {}),
     ...(params.prompt_cache_key ? { prompt_cache_key: params.prompt_cache_key } : {}),
     ...(params.prompt_cache_retention ? { prompt_cache_retention: params.prompt_cache_retention } : {}),
   };
@@ -169,6 +171,10 @@ async function callChatCompletions(params: {
         let changed = false;
         if (typeof retryBody.temperature === "number" && /temperature/i.test(raw) && /default|unsupported|not supported/i.test(raw)) {
           delete retryBody.temperature;
+          changed = true;
+        }
+        if ("response_format" in retryBody && /response_format/i.test(raw)) {
+          delete retryBody.response_format;
           changed = true;
         }
         if (/(prompt_cache_key|prompt_cache_retention)/i.test(raw)) {
@@ -329,4 +335,31 @@ export async function callTextGeneration(params: {
       prompt_cache_retention: params.prompt_cache_retention,
     });
   }
+}
+
+export async function callJsonGeneration(params: {
+  model: string;
+  messages: Array<{ role: "system" | "user"; content: string }>;
+  max_output_tokens?: number;
+  timeoutMs?: number;
+  prompt_cache_key?: string;
+  prompt_cache_retention?: "in_memory" | "24h";
+  temperature?: number;
+}) {
+  const result = await callChatCompletions({
+    model: params.model,
+    messages: params.messages,
+    timeoutMs: params.timeoutMs,
+    max_completion_tokens: params.max_output_tokens,
+    temperature: typeof params.temperature === "number" ? params.temperature : 0.1,
+    response_format: { type: "json_object" },
+    prompt_cache_key: params.prompt_cache_key,
+    prompt_cache_retention: params.prompt_cache_retention,
+  });
+
+  const source = typeof result.contentText === "string" && result.contentText.trim() ? result.contentText : result.raw;
+  return {
+    ...result,
+    json: tryParseJson<unknown>(source),
+  };
 }
