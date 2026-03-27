@@ -20,6 +20,7 @@ export function repairSummaryMarkdownFormatting(text: string) {
     .replace(/([^\n])(■ \d+\.)/g, "$1\n$2")
     .replace(/([^\n])(【)/g, "$1\n$2")
     .replace(/([^\n])(現状（Before）:|成果（After）:|※特記事項:|生徒:|次回までの宿題:|次回の確認（テスト）事項:)/g, "$1\n$2")
+    .replace(/([^\n])(根拠:|evidence:|basis:|humanCheckNeeded:)/g, "$1\n$2")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 }
@@ -35,6 +36,7 @@ export function isValidDraftMarkdown(markdown: string | null | undefined, sessio
 export function isWeakDraftMarkdown(markdown: string | null | undefined, sessionType: SessionMode, minChars: number) {
   const trimmed = repairSummaryMarkdownFormatting(String(markdown ?? ""));
   if (!isValidDraftMarkdown(trimmed, sessionType, minChars)) return true;
+  if (!/(?:^|\n)\s*(?:- |\* |・ )?(?:根拠|evidence|basis)[:：]/.test(trimmed)) return true;
   if (/##\s*授業前チェックイン|##\s*授業後チェックアウト|録音始めた|何喋ろうか忘れちゃった|質問もありますか|以上です。お疲れ/.test(trimmed)) {
     return true;
   }

@@ -25,7 +25,8 @@ export const DATA_RETENTION_POLICIES: DataRetentionPolicy[] = [
     deleteMode: "hard_delete",
     retentionDays: getTranscriptRetentionDays(),
     notes: [
-      "保存期間を過ぎたら rawTextOriginal / rawTextCleaned / rawSegments を消す。",
+      "保存期間を過ぎたら rawTextOriginal / rawTextCleaned / reviewedText / rawSegments を消す。",
+      "proper noun suggestion も一緒に消す。",
       "生成済みログやレポートは残す。",
     ],
   },
@@ -35,7 +36,8 @@ export const DATA_RETENTION_POLICIES: DataRetentionPolicy[] = [
     deleteMode: "hard_delete",
     retentionDays: getTranscriptRetentionDays(),
     notes: [
-      "保存期間を過ぎたら rawTextOriginal / rawTextCleaned / rawSegments を消す。",
+      "保存期間を過ぎたら rawTextOriginal / rawTextCleaned / reviewedText / rawSegments を消す。",
+      "proper noun suggestion も一緒に消す。",
       "artifactJson と summaryMarkdown は正本 / 派生物として残す。",
     ],
   },

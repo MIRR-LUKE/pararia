@@ -1,4 +1,4 @@
-import { parseConversationArtifact } from "@/lib/conversation-artifact";
+import { buildConversationArtifactFromMarkdown, parseConversationArtifact } from "@/lib/conversation-artifact";
 
 export type OperationalLogInput = {
   sessionType?: string | null;
@@ -123,41 +123,35 @@ function parseSummarySections(markdown?: string | null) {
   };
 }
 
-function fallbackTheme(markdown?: string | null) {
-  const lines = extractLines(markdown).filter((line) => !line.startsWith("■ ") && !line.startsWith("## "));
-  return ensureSentence(lines[0] ?? "今回のログ要点を整理した");
-}
-
-function firstSentences(values: string[], limit: number, fallback: string[]) {
-  const lines = dedupe(values).slice(0, limit);
-  if (lines.length > 0) return lines.map(ensureSentence);
-  return fallback.map(ensureSentence);
+function firstSentences(values: string[], limit: number) {
+  return dedupe(values).slice(0, limit).map(ensureSentence).filter((line) => Boolean(line));
 }
 
 export function buildOperationalLog(input: OperationalLogInput): OperationalLog {
-  const artifact = parseConversationArtifact(input.artifactJson);
+  const sessionType = input.sessionType === "LESSON_REPORT" ? "LESSON_REPORT" : "INTERVIEW";
+  const artifact =
+    parseConversationArtifact(input.artifactJson) ??
+    (input.summaryMarkdown ? buildConversationArtifactFromMarkdown({ sessionType, summaryMarkdown: input.summaryMarkdown, generatedAt: input.createdAt }) : null);
+
   if (artifact) {
-    const theme = ensureSentence(artifact.summary[0] ?? "今回のログ要点を整理した");
+    const theme = ensureSentence(artifact.summary[0]?.text ?? "");
     return {
       theme,
-      facts: firstSentences(artifact.facts, 4, [theme]),
-      changes: firstSentences(artifact.changes, 4, ["今回の変化は正本データから確認できる。"]),
-      assessment: firstSentences(artifact.assessment, 4, ["次回に向けた判断材料を整理した。"]),
-      nextChecks: firstSentences(artifact.nextActions, 4, ["次回までの実行状況を確認する。"]),
-      parentShare: firstSentences(artifact.sharePoints, 4, ["保護者共有に必要なポイントを整理する。"]),
+      facts: firstSentences(artifact.summary.map((entry) => entry.text), 4),
+      changes: firstSentences(artifact.claims.map((entry) => entry.text), 4),
+      assessment: firstSentences(artifact.nextActions.map((entry) => entry.text), 4),
+      nextChecks: firstSentences(artifact.nextActions.map((entry) => entry.text), 4),
+      parentShare: firstSentences(artifact.sharePoints.map((entry) => entry.text), 4),
     };
   }
 
-  const parsed = parseSummarySections(input.summaryMarkdown);
-  const theme = parsed.theme.length > 0 ? ensureSentence(parsed.theme[0]) : fallbackTheme(input.summaryMarkdown);
-
   return {
-    theme,
-    facts: firstSentences(parsed.facts, 4, [theme]),
-    changes: firstSentences(parsed.changes, 4, ["今回の変化はログ本文から確認できる。"]),
-    assessment: firstSentences(parsed.assessment, 4, ["次回に向けた判断材料を整理した。"]),
-    nextChecks: firstSentences(parsed.nextChecks, 4, ["次回までの実行状況を確認する。"]),
-    parentShare: firstSentences(parsed.parentShare, 4, ["保護者共有に必要なポイントをログ本文から整理する。"]),
+    theme: "",
+    facts: [],
+    changes: [],
+    assessment: [],
+    nextChecks: [],
+    parentShare: [],
   };
 }
 

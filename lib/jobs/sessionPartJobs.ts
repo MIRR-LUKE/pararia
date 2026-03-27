@@ -26,6 +26,7 @@ import {
 import { readSessionPartUpload } from "@/lib/session-part-storage";
 import { getAudioExpiryDate } from "@/lib/system-config";
 import { preprocessTranscript, preprocessTranscriptWithSegments } from "@/lib/transcript/preprocess";
+import { ensureSessionPartReviewedTranscript } from "@/lib/transcript/review";
 import {
   enqueueConversationJobs,
   processAllConversationJobs,
@@ -426,6 +427,8 @@ async function markPartReady(input: {
       storageUrl: input.storageUrl ?? input.part.storageUrl,
       rawTextOriginal: input.rawTextOriginal,
       rawTextCleaned: input.rawTextCleaned,
+      reviewedText: null,
+      reviewState: "NONE",
       rawSegments: toPrismaJson(input.rawSegments),
       qualityMetaJson: toSessionPartMetaJson(input.part.qualityMetaJson, {
         ...input.qualityMeta,
@@ -501,6 +504,7 @@ async function executeTranscribeFileJob(job: SessionPartJobPayload, part: Sessio
     rawSegments: segments,
     qualityMeta,
   });
+  await ensureSessionPartReviewedTranscript(part.id);
   await enqueuePromotionJob(part.id);
 
   await prisma.sessionPartJob.update({
@@ -561,6 +565,7 @@ async function executeFinalizeLivePartJob(job: SessionPartJobPayload, part: Sess
     rawSegments: finalized.rawSegments,
     qualityMeta: finalized.qualityMeta,
   });
+  await ensureSessionPartReviewedTranscript(part.id);
   await enqueuePromotionJob(part.id);
 
   await prisma.sessionPartJob.update({

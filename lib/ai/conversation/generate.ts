@@ -5,7 +5,7 @@ import { buildInterviewDraftFallbackMarkdown, buildLessonDraftFallbackMarkdown }
 import { callTextGeneration } from "./transport";
 import type { DraftGenerationInput, DraftGenerationResult, SessionMode } from "./types";
 
-const PROMPT_VERSION = "v4.1";
+const PROMPT_VERSION = "v4.2";
 
 function forceGpt5Family(model: string) {
   const normalized = String(model ?? "").trim();

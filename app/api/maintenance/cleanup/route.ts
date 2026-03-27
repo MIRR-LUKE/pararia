@@ -26,7 +26,7 @@ async function handleCleanup() {
     const runtimeDeletion = await deleteRuntimeEntries(expiredSessionParts.map((part) => part.storageUrl));
     const reportEventCutoff = buildRetentionExpiryDate(-getReportDeliveryEventRetentionDays(), now);
 
-    const [conversationResult, sessionPartResult, reportDeliveryEventResult] = await prisma.$transaction([
+    const [conversationResult, sessionPartResult, suggestionResult, reportDeliveryEventResult] = await prisma.$transaction([
       prisma.conversationLog.updateMany({
         where: {
           rawTextExpiresAt: {
@@ -36,6 +36,8 @@ async function handleCleanup() {
         data: {
           rawTextOriginal: null,
           rawTextCleaned: null,
+          reviewedText: null,
+          reviewState: "NONE",
           rawSegments: Prisma.DbNull,
           rawTextExpiresAt: null,
         },
@@ -50,8 +52,30 @@ async function handleCleanup() {
           storageUrl: null,
           rawTextOriginal: null,
           rawTextCleaned: null,
+          reviewedText: null,
+          reviewState: "NONE",
           rawSegments: Prisma.DbNull,
           transcriptExpiresAt: null,
+        },
+      }),
+      prisma.properNounSuggestion.deleteMany({
+        where: {
+          OR: [
+            {
+              conversation: {
+                rawTextExpiresAt: {
+                  lte: now,
+                },
+              },
+            },
+            {
+              sessionPart: {
+                transcriptExpiresAt: {
+                  lte: now,
+                },
+              },
+            },
+          ],
         },
       }),
       prisma.reportDeliveryEvent.deleteMany({
@@ -67,6 +91,7 @@ async function handleCleanup() {
       ok: true,
       clearedConversationRawTextCount: conversationResult.count,
       clearedSessionPartCount: sessionPartResult.count,
+      deletedProperNounSuggestionCount: suggestionResult.count,
       deletedRuntimeEntryCount: runtimeDeletion.deletedCount,
       deletedReportDeliveryEventCount: reportDeliveryEventResult.count,
       transcriptRetentionDays: getTranscriptRetentionDays(),

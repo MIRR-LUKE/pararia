@@ -16,6 +16,7 @@ type ConversationLog = {
   formattedTranscript?: string | null;
   rawTextOriginal?: string | null;
   rawTextCleaned?: string | null;
+  reviewedText?: string | null;
   student?: { name: string; grade?: string | null } | null;
   session?: { type: string; status: string } | null;
 };
@@ -90,7 +91,7 @@ export function LogView({ logId, showHeader = true, onBack }: Props) {
   }, [fetchLog, log]);
 
   const summaryMarkdown = log?.summaryMarkdown?.trim() || "";
-  const transcriptText = log?.formattedTranscript || log?.rawTextCleaned || log?.rawTextOriginal || "";
+  const transcriptText = log?.formattedTranscript || log?.rawTextCleaned || log?.reviewedText || log?.rawTextOriginal || "";
 
   if (loading) {
     return <div className={styles.progressBanner}>ログを読み込んでいます...</div>;

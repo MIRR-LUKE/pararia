@@ -5,10 +5,12 @@ import { estimateTokens, generateConversationDraftFast, getPromptVersion } from 
 import { formatTranscriptFromSegments, formatTranscriptFromText } from "@/lib/ai/llm";
 import { buildConversationArtifactFromMarkdown, renderConversationArtifactMarkdown } from "@/lib/conversation-artifact";
 import { DEFAULT_TEACHER_FULL_NAME } from "@/lib/constants";
-import { sanitizeFormattedTranscript, sanitizeTranscriptText } from "@/lib/user-facing-japanese";
+import { sanitizeFormattedTranscript } from "@/lib/user-facing-japanese";
 import type { ConversationQualityMeta } from "@/lib/types/conversation";
 import { syncSessionAfterConversation } from "@/lib/session-service";
 import { toPrismaJson } from "@/lib/prisma-json";
+import { normalizeRawTranscriptText, pickEvidenceTranscriptText } from "@/lib/transcript/source";
+import { ensureConversationReviewedTranscript } from "@/lib/transcript/review";
 
 const DEFAULT_JOB_TYPES: ConversationJobType[] = [ConversationJobType.FINALIZE];
 const ACTIVE_JOB_TYPES: ConversationJobType[] = [ConversationJobType.FINALIZE, ConversationJobType.FORMAT];
@@ -51,6 +53,7 @@ type ConversationPayload = {
   sessionDate?: Date | string | null;
   rawTextOriginal?: string | null;
   rawTextCleaned?: string | null;
+  reviewedText?: string | null;
   rawSegments?: any[] | null;
   formattedTranscript?: string | null;
   studentName?: string | null;
@@ -78,10 +81,10 @@ function getRetryDelayMs(attempt: number) {
 }
 
 function normalizeSourceText(payload: ConversationPayload) {
-  if (payload.rawTextCleaned?.trim()) return sanitizeTranscriptText(payload.rawTextCleaned);
-  if (payload.rawTextOriginal?.trim()) return sanitizeTranscriptText(payload.rawTextOriginal);
+  const evidence = pickEvidenceTranscriptText(payload);
+  if (evidence) return evidence;
   if (payload.formattedTranscript?.trim()) {
-    return sanitizeTranscriptText(
+    return normalizeRawTranscriptText(
       payload.formattedTranscript
         .split("\n")
         .map((line) => line.replace(/^\*\*[^*]+\*\*:\s*/g, ""))
@@ -324,7 +327,8 @@ async function claimNextJob(opts?: ProcessJobsOptions): Promise<JobPayload | nul
 }
 
 async function executeFinalizeJob(job: JobPayload, convo: ConversationPayload) {
-  const sourceText = normalizeSourceText(convo);
+  const review = await ensureConversationReviewedTranscript(convo.id);
+  const sourceText = normalizeRawTranscriptText(review.reviewedText || review.rawTextOriginal || normalizeSourceText(convo));
   if (!sourceText.trim()) {
     throw new Error("raw transcript is missing");
   }
@@ -375,6 +379,10 @@ async function executeFinalizeJob(job: JobPayload, convo: ConversationPayload) {
     inputTokensEstimate,
     outputTokensEstimate: estimateTokens(renderedSummary),
     usedFallbackSummary: usedFallback,
+    reviewStateUsed: review.reviewState,
+    reviewRequired: review.reviewRequired,
+    reviewReasonCodes: review.reasons.map((item) => item.code),
+    usedReviewedTranscript: Boolean(review.reviewedText && review.reviewedText.trim()),
     finalizeJob: {
       jobId: job.id,
       executionId: job.executionId,
@@ -542,6 +550,7 @@ async function executeJob(job: JobPayload) {
     sessionDate: convo.session?.sessionDate ?? null,
     rawTextOriginal: convo.rawTextOriginal,
     rawTextCleaned: convo.rawTextCleaned,
+    reviewedText: convo.reviewedText,
     rawSegments: (convo.rawSegments as any[]) ?? [],
     formattedTranscript: convo.formattedTranscript,
     studentName: convo.student?.name ?? null,

@@ -6,6 +6,7 @@ import { enqueueConversationJobs, processAllConversationJobs } from "@/lib/jobs/
 import { requireAuthorizedSession } from "@/lib/server/request-auth";
 import { renderConversationArtifactOrFallback } from "@/lib/conversation-artifact";
 import { getTranscriptExpiryDate } from "@/lib/system-config";
+import { ensureConversationReviewedTranscript } from "@/lib/transcript/review";
 import { sanitizeSummaryMarkdown } from "@/lib/user-facing-japanese";
 
 export async function GET(request: Request) {
@@ -40,6 +41,7 @@ export async function GET(request: Request) {
           studentId: true,
           sessionId: true,
           status: true,
+          reviewState: true,
           artifactJson: true,
           summaryMarkdown: true,
           formattedTranscript: true,
@@ -54,6 +56,7 @@ export async function GET(request: Request) {
         studentId: conversation.studentId,
         sessionId: conversation.sessionId,
         status: conversation.status,
+        reviewState: conversation.reviewState,
         artifactJson: conversation.artifactJson,
         summaryMarkdown: sanitizeSummaryMarkdown(
           renderConversationArtifactOrFallback(conversation.artifactJson, conversation.summaryMarkdown)
@@ -83,6 +86,7 @@ export async function GET(request: Request) {
         studentId: true,
         sessionId: true,
         status: true,
+        reviewState: true,
         artifactJson: true,
         summaryMarkdown: true,
         createdAt: true,
@@ -96,6 +100,7 @@ export async function GET(request: Request) {
       studentId: c.studentId,
       sessionId: c.sessionId,
       status: c.status,
+      reviewState: c.reviewState,
       artifactJson: c.artifactJson,
       summaryMarkdown: sanitizeSummaryMarkdown(
         renderConversationArtifactOrFallback(c.artifactJson, c.summaryMarkdown)
@@ -156,9 +161,13 @@ export async function POST(request: Request) {
         status: ConversationStatus.PROCESSING,
         rawTextOriginal: pre.rawTextOriginal,
         rawTextCleaned: pre.rawTextCleaned,
+        reviewedText: null,
+        reviewState: "NONE",
         rawTextExpiresAt: getTranscriptExpiryDate(),
       },
     });
+
+    await ensureConversationReviewedTranscript(conversation.id);
 
     await enqueueConversationJobs(conversation.id);
     void processAllConversationJobs(conversation.id).catch((error) => {

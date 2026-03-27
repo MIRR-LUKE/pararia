@@ -1,4 +1,5 @@
 import { createHash } from "crypto";
+import { normalizeRawTranscriptText } from "@/lib/transcript/source";
 import { sanitizeTranscriptSegments, sanitizeTranscriptText } from "@/lib/user-facing-japanese";
 
 type WhisperSegment = {
@@ -210,14 +211,15 @@ function buildBlocks(segments: string[], maxTokens = 4200, targetMin = 2600) {
 }
 
 export function preprocessTranscript(rawTextOriginal: string): PreprocessResult {
-  const normalized = sanitizeTranscriptText(normalizeJa(rawTextOriginal));
+  const sourceText = normalizeRawTranscriptText(rawTextOriginal);
+  const normalized = sanitizeTranscriptText(normalizeJa(sourceText));
   const noFillers = removeFillers(normalized);
   const dedupedLines = dedupeAdjacentLines(noFillers);
   const chunks = dedupeChunkNearDuplicates(chunkByPunctuation(dedupedLines));
   const rawTextCleaned = normalizeJa(chunks.join("\n"));
   const topicSegments = splitByTopicBoundaries(rawTextCleaned);
   const blocks = buildBlocks(topicSegments);
-  return { rawTextOriginal: normalized, rawTextCleaned, chunks, blocks };
+  return { rawTextOriginal: sourceText, rawTextCleaned, chunks, blocks };
 }
 
 function buildTimingSegments(
@@ -280,14 +282,15 @@ export function preprocessTranscriptWithSegments(
   if (!sanitizedSegments.length) {
     return preprocessTranscript(rawTextOriginal);
   }
-  const normalized = sanitizeTranscriptText(normalizeJa(rawTextOriginal));
+  const sourceText = normalizeRawTranscriptText(rawTextOriginal);
+  const normalized = sanitizeTranscriptText(normalizeJa(sourceText));
   const noFillers = removeFillers(normalized);
   const dedupedLines = dedupeAdjacentLines(noFillers);
   const chunks = dedupeChunkNearDuplicates(chunkByPunctuation(dedupedLines));
   const rawTextCleaned = normalizeJa(chunks.join("\n"));
   const timingSegments = buildTimingSegments(sanitizedSegments, {});
   const blocks = buildBlocks(timingSegments.length ? timingSegments : splitByTopicBoundaries(rawTextCleaned));
-  return { rawTextOriginal: normalized, rawTextCleaned, chunks, blocks };
+  return { rawTextOriginal: sourceText, rawTextCleaned, chunks, blocks };
 }
 
 export function segmentsToText(segments: WhisperSegment[] | undefined | null) {

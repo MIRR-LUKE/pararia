@@ -11,7 +11,9 @@ import { prisma } from "./db";
 import { toPrismaJson } from "./prisma-json";
 import { parseConversationArtifact, renderConversationArtifactOrFallback } from "./conversation-artifact";
 import { getTranscriptExpiryDate } from "./system-config";
-import { sanitizeTranscriptSegments, sanitizeTranscriptText } from "./user-facing-japanese";
+import { sanitizeTranscriptSegments } from "./user-facing-japanese";
+import { normalizeRawTranscriptText, pickEvidenceTranscriptText } from "./transcript/source";
+import { ensureConversationReviewedTranscript } from "./transcript/review";
 
 type SessionPartLike = {
   id: string;
@@ -20,6 +22,7 @@ type SessionPartLike = {
   sourceType: ConversationSourceType;
   rawTextOriginal?: string | null;
   rawTextCleaned?: string | null;
+  reviewedText?: string | null;
   rawSegments?: unknown;
 };
 
@@ -59,7 +62,7 @@ function getReadyPartsForConversation(sessionType: SessionType, parts: SessionPa
   const order = getPartOrder(sessionType);
   return [...parts]
     .filter((part) => part.status === SessionPartStatus.READY)
-    .filter((part) => Boolean(part.rawTextCleaned?.trim() || part.rawTextOriginal?.trim()))
+    .filter((part) => Boolean(pickEvidenceTranscriptText(part)))
     .sort((a, b) => order[a.partType] - order[b.partType]);
 }
 
@@ -68,7 +71,21 @@ export function buildSessionTranscript(sessionType: SessionType, parts: SessionP
 
   const chunks = ordered
     .map((part) => {
-      const body = sanitizeTranscriptText(part.rawTextCleaned?.trim() || part.rawTextOriginal?.trim() || "");
+      const body = pickEvidenceTranscriptText(part);
+      if (!body) return null;
+      return `## ${PART_LABEL[part.partType]}\n${body}`;
+    })
+    .filter((chunk): chunk is string => Boolean(chunk));
+
+  if (chunks.length === 0) return "";
+  return chunks.join("\n\n").trim();
+}
+
+function buildSessionRawTranscript(sessionType: SessionType, parts: SessionPartLike[]) {
+  const ordered = getReadyPartsForConversation(sessionType, parts);
+  const chunks = ordered
+    .map((part) => {
+      const body = normalizeRawTranscriptText(part.rawTextOriginal);
       if (!body) return null;
       return `## ${PART_LABEL[part.partType]}\n${body}`;
     })
@@ -107,7 +124,7 @@ export function buildSessionTranscriptSegments(sessionType: SessionType, parts: 
   let cursorSeconds = 0;
 
   for (const part of ordered) {
-    const body = sanitizeTranscriptText(part.rawTextCleaned?.trim() || part.rawTextOriginal?.trim() || "");
+    const body = pickEvidenceTranscriptText(part);
     const segments = normalizePartSegments(part.rawSegments);
 
     if (segments.length > 0) {
@@ -142,7 +159,7 @@ export function buildSessionTranscriptSegments(sessionType: SessionType, parts: 
 export function isSessionReady(sessionType: SessionType, parts: SessionPartLike[]) {
   const readyParts = parts.filter((part) => part.status === SessionPartStatus.READY);
   if (sessionType === SessionType.INTERVIEW) {
-    return readyParts.some((part) => Boolean(part.rawTextCleaned?.trim() || part.rawTextOriginal?.trim()));
+    return readyParts.some((part) => Boolean(pickEvidenceTranscriptText(part)));
   }
   const hasCheckIn = readyParts.some((part) => part.partType === SessionPartType.CHECK_IN);
   const hasCheckOut = readyParts.some((part) => part.partType === SessionPartType.CHECK_OUT);
@@ -164,8 +181,9 @@ export async function ensureConversationForSession(sessionId: string) {
     throw new Error("session is not ready for generation");
   }
 
-  const combinedText = buildSessionTranscript(session.type, session.parts);
-  if (!combinedText) throw new Error("session transcript is empty");
+  const combinedRawText = buildSessionRawTranscript(session.type, session.parts);
+  if (!combinedRawText) throw new Error("session transcript is empty");
+  const combinedReviewedText = buildSessionTranscript(session.type, session.parts);
   const combinedSegments = buildSessionTranscriptSegments(session.type, session.parts);
 
   const readyParts = getReadyPartsForConversation(session.type, session.parts);
@@ -179,8 +197,9 @@ export async function ensureConversationForSession(sessionId: string) {
     sessionId: session.id,
     sourceType,
     status: ConversationStatus.PROCESSING,
-    rawTextOriginal: combinedText,
-    rawTextCleaned: combinedText,
+    rawTextOriginal: combinedRawText,
+    rawTextCleaned: normalizeRawTranscriptText(session.parts.map((part) => part.rawTextCleaned ?? "").join("\n\n")),
+    reviewedText: combinedReviewedText || combinedRawText,
     rawSegments: toPrismaJson(combinedSegments),
     rawTextExpiresAt: getTranscriptExpiryDate(),
   };
@@ -197,6 +216,7 @@ export async function ensureConversationForSession(sessionId: string) {
       },
       select: { id: true },
     });
+    await ensureConversationReviewedTranscript(conversation.id);
     return conversation.id;
   }
 
@@ -204,6 +224,7 @@ export async function ensureConversationForSession(sessionId: string) {
     data,
     select: { id: true },
   });
+  await ensureConversationReviewedTranscript(conversation.id);
   return conversation.id;
 }
 

@@ -20,6 +20,7 @@ export async function POST(
         formattedTranscript: true,
         rawTextOriginal: true,
         rawTextCleaned: true,
+        reviewedText: true,
         rawSegments: true,
       },
     });
@@ -32,7 +33,7 @@ export async function POST(
       return NextResponse.json({ ok: true, message: "already formatted" });
     }
 
-    if (!conversation.rawTextOriginal && !conversation.rawTextCleaned && !conversation.rawSegments) {
+    if (!conversation.rawTextOriginal && !conversation.rawTextCleaned && !conversation.reviewedText && !conversation.rawSegments) {
       return NextResponse.json(
         { error: "raw transcript is missing. Cannot format." },
         { status: 400 }

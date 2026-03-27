@@ -3,13 +3,15 @@
 PARARIA は、塾・個別指導・学習コーチング向けの `Teaching OS` です。  
 現在の実装は、**録音や会話メモから `面談ログ` または `指導報告ログ` を 1 本生成し、その保存済みログを選んで `保護者レポート` を作る** ことに絞っています。
 
-この README は、**2026-03-26 時点の現行コードと一致する運用仕様書** です。
+この README は、**2026-03-27 時点の現行コードと一致する運用仕様書** です。
 
 ## 1. 先に結論
 
 - 主導線は `Student Room`
 - 録音モードは `INTERVIEW` と `LESSON_REPORT` の 2 つ
 - 会話ログの正本は `ConversationLog.artifactJson`
+- transcript は `raw / reviewed / display` の役割を分ける
+- ログ生成は `reviewedText` があればそれを優先し、なければ raw transcript を使う
 - `summaryMarkdown` は画面表示や互換用に保存する派生物
 - ログ生成は `ConversationJob.FINALIZE` を中心に動き、失敗時は retry / stale recovery を持つ
 - 自動の後段 polish は **ない**
@@ -23,6 +25,9 @@ PARARIA は、塾・個別指導・学習コーチング向けの `Teaching OS` 
 - 面談モードの成果物は `面談ログ`
 - 指導報告モードの成果物は `指導報告ログ`
 - どちらも正本は `artifactJson`
+- transcript の正本は `rawTextOriginal`
+- `reviewedText` は固有名詞候補を反映した確認用 transcript
+- `rawTextCleaned` は display / preview 用の軽整形 transcript
 - `summaryMarkdown` は `artifactJson` から render した表示用の派生物
 - 補助表示として `formattedTranscript` または raw transcript を持つ
 - 旧 `timeline / nextActions / parentPack / profileDelta` を別成果物として増やす構成はやめ、必要な情報は `artifactJson` に集約する
@@ -126,8 +131,10 @@ PARARIA は、塾・個別指導・学習コーチング向けの `Teaching OS` 
 - `artifactJson`
 - `summaryMarkdown`
 - `rawTextOriginal`
+- `reviewedText`
 - `rawTextCleaned`
 - `rawSegments`
+- `reviewState`
 - 必要時の `formattedTranscript`
 - `qualityMetaJson`
 
@@ -153,8 +160,10 @@ PARARIA は、塾・個別指導・学習コーチング向けの `Teaching OS` 
 - `artifactJson`
 - `summaryMarkdown`
 - `rawTextOriginal`
+- `reviewedText`
 - `rawTextCleaned`
 - `rawSegments`
+- `reviewState`
 - 必要時の `formattedTranscript`
 - `qualityMetaJson`
 
@@ -283,19 +292,26 @@ PARARIA は、塾・個別指導・学習コーチング向けの `Teaching OS` 
 
 - `artifactJson`
   - 会話ログの正本
-  - `summary / facts / changes / assessment / nextActions / sharePoints / sections` を持つ
+  - `summary / claims / nextActions / sharePoints / sections` を持つ
+  - 各 entry は `text / evidence / basis / humanCheckNeeded / confidence` を持てる
 - `summaryMarkdown`
   - `artifactJson` から render される表示用の本文
 - `rawTextOriginal`
   - 元 transcript
+  - sanitize しない evidence の保存先
+- `reviewedText`
+  - proper noun suggestion を反映した確認用 transcript
+  - ログ生成では `reviewedText` があればこちらを優先する
 - `rawTextCleaned`
-  - 前処理後 transcript
+  - display / preview 用の軽整形 transcript
 - `rawSegments`
   - STT segment
+- `reviewState`
+  - `NONE / REQUIRED / RESOLVED`
 - `formattedTranscript`
   - 必要時だけ整形
 - `qualityMetaJson`
-  - STT 時間、モデル、警告、生成時間、job retry 情報など
+  - STT 時間、モデル、警告、生成時間、job retry 情報、reviewRequired の理由など
 
 ## 10. 保護者レポート
 
@@ -386,6 +402,8 @@ PARARIA は、塾・個別指導・学習コーチング向けの `Teaching OS` 
 - `GET/PATCH/DELETE /api/conversations/[id]`
 - `POST /api/conversations/[id]/regenerate`
 - `POST /api/conversations/[id]/format`
+- `GET/POST /api/conversations/[id]/review`
+- `PATCH /api/conversations/[id]/review/suggestions/[suggestionId]`
 
 補足:
 
@@ -395,6 +413,12 @@ PARARIA は、塾・個別指導・学習コーチング向けの `Teaching OS` 
   - 軽量取得 + worker 再キック
 - `POST /api/conversations/[id]/regenerate?format=1`
   - 再生成に加えて transcript 整形も再実行
+- `GET /api/conversations/[id]/review`
+  - raw / reviewed / display transcript と proper noun suggestion を返す
+- `POST /api/conversations/[id]/review`
+  - reviewed transcript と suggestion を作り直す
+- `PATCH /api/conversations/[id]/review/suggestions/[suggestionId]`
+  - `confirmed / rejected / manually_edited` を保存する
 
 ### 13.5 保護者レポート
 
@@ -452,6 +476,7 @@ PARARIA は、塾・個別指導・学習コーチング向けの `Teaching OS` 
 - `.data/` と `.tmp/` は Git 管理対象に入れない
 - benchmark や検証スクリプトの出力は `.tmp/` などの ignore 済みディレクトリへ出す
 - 保存期間は `PARARIA_TRANSCRIPT_RETENTION_DAYS` / `PARARIA_AUDIO_RETENTION_DAYS` / `PARARIA_REPORT_DELIVERY_EVENT_RETENTION_DAYS` で調整する
+- transcript 保存期間を過ぎたら `rawTextOriginal / rawTextCleaned / reviewedText / rawSegments / proper noun suggestion` を消す
 - 削除ポリシーの詳細は `docs/data-retention-policy.md` を参照する
 
 開発時の推奨:
@@ -467,7 +492,7 @@ PARARIA_AUDIO_RETENTION_DAYS=14
 
 ## 16. 現在の smoke check
 
-2026-03-26 に次を実行して通過確認済み:
+2026-03-27 に次を実行して通過確認済み:
 
 - `npm run typecheck`
 - `npm run test:audio-upload-support`
@@ -478,6 +503,7 @@ PARARIA_AUDIO_RETENTION_DAYS=14
 - `npm run test:live-transcription`
 - `npm run test:session-progress`
 - `npm run test:stt-fallback`
+- `npm run test:transcript-review`
 - `npm run build`
 
 ## 17. やらないこと

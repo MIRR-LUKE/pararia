@@ -22,13 +22,15 @@
 
 - 削除方式: hard delete
 - 保存期間: `PARARIA_TRANSCRIPT_RETENTION_DAYS` 日
-- cleanup 実行時に raw transcript を削除する
+- cleanup 実行時に `rawTextOriginal / rawTextCleaned / reviewedText / rawSegments` を削除する
+- proper noun suggestion も一緒に削除する
 
 ### ConversationLog の生文字起こし
 
 - 削除方式: hard delete
 - 保存期間: `PARARIA_TRANSCRIPT_RETENTION_DAYS` 日
-- cleanup 実行時に raw transcript を削除する
+- cleanup 実行時に `rawTextOriginal / rawTextCleaned / reviewedText / rawSegments` を削除する
+- proper noun suggestion も一緒に削除する
 - artifact と要約本文は残す
 
 ### 会話ログの structured artifact / 要約本文

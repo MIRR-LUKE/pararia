@@ -22,6 +22,8 @@ model Organization {
   Session            Session[]
   recordingLocks     StudentRecordingLock[]
   invitations        OrganizationInvitation[]
+  properNounGlossaryEntries ProperNounGlossaryEntry[]
+  properNounSuggestions     ProperNounSuggestion[]
 }
 
 model User {
@@ -39,6 +41,7 @@ model User {
   reportDeliveryEventsActed ReportDeliveryEvent[] @relation("ReportDeliveryEventActor")
   recordingLocksHeld StudentRecordingLock[] @relation("RecordingLockHolder")
   invitationsCreated OrganizationInvitation[] @relation("InvitationCreator")
+  properNounGlossaryEntries ProperNounGlossaryEntry[] @relation("GlossaryTutor")
 }
 
 model Student {
@@ -61,6 +64,8 @@ model Student {
   reports       Report[]
   reportDeliveryEvents ReportDeliveryEvent[]
   recordingLock StudentRecordingLock?
+  properNounGlossaryEntries ProperNounGlossaryEntry[]
+  properNounSuggestions     ProperNounSuggestion[]
 
   @@index([organizationId, createdAt])
 }
@@ -132,6 +137,8 @@ model ConversationLog {
   // --- Raw transcript storage (TTL) ---
   rawTextOriginal  String?
   rawTextCleaned   String?
+  reviewedText     String?
+  reviewState      TranscriptReviewState @default(NONE)
   rawSegments      Json?
   rawTextExpiresAt DateTime?
 
@@ -148,6 +155,7 @@ model ConversationLog {
   user         User?             @relation(fields: [userId], references: [id])
   session      Session?          @relation(fields: [sessionId], references: [id])
   jobs         ConversationJob[]
+  properNounSuggestions ProperNounSuggestion[]
 
   @@index([studentId, createdAt])
   @@index([organizationId, createdAt])
@@ -234,6 +242,61 @@ model Report {
   @@index([organizationId, createdAt])
 }
 
+model ProperNounGlossaryEntry {
+  id             String         @id @default(cuid())
+  organizationId String
+  studentId      String?
+  tutorUserId    String?
+  kind           ProperNounKind @default(OTHER)
+  canonicalValue String
+  aliasesJson    Json?
+  note           String?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  student      Student?     @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  tutor        User?        @relation("GlossaryTutor", fields: [tutorUserId], references: [id], onDelete: Cascade)
+  suggestions  ProperNounSuggestion[]
+
+  @@index([organizationId, kind])
+  @@index([studentId, kind])
+  @@index([tutorUserId, kind])
+}
+
+model ProperNounSuggestion {
+  id              String                     @id @default(cuid())
+  organizationId  String
+  studentId       String
+  sessionId       String?
+  sessionPartId   String?
+  conversationId  String?
+  glossaryEntryId String?
+  kind            ProperNounKind            @default(OTHER)
+  rawValue        String
+  suggestedValue  String
+  finalValue      String?
+  reason          String
+  confidence      Int                        @default(0)
+  source          ProperNounSuggestionSource
+  status          ProperNounSuggestionStatus @default(PENDING)
+  spanJson        Json?
+  createdAt       DateTime                   @default(now())
+  updatedAt       DateTime                   @updatedAt
+
+  organization Organization              @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  student      Student                   @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  session      Session?                  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  sessionPart  SessionPart?              @relation(fields: [sessionPartId], references: [id], onDelete: Cascade)
+  conversation ConversationLog?          @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  glossaryEntry ProperNounGlossaryEntry? @relation(fields: [glossaryEntryId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, status])
+  @@index([studentId, status])
+  @@index([sessionPartId, status])
+  @@index([conversationId, status])
+}
+
 model ReportDeliveryEvent {
   id              String                  @id @default(cuid())
   reportId        String
@@ -285,6 +348,7 @@ model Session {
   user         User?            @relation(fields: [userId], references: [id])
   parts        SessionPart[]
   conversation ConversationLog?
+  properNounSuggestions ProperNounSuggestion[]
 
   @@index([studentId, sessionDate])
   @@index([organizationId, sessionDate])
@@ -303,6 +367,8 @@ model SessionPart {
   storageUrl          String?
   rawTextOriginal     String?
   rawTextCleaned      String?
+  reviewedText        String?
+  reviewState         TranscriptReviewState @default(NONE)
   rawSegments         Json?
   qualityMetaJson     Json?
   transcriptExpiresAt DateTime?
@@ -311,6 +377,7 @@ model SessionPart {
 
   session Session          @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   jobs    SessionPartJob[]
+  properNounSuggestions ProperNounSuggestion[]
 
   @@unique([sessionId, partType])
   @@index([sessionId, status])
@@ -355,6 +422,40 @@ enum ConversationStatus {
   PROCESSING
   DONE
   ERROR
+}
+
+enum TranscriptReviewState {
+  NONE
+  REQUIRED
+  RESOLVED
+}
+
+enum ProperNounKind {
+  SCHOOL
+  MOCK_EXAM
+  MATERIAL
+  TEXTBOOK
+  TUTOR
+  STUDENT
+  CAMPUS
+  SERVICE
+  EXAM
+  UNIT
+  OTHER
+}
+
+enum ProperNounSuggestionSource {
+  GLOSSARY
+  CONTEXT
+  ALIAS
+  HEURISTIC
+}
+
+enum ProperNounSuggestionStatus {
+  PENDING
+  CONFIRMED
+  REJECTED
+  MANUALLY_EDITED
 }
 
 enum SessionType {

@@ -35,6 +35,8 @@ export async function GET(
                 fileName: true,
                 rawTextOriginal: true,
                 rawTextCleaned: true,
+                reviewedText: true,
+                reviewState: true,
                 qualityMetaJson: true,
                 createdAt: true,
               },
@@ -44,6 +46,7 @@ export async function GET(
               select: {
                 id: true,
                 status: true,
+                reviewState: true,
                 summaryMarkdown: true,
                 createdAt: true,
                 jobs: {
@@ -93,6 +96,7 @@ export async function GET(
       select: {
         id: true,
         status: true,
+        reviewState: true,
         summaryMarkdown: true,
         createdAt: true,
       },
@@ -105,13 +109,15 @@ export async function GET(
         partType: part.partType,
         status: part.status,
         fileName: part.fileName,
-        previewText: buildSummaryPreview(part.rawTextCleaned || part.rawTextOriginal),
+        previewText: buildSummaryPreview(part.rawTextCleaned || part.reviewedText || part.rawTextOriginal),
+        reviewState: part.reviewState,
         qualityMetaJson: part.qualityMetaJson,
       }));
       const conversation = session.conversation
         ? {
             id: session.conversation.id,
             status: session.conversation.status,
+            reviewState: session.conversation.reviewState,
             summaryMarkdown,
             createdAt: session.conversation.createdAt,
           }
@@ -136,6 +142,7 @@ export async function GET(
       ? {
           id: latestConversation.id,
           status: latestConversation.status,
+          reviewState: latestConversation.reviewState,
           summaryMarkdown: sanitizeSummaryMarkdown(latestConversation.summaryMarkdown ?? ""),
           createdAt: latestConversation.createdAt,
         }

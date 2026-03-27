@@ -27,6 +27,7 @@ import { requireAuthorizedSession } from "@/lib/server/request-auth";
 import { toPrismaJson } from "@/lib/prisma-json";
 import { getAudioExpiryDate, getTranscriptExpiryDate } from "@/lib/system-config";
 import { preprocessTranscript } from "@/lib/transcript/preprocess";
+import { ensureSessionPartReviewedTranscript } from "@/lib/transcript/review";
 
 function parsePartType(raw: string | null) {
   if (raw === SessionPartType.CHECK_IN) return SessionPartType.CHECK_IN;
@@ -186,6 +187,8 @@ export async function POST(
           storageUrl: stored.storageUrl,
           rawTextOriginal: "",
           rawTextCleaned: "",
+          reviewedText: null,
+          reviewState: "NONE",
           rawSegments: toPrismaJson([]),
           qualityMetaJson: toSessionPartMetaJson({}, qualityMeta as any),
           transcriptExpiresAt: expiresAt,
@@ -201,6 +204,8 @@ export async function POST(
           storageUrl: stored.storageUrl,
           rawTextOriginal: "",
           rawTextCleaned: "",
+          reviewedText: null,
+          reviewState: "NONE",
           rawSegments: toPrismaJson([]),
           qualityMetaJson: toSessionPartMetaJson({}, qualityMeta as any),
           transcriptExpiresAt: expiresAt,
@@ -250,6 +255,8 @@ export async function POST(
           byteSize: null,
           rawTextOriginal,
           rawTextCleaned,
+          reviewedText: null,
+          reviewState: "REQUIRED",
           rawSegments: toPrismaJson(rawSegments),
           qualityMetaJson: toSessionPartMetaJson(qualityMeta, {
             validationRejection: {
@@ -272,6 +279,8 @@ export async function POST(
           byteSize: null,
           rawTextOriginal,
           rawTextCleaned,
+          reviewedText: null,
+          reviewState: "REQUIRED",
           rawSegments: toPrismaJson(rawSegments),
           qualityMetaJson: toSessionPartMetaJson(qualityMeta, {
             validationRejection: {
@@ -314,6 +323,8 @@ export async function POST(
         byteSize: null,
         rawTextOriginal,
         rawTextCleaned,
+        reviewedText: null,
+        reviewState: "NONE",
         rawSegments: toPrismaJson(rawSegments),
         qualityMetaJson: toSessionPartMetaJson(qualityMeta, {
           pipelineStage: "READY",
@@ -331,6 +342,8 @@ export async function POST(
         byteSize: null,
         rawTextOriginal,
         rawTextCleaned,
+        reviewedText: null,
+        reviewState: "NONE",
         rawSegments: toPrismaJson(rawSegments),
         qualityMetaJson: toSessionPartMetaJson(qualityMeta, {
           pipelineStage: "READY",
@@ -339,6 +352,8 @@ export async function POST(
         transcriptExpiresAt: expiresAt,
       },
     });
+
+    await ensureSessionPartReviewedTranscript(part.id);
 
     const session = await updateSessionStatusFromParts(params.id);
     await enqueueSessionPartJob(part.id, SessionPartJobType.PROMOTE_SESSION);

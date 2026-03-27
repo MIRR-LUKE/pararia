@@ -1,4 +1,4 @@
-import { sanitizeTranscriptSegments, sanitizeTranscriptText } from "@/lib/user-facing-japanese";
+import { normalizeRawTranscriptText } from "@/lib/transcript/source";
 
 type TranscribeInput = {
   buffer: Buffer;
@@ -167,31 +167,30 @@ function pickSpeakerLabel(left?: string, right?: string) {
 }
 
 function buildRawTextFromSegments(segments: TranscriptSegment[]) {
-  const lines: string[] = [];
-  let previousSpeaker: string | undefined;
-  let buffer = "";
+  return segments
+    .map((segment) => normalizeSegmentText(segment.text))
+    .filter(Boolean)
+    .join("\n")
+    .trim();
+}
 
-  const flush = () => {
-    const next = buffer.trim();
-    if (next) lines.push(next);
-    buffer = "";
-  };
-
-  for (const segment of segments) {
-    const text = normalizeSegmentText(segment.text);
-    if (!text) continue;
-    const speaker = typeof segment.speaker === "string" ? segment.speaker.trim() : undefined;
-    if (buffer && previousSpeaker && speaker && previousSpeaker === speaker) {
-      buffer = joinSegmentText(buffer, text);
-    } else {
-      flush();
-      buffer = text;
-    }
-    previousSpeaker = speaker;
-  }
-
-  flush();
-  return lines.join("\n").trim();
+function mapRawSegments(data: {
+  segments?: Array<Record<string, unknown>>;
+}) {
+  if (!Array.isArray(data.segments)) return [];
+  return data.segments
+    .map((segment) => ({
+      id:
+        typeof segment.id === "number" || typeof segment.id === "string"
+          ? segment.id
+          : undefined,
+      seek: typeof segment.seek === "number" ? segment.seek : undefined,
+      start: typeof segment.start === "number" ? segment.start : undefined,
+      end: typeof segment.end === "number" ? segment.end : undefined,
+      text: typeof segment.text === "string" ? segment.text.trim() : "",
+      speaker: typeof segment.speaker === "string" ? segment.speaker.trim() || undefined : undefined,
+    }))
+    .filter((segment) => Boolean(segment.text));
 }
 
 function normalizeSegments(data: {
@@ -335,11 +334,13 @@ async function transcribeAttempt(args: {
     segments?: Array<Record<string, unknown>>;
   };
 
+  const rawSegments = mapRawSegments(data);
   const normalized = normalizeSegments(data);
-  const segments = sanitizeTranscriptSegments(normalized.segments);
+  const segments = normalized.segments;
   const rawTextOriginal =
-    (sanitizeTranscriptText(buildRawTextFromSegments(segments)) ||
-      (typeof data.text === "string" ? sanitizeTranscriptText(normalizeSegmentText(data.text)) : ""))
+    (normalizeRawTranscriptText(typeof data.text === "string" ? data.text : "") ||
+      normalizeRawTranscriptText(buildRawTextFromSegments(rawSegments)) ||
+      normalizeRawTranscriptText(buildRawTextFromSegments(segments)))
       .trim();
 
   if (!rawTextOriginal) {
@@ -354,14 +355,14 @@ async function transcribeAttempt(args: {
 
   return {
     rawTextOriginal,
-    segments,
+    segments: rawSegments.length > 0 ? rawSegments : segments,
     meta: {
       model: args.model,
       responseFormat: args.responseFormat,
       recoveryUsed: false,
       fallbackUsed: args.fallbackUsed === true,
       attemptCount: 1,
-      segmentCount: segments.length,
+      segmentCount: rawSegments.length || segments.length,
       speakerCount,
       qualityWarnings: normalized.qualityWarnings,
     },

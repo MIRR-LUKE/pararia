@@ -12,6 +12,8 @@
         "4. 保護者への共有ポイント"
       ],
       "requiredKeywords": [
+        "山田花子",
+        "佐藤先生",
         "睡眠",
         "英語",
         "宿題",
@@ -25,6 +27,14 @@
         "言い差し"
       ],
       "sectionRules": [
+        {
+          "heading": "基本情報",
+          "kind": "contains",
+          "mustInclude": [
+            "山田花子",
+            "佐藤先生"
+          ]
+        },
         {
           "heading": "1. サマリー",
           "kind": "paragraphs",
@@ -62,6 +72,8 @@
         "4. 室長・他講師への共有・連携事項"
       ],
       "requiredKeywords": [
+        "山田花子",
+        "佐藤先生",
         "数列",
         "条件整理",
         "最初の式",
@@ -77,11 +89,83 @@
       ],
       "sectionRules": [
         {
+          "heading": "基本情報",
+          "kind": "contains",
+          "mustInclude": [
+            "山田花子",
+            "佐藤先生"
+          ]
+        },
+        {
           "heading": "1. 本日の指導サマリー（室長向け要約）",
           "kind": "paragraphs",
           "minCount": 2,
           "mustInclude": [
             "数列",
+            "条件整理"
+          ]
+        },
+        {
+          "heading": "2. 課題と指導成果（Before → After）",
+          "kind": "contains",
+          "mustInclude": [
+            "現状（Before）",
+            "成果（After）",
+            "※特記事項"
+          ]
+        },
+        {
+          "heading": "3. 学習方針と次回アクション（自学習の設計）",
+          "kind": "contains",
+          "mustInclude": [
+            "生徒:",
+            "次回までの宿題:",
+            "次回の確認（テスト）事項:"
+          ]
+        },
+        {
+          "heading": "4. 室長・他講師への共有・連携事項",
+          "kind": "bullets",
+          "minCount": 2
+        }
+      ]
+    },
+    {
+      "id": "lesson-proper-noun-reviewed",
+      "modeLabel": "指導報告",
+      "requiredHeadings": [
+        "基本情報",
+        "1. 本日の指導サマリー（室長向け要約）",
+        "2. 課題と指導成果（Before → After）",
+        "3. 学習方針と次回アクション（自学習の設計）",
+        "4. 室長・他講師への共有・連携事項"
+      ],
+      "requiredKeywords": [
+        "山田花子",
+        "佐藤先生",
+        "青山学院",
+        "過去問",
+        "条件整理",
+        "再現"
+      ],
+      "forbiddenPhrases": [
+        "青山学園"
+      ],
+      "sectionRules": [
+        {
+          "heading": "基本情報",
+          "kind": "contains",
+          "mustInclude": [
+            "山田花子",
+            "佐藤先生"
+          ]
+        },
+        {
+          "heading": "1. 本日の指導サマリー（室長向け要約）",
+          "kind": "paragraphs",
+          "minCount": 2,
+          "mustInclude": [
+            "青山学院",
             "条件整理"
           ]
         },

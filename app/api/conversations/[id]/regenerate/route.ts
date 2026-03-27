@@ -6,6 +6,7 @@ import {
   isConversationJobRunActive,
   processAllConversationJobs,
 } from "@/lib/jobs/conversationJobs";
+import { ensureConversationReviewedTranscript } from "@/lib/transcript/review";
 import { requireAuthorizedSession } from "@/lib/server/request-auth";
 
 export async function POST(
@@ -25,6 +26,7 @@ export async function POST(
         id: true,
         rawTextOriginal: true,
         rawTextCleaned: true,
+        reviewedText: true,
         formattedTranscript: true,
         sessionId: true,
       },
@@ -49,6 +51,7 @@ export async function POST(
     }
 
     const hasRawSource =
+      Boolean(conversation.reviewedText?.trim()) ||
       Boolean(conversation.rawTextCleaned?.trim()) ||
       Boolean(conversation.rawTextOriginal?.trim()) ||
       Boolean(conversation.formattedTranscript?.trim());
@@ -77,6 +80,8 @@ export async function POST(
         formattedTranscript: keepFormattedTranscriptAsSource ? conversation.formattedTranscript : null,
       },
     });
+
+    await ensureConversationReviewedTranscript(params.id);
 
     await enqueueConversationJobs(params.id, { includeFormat });
     void processAllConversationJobs(params.id).catch((error) => {
