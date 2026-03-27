@@ -416,6 +416,7 @@ export async function ensureSessionPartReviewedTranscript(sessionPartId: string)
   await prisma.sessionPart.update({
     where: { id: part.id },
     data: {
+      // reviewState is the state source of truth. qualityMeta keeps only explanation metadata.
       reviewedText: normalizeRawTranscriptText(reviewedText) || null,
       reviewState: review.reviewState,
       qualityMetaJson: toPrismaJson({
@@ -546,6 +547,7 @@ export async function ensureConversationReviewedTranscript(conversationId: strin
       where: { id: conversation.id },
       data: {
         rawTextOriginal: rawTextOriginal || conversation.rawTextOriginal,
+        // reviewState is the state source of truth. qualityMeta keeps only explanation metadata.
         reviewedText: normalizeRawTranscriptText(reviewedText) || null,
         reviewState: review.reviewState,
         qualityMetaJson: toPrismaJson({

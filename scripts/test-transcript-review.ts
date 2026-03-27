@@ -118,6 +118,20 @@ async function main() {
     assert.equal(conversationReview.reviewState, TranscriptReviewState.REQUIRED);
     assert.match(conversationReview.reviewedText, /青山学院/);
 
+    const storedConversation = await prisma.conversationLog.findUniqueOrThrow({
+      where: { id: conversation.id },
+      select: { reviewState: true, qualityMetaJson: true },
+    });
+    assert.equal(storedConversation.reviewState, TranscriptReviewState.REQUIRED);
+    const transcriptReviewMeta =
+      storedConversation.qualityMetaJson &&
+      typeof storedConversation.qualityMetaJson === "object" &&
+      !Array.isArray(storedConversation.qualityMetaJson)
+        ? (storedConversation.qualityMetaJson as Record<string, unknown>).transcriptReview
+        : null;
+    assert.ok(transcriptReviewMeta && typeof transcriptReviewMeta === "object");
+    assert.equal("reviewState" in (transcriptReviewMeta as Record<string, unknown>), false);
+
     const reviewList = await listConversationProperNounSuggestions(conversation.id);
     assert.ok(reviewList.suggestions.length >= 1);
     assert.match(reviewList.displayText, /青山学院/);

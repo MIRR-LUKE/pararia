@@ -35,39 +35,22 @@ export type BundleQualityEval = {
   mainThemes: string[];
   strongElements: string[];
   weakElements: string[];
+  followUpChecks: string[];
   parentPoints: string[];
   warnings: string[];
   suggestedLogIds: string[];
 };
 
-type SectionKey = keyof OperationalLog;
-
-const SECTION_ALIASES: Record<SectionKey, string[]> = {
-  theme: ["1. サマリー", "本日の指導サマリー", "本日の指導サマリー（室長向け要約）"],
-  facts: ["1. サマリー", "本日の指導サマリー", "本日の指導サマリー（室長向け要約）"],
-  changes: ["2. ポジティブな話題", "2. 課題と指導成果", "2. 課題と指導成果（Before → After）"],
-  assessment: ["3. 改善・対策が必要な話題", "3. 学習方針と次回アクション", "3. 学習方針と次回アクション（自学習の設計）"],
-  nextChecks: ["3. 改善・対策が必要な話題", "3. 学習方針と次回アクション", "3. 学習方針と次回アクション（自学習の設計）"],
-  parentShare: ["4. 保護者への共有ポイント", "4. 室長・他講師への共有・連携事項"],
-};
-
-function stripMarkdown(text: string) {
-  return text
+function normalizeWhitespace(text: string) {
+  return String(text ?? "")
     .replace(/^#+\s*/gm, "")
     .replace(/^\s*[-*・•]\s+/gm, "")
     .replace(/^\s*\d+\.\s+/gm, "")
     .replace(/\*\*(.*?)\*\*/g, "$1")
     .replace(/`([^`]+)`/g, "$1")
     .replace(/\r/g, "")
+    .replace(/\s+/g, " ")
     .trim();
-}
-
-function normalizeWhitespace(text: string) {
-  return stripMarkdown(text).replace(/\s+/g, " ").trim();
-}
-
-function normalizeHeading(text: string) {
-  return normalizeWhitespace(text).replace(/[：:]/g, "");
 }
 
 function ensureSentence(text: string) {
@@ -88,43 +71,6 @@ function dedupe(values: Array<string | null | undefined>) {
     result.push(cleaned);
   }
   return result;
-}
-
-function extractLines(markdown?: string | null) {
-  return String(markdown ?? "")
-    .replace(/\r/g, "")
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean);
-}
-
-function parseSummarySections(markdown?: string | null) {
-  const buckets = new Map<SectionKey, string[]>();
-  let currentKey: SectionKey | null = null;
-
-  for (const line of extractLines(markdown)) {
-    if (line.startsWith("■ ") || line.startsWith("## ")) {
-      const heading = normalizeHeading(line.slice(2));
-      currentKey =
-        (Object.entries(SECTION_ALIASES).find(([, aliases]) =>
-          aliases.some((alias) => normalizeHeading(alias) === heading)
-        )?.[0] as SectionKey | undefined) ?? null;
-      continue;
-    }
-    if (!currentKey) continue;
-    const next = buckets.get(currentKey) ?? [];
-    next.push(line);
-    buckets.set(currentKey, next);
-  }
-
-  return {
-    theme: buckets.get("theme") ?? [],
-    facts: buckets.get("facts") ?? [],
-    changes: buckets.get("changes") ?? [],
-    assessment: buckets.get("assessment") ?? [],
-    nextChecks: buckets.get("nextChecks") ?? [],
-    parentShare: buckets.get("parentShare") ?? [],
-  };
 }
 
 function firstSentences(values: string[], limit: number) {
@@ -191,9 +137,8 @@ export function buildBundleQualityEval(
   const strongElements = distinct(
     selectedLogs.flatMap((log) => [...log.operationalLog.facts, ...log.operationalLog.changes])
   ).slice(0, 5);
-  const weakElements = distinct(
-    selectedLogs.flatMap((log) => [...log.operationalLog.assessment, ...log.operationalLog.nextChecks])
-  ).slice(0, 5);
+  const weakElements = distinct(selectedLogs.flatMap((log) => log.operationalLog.assessment)).slice(0, 5);
+  const followUpChecks = distinct(selectedLogs.flatMap((log) => log.operationalLog.nextChecks)).slice(0, 5);
   const parentPoints = distinct(selectedLogs.flatMap((log) => log.operationalLog.parentShare)).slice(0, 5);
 
   const warnings: string[] = [];
@@ -201,6 +146,7 @@ export function buildBundleQualityEval(
   if (!hasMode(selectedLogs, "INTERVIEW")) warnings.push("面談ログが含まれていません。");
   if (!hasMode(selectedLogs, "LESSON_REPORT")) warnings.push("指導報告ログが含まれていません。");
   if (parentPoints.length === 0) warnings.push("保護者共有に使える明確な要点が少ないです。");
+  if (followUpChecks.length === 0) warnings.push("次回確認事項が少なく、次の観察ポイントが見えにくいです。");
 
   const selectedIds = new Set(selectedLogs.map((log) => log.id));
   const suggestedLogIds = candidateLogs
@@ -209,6 +155,8 @@ export function buildBundleQualityEval(
       if (!hasMode(selectedLogs, "INTERVIEW") && log.mode === "INTERVIEW") return true;
       if (!hasMode(selectedLogs, "LESSON_REPORT") && log.mode === "LESSON_REPORT") return true;
       if (parentPoints.length === 0 && log.operationalLog.parentShare.length > 0) return true;
+      if (followUpChecks.length === 0 && log.operationalLog.nextChecks.length > 0) return true;
+      if (weakElements.length === 0 && log.operationalLog.assessment.length > 0) return true;
       const knownThemes = new Set(mainThemes);
       return !knownThemes.has(log.operationalLog.theme);
     })
@@ -221,6 +169,7 @@ export function buildBundleQualityEval(
     mainThemes,
     strongElements,
     weakElements,
+    followUpChecks,
     parentPoints,
     warnings,
     suggestedLogIds,
@@ -233,7 +182,8 @@ export function buildBundlePreview(evalResult: BundleQualityEval) {
     `ログ件数: ${evalResult.logCount}件`,
     `主要テーマ: ${evalResult.mainThemes.join(" / ") || "なし"}`,
     `強い材料: ${evalResult.strongElements.join(" / ") || "なし"}`,
-    `補いたい観点: ${evalResult.weakElements.join(" / ") || "なし"}`,
+    `今回の判断・補足: ${evalResult.weakElements.join(" / ") || "なし"}`,
+    `次回確認: ${evalResult.followUpChecks.join(" / ") || "なし"}`,
     `保護者共有ポイント: ${evalResult.parentPoints.join(" / ") || "なし"}`,
   ];
   if (evalResult.warnings.length > 0) {

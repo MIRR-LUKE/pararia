@@ -3,12 +3,14 @@ type ArtifactSectionKey = "basic_info" | "summary" | "details" | "actions" | "sh
 type ClaimType = "observed" | "inferred" | "missing";
 type ActionType = "assessment" | "nextCheck";
 
+// Persisted JSON section for artifactJson.
 export type ConversationArtifactSection = {
   key: ArtifactSectionKey;
   title: string;
   lines: string[];
 };
 
+// Persisted JSON entry for artifactJson.
 export type ConversationArtifactEntry = {
   text: string;
   evidence: string[];
@@ -359,23 +361,6 @@ function collectEntryTexts(entries: ConversationArtifactEntry[], limit = 8) {
   return dedupeLines(entries.map((entry) => entry.text)).slice(0, limit);
 }
 
-function collectSummaryTexts(sections: ConversationArtifactSection[]) {
-  const lines = collectEntryTexts(collectSectionEntries(sections, "summary"), 6);
-  return lines.length > 0 ? lines : [];
-}
-
-function collectClaimTexts(sections: ConversationArtifactSection[]) {
-  return collectEntryTexts(collectSectionEntries(sections, "details"), 8);
-}
-
-function collectActionTexts(sections: ConversationArtifactSection[]) {
-  return collectEntryTexts(collectSectionEntries(sections, "actions"), 8);
-}
-
-function collectShareTexts(sections: ConversationArtifactSection[]) {
-  return collectEntryTexts(collectSectionEntries(sections, "share"), 6);
-}
-
 function entriesFromTextArray(
   values: unknown,
   sourceSectionKey: Exclude<ArtifactSectionKey, "unknown">
@@ -508,6 +493,28 @@ function fallbackSectionTitle(sessionType: ArtifactSessionType, key: Exclude<Art
   return sectionTitleAliases(sessionType, key)[0];
 }
 
+function finalizeConversationArtifact(artifact: ConversationArtifact) {
+  const sections = artifact.sections.length > 0 ? artifact.sections : synthesizeSectionsFromArtifact(artifact);
+  const summary = artifact.summary.length > 0 ? artifact.summary : collectSectionEntries(sections, "summary");
+  const claims = artifact.claims.length > 0 ? artifact.claims : collectSectionEntries(sections, "details");
+  const nextActions = artifact.nextActions.length > 0 ? artifact.nextActions : collectSectionEntries(sections, "actions");
+  const sharePoints = artifact.sharePoints.length > 0 ? artifact.sharePoints : collectSectionEntries(sections, "share");
+  const typedActionSplit = splitActionEntries(nextActions);
+
+  return {
+    ...artifact,
+    sections,
+    summary,
+    claims,
+    nextActions,
+    sharePoints,
+    facts: artifact.facts.length > 0 ? artifact.facts : collectEntryTexts(summary, 8),
+    changes: artifact.changes.length > 0 ? artifact.changes : collectEntryTexts(claims, 8),
+    assessment: artifact.assessment.length > 0 ? artifact.assessment : collectEntryTexts(typedActionSplit.assessment, 8),
+    nextChecks: artifact.nextChecks.length > 0 ? artifact.nextChecks : collectEntryTexts(typedActionSplit.nextChecks, 8),
+  } satisfies ConversationArtifact;
+}
+
 export function buildConversationArtifactFromMarkdown(input: {
   sessionType: ArtifactSessionType;
   summaryMarkdown?: string | null;
@@ -527,7 +534,7 @@ export function buildConversationArtifactFromMarkdown(input: {
   const shareEntries = collectSectionEntries(sections, "share");
   const splitActions = splitActionEntries(actionEntries);
 
-  return {
+  return finalizeConversationArtifact({
     version: "conversation-artifact/v1",
     sessionType: input.sessionType,
     generatedAt,
@@ -540,7 +547,7 @@ export function buildConversationArtifactFromMarkdown(input: {
     assessment: collectEntryTexts(splitActions.assessment, 8),
     nextChecks: collectEntryTexts(splitActions.nextChecks, 8),
     sections,
-  };
+  });
 }
 
 function sanitizeArtifactEntries(
@@ -549,15 +556,6 @@ function sanitizeArtifactEntries(
   sourceSectionKey: Exclude<ArtifactSectionKey, "unknown">
 ): ConversationArtifactEntry[] {
   return entriesFromTextArray(value, sourceSectionKey).slice(0, limit);
-}
-
-function collectTypedTexts(entries: ConversationArtifactEntry[], type: ClaimType | ActionType, limit = 8) {
-  return collectEntryTexts(entries.filter((entry) => entry.claimType === type || entry.actionType === type), limit);
-}
-
-function ensureStructuredSections(artifact: ConversationArtifact) {
-  if (artifact.sections.length > 0) return artifact.sections;
-  return synthesizeSectionsFromArtifact(artifact);
 }
 
 export function parseConversationArtifact(value: unknown): ConversationArtifact | null {
@@ -613,32 +611,6 @@ export function parseConversationArtifact(value: unknown): ConversationArtifact 
     sections,
   };
 
-  if (artifact.summary.length === 0) {
-    artifact.summary = artifact.sections.length > 0 ? collectSectionEntries(artifact.sections, "summary") : [];
-  }
-  if (artifact.claims.length === 0) {
-    artifact.claims = artifact.sections.length > 0 ? collectSectionEntries(artifact.sections, "details") : [];
-  }
-  if (artifact.nextActions.length === 0) {
-    artifact.nextActions = artifact.sections.length > 0 ? collectSectionEntries(artifact.sections, "actions") : [];
-  }
-  if (artifact.sharePoints.length === 0) {
-    artifact.sharePoints = artifact.sections.length > 0 ? collectSectionEntries(artifact.sections, "share") : [];
-  }
-
-  if (artifact.facts.length === 0) {
-    artifact.facts = collectEntryTexts(artifact.summary, 8);
-  }
-  if (artifact.changes.length === 0) {
-    artifact.changes = collectEntryTexts(artifact.claims, 8);
-  }
-  if (artifact.assessment.length === 0) {
-    artifact.assessment = collectEntryTexts(typedActionSplit.assessment, 8);
-  }
-  if (artifact.nextChecks.length === 0) {
-    artifact.nextChecks = collectEntryTexts(typedActionSplit.nextChecks, 8);
-  }
-
   if (
     artifact.sections.length === 0 &&
     artifact.summary.length === 0 &&
@@ -649,20 +621,15 @@ export function parseConversationArtifact(value: unknown): ConversationArtifact 
     return null;
   }
 
-  if (artifact.sections.length === 0) {
-    artifact.sections = synthesizeSectionsFromArtifact(artifact);
-  }
-
-  return artifact;
+  return finalizeConversationArtifact(artifact);
 }
 
 export function renderConversationArtifactMarkdown(artifactInput: ConversationArtifact | unknown) {
   const artifact = parseConversationArtifact(artifactInput);
   if (!artifact) return "";
 
-  const sections = ensureStructuredSections(artifact);
   const lines: string[] = [];
-  for (const section of sections) {
+  for (const section of artifact.sections) {
     lines.push(`■ ${section.title}`);
     lines.push(...section.lines);
     lines.push("");

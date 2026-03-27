@@ -55,6 +55,7 @@ export type ReviewReason = {
 };
 
 export type ReviewAssessment = {
+  // Current source of truth for transcript review state.
   reviewState: TranscriptReviewState;
   reviewRequired: boolean;
   reasons: ReviewReason[];
@@ -76,6 +77,7 @@ export type ConversationSuggestionList = {
   rawTextOriginal: string;
   reviewedText: string;
   displayText: string;
+  // Current source of truth. Individual suggestion state lives on each suggestion.
   reviewState: TranscriptReviewState;
   qualityMetaJson: unknown;
   suggestions: Array<

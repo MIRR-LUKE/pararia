@@ -6,9 +6,11 @@ process.env.OPENAI_API_KEY ??= process.env.LLM_API_KEY;
 const originalFetch = globalThis.fetch;
 
 async function main() {
-  const [{ parseStructuredMarkdown }, { normalizeTranscriptKanji }] = await Promise.all([
+  const [{ parseStructuredMarkdown }, { normalizeTranscriptKanji }, { buildDraftRetrySystemPrompt, buildDraftSystemPrompt }] =
+    await Promise.all([
     import("../components/ui/structuredMarkdownParser"),
     import("../lib/ai/llm"),
+    import("../lib/ai/conversation/spec"),
   ]);
 
   let fetchCalls = 0;
@@ -40,6 +42,15 @@ async function main() {
   const normalized = await normalizeTranscriptKanji("きょうは すうがく を やる");
   assert.equal(normalized, "今日は数学をやる。");
   assert.equal(fetchCalls, 2);
+
+  const basePrompt = buildDraftSystemPrompt("INTERVIEW");
+  const retryPrompt = buildDraftRetrySystemPrompt("INTERVIEW");
+  assert.match(basePrompt, /transcript にない事実は足さない。/);
+  assert.match(retryPrompt, /根拠がある項目だけを残す。/);
+  assert.match(retryPrompt, /fallback でも意味を盛らない。/);
+  assert.match(retryPrompt, /観察 \/ 推測 \/ 不足 と 判断 \/ 次回確認 の分離を崩さない。/);
+  assert.doesNotMatch(retryPrompt, /すべて教務文体へ言い換える/);
+  assert.doesNotMatch(retryPrompt, /口語の引用や断片文を絶対に残さず/);
 
   const sample = [
     "■ 基本情報",

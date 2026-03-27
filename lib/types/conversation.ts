@@ -20,6 +20,8 @@ export type ConversationQualityMeta = {
   usedFallbackSummary?: boolean;
   reviewReasonCodes?: string[];
   usedReviewedTranscript?: boolean;
+  // reviewState is the current source of truth.
+  // transcriptReview only keeps explanation metadata for UI / ops.
   transcriptReview?: {
     reasons?: Array<{ code?: string; message?: string; count?: number }>;
     pendingSuggestionCount?: number;

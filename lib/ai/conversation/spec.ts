@@ -14,6 +14,21 @@ function buildEvidenceFirstRules() {
   ];
 }
 
+function buildPromptContextLines(sessionType: SessionMode) {
+  if (sessionType === "LESSON_REPORT") {
+    return [
+      "文脈:",
+      "あなたは学習塾の教務責任者です。口語の授業 transcript を、管理者がそのまま使える正式な指導報告ログへ書き直してください。",
+      "短中尺の入力では全文を渡すことがあるが、出力では要点だけを整理すること。",
+    ];
+  }
+
+  return [
+    "文脈:",
+    "あなたは学習塾の教務責任者です。口語の面談 transcript を、管理者がそのまま使える正式な面談ログへ書き直してください。",
+  ];
+}
+
 export function buildSummaryMarkdownSpec(isLesson: boolean) {
   if (isLesson) {
     return [
@@ -42,44 +57,31 @@ export function buildSummaryMarkdownSpec(isLesson: boolean) {
   ];
 }
 
-export function buildDraftSystemPrompt(sessionType: SessionMode) {
-  const modeLines =
-    sessionType === "LESSON_REPORT"
-      ? [
-          "文脈:",
-          "あなたは学習塾の教務責任者です。口語の授業 transcript を、管理者がそのまま使える正式な指導報告ログへ書き直してください。",
-          "短中尺の入力では全文を渡すことがあるが、出力では要点だけを整理すること。",
-          ...buildSummaryMarkdownSpec(true),
-        ]
-      : [
-          "文脈:",
-          "あなたは学習塾の教務責任者です。口語の面談 transcript を、管理者がそのまま使える正式な面談ログへ書き直してください。",
-          ...buildSummaryMarkdownSpec(false),
-        ];
+function buildPromptBody(sessionType: SessionMode) {
+  return [
+    ...buildEvidenceFirstRules(),
+    ...buildPromptContextLines(sessionType),
+    ...buildSummaryMarkdownSpec(sessionType === "LESSON_REPORT"),
+  ];
+}
 
-  return [...buildEvidenceFirstRules(), ...modeLines].join("\n");
+function buildRetrySupplementLines() {
+  return [
+    "再生成の補足:",
+    "- 直前の出力は要件を満たしていない。",
+    "- 根拠が弱い内容は削り、根拠がある項目だけを残す。",
+    "- 観察 / 推測 / 不足 と 判断 / 次回確認 の分離を崩さない。",
+    "- 文章をきれいに見せるための言い換えより、元 transcript に沿った教務ログを優先する。",
+  ];
+}
+
+export function buildDraftSystemPrompt(sessionType: SessionMode) {
+  return buildPromptBody(sessionType).join("\n");
 }
 
 export function buildDraftRetrySystemPrompt(sessionType: SessionMode) {
   return [
-    ...buildEvidenceFirstRules(),
-    "再生成の補足:",
-    "- 直前の出力は要件を満たしていない。",
-    "- 口語の言い換えを増やすより、根拠がある項目だけに絞る。",
-    "- 観察 / 推測 / 不足 と 判断 / 次回確認 の分離を崩さない。",
-    ...(
-      sessionType === "LESSON_REPORT"
-        ? [
-            "文脈:",
-            "あなたは学習塾の教務責任者です。口語の授業 transcript を、管理者がそのまま使える正式な指導報告ログへ書き直してください。",
-            "短中尺の入力では全文を渡すことがあるが、出力では要点だけを整理すること。",
-            ...buildSummaryMarkdownSpec(true),
-          ]
-        : [
-            "文脈:",
-            "あなたは学習塾の教務責任者です。口語の面談 transcript を、管理者がそのまま使える正式な面談ログへ書き直してください。",
-            ...buildSummaryMarkdownSpec(false),
-          ]
-    ),
+    ...buildPromptBody(sessionType),
+    ...buildRetrySupplementLines(),
   ].join("\n");
 }

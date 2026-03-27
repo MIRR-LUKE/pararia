@@ -12,6 +12,7 @@ PARARIA は、塾・個別指導・学習コーチング向けの `Teaching OS` 
 - 会話ログの正本は `ConversationLog.artifactJson`
 - transcript は `raw / reviewed / display` の役割を分ける
 - ログ生成は `reviewedText` があればそれを優先し、なければ raw transcript を使う
+- 通常生成 / retry / fallback は同じ evidence-first 方針でそろえる
 - `reviewState` が transcript review の現在状態を表す正本
 - `qualityMetaJson.transcriptReview` は review が必要な理由と件数の説明だけを持つ
 - 固有名詞辞書は `内部用` と `外部 STT ヒント用` を分け、provider に送る語は `sendToProvider=true` だけに絞る
@@ -328,6 +329,7 @@ PARARIA は、塾・個別指導・学習コーチング向けの `Teaching OS` 
 - 選択したログだけを使う
 - 本文生成では各ログの `artifactJson` を優先して使う
 - `summaryMarkdown` は必要時だけ補助材料として使う
+- bundle preview では `今回の判断・補足` と `次回確認` を分けて扱う
 - 未選択ログは入れない
 - 前回レポートは入れない
 - profile snapshot は入れない
@@ -447,6 +449,7 @@ PARARIA は、塾・個別指導・学習コーチング向けの `Teaching OS` 
   - 互換用の入口
 - `lib/ai/conversation/`
   - spec / generate / normalize / fallback / transport の本体
+  - `spec.ts` を prompt 方針の正本にし、retry も同じルールを使う
 - `lib/conversation-artifact.ts`
   - 正本 artifact の schema / render / parse
 - `lib/jobs/conversationJobs.ts`
@@ -527,9 +530,11 @@ PARARIA_AUDIO_RETENTION_DAYS=14
 ## 17. CI の品質ゲート
 
 - GitHub Actions の `Conversation Quality` で faithfulness 系の代表チェックを回す
+- workflow では PostgreSQL service container を立てて、local と同じ Prisma 前提で回す
 - 実行内容:
   - `npm ci`
   - `npm run prisma:generate`
+  - `npm run prisma:test:prepare`
   - `npm run typecheck`
   - `npm run test:transcript-review`
   - `npx tsx scripts/test-conversation-artifact-semantics.ts`

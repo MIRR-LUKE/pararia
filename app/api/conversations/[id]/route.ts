@@ -12,7 +12,7 @@ import { requireAuthorizedSession } from "@/lib/server/request-auth";
 import { toPrismaJson } from "@/lib/prisma-json";
 import { syncSessionAfterConversation } from "@/lib/session-service";
 import { sanitizeFormattedTranscript, sanitizeSummaryMarkdown, sanitizeTranscriptText } from "@/lib/user-facing-japanese";
-import { buildDisplayTranscriptText, normalizeRawTranscriptText } from "@/lib/transcript/source";
+import { normalizeRawTranscriptText, pickDisplayTranscriptText } from "@/lib/transcript/source";
 
 function toStringArray(value: unknown) {
   if (!Array.isArray(value)) return [];
@@ -134,7 +134,11 @@ export async function GET(
     const summaryMarkdown = sanitizeSummaryMarkdown(renderedSummary);
     const formattedTranscript = sanitizeFormattedTranscript(conversation.formattedTranscript ?? "");
     const rawTextOriginal = normalizeRawTranscriptText(conversation.rawTextOriginal ?? "");
-    const rawTextCleaned = buildDisplayTranscriptText(conversation.rawTextCleaned ?? "");
+    const rawTextCleaned = pickDisplayTranscriptText({
+      rawTextCleaned: conversation.rawTextCleaned,
+      reviewedText: conversation.reviewedText,
+      rawTextOriginal: conversation.rawTextOriginal,
+    });
     const reviewedText = normalizeRawTranscriptText(conversation.reviewedText ?? "");
 
     return NextResponse.json({

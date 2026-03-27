@@ -81,8 +81,10 @@ function getRetryDelayMs(attempt: number) {
 }
 
 function normalizeSourceText(payload: ConversationPayload) {
+  // Generation always reads the evidence path first: reviewed -> raw.
   const evidence = pickEvidenceTranscriptText(payload);
   if (evidence) return evidence;
+  // formattedTranscript is only a rescue source for older records.
   if (payload.formattedTranscript?.trim()) {
     return normalizeRawTranscriptText(
       payload.formattedTranscript

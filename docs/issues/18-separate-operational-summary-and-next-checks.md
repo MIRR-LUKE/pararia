@@ -36,6 +36,7 @@
 - `assessment` と `nextChecks` を top-level でも別々に持てるようにした
 - `operational-log` は同じ配列を二重流用せず、別の一覧として出すようにした
 - render / parse でも `判断:` と `次回確認:` を扱えるようにした
+- bundle preview でも `今回の判断・補足` と `次回確認` を別行で出すようにした
 
 ## 確認
 

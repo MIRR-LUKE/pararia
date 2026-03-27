@@ -62,11 +62,12 @@ function getReadyPartsForConversation(sessionType: SessionType, parts: SessionPa
   const order = getPartOrder(sessionType);
   return [...parts]
     .filter((part) => part.status === SessionPartStatus.READY)
+    // Session readiness and log generation both follow the evidence path: reviewed -> raw.
     .filter((part) => Boolean(pickEvidenceTranscriptText(part)))
     .sort((a, b) => order[a.partType] - order[b.partType]);
 }
 
-export function buildSessionTranscript(sessionType: SessionType, parts: SessionPartLike[]) {
+export function buildSessionEvidenceTranscript(sessionType: SessionType, parts: SessionPartLike[]) {
   const ordered = getReadyPartsForConversation(sessionType, parts);
 
   const chunks = ordered
@@ -81,6 +82,8 @@ export function buildSessionTranscript(sessionType: SessionType, parts: SessionP
   return chunks.join("\n\n").trim();
 }
 
+export const buildSessionTranscript = buildSessionEvidenceTranscript;
+
 function buildSessionRawTranscript(sessionType: SessionType, parts: SessionPartLike[]) {
   const ordered = getReadyPartsForConversation(sessionType, parts);
   const chunks = ordered
@@ -93,6 +96,11 @@ function buildSessionRawTranscript(sessionType: SessionType, parts: SessionPartL
 
   if (chunks.length === 0) return "";
   return chunks.join("\n\n").trim();
+}
+
+function buildSessionDisplayTranscriptSnapshot(parts: SessionPartLike[]) {
+  // This legacy snapshot is only for preview / UI fallback and is not used as evidence.
+  return normalizeRawTranscriptText(parts.map((part) => part.rawTextCleaned ?? "").join("\n\n"));
 }
 
 function normalizePartSegments(rawSegments: unknown): SessionTranscriptSegment[] {
@@ -183,7 +191,7 @@ export async function ensureConversationForSession(sessionId: string) {
 
   const combinedRawText = buildSessionRawTranscript(session.type, session.parts);
   if (!combinedRawText) throw new Error("session transcript is empty");
-  const combinedReviewedText = buildSessionTranscript(session.type, session.parts);
+  const combinedReviewedText = buildSessionEvidenceTranscript(session.type, session.parts);
   const combinedSegments = buildSessionTranscriptSegments(session.type, session.parts);
 
   const readyParts = getReadyPartsForConversation(session.type, session.parts);
@@ -198,7 +206,7 @@ export async function ensureConversationForSession(sessionId: string) {
     sourceType,
     status: ConversationStatus.PROCESSING,
     rawTextOriginal: combinedRawText,
-    rawTextCleaned: normalizeRawTranscriptText(session.parts.map((part) => part.rawTextCleaned ?? "").join("\n\n")),
+    rawTextCleaned: buildSessionDisplayTranscriptSnapshot(session.parts),
     reviewedText: combinedReviewedText || combinedRawText,
     rawSegments: toPrismaJson(combinedSegments),
     rawTextExpiresAt: getTranscriptExpiryDate(),

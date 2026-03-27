@@ -33,9 +33,9 @@
 ## 今回入れた内容
 
 - system prompt を `指示:` と `文脈:` に分け、先にルールを置く形へ整理した
-- retry prompt も同じ方針にそろえた
+- retry prompt は `spec.ts` の共通 prompt body を使う形に寄せて、通常生成と別思想にならないようにした
 - claim は `観察 / 推測 / 不足`、action は `判断 / 次回確認` で扱えるようにした
-- artifact は `claimType / actionType` を持つ plain data に寄せた
+- artifact は `claimType / actionType` を持つ plain data に寄せ、parse でも後から破壊的に補完しない形へ整理した
 - fallback も同じラベルで保守的に出すようにした
 
 ## 確認
@@ -43,6 +43,7 @@
 - `npm run typecheck`
 - `npx tsx scripts/test-conversation-artifact-semantics.ts`
 - `npm run test:log-render-and-llm-retries`
+- `npm run test:conversation-eval -- --out .tmp/conversation-eval-report.md`
 - `npm run build`
 
 ## 完了条件

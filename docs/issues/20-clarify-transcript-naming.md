@@ -41,6 +41,8 @@ transcript 周りの名前を整理して、役割が名前からすぐ分かる
 - `pickEvidenceTranscriptText()` に evidence path の意味をコメントで固定した
 - `rawTextCleaned` は legacy の display / preview 用カラムだと schema と preprocess に明記した
 - UI / API の preview 系は helper 経由で reviewed transcript を優先するように揃えた
+- `session-service` でも evidence transcript と legacy display snapshot の役割を分けて読めるようにした
+- `conversation route` の表示 transcript も evidence / display helper に寄せた
 
 ## 確認
 

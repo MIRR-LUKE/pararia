@@ -64,6 +64,7 @@ export type ReportItem = {
       mainThemes?: string[];
       strongElements?: string[];
       weakElements?: string[];
+      followUpChecks?: string[];
       parentPoints?: string[];
       warnings?: string[];
       suggestedLogIds?: string[];

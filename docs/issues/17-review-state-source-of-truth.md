@@ -42,6 +42,8 @@
 - `qualityMetaJson.transcriptReview` は理由と件数の説明だけを持つように寄せた
 - generation quality meta から current state を表す重複項目を外した
 - review 更新責務は review service に集約した
+- review service と型定義に source of truth を示すコメントを追加した
+- transcript review regression で `qualityMetaJson.transcriptReview` に `reviewState` を重ねて持たないことを確認するようにした
 
 ## 確認
 

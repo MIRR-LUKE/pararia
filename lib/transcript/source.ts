@@ -1,5 +1,6 @@
 import { sanitizeTranscriptText } from "@/lib/user-facing-japanese";
 
+// Database columns keep raw / reviewed / legacy display text separately.
 type TranscriptSource = {
   rawTextOriginal?: string | null;
   rawTextCleaned?: string | null;
@@ -14,7 +15,8 @@ export function buildDisplayTranscriptText(text: unknown) {
   return sanitizeTranscriptText(normalizeRawTranscriptText(text));
 }
 
-// Evidence path is reviewed -> raw. The legacy display field is only for rescue reads.
+// Evidence path is always reviewed -> raw.
+// The legacy display field is only for rescue reads when old records are missing raw text.
 export function pickEvidenceTranscriptText(source: TranscriptSource, options?: { allowLegacyDisplayFallback?: boolean }) {
   const reviewedText = normalizeRawTranscriptText(source.reviewedText);
   if (reviewedText) return reviewedText;
@@ -29,6 +31,7 @@ export function pickEvidenceTranscriptText(source: TranscriptSource, options?: {
   return "";
 }
 
+// Stored display text prefers reviewed text, then the legacy preview field, then raw.
 export function pickStoredDisplayTranscriptSource(source: TranscriptSource) {
   return (
     normalizeRawTranscriptText(source.reviewedText) ||
@@ -37,6 +40,7 @@ export function pickStoredDisplayTranscriptSource(source: TranscriptSource) {
   );
 }
 
+// UI display goes through user-facing cleanup on top of the stored display source.
 export function pickDisplayTranscriptText(source: TranscriptSource) {
   return buildDisplayTranscriptText(pickStoredDisplayTranscriptSource(source));
 }

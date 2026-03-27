@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 
 async function main() {
-  const [{ buildConversationArtifactFromMarkdown, parseConversationArtifact, renderConversationArtifactMarkdown }, { buildOperationalLog }] =
+  const [
+    { buildConversationArtifactFromMarkdown, parseConversationArtifact, renderConversationArtifactMarkdown },
+    { buildBundlePreview, buildBundleQualityEval, buildOperationalLog },
+  ] =
     await Promise.all([
       import("../lib/conversation-artifact"),
       import("../lib/operational-log"),
@@ -39,7 +42,8 @@ async function main() {
     sessionType: "INTERVIEW",
     summaryMarkdown: markdown,
   });
-  const parsed = parseConversationArtifact(artifact);
+  const plainArtifact = JSON.parse(JSON.stringify(artifact));
+  const parsed = parseConversationArtifact(plainArtifact);
   assert.ok(parsed);
   assert.equal(parsed?.claims[0]?.claimType, "observed");
   assert.equal(parsed?.claims[1]?.claimType, "inferred");
@@ -60,6 +64,22 @@ async function main() {
   assert.ok(operationalLog.assessment.some((line) => line.includes("宿題のやり直し")));
   assert.ok(operationalLog.nextChecks.some((line) => line.includes("やり直し方を確認する")));
   assert.notDeepEqual(operationalLog.assessment, operationalLog.nextChecks);
+
+  const bundleEval = buildBundleQualityEval([
+    {
+      id: "log-1",
+      date: "2026-03-27",
+      mode: "INTERVIEW",
+      operationalLog,
+    },
+  ]);
+  assert.ok(bundleEval.weakElements.some((line) => line.includes("宿題のやり直し")));
+  assert.ok(bundleEval.followUpChecks.some((line) => line.includes("やり直し方を確認する")));
+  assert.ok(!bundleEval.weakElements.some((line) => line.includes("やり直し方を確認する")));
+
+  const preview = buildBundlePreview(bundleEval);
+  assert.match(preview, /今回の判断・補足:/);
+  assert.match(preview, /次回確認:/);
 
   console.log("conversation artifact semantics test passed");
 }

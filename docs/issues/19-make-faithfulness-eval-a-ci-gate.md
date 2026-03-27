@@ -42,6 +42,7 @@
 ## 今回入れた内容
 
 - `Conversation Quality` workflow を追加して `typecheck / transcript review / artifact semantics / conversation eval` を CI で回すようにした
+- GitHub Actions では PostgreSQL service container を立てて、`npm run prisma:test:prepare` で Prisma migration を当てるようにした
 - eval report は GitHub Actions artifact として保存するようにした
 - eval 側で session date など metadata 由来の語を unsupported claim から除外した
 - fallback 改善後のケースで `test:conversation-eval` が quality gate として通るところまで整えた
