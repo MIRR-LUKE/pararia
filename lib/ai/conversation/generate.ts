@@ -1,5 +1,5 @@
 import { buildDraftInputBlock, estimateTokens, formatSessionDateLabel, formatStudentLabel, formatTeacherLabel } from "./shared";
-import { buildDraftSystemPrompt } from "./spec";
+import { buildDraftRetrySystemPrompt, buildDraftSystemPrompt } from "./spec";
 import { isWeakDraftMarkdown, repairSummaryMarkdownFormatting } from "./normalize";
 import { buildInterviewDraftFallbackMarkdown, buildLessonDraftFallbackMarkdown } from "./fallback";
 import { callTextGeneration } from "./transport";
@@ -31,11 +31,13 @@ export async function generateConversationDraftFast(input: DraftGenerationInput)
   const model = getFastModel();
   const system = buildDraftSystemPrompt(sessionType);
   const user = [
-    `生徒: ${formatStudentLabel(input.studentName)}`,
-    `講師: ${formatTeacherLabel(input.teacherName)}`,
-    `日付: ${formatSessionDateLabel(input.sessionDate) || "不明"}`,
-    `最低文字数目安: ${input.minSummaryChars}`,
+    "文脈:",
+    `- 生徒: ${formatStudentLabel(input.studentName)}`,
+    `- 講師: ${formatTeacherLabel(input.teacherName)}`,
+    `- 日付: ${formatSessionDateLabel(input.sessionDate) || "不明"}`,
+    `- 最低文字数目安: ${input.minSummaryChars}`,
     "",
+    "入力:",
     `${draftInput.label}:`,
     draftInput.content,
   ].join("\n");
@@ -78,7 +80,7 @@ export async function generateConversationDraftFast(input: DraftGenerationInput)
       messages: [
         {
           role: "system",
-          content: `${system}\n前回出力では要件を満たさなかったため、構造・具体性・改行を厳守して再生成してください。口語の引用や断片文を絶対に残さず、すべて教務文体へ言い換えてください。`,
+          content: buildDraftRetrySystemPrompt(sessionType),
         },
         { role: "user", content: user },
       ],

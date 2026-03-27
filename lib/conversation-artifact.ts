@@ -1,5 +1,7 @@
 type ArtifactSessionType = "INTERVIEW" | "LESSON_REPORT";
 type ArtifactSectionKey = "basic_info" | "summary" | "details" | "actions" | "share" | "unknown";
+type ClaimType = "observed" | "inferred" | "missing";
+type ActionType = "assessment" | "nextCheck";
 
 export type ConversationArtifactSection = {
   key: ArtifactSectionKey;
@@ -14,7 +16,8 @@ export type ConversationArtifactEntry = {
   basis?: string;
   humanCheckNeeded?: boolean;
   confidence?: "low" | "medium" | "high";
-  slice: (start?: number, end?: number) => string;
+  claimType?: ClaimType;
+  actionType?: ActionType;
 };
 
 export type ConversationArtifact = {
@@ -28,6 +31,7 @@ export type ConversationArtifact = {
   facts: string[];
   changes: string[];
   assessment: string[];
+  nextChecks: string[];
   sections: ConversationArtifactSection[];
 };
 
@@ -46,6 +50,22 @@ const LESSON_TITLES: Record<Exclude<ArtifactSectionKey, "unknown">, string[]> = 
   actions: ["3. 学習方針と次回アクション", "3. 学習方針と次回アクション（自学習の設計）"],
   share: ["4. 室長・他講師への共有・連携事項"],
 };
+
+const CLAIM_PREFIXES = new Map<string, ClaimType>([
+  ["観察", "observed"],
+  ["observed", "observed"],
+  ["推測", "inferred"],
+  ["inferred", "inferred"],
+  ["不足", "missing"],
+  ["missing", "missing"],
+]);
+
+const ACTION_PREFIXES = new Map<string, ActionType>([
+  ["判断", "assessment"],
+  ["assessment", "assessment"],
+  ["次回確認", "nextCheck"],
+  ["nextcheck", "nextCheck"],
+]);
 
 function normalizeText(text: string) {
   return String(text ?? "")
@@ -78,6 +98,76 @@ function stripBulletPrefix(line: string) {
 
 function parseBooleanish(value: string) {
   return /^(true|1|yes|y|はい|必要|要)$/i.test(normalizeText(value));
+}
+
+function normalizeClaimType(value: unknown): ClaimType | undefined {
+  if (value === "observed" || value === "inferred" || value === "missing") {
+    return value;
+  }
+  if (typeof value !== "string") return undefined;
+  const normalized = normalizeText(value).toLowerCase();
+  return CLAIM_PREFIXES.get(normalized);
+}
+
+function normalizeActionType(value: unknown): ActionType | undefined {
+  if (value === "assessment" || value === "nextCheck") {
+    return value;
+  }
+  if (typeof value !== "string") return undefined;
+  const normalized = normalizeText(value).toLowerCase();
+  return ACTION_PREFIXES.get(normalized);
+}
+
+function parseTypedEntryPrefix(line: string) {
+  const normalized = normalizeText(line);
+  const match = normalized.match(/^(観察|observed|推測|inferred|不足|missing|判断|assessment|次回確認|nextCheck)[:：]\s*(.+)$/i);
+  if (!match) return null;
+  const prefix = normalizeText(match[1]).toLowerCase();
+  const value = normalizeText(match[2]);
+  if (!value) return null;
+  const claimType = CLAIM_PREFIXES.get(prefix);
+  const actionType = ACTION_PREFIXES.get(prefix);
+  return {
+    value,
+    claimType,
+    actionType,
+  };
+}
+
+function classifyActionType(text: string, explicit?: ActionType | null): ActionType {
+  const normalized = normalizeText(text).toLowerCase();
+  if (explicit === "assessment" || explicit === "nextCheck") return explicit;
+  if (/^(次回|宿題|確認|テスト|課題|再確認|振り返り|持ち帰り|フォロー)/.test(normalized)) {
+    return "nextCheck";
+  }
+  return "assessment";
+}
+
+function formatClaimPrefix(claimType?: ClaimType) {
+  if (claimType === "observed") return "観察: ";
+  if (claimType === "inferred") return "推測: ";
+  if (claimType === "missing") return "不足: ";
+  return "";
+}
+
+function formatActionPrefix(actionType?: ActionType) {
+  if (actionType === "assessment") return "判断: ";
+  if (actionType === "nextCheck") return "次回確認: ";
+  return "";
+}
+
+export function splitActionEntries(entries: ConversationArtifactEntry[]) {
+  const assessment: ConversationArtifactEntry[] = [];
+  const nextChecks: ConversationArtifactEntry[] = [];
+  for (const entry of entries) {
+    const actionType = classifyActionType(entry.text, entry.actionType);
+    if (actionType === "nextCheck") {
+      nextChecks.push({ ...entry, actionType });
+    } else {
+      assessment.push({ ...entry, actionType });
+    }
+  }
+  return { assessment, nextChecks };
 }
 
 function parseInlineEvidence(line: string) {
@@ -139,13 +229,12 @@ function normalizeEntryEntry(entry: ConversationArtifactEntry) {
     evidence: dedupeLines(entry.evidence),
     basis: typeof entry.basis === "string" ? normalizeText(entry.basis) : undefined,
     humanCheckNeeded: entry.humanCheckNeeded === true,
+    claimType: normalizeClaimType(entry.claimType),
+    actionType: normalizeActionType(entry.actionType),
     confidence:
       entry.confidence === "low" || entry.confidence === "medium" || entry.confidence === "high"
         ? entry.confidence
         : undefined,
-    slice(start?: number, end?: number) {
-      return normalizeText(entry.text).slice(start, end);
-    },
   };
 }
 
@@ -161,6 +250,8 @@ function dedupeEntries(entries: ConversationArtifactEntry[]) {
       normalized.evidence.join("|").replace(/[。．！？\s]/g, ""),
       normalized.basis ?? "",
       normalized.humanCheckNeeded ? "1" : "0",
+      normalized.claimType ?? "",
+      normalized.actionType ?? "",
       normalized.confidence ?? "",
     ].join("::");
     if (seen.has(key)) continue;
@@ -201,17 +292,17 @@ function parseSectionEntries(
       continue;
     }
 
-    const inline = parseInlineEvidence(line);
-    const text = normalizeText(inline?.text ?? line);
+    const typed = parseTypedEntryPrefix(line);
+    const inline = parseInlineEvidence(typed?.value ?? line);
+    const text = normalizeText(inline?.text ?? typed?.value ?? line);
     if (!text) continue;
 
     const nextEntry: ConversationArtifactEntry = {
       text,
       evidence: inline?.evidence ? [...inline.evidence] : [],
       sourceSectionKey,
-      slice(start?: number, end?: number) {
-        return text.slice(start, end);
-      },
+      claimType: normalizeClaimType(typed?.claimType),
+      actionType: normalizeActionType(typed?.actionType),
     };
     if (sourceSectionKey === "summary") nextEntry.basis = undefined;
     current = nextEntry;
@@ -298,9 +389,6 @@ function entriesFromTextArray(
         text,
         evidence: [],
         sourceSectionKey,
-        slice(start?: number, end?: number) {
-          return text.slice(start, end);
-        },
       };
     }
     if (!item || typeof item !== "object" || Array.isArray(item)) return null;
@@ -312,6 +400,8 @@ function entriesFromTextArray(
       : [];
     const basis = typeof current.basis === "string" ? normalizeText(current.basis) : undefined;
     const humanCheckNeeded = typeof current.humanCheckNeeded === "boolean" ? current.humanCheckNeeded : undefined;
+    const claimType = normalizeClaimType(current.claimType);
+    const actionType = normalizeActionType(current.actionType);
     const confidence =
       current.confidence === "low" || current.confidence === "medium" || current.confidence === "high"
         ? current.confidence
@@ -324,11 +414,10 @@ function entriesFromTextArray(
       evidence,
       basis,
       humanCheckNeeded,
+      claimType,
+      actionType,
       confidence,
       sourceSectionKey: inferredSourceSectionKey === "unknown" ? sourceSectionKey : inferredSourceSectionKey,
-      slice(start?: number, end?: number) {
-        return text.slice(start, end);
-      },
     };
   });
   return dedupeEntries(mapped.filter((entry): entry is ConversationArtifactEntry => entry !== null)).slice(0, 24);
@@ -365,7 +454,8 @@ function synthesizeSectionsFromArtifact(artifact: ConversationArtifact): Convers
 
   const renderEntries = (entries: ConversationArtifactEntry[]) =>
     entries.flatMap((entry) => {
-      const lines = [`- ${entry.text}`];
+      const prefix = formatClaimPrefix(entry.claimType) || formatActionPrefix(entry.actionType);
+      const lines = [`- ${prefix}${entry.text}`];
       for (const evidence of entry.evidence.slice(0, 3)) {
         lines.push(`  - 根拠: ${evidence}`);
       }
@@ -435,6 +525,7 @@ export function buildConversationArtifactFromMarkdown(input: {
   const claimEntries = collectSectionEntries(sections, "details");
   const actionEntries = collectSectionEntries(sections, "actions");
   const shareEntries = collectSectionEntries(sections, "share");
+  const splitActions = splitActionEntries(actionEntries);
 
   return {
     version: "conversation-artifact/v1",
@@ -446,7 +537,8 @@ export function buildConversationArtifactFromMarkdown(input: {
     sharePoints: shareEntries,
     facts: collectEntryTexts(summaryEntries, 8),
     changes: collectEntryTexts(claimEntries, 8),
-    assessment: collectEntryTexts(actionEntries, 8),
+    assessment: collectEntryTexts(splitActions.assessment, 8),
+    nextChecks: collectEntryTexts(splitActions.nextChecks, 8),
     sections,
   };
 }
@@ -457,6 +549,10 @@ function sanitizeArtifactEntries(
   sourceSectionKey: Exclude<ArtifactSectionKey, "unknown">
 ): ConversationArtifactEntry[] {
   return entriesFromTextArray(value, sourceSectionKey).slice(0, limit);
+}
+
+function collectTypedTexts(entries: ConversationArtifactEntry[], type: ClaimType | ActionType, limit = 8) {
+  return collectEntryTexts(entries.filter((entry) => entry.claimType === type || entry.actionType === type), limit);
 }
 
 function ensureStructuredSections(artifact: ConversationArtifact) {
@@ -488,6 +584,7 @@ export function parseConversationArtifact(value: unknown): ConversationArtifact 
   const claims = sanitizeArtifactEntries(current.claims, 16, "details");
   const nextActions = sanitizeArtifactEntries(current.nextActions, 16, "actions");
   const sharePoints = sanitizeArtifactEntries(current.sharePoints, 16, "share");
+  const typedActionSplit = splitActionEntries(nextActions);
 
   const derivedFromSections = sections.length > 0;
   const artifact: ConversationArtifact = {
@@ -505,7 +602,14 @@ export function parseConversationArtifact(value: unknown): ConversationArtifact 
       sharePoints.length > 0 ? sharePoints : derivedFromSections ? collectSectionEntries(sections, "share") : [],
     facts: sanitizeStringArray(current.facts, 12),
     changes: sanitizeStringArray(current.changes, 12),
-    assessment: sanitizeStringArray(current.assessment, 12),
+    assessment:
+      sanitizeStringArray(current.assessment, 12).length > 0
+        ? sanitizeStringArray(current.assessment, 12)
+        : collectEntryTexts(typedActionSplit.assessment, 12),
+    nextChecks:
+      sanitizeStringArray(current.nextChecks, 12).length > 0
+        ? sanitizeStringArray(current.nextChecks, 12)
+        : collectEntryTexts(typedActionSplit.nextChecks, 12),
     sections,
   };
 
@@ -529,7 +633,10 @@ export function parseConversationArtifact(value: unknown): ConversationArtifact 
     artifact.changes = collectEntryTexts(artifact.claims, 8);
   }
   if (artifact.assessment.length === 0) {
-    artifact.assessment = collectEntryTexts(artifact.nextActions, 8);
+    artifact.assessment = collectEntryTexts(typedActionSplit.assessment, 8);
+  }
+  if (artifact.nextChecks.length === 0) {
+    artifact.nextChecks = collectEntryTexts(typedActionSplit.nextChecks, 8);
   }
 
   if (

@@ -1,4 +1,8 @@
-import { buildConversationArtifactFromMarkdown, parseConversationArtifact } from "@/lib/conversation-artifact";
+import {
+  buildConversationArtifactFromMarkdown,
+  parseConversationArtifact,
+  splitActionEntries,
+} from "@/lib/conversation-artifact";
 
 export type OperationalLogInput = {
   sessionType?: string | null;
@@ -134,13 +138,18 @@ export function buildOperationalLog(input: OperationalLogInput): OperationalLog 
     (input.summaryMarkdown ? buildConversationArtifactFromMarkdown({ sessionType, summaryMarkdown: input.summaryMarkdown, generatedAt: input.createdAt }) : null);
 
   if (artifact) {
+    const splitActions = splitActionEntries(artifact.nextActions);
+    const assessmentTexts =
+      artifact.assessment.length > 0 ? artifact.assessment : splitActions.assessment.map((entry) => entry.text);
+    const nextCheckTexts =
+      artifact.nextChecks.length > 0 ? artifact.nextChecks : splitActions.nextChecks.map((entry) => entry.text);
     const theme = ensureSentence(artifact.summary[0]?.text ?? "");
     return {
       theme,
       facts: firstSentences(artifact.summary.map((entry) => entry.text), 4),
       changes: firstSentences(artifact.claims.map((entry) => entry.text), 4),
-      assessment: firstSentences(artifact.nextActions.map((entry) => entry.text), 4),
-      nextChecks: firstSentences(artifact.nextActions.map((entry) => entry.text), 4),
+      assessment: firstSentences(assessmentTexts, 4),
+      nextChecks: firstSentences(nextCheckTexts, 4),
       parentShare: firstSentences(artifact.sharePoints.map((entry) => entry.text), 4),
     };
   }

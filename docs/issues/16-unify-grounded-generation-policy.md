@@ -2,7 +2,7 @@
 
 ## 状態
 
-- 未着手
+- 実装済み
 - GitHub Issue: `#29`
 - 最終更新: `2026-03-27`
 
@@ -29,6 +29,21 @@
 - fallback は今の保守的な方向を維持しつつ、`確認不足` と `要再確認` の扱いを明確にする
 - claim の `observed / inferred / missing` を renderer や downstream でも活かす
 - `ConversationArtifactEntry` からメソッドっぽい持ち方を減らして plain data に寄せる
+
+## 今回入れた内容
+
+- system prompt を `指示:` と `文脈:` に分け、先にルールを置く形へ整理した
+- retry prompt も同じ方針にそろえた
+- claim は `観察 / 推測 / 不足`、action は `判断 / 次回確認` で扱えるようにした
+- artifact は `claimType / actionType` を持つ plain data に寄せた
+- fallback も同じラベルで保守的に出すようにした
+
+## 確認
+
+- `npm run typecheck`
+- `npx tsx scripts/test-conversation-artifact-semantics.ts`
+- `npm run test:log-render-and-llm-retries`
+- `npm run build`
 
 ## 完了条件
 

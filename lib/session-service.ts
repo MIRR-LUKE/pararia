@@ -270,7 +270,7 @@ export async function syncSessionAfterConversation(conversationId: string) {
   );
   const parsedArtifact = parseConversationArtifact(conversation.artifactJson);
   const heroOneLiner =
-    parsedArtifact?.summary?.[0]?.slice(0, 100) || extractHeroOneLiner(renderedSummary);
+    parsedArtifact?.summary?.[0]?.text.slice(0, 100) || extractHeroOneLiner(renderedSummary);
 
   await prisma.session.update({
     where: { id: conversation.sessionId },

@@ -2,7 +2,7 @@
 
 ## 状態
 
-- 未着手
+- 実装済み
 - GitHub Issue: `#31`
 - 最終更新: `2026-03-27`
 
@@ -28,6 +28,21 @@
 - もしくは renderer 側で意味を崩さず切り分ける
 - `operational-log.ts` で同じ配列を流用しない
 - Student Room と report bundle に流すときの意味をそろえる
+
+## 今回入れた内容
+
+- `ConversationArtifactEntry` に `actionType` を持たせた
+- `nextActions` から `assessment` と `nextCheck` を分けて読むようにした
+- `assessment` と `nextChecks` を top-level でも別々に持てるようにした
+- `operational-log` は同じ配列を二重流用せず、別の一覧として出すようにした
+- render / parse でも `判断:` と `次回確認:` を扱えるようにした
+
+## 確認
+
+- `npm run typecheck`
+- `npx tsx scripts/test-conversation-artifact-semantics.ts`
+- `npm run test:log-render-and-llm-retries`
+- `npm run build`
 
 ## 完了条件
 

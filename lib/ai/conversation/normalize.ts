@@ -20,6 +20,7 @@ export function repairSummaryMarkdownFormatting(text: string) {
     .replace(/([^\n])(■ \d+\.)/g, "$1\n$2")
     .replace(/([^\n])(【)/g, "$1\n$2")
     .replace(/([^\n])(現状（Before）:|成果（After）:|※特記事項:|生徒:|次回までの宿題:|次回の確認（テスト）事項:)/g, "$1\n$2")
+    .replace(/([^\n])(観察:|推測:|不足:|判断:|次回確認:)/g, "$1\n$2")
     .replace(/([^\n])(根拠:|evidence:|basis:|humanCheckNeeded:)/g, "$1\n$2")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
