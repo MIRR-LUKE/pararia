@@ -2,7 +2,7 @@
 
 ## 状態
 
-- 未着手
+- 実装済み
 - GitHub Issue: `#27`
 - 最終更新: `2026-03-27`
 
@@ -38,6 +38,19 @@
 - 1 ファイル 1 責務に近づいている
 - suggestion ロジックだけ、review 判定だけ、DB 同期だけを個別に読める
 - テストを小さく分けて書きやすい
+
+## 今回入れた内容
+
+- `glossary.ts` に辞書読み込みと provider hint の切り分けを移した
+- `suggestion.ts` に token span 抽出、類似度計算、draft 生成を移した
+- `review-assessment.ts` に reviewRequired 判定と理由生成を移した
+- `reviewed-text.ts` に suggestion 適用ロジックを移した
+- `review-service.ts` に DB 同期と orchestration を寄せ、`review.ts` は薄い export にした
+
+## 確認
+
+- `npm run typecheck`
+- `npm run test:transcript-review`
 
 ## ラベル
 

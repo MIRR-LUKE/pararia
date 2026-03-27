@@ -1,0 +1,48 @@
+name: Conversation Quality
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  conversation-quality:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npm run prisma:generate
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Transcript review regression
+        run: npm run test:transcript-review
+
+      - name: Artifact semantics regression
+        run: npx tsx scripts/test-conversation-artifact-semantics.ts
+
+      - name: Conversation eval gate
+        run: |
+          mkdir -p artifacts
+          npm run test:conversation-eval -- --out artifacts/conversation-eval-report.md
+
+      - name: Upload eval report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: conversation-eval-report
+          path: artifacts/conversation-eval-report.md
+          if-no-files-found: warn

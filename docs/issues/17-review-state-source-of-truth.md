@@ -2,7 +2,7 @@
 
 ## 状態
 
-- 未着手
+- 実装済み
 - GitHub Issue: `#30`
 - 最終更新: `2026-03-27`
 
@@ -35,6 +35,18 @@
 - どの状態を見るべきか迷わない
 - backend も frontend も同じ解釈になる
 - 状態ずれのバグを減らせる
+
+## 今回入れた内容
+
+- 現在状態は `reviewState` を正本として扱う前提に整理した
+- `qualityMetaJson.transcriptReview` は理由と件数の説明だけを持つように寄せた
+- generation quality meta から current state を表す重複項目を外した
+- review 更新責務は review service に集約した
+
+## 確認
+
+- `npm run typecheck`
+- `npm run test:transcript-review`
 
 ## ラベル
 

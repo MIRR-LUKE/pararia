@@ -136,6 +136,7 @@ model ConversationLog {
 
   // --- Raw transcript storage (TTL) ---
   rawTextOriginal  String?
+  // legacy column name: keeps display / preview transcript after lightweight cleanup
   rawTextCleaned   String?
   reviewedText     String?
   reviewState      TranscriptReviewState @default(NONE)
@@ -250,6 +251,7 @@ model ProperNounGlossaryEntry {
   kind           ProperNounKind @default(OTHER)
   canonicalValue String
   aliasesJson    Json?
+  sendToProvider Boolean        @default(false)
   note           String?
   createdAt      DateTime       @default(now())
   updatedAt      DateTime       @updatedAt
@@ -260,6 +262,7 @@ model ProperNounGlossaryEntry {
   suggestions  ProperNounSuggestion[]
 
   @@index([organizationId, kind])
+  @@index([organizationId, sendToProvider])
   @@index([studentId, kind])
   @@index([tutorUserId, kind])
 }
@@ -366,6 +369,7 @@ model SessionPart {
   byteSize            Int?
   storageUrl          String?
   rawTextOriginal     String?
+  // legacy column name: keeps display / preview transcript after lightweight cleanup
   rawTextCleaned      String?
   reviewedText        String?
   reviewState         TranscriptReviewState @default(NONE)

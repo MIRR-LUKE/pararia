@@ -2,7 +2,7 @@
 
 ## 状態
 
-- 未着手
+- 実装済み
 - GitHub Issue: `#25`
 - 最終更新: `2026-03-27`
 
@@ -37,6 +37,19 @@
 - raw をあとから壊さない
 - display 用整形と evidence 用原文の責務が分かれている
 - 変数名と実体が一致している
+
+## 今回入れた内容
+
+- STT segment の text は内部の空白圧縮をせず、改行統一と trim だけで保持するようにした
+- `pickEvidenceTranscriptText()` は `reviewed -> raw` を基本にして、display 側の値は明示 rescue 時だけ使うようにした
+- `rawTextCleaned` は legacy の display / preview 用カラムだと分かるコメントを schema と preprocess に入れた
+- preview 系は reviewed transcript を優先して見せるように整理した
+
+## 確認
+
+- `npm run typecheck`
+- `npm run test:transcript-review`
+- `npm run build`
 
 ## ラベル
 

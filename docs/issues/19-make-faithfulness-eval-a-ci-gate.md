@@ -2,7 +2,7 @@
 
 ## 状態
 
-- 未着手
+- 実装済み
 - GitHub Issue: `#32`
 - 最終更新: `2026-03-27`
 
@@ -38,6 +38,19 @@
 - faithfulness の悪化を PR で止められる
 - eval が運用の一部になる
 - 「コードは通るけど品質が落ちた」を減らせる
+
+## 今回入れた内容
+
+- `Conversation Quality` workflow を追加して `typecheck / transcript review / artifact semantics / conversation eval` を CI で回すようにした
+- eval report は GitHub Actions artifact として保存するようにした
+- eval 側で session date など metadata 由来の語を unsupported claim から除外した
+- fallback 改善後のケースで `test:conversation-eval` が quality gate として通るところまで整えた
+
+## 確認
+
+- `npm run test:conversation-eval -- --out .tmp/conversation-eval-report.md`
+- `npm run test:transcript-review`
+- `npm run typecheck`
 
 ## ラベル
 

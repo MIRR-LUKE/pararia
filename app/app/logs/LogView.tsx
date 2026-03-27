@@ -91,7 +91,7 @@ export function LogView({ logId, showHeader = true, onBack }: Props) {
   }, [fetchLog, log]);
 
   const summaryMarkdown = log?.summaryMarkdown?.trim() || "";
-  const transcriptText = log?.formattedTranscript || log?.rawTextCleaned || log?.reviewedText || log?.rawTextOriginal || "";
+  const transcriptText = log?.formattedTranscript || log?.reviewedText || log?.rawTextCleaned || log?.rawTextOriginal || "";
 
   if (loading) {
     return <div className={styles.progressBanner}>ログを読み込んでいます...</div>;

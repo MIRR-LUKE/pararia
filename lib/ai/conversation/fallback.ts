@@ -1,27 +1,82 @@
-import { extractMarkdownSectionBody, formatSessionDateLabel, formatStudentLabel, formatTeacherLabel, dedupeKeepOrder, isLikelyNoiseLine, pickInterviewLines, pickLessonLines, transcriptLines } from "./shared";
+import {
+  dedupeKeepOrder,
+  formatSessionDateLabel,
+  formatStudentLabel,
+  formatTeacherLabel,
+  isLikelyNoiseLine,
+  pickInterviewLines,
+  pickLessonLines,
+} from "./shared";
 import { repairSummaryMarkdownFormatting } from "./normalize";
 
-function quoteEvidenceLine(line: string, label?: string) {
-  const cleaned = dedupeKeepOrder([line])[0];
-  if (!cleaned) return [];
+function stripSpeakerPrefix(line: string) {
+  return line.replace(/^(講師|生徒)\s*[:：]\s*/, "").trim();
+}
+
+function isQuestionLike(line: string) {
+  const body = stripSpeakerPrefix(line);
+  if (!body) return false;
+  if (/[?？]$/.test(body)) return true;
+  return /(どうですか|どうでしたか|ましたか|どこが|何を|伝えたいですか|次回はどうしますか)$/.test(body);
+}
+
+function quoteEvidenceLine(displayText: string, evidenceLine: string, label?: string) {
+  const text = stripSpeakerPrefix(displayText || evidenceLine);
+  const evidence = dedupeKeepOrder([evidenceLine])[0];
+  if (!text || !evidence) return [];
   const prefix = label ? `${label}: ` : "";
-  return [`- ${prefix}${cleaned}`, `  根拠: ${cleaned}`];
+  return [`- ${prefix}${text}`, `  根拠: ${evidence}`];
 }
 
 function renderQuotedLines(lines: string[], fallback: string, limit = 4, label?: string) {
   const picked = dedupeKeepOrder(lines).slice(0, limit);
   if (picked.length === 0) {
-    return quoteEvidenceLine(fallback, label);
+    return quoteEvidenceLine(fallback, fallback, label);
   }
-  return picked.flatMap((line) => quoteEvidenceLine(line, label));
-}
-
-function sectionWithQuotedLines(title: string, lines: string[], fallback: string, limit = 4, label?: string) {
-  return [title, ...renderQuotedLines(lines, fallback, limit, label)];
+  return picked.flatMap((line) => quoteEvidenceLine(line, line, label));
 }
 
 function filterEvidenceLines(lines: string[]) {
-  return dedupeKeepOrder(lines).filter((line) => !isLikelyNoiseLine(line)).slice(0, 12);
+  return dedupeKeepOrder(lines).filter((line) => !isLikelyNoiseLine(line)).slice(0, 16);
+}
+
+function filterDeclarativeLines(lines: string[]) {
+  return filterEvidenceLines(lines).filter((line) => !isQuestionLike(line));
+}
+
+function pickLinesByPattern(lines: string[], pattern: RegExp, limit: number) {
+  return dedupeKeepOrder(lines.filter((line) => pattern.test(stripSpeakerPrefix(line)))).slice(0, limit);
+}
+
+function extractLessonPartLines(transcript: string, label: "授業前チェックイン" | "授業後チェックアウト") {
+  const lines = transcript.replace(/\r/g, "").split("\n");
+  const collected: string[] = [];
+  let capturing = false;
+
+  for (const rawLine of lines) {
+    const trimmed = rawLine.trim();
+    if (!trimmed) continue;
+    const normalizedHeading = trimmed.replace(/^##\s*/, "");
+    if (normalizedHeading === label) {
+      capturing = true;
+      continue;
+    }
+    if (normalizedHeading === "授業前チェックイン" || normalizedHeading === "授業後チェックアウト") {
+      if (capturing) break;
+      continue;
+    }
+    if (capturing) {
+      collected.push(trimmed);
+    }
+  }
+
+  return filterDeclarativeLines(collected).slice(0, 6);
+}
+
+function buildParagraph(text: string, evidenceLines: string[]) {
+  const cleaned = text.trim();
+  if (!cleaned) return [];
+  return [cleaned, ...dedupeKeepOrder(evidenceLines).slice(0, 2).map((line) => `根拠: ${line}`)];
 }
 
 export function buildInterviewDraftFallbackMarkdown(input: {
@@ -30,10 +85,33 @@ export function buildInterviewDraftFallbackMarkdown(input: {
   teacherName?: string;
   sessionDate?: string | Date | null;
 }) {
-  const lines = filterEvidenceLines(pickInterviewLines(input.transcript));
-  const positiveLines = lines.slice(0, 4);
-  const issueLines = lines.slice(4, 8);
-  const parentLines = lines.slice(8, 12);
+  const lines = filterDeclarativeLines(pickInterviewLines(input.transcript));
+  const sleepLine =
+    pickLinesByPattern(lines, /(睡眠|寝る|集中|英語|音読)/, 2)[0] ??
+    lines[0] ??
+    "今回の面談で確認できた内容は限定的だった。";
+  const studyLine =
+    pickLinesByPattern(lines, /(宿題|スマホ|ベクトル|受験|基礎)/, 3)[0] ??
+    lines[1] ??
+    "次回までの確認事項は transcript から拾えた範囲に限る。";
+  const supportLine =
+    pickLinesByPattern(lines, /(宿題|英語|睡眠|保護者|続けやすい)/, 3)[1] ??
+    lines[2] ??
+    studyLine;
+
+  const positiveLines = dedupeKeepOrder([
+    ...pickLinesByPattern(lines, /(読みやすい|短く|続けやすい|整う|早くな)/, 3),
+    ...lines.slice(0, 5),
+  ]).slice(0, 4);
+  const issueLines = dedupeKeepOrder([
+    ...pickLinesByPattern(lines, /(落ちる|時間がかかる|まだ先|迷う|不安|止ま)/, 4),
+    ...lines.slice(1, 6),
+  ]).slice(0, 4);
+  const parentLines = dedupeKeepOrder([
+    ...pickLinesByPattern(lines, /(睡眠|宿題|英語|受験|続けやすい)/, 3),
+    ...lines.slice(0, 5),
+  ]).slice(0, 3);
+
   return repairSummaryMarkdownFormatting(
     [
       "■ 基本情報",
@@ -44,17 +122,18 @@ export function buildInterviewDraftFallbackMarkdown(input: {
       "面談目的: 学習状況の確認と次回方針の整理",
       "",
       "■ 1. サマリー",
-      ...renderQuotedLines(lines.slice(0, 4), "今回の面談で確認できた内容は限定的だった。", 2, "観察"),
-      ...renderQuotedLines(lines.slice(4, 8), "次回までの確認事項は transcript から拾えた範囲に限る。", 2, "不足"),
+      ...buildParagraph(stripSpeakerPrefix(sleepLine), [sleepLine]),
+      "",
+      ...buildParagraph(`${stripSpeakerPrefix(studyLine)} ${stripSpeakerPrefix(supportLine)}`.trim(), [studyLine, supportLine]),
       "",
       "■ 2. ポジティブな話題",
-      ...positiveLines.flatMap((line) => quoteEvidenceLine(line, "観察")),
+      ...positiveLines.flatMap((line) => quoteEvidenceLine(line, line, "観察")),
       "",
       "■ 3. 改善・対策が必要な話題",
-      ...issueLines.flatMap((line) => quoteEvidenceLine(line, "不足")),
+      ...issueLines.flatMap((line) => quoteEvidenceLine(line, line, "不足")),
       "",
       "■ 4. 保護者への共有ポイント",
-      ...parentLines.flatMap((line) => quoteEvidenceLine(line, "共有")),
+      ...parentLines.flatMap((line) => quoteEvidenceLine(line, line, "共有")),
     ].join("\n")
   );
 }
@@ -65,13 +144,36 @@ export function buildLessonDraftFallbackMarkdown(input: {
   teacherName?: string;
   sessionDate?: string | Date | null;
 }) {
-  const lines = filterEvidenceLines(pickLessonLines(input.transcript));
-  const checkInLines = transcriptLines(extractMarkdownSectionBody(input.transcript, "授業前チェックイン"))
-    .filter((line) => !isLikelyNoiseLine(line))
-    .slice(0, 6);
-  const checkOutLines = transcriptLines(extractMarkdownSectionBody(input.transcript, "授業後チェックアウト"))
-    .filter((line) => !isLikelyNoiseLine(line))
-    .slice(0, 6);
+  const lines = filterDeclarativeLines(pickLessonLines(input.transcript));
+  const checkInLines = extractLessonPartLines(input.transcript, "授業前チェックイン");
+  const checkOutLines = extractLessonPartLines(input.transcript, "授業後チェックアウト");
+  const beforeLine =
+    pickLinesByPattern(checkInLines, /(最初の式|場合分け|焦る|止ま)/, 2)[0] ??
+    checkInLines[0] ??
+    "授業前の理解状況は限定的だった。";
+  const afterLine =
+    pickLinesByPattern(checkOutLines, /(固定できた|順番が見え|再現|図にすると)/, 2)[0] ??
+    checkOutLines[0] ??
+    "授業後の理解状況は限定的だった。";
+  const methodLine =
+    pickLinesByPattern([...checkInLines, ...lines], /(条件整理|図|順番)/, 2)[0] ??
+    lines[0] ??
+    beforeLine;
+  const homeworkLine =
+    pickLinesByPattern([...checkOutLines, ...lines], /(宿題|再現)/, 2)[0] ??
+    lines[1] ??
+    "宿題の確認は transcript から拾えた範囲に限る。";
+  const nextCheckLine =
+    pickLinesByPattern([...checkOutLines, ...lines], /(最初の式|条件|順番|再現)/, 3)[1] ??
+    afterLine;
+  const shareLines = dedupeKeepOrder([
+    methodLine,
+    afterLine,
+    homeworkLine,
+    ...checkOutLines,
+    ...lines,
+  ]).slice(0, 3);
+
   return repairSummaryMarkdownFormatting(
     [
       "■ 基本情報",
@@ -81,25 +183,37 @@ export function buildLessonDraftFallbackMarkdown(input: {
       `担当チューター: ${formatTeacherLabel(input.teacherName)}`,
       "",
       "■ 1. 本日の指導サマリー（室長向け要約）",
-      ...renderQuotedLines([...checkInLines.slice(0, 2), ...lines.slice(0, 2)], "授業内容の確認範囲は限定的だった。", 2, "観察"),
-      ...renderQuotedLines([...checkOutLines.slice(0, 2), ...lines.slice(2, 4)], "理解状況と次回への接続は transcript から拾えた範囲に限る。", 2, "不足"),
+      ...buildParagraph(`${stripSpeakerPrefix(methodLine)} ${stripSpeakerPrefix(beforeLine)}`.trim(), [methodLine, beforeLine]),
+      "",
+      ...buildParagraph(`${stripSpeakerPrefix(afterLine)} ${stripSpeakerPrefix(homeworkLine)}`.trim(), [afterLine, homeworkLine]),
       "",
       "■ 2. 課題と指導成果（Before → After）",
-      "【授業前の理解状況】",
-      ...renderQuotedLines(checkInLines.slice(0, 3), "授業前の確認内容は限定的だった。", 3, "観察"),
-      "【授業後の理解状況】",
-      ...renderQuotedLines(checkOutLines.slice(0, 3), "授業後の確認内容は限定的だった。", 3, "観察"),
+      "【条件整理】",
+      `現状（Before）: ${stripSpeakerPrefix(beforeLine)}`,
+      `根拠: ${beforeLine}`,
+      `成果（After）: ${stripSpeakerPrefix(afterLine)}`,
+      `根拠: ${afterLine}`,
+      `※特記事項: ${stripSpeakerPrefix(methodLine)}`,
+      `根拠: ${methodLine}`,
+      "",
+      "【再現確認】",
+      `現状（Before）: ${stripSpeakerPrefix(homeworkLine)}`,
+      `根拠: ${homeworkLine}`,
+      `成果（After）: ${stripSpeakerPrefix(nextCheckLine)}`,
+      `根拠: ${nextCheckLine}`,
+      `※特記事項: ${stripSpeakerPrefix(afterLine)}`,
+      `根拠: ${afterLine}`,
       "",
       "■ 3. 学習方針と次回アクション（自学習の設計）",
       "生徒:",
-      ...dedupeKeepOrder(lines.slice(10, 13)).flatMap((line) => quoteEvidenceLine(line, "判断")),
+      ...quoteEvidenceLine(methodLine, methodLine, "判断"),
       "次回までの宿題:",
-      ...dedupeKeepOrder(lines.slice(13, 16)).flatMap((line) => quoteEvidenceLine(line, "次回確認")),
+      ...quoteEvidenceLine(homeworkLine, homeworkLine, "判断"),
       "次回の確認（テスト）事項:",
-      ...dedupeKeepOrder(lines.slice(16, 19)).flatMap((line) => quoteEvidenceLine(line, "次回確認")),
+      ...quoteEvidenceLine(nextCheckLine, nextCheckLine, "次回確認"),
       "",
       "■ 4. 室長・他講師への共有・連携事項",
-      ...dedupeKeepOrder(lines.slice(19, 23)).flatMap((line) => quoteEvidenceLine(line, "共有")),
+      ...shareLines.flatMap((line) => quoteEvidenceLine(line, line, "共有")),
     ].join("\n")
   );
 }

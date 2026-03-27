@@ -5,6 +5,7 @@ import { getRecordingLockView } from "@/lib/recording/lockService";
 import { buildSessionProgressState } from "@/lib/session-progress";
 import { requireAuthorizedSession } from "@/lib/server/request-auth";
 import { buildSummaryPreview } from "@/lib/session-part-meta";
+import { pickDisplayTranscriptText } from "@/lib/transcript/source";
 import { sanitizeReportMarkdown, sanitizeSummaryMarkdown } from "@/lib/user-facing-japanese";
 
 export async function GET(
@@ -109,7 +110,13 @@ export async function GET(
         partType: part.partType,
         status: part.status,
         fileName: part.fileName,
-        previewText: buildSummaryPreview(part.rawTextCleaned || part.reviewedText || part.rawTextOriginal),
+        previewText: buildSummaryPreview(
+          pickDisplayTranscriptText({
+            rawTextCleaned: part.rawTextCleaned,
+            reviewedText: part.reviewedText,
+            rawTextOriginal: part.rawTextOriginal,
+          })
+        ),
         reviewState: part.reviewState,
         qualityMetaJson: part.qualityMetaJson,
       }));

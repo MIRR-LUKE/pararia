@@ -144,7 +144,7 @@ async function callTranscriptionApi(form: FormData, timeoutMs: number) {
 }
 
 function normalizeSegmentText(text: unknown) {
-  return typeof text === "string" ? text.replace(/\s+/g, " ").trim() : "";
+  return typeof text === "string" ? text.replace(/\r\n/g, "\n").replace(/\r/g, "\n").trim() : "";
 }
 
 function comparableSegmentText(text: string) {

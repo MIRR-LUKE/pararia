@@ -14,18 +14,29 @@ export function buildDisplayTranscriptText(text: unknown) {
   return sanitizeTranscriptText(normalizeRawTranscriptText(text));
 }
 
-export function pickEvidenceTranscriptText(source: TranscriptSource) {
+// Evidence path is reviewed -> raw. The legacy display field is only for rescue reads.
+export function pickEvidenceTranscriptText(source: TranscriptSource, options?: { allowLegacyDisplayFallback?: boolean }) {
+  const reviewedText = normalizeRawTranscriptText(source.reviewedText);
+  if (reviewedText) return reviewedText;
+
+  const rawTextOriginal = normalizeRawTranscriptText(source.rawTextOriginal);
+  if (rawTextOriginal) return rawTextOriginal;
+
+  if (options?.allowLegacyDisplayFallback) {
+    return normalizeRawTranscriptText(source.rawTextCleaned);
+  }
+
+  return "";
+}
+
+export function pickStoredDisplayTranscriptSource(source: TranscriptSource) {
   return (
     normalizeRawTranscriptText(source.reviewedText) ||
-    normalizeRawTranscriptText(source.rawTextOriginal) ||
-    normalizeRawTranscriptText(source.rawTextCleaned)
+    normalizeRawTranscriptText(source.rawTextCleaned) ||
+    normalizeRawTranscriptText(source.rawTextOriginal)
   );
 }
 
 export function pickDisplayTranscriptText(source: TranscriptSource) {
-  return (
-    buildDisplayTranscriptText(source.rawTextCleaned) ||
-    buildDisplayTranscriptText(source.reviewedText) ||
-    buildDisplayTranscriptText(source.rawTextOriginal)
-  );
+  return buildDisplayTranscriptText(pickStoredDisplayTranscriptSource(source));
 }

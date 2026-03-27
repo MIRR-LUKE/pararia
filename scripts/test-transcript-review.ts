@@ -15,6 +15,7 @@ import {
   ensureConversationReviewedTranscript,
   ensureSessionPartReviewedTranscript,
   listConversationProperNounSuggestions,
+  listProviderHintTerms,
   updateProperNounSuggestionDecision,
 } from "../lib/transcript/review";
 
@@ -54,6 +55,19 @@ async function main() {
         kind: ProperNounKind.SCHOOL,
         canonicalValue: "青山学院",
         aliasesJson: ["青山学園"],
+        sendToProvider: true,
+      },
+    });
+
+    await prisma.properNounGlossaryEntry.create({
+      data: {
+        organizationId: organization.id,
+        studentId: student.id,
+        tutorUserId: user.id,
+        kind: ProperNounKind.STUDENT,
+        canonicalValue: "山田花子",
+        aliasesJson: ["やまだはなこ"],
+        sendToProvider: false,
       },
     });
 
@@ -106,8 +120,17 @@ async function main() {
 
     const reviewList = await listConversationProperNounSuggestions(conversation.id);
     assert.ok(reviewList.suggestions.length >= 1);
+    assert.match(reviewList.displayText, /青山学院/);
     const firstSuggestion = reviewList.suggestions[0];
     assert.equal(firstSuggestion.status, ProperNounSuggestionStatus.PENDING);
+
+    const providerHints = await listProviderHintTerms({
+      organizationId: organization.id,
+      studentId: student.id,
+      tutorUserId: user.id,
+    });
+    assert.ok(providerHints.includes("青山学院"));
+    assert.ok(!providerHints.includes("山田花子"));
 
     for (const suggestion of reviewList.suggestions) {
       await updateProperNounSuggestionDecision({
@@ -120,6 +143,7 @@ async function main() {
     const afterConfirm = await listConversationProperNounSuggestions(conversation.id);
     assert.ok(afterConfirm.suggestions.every((suggestion) => suggestion.status !== ProperNounSuggestionStatus.PENDING));
     assert.equal(afterConfirm.reviewState, TranscriptReviewState.RESOLVED);
+    assert.match(afterConfirm.displayText, /青山学院/);
 
     console.log("transcript review regression checks passed");
   } finally {

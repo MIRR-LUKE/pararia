@@ -5,6 +5,7 @@ import { processAllSessionPartJobs } from "@/lib/jobs/sessionPartJobs";
 import { buildSessionProgressState } from "@/lib/session-progress";
 import { buildSummaryPreview } from "@/lib/session-part-meta";
 import { requireAuthorizedSession } from "@/lib/server/request-auth";
+import { pickDisplayTranscriptText } from "@/lib/transcript/source";
 
 export async function GET(
   request: Request,
@@ -85,7 +86,13 @@ export async function GET(
         partType: part.partType,
         status: part.status,
         fileName: part.fileName,
-        previewText: buildSummaryPreview(part.rawTextCleaned || part.reviewedText || part.rawTextOriginal),
+        previewText: buildSummaryPreview(
+          pickDisplayTranscriptText({
+            rawTextCleaned: part.rawTextCleaned,
+            reviewedText: part.reviewedText,
+            rawTextOriginal: part.rawTextOriginal,
+          })
+        ),
         reviewState: part.reviewState,
         qualityMetaJson: part.qualityMetaJson,
       })),

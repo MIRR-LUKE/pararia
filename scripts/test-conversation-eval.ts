@@ -308,6 +308,20 @@ function collectUnsupportedHits(summaryMarkdown: string, sourceTranscript: strin
   return hits;
 }
 
+function buildAllowedMetadataTerms(testCase: EvalCase) {
+  const terms = [testCase.studentName, testCase.teacherName, testCase.sessionDate];
+  if (testCase.sessionDate) {
+    const date = new Date(testCase.sessionDate);
+    if (!Number.isNaN(date.getTime())) {
+      terms.push(String(date.getFullYear()));
+      terms.push(String(date.getMonth() + 1));
+      terms.push(String(date.getDate()));
+      terms.push(`${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`);
+    }
+  }
+  return terms.filter((term): term is string => typeof term === "string" && term.trim().length > 0);
+}
+
 function evaluateCase(summaryMarkdown: string, rubric: EvalRubricCase, config: EvalRubric, meta: {
   model: string;
   apiCalls: number;
@@ -325,6 +339,7 @@ function evaluateCase(summaryMarkdown: string, rubric: EvalRubricCase, config: E
     ...rubric.requiredHeadings,
     ...rubric.requiredKeywords,
     ...rubric.forbiddenPhrases,
+    ...buildAllowedMetadataTerms(meta.case),
   ]);
   const headingMatches = rubric.requiredHeadings.filter((heading) =>
     sections.some((section) => normalizeHeading(section.heading) === normalizeHeading(heading))

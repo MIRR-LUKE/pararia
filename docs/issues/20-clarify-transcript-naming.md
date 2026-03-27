@@ -2,7 +2,7 @@
 
 ## 状態
 
-- 未着手
+- 実装済み
 - GitHub Issue: `#33`
 - 最終更新: `2026-03-27`
 
@@ -34,6 +34,19 @@ transcript 周りの名前を整理して、役割が名前からすぐ分かる
 - transcript 関連の名前で迷いにくい
 - 新しく入る人でも読みやすい
 - 設計意図がファイル名と関数名に出る
+
+## 今回入れた内容
+
+- `pickStoredDisplayTranscriptSource()` と `pickDisplayTranscriptText()` を追加して display path を明示した
+- `pickEvidenceTranscriptText()` に evidence path の意味をコメントで固定した
+- `rawTextCleaned` は legacy の display / preview 用カラムだと schema と preprocess に明記した
+- UI / API の preview 系は helper 経由で reviewed transcript を優先するように揃えた
+
+## 確認
+
+- `npm run typecheck`
+- `npm run test:transcript-review`
+- `npm run build`
 
 ## ラベル
 

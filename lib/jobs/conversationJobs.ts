@@ -379,8 +379,6 @@ async function executeFinalizeJob(job: JobPayload, convo: ConversationPayload) {
     inputTokensEstimate,
     outputTokensEstimate: estimateTokens(renderedSummary),
     usedFallbackSummary: usedFallback,
-    reviewStateUsed: review.reviewState,
-    reviewRequired: review.reviewRequired,
     reviewReasonCodes: review.reasons.map((item) => item.code),
     usedReviewedTranscript: Boolean(review.reviewedText && review.reviewedText.trim()),
     finalizeJob: {

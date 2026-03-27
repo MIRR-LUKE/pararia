@@ -12,11 +12,15 @@ PARARIA は、塾・個別指導・学習コーチング向けの `Teaching OS` 
 - 会話ログの正本は `ConversationLog.artifactJson`
 - transcript は `raw / reviewed / display` の役割を分ける
 - ログ生成は `reviewedText` があればそれを優先し、なければ raw transcript を使う
+- `reviewState` が transcript review の現在状態を表す正本
+- `qualityMetaJson.transcriptReview` は review が必要な理由と件数の説明だけを持つ
+- 固有名詞辞書は `内部用` と `外部 STT ヒント用` を分け、provider に送る語は `sendToProvider=true` だけに絞る
 - `summaryMarkdown` は画面表示や互換用に保存する派生物
 - ログ生成は `ConversationJob.FINALIZE` を中心に動き、失敗時は retry / stale recovery を持つ
 - 自動の後段 polish は **ない**
 - `保護者レポート` は **選択したログだけ** を使い、`artifactJson` を優先して `summaryMarkdown` で補う
 - 未選択ログ、前回レポート、プロフィール snapshot はレポート本文生成に入れない
+- faithfulness の代表テストは GitHub Actions の `Conversation Quality` でも回す
 
 ## 2. 非交渉の設計原則
 
@@ -27,7 +31,7 @@ PARARIA は、塾・個別指導・学習コーチング向けの `Teaching OS` 
 - どちらも正本は `artifactJson`
 - transcript の正本は `rawTextOriginal`
 - `reviewedText` は固有名詞候補を反映した確認用 transcript
-- `rawTextCleaned` は display / preview 用の軽整形 transcript
+- `rawTextCleaned` は後方互換のために残している legacy の display / preview transcript
 - `summaryMarkdown` は `artifactJson` から render した表示用の派生物
 - 補助表示として `formattedTranscript` または raw transcript を持つ
 - 旧 `timeline / nextActions / parentPack / profileDelta` を別成果物として増やす構成はやめ、必要な情報は `artifactJson` に集約する
@@ -292,26 +296,30 @@ PARARIA は、塾・個別指導・学習コーチング向けの `Teaching OS` 
 
 - `artifactJson`
   - 会話ログの正本
-  - `summary / claims / nextActions / sharePoints / sections` を持つ
-  - 各 entry は `text / evidence / basis / humanCheckNeeded / confidence` を持てる
+  - `summary / claims / nextActions / sharePoints / facts / changes / assessment / nextChecks / sections` を持つ
+  - 各 entry は `text / evidence / basis / humanCheckNeeded / confidence / claimType / actionType` を持てる
 - `summaryMarkdown`
   - `artifactJson` から render される表示用の本文
 - `rawTextOriginal`
   - 元 transcript
-  - sanitize しない evidence の保存先
+  - provider の返り値を意味を変えずに保存する evidence の保存先
+  - 行末統一と trim 以外の sanitize はしない
 - `reviewedText`
   - proper noun suggestion を反映した確認用 transcript
   - ログ生成では `reviewedText` があればこちらを優先する
 - `rawTextCleaned`
   - display / preview 用の軽整形 transcript
+  - legacy カラムなので evidence path には使わない
 - `rawSegments`
   - STT segment
 - `reviewState`
   - `NONE / REQUIRED / RESOLVED`
+  - transcript review の現在状態を見る正本
 - `formattedTranscript`
   - 必要時だけ整形
 - `qualityMetaJson`
-  - STT 時間、モデル、警告、生成時間、job retry 情報、reviewRequired の理由など
+  - STT 時間、モデル、警告、生成時間、job retry 情報など
+  - `transcriptReview` には review 理由、件数、更新時刻だけを入れる
 
 ## 10. 保護者レポート
 
@@ -415,6 +423,7 @@ PARARIA は、塾・個別指導・学習コーチング向けの `Teaching OS` 
   - 再生成に加えて transcript 整形も再実行
 - `GET /api/conversations/[id]/review`
   - raw / reviewed / display transcript と proper noun suggestion を返す
+  - 読み取り専用で、副作用は持たない
 - `POST /api/conversations/[id]/review`
   - reviewed transcript と suggestion を作り直す
 - `PATCH /api/conversations/[id]/review/suggestions/[suggestionId]`
@@ -448,6 +457,14 @@ PARARIA は、塾・個別指導・学習コーチング向けの `Teaching OS` 
   - part から conversation を作る
 - `lib/session-progress.ts`
   - Student Room の進捗状態
+- `lib/transcript/source.ts`
+  - evidence 用 transcript と display 用 transcript の切り分け
+- `lib/transcript/glossary.ts`
+  - 内部辞書と provider hint 用語の読み出し
+- `lib/transcript/review-service.ts`
+  - proper noun suggestion と reviewed transcript の orchestration
+- `lib/transcript/review-assessment.ts`
+  - reviewState と review 理由の判定
 - `lib/recording/validation.ts`
   - duration gate
 - `lib/ai/parentReport.ts`
@@ -504,9 +521,23 @@ PARARIA_AUDIO_RETENTION_DAYS=14
 - `npm run test:session-progress`
 - `npm run test:stt-fallback`
 - `npm run test:transcript-review`
+- `npx tsx scripts/test-conversation-artifact-semantics.ts`
 - `npm run build`
 
-## 17. やらないこと
+## 17. CI の品質ゲート
+
+- GitHub Actions の `Conversation Quality` で faithfulness 系の代表チェックを回す
+- 実行内容:
+  - `npm ci`
+  - `npm run prisma:generate`
+  - `npm run typecheck`
+  - `npm run test:transcript-review`
+  - `npx tsx scripts/test-conversation-artifact-semantics.ts`
+  - `npm run test:conversation-eval -- --out artifacts/conversation-eval-report.md`
+- `conversation-eval` のレポートは artifact として保存する
+- 目的は「コードは通るが、盛ったログや固有名詞崩れが入った」を PR 時点で止めること
+
+## 18. やらないこと
 
 - ログ生成と同時に別成果物を量産すること
 - ログ本文の裏で高コストな polish を回すこと

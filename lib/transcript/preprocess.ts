@@ -13,6 +13,7 @@ type WhisperSegment = {
 
 export type PreprocessResult = {
   rawTextOriginal: string;
+  // legacy storage field `rawTextCleaned` stores this display / preview text.
   rawTextCleaned: string;
   // sentence-ish chunks (not perfect; used for lightweight downstream prompts if needed)
   chunks: string[];

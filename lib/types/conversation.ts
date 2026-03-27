@@ -18,13 +18,9 @@ export type ConversationQualityMeta = {
   inputTokensEstimate?: number;
   outputTokensEstimate?: number;
   usedFallbackSummary?: boolean;
-  reviewStateUsed?: string;
-  reviewRequired?: boolean;
   reviewReasonCodes?: string[];
   usedReviewedTranscript?: boolean;
   transcriptReview?: {
-    reviewState?: string;
-    reviewRequired?: boolean;
     reasons?: Array<{ code?: string; message?: string; count?: number }>;
     pendingSuggestionCount?: number;
     suggestionCount?: number;

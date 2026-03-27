@@ -19,7 +19,7 @@
 4. [10-backend-review-required-judgement.md](./10-backend-review-required-judgement.md)
 5. [11-eval-faithfulness-and-proper-nouns.md](./11-eval-faithfulness-and-proper-nouns.md)
 
-次に切る 9 本:
+今回実装した 9 本:
 
 1. [12-keep-raw-transcript-truly-raw.md](./12-keep-raw-transcript-truly-raw.md)
 2. [13-separate-internal-and-provider-glossary.md](./13-separate-internal-and-provider-glossary.md)
@@ -31,7 +31,7 @@
 8. [19-make-faithfulness-eval-a-ci-gate.md](./19-make-faithfulness-eval-a-ci-gate.md)
 9. [20-clarify-transcript-naming.md](./20-clarify-transcript-naming.md)
 
-次の推奨順:
+今回の実装順:
 
 1. 生文字起こしを本当にそのまま残すようにする
 2. 固有名詞の辞書を「内部用」と「外部 STT に渡す用」に分ける
@@ -79,23 +79,23 @@
 - `#23` reviewRequired を backend 側だけで判定できるようにする: 実装済み
 - `#24` eval で「盛り」と「固有名詞崩れ」を検知できるようにする: 実装済み
 
-次に切る Issue:
+今回実装した Issue:
 
-- `#25` 生文字起こしを本当にそのまま残すようにする
-- `#26` 固有名詞の辞書を「内部用」と「外部 STT に渡す用」に分ける
-- `#27` 固有名詞レビューのロジックを小さく分けて読みやすくする
-- `#28` review API を「読む」と「変える」で正しく分ける
-- `#29` ログ生成の考え方を 1 本にそろえる
-- `#30` review 状態の正本を 1 つに決める
-- `#31` 運用ログ向けの要約を、報告用アクションと分けて整理する
-- `#32` faithfulness テストを CI の品質ゲートにする
-- `#33` transcript 周りの命名を整理して、見ただけで意味が分かるようにする
+- `#25` 生文字起こしを本当にそのまま残すようにする: 実装済み
+- `#26` 固有名詞の辞書を「内部用」と「外部 STT に渡す用」に分ける: 実装済み
+- `#27` 固有名詞レビューのロジックを小さく分けて読みやすくする: 実装済み
+- `#28` review API を「読む」と「変える」で正しく分ける: 実装済み
+- `#29` ログ生成の考え方を 1 本にそろえる: 実装済み
+- `#30` review 状態の正本を 1 つに決める: 実装済み
+- `#31` 運用ログ向けの要約を、報告用アクションと分けて整理する: 実装済み
+- `#32` faithfulness テストを CI の品質ゲートにする: 実装済み
+- `#33` transcript 周りの命名を整理して、見ただけで意味が分かるようにする: 実装済み
 
 補足:
 
 - このディレクトリの Markdown は、GitHub Issue の本文更新にも使う
 - 今回の 5 本は「まず backend を固める」ための issue で、完成 UI はスコープ外
 - glossary 管理画面や Student Room の最終 UI は今回の issue には含めない
-- 次の 9 本は「10 点に近づけるためにズレを消す」ための issue
+- 今回の 9 本で transcript / review / grounded generation / CI のズレをまとめて埋めた
 
 このディレクトリの Markdown は、GitHub Issue の本文更新にも使えるように、実装状況と確認内容まで含めて整理しています。

@@ -2,7 +2,7 @@
 
 ## 状態
 
-- 未着手
+- 実装済み
 - GitHub Issue: `#26`
 - 最終更新: `2026-03-27`
 
@@ -37,6 +37,19 @@
 - 内部辞書と外部 STT ヒント用辞書が分かれている
 - PII を誤って provider 側に流しにくい
 - suggestion 精度を保ちながら安全性を上げられる
+
+## 今回入れた内容
+
+- `ProperNounGlossaryEntry.sendToProvider` を追加した
+- 内部辞書候補は `loadInternalGlossaryCandidates()` に集約した
+- provider に渡してよい語だけを返す `listProviderHintTerms()` を追加した
+- context 由来の生徒名や講師名は provider hint に混ぜず、内部 suggestion だけで使うようにした
+
+## 確認
+
+- `npm run prisma:migrate:deploy`
+- `npm run test:transcript-review`
+- `npm run typecheck`
 
 ## ラベル
 
