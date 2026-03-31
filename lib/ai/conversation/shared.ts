@@ -15,7 +15,7 @@ export function normalizeWhitespace(text: string) {
 }
 
 const TRANSCRIPT_BREAK_HINT_RE =
-  /\s+(?=(?:講師|生徒)\s*[:：]|次回は|次回まで|宿題は|今日は|本日は|まず|ただ|それで|確認事項|授業前|授業後|挟み打ち|極限|三角関数|条件整理|再現)/g;
+  /\s+(?=(?:講師|生徒)\s*[:：]|次回は|次回まで|宿題は|今日は|本日は|まず|ただ|それで|確認事項|授業前|授業後|挟み打ち|極限|三角関数|条件整理|再現|LEAP|YouTube|MARCH)/g;
 
 const TRANSCRIPT_NOISE_RE =
   /(録音を始|では録音|録音開始|オッケー|OK\b|質問もありますか|分からなかったことはない|特にない|お疲れ|以上です|じゃあ特にない)/i;
@@ -74,7 +74,7 @@ export function dedupeKeepOrder(lines: string[]) {
 }
 
 const INTERVIEW_KEYWORD_RE =
-  /学習|学校|生活|睡眠|宿題|部活|進路|志望|不安|課題|目標|復習|模試|受験|成績|提出|習慣|過去問|共通テスト|私大|数学|英語|国語|理科|社会|ベクトル|数列|微分|積分/;
+  /学習|学校|生活|睡眠|宿題|部活|進路|志望|志望校|不安|課題|目標|復習|模試|受験|成績|提出|習慣|過去問|共通テスト|私大|数学|英語|国語|理科|社会|ベクトル|数列|微分|積分|長文|読解|語彙|単語|LEAP|スマホ|YouTube|就寝|帰宅|MARCH/;
 const LESSON_KEYWORD_RE =
   /宿題|授業|演習|理解|つまず|復習|次回|課題|単元|解説|確認|極限|三角関数|ベクトル|数列|微分|積分|学校|講習|化学|英語|数学/;
 
@@ -137,7 +137,7 @@ export function pickInterviewLines(transcript: string) {
     ...keywordLines.slice(0, 14),
     ...informativeLines,
     ...lines.slice(-8),
-  ]).slice(0, 32);
+  ]).slice(0, 40);
 }
 
 export function pickLessonLines(transcript: string) {

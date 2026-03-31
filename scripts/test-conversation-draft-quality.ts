@@ -71,9 +71,12 @@ async function main() {
     studentName: "山田花子",
     teacherName: "佐藤先生",
     sessionDate: "2026-03-25",
+    durationMinutes: 52,
   });
   assert.match(interviewFallback, /睡眠|英語|宿題/);
   assert.doesNotMatch(interviewFallback, /会話をそのまま/);
+  assert.doesNotMatch(interviewFallback, /根拠:/);
+  assert.match(interviewFallback, /面談時間: 52分/);
 
   const draftInput = buildDraftInputBlock("LESSON_REPORT", noisyLessonTranscript);
   assert.match(draftInput.label, /抽出済み重要発話/);

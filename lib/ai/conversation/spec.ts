@@ -29,8 +29,8 @@ function buildPromptContextLines(sessionType: SessionMode) {
 
   return [
     "文脈:",
-    "あなたは学習塾の教務責任者です。口語の面談 transcript から、管理者が使う面談ログの元データを抽出してください。",
-    "完成した文章を書くのではなく、根拠付きの構造化データを返してください。",
+    "あなたは学習塾の教務責任者です。口語の面談 transcript から、管理者がそのまま読める面談ログの元データを抽出してください。",
+    "完成した本文そのものではなく、あとで面談ログに整えやすい根拠付きの構造化データを返してください。",
   ];
 }
 
@@ -53,15 +53,135 @@ export function buildStructuredArtifactSpec(isLesson: boolean) {
   return [
     "出力 JSON の shape:",
     '{ "basicInfo": { "student": string, "teacher": string, "date": string, "purpose": string }, "summary": [{ "text": string, "evidence": string[] }], "claims": [{ "claimType": "observed" | "inferred" | "missing", "text": string, "evidence": string[] }], "nextActions": [{ "label": string, "actionType": "assessment" | "nextCheck", "text": string, "evidence": string[] }], "sharePoints": [{ "text": string, "evidence": string[] }] }',
-    "summary は 2-4 件。各 text は 1-2 文の短い要点だけにする。",
-    "claims は 3-5 件で、主に `2. ポジティブな話題` に相当する内容を入れる。",
-    "nextActions は 3-6 件で、主に `3. 改善・対策が必要な話題` に相当する内容を入れる。",
-    "sharePoints は 2-4 件。",
+    "basicInfo.purpose は 8-32 文字程度で、今回の面談の目的を簡潔に入れる。明確でなければ `学習状況の確認と次回方針の整理` に寄せる。",
+    "summary は 2-3 件。各 text は 2-5 文のまとまった段落にし、学習状況・課題・生活面・進路・次回方針の流れが読めるようにする。",
+    "summary は transcript の要約であり、逐語引用や発話の丸貼りではない。管理者がそのまま読める自然な教務文にする。",
+    "claims は 3-5 件で、主に `2. ポジティブな話題` に相当する前向きな事実や本人の強みを入れる。各 text は 1 文で簡潔にする。",
+    "nextActions は 4-6 件で、主に `3. 改善・対策が必要な話題` に相当する内容を入れる。課題だけでなく、必要な対策や今後の見方まで含めて 1 文で書く。",
+    "nextActions.label は `英語` `数学` `生活習慣` `進路` のような短い論点名にする。",
+    "nextActions.actionType は、今回の判断や対策なら `assessment`、次回に確認したい事項なら `nextCheck` にする。",
+    "sharePoints は 2-4 件。これは内部利用の共有ポイントで、summary や claims と丸かぶりさせない。",
     "各 evidence は短い根拠断片 1-2 本に絞る。長い transcript の丸貼りは禁止。",
     "ノイズ音声、言い淀み、壊れた引用の貼り付けは禁止。",
-    "抽象語だけで済ませず、単元名・受験方針・学習行動など確認できた具体語を残す。",
+    "抽象語だけで済ませず、教材名・志望校レベル・生活習慣・学習行動など確認できた具体語を残す。",
+    "claims / nextActions / sharePoints は、`良かったです` `頑張りましょう` のような抽象的な励ましで埋めない。",
     "意味を盛らず、根拠のない断定や感想を足さない。",
   ];
+}
+
+function buildEntryArraySchema(itemSchema: Record<string, unknown>) {
+  return {
+    type: "array",
+    items: itemSchema,
+  };
+}
+
+function buildSummaryItemSchema() {
+  return {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      text: { type: "string" },
+      evidence: {
+        type: "array",
+        items: { type: "string" },
+      },
+    },
+    required: ["text", "evidence"],
+  };
+}
+
+function buildClaimItemSchema() {
+  return {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      text: { type: "string" },
+      evidence: {
+        type: "array",
+        items: { type: "string" },
+      },
+      claimType: {
+        type: "string",
+        enum: ["observed", "inferred", "missing"],
+      },
+    },
+    required: ["text", "evidence", "claimType"],
+  };
+}
+
+function buildNextActionItemSchema() {
+  return {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      label: { type: "string" },
+      text: { type: "string" },
+      evidence: {
+        type: "array",
+        items: { type: "string" },
+      },
+      actionType: {
+        type: "string",
+        enum: ["assessment", "nextCheck"],
+      },
+    },
+    required: ["label", "text", "evidence", "actionType"],
+  };
+}
+
+function buildSharePointSchema() {
+  return {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      text: { type: "string" },
+      evidence: {
+        type: "array",
+        items: { type: "string" },
+      },
+    },
+    required: ["text", "evidence"],
+  };
+}
+
+export function buildStructuredArtifactJsonSchema(sessionType: SessionMode) {
+  const interview = sessionType !== "LESSON_REPORT";
+  return {
+    name: interview ? "interview_log_artifact" : "lesson_report_artifact",
+    strict: true,
+    schema: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        basicInfo: {
+          type: "object",
+          additionalProperties: false,
+          properties: interview
+            ? {
+                student: { type: "string" },
+                teacher: { type: "string" },
+                date: { type: "string" },
+                purpose: { type: "string" },
+              }
+            : {
+                student: { type: "string" },
+                teacher: { type: "string" },
+                date: { type: "string" },
+                subjectUnit: { type: "string" },
+              },
+          required: interview
+            ? ["student", "teacher", "date", "purpose"]
+            : ["student", "teacher", "date", "subjectUnit"],
+        },
+        summary: buildEntryArraySchema(buildSummaryItemSchema()),
+        claims: buildEntryArraySchema(buildClaimItemSchema()),
+        nextActions: buildEntryArraySchema(buildNextActionItemSchema()),
+        sharePoints: buildEntryArraySchema(buildSharePointSchema()),
+      },
+      required: ["basicInfo", "summary", "claims", "nextActions", "sharePoints"],
+    },
+  };
 }
 
 function buildPromptBody(sessionType: SessionMode) {

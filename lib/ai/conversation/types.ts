@@ -14,6 +14,7 @@ export type DraftGenerationInput = {
   studentName?: string;
   teacherName?: string;
   sessionDate?: string | Date | null;
+  durationMinutes?: number | null;
   minSummaryChars: number;
   sessionType?: SessionMode;
 };

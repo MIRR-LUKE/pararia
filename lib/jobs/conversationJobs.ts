@@ -11,6 +11,7 @@ import { syncSessionAfterConversation } from "@/lib/session-service";
 import { toPrismaJson } from "@/lib/prisma-json";
 import { normalizeRawTranscriptText, pickEvidenceTranscriptText } from "@/lib/transcript/source";
 import { ensureConversationReviewedTranscript } from "@/lib/transcript/review";
+import { readSessionPartMeta } from "@/lib/session-part-meta";
 
 const DEFAULT_JOB_TYPES: ConversationJobType[] = [ConversationJobType.FINALIZE];
 const ACTIVE_JOB_TYPES: ConversationJobType[] = [ConversationJobType.FINALIZE, ConversationJobType.FORMAT];
@@ -58,6 +59,7 @@ type ConversationPayload = {
   formattedTranscript?: string | null;
   studentName?: string | null;
   teacherName?: string | null;
+  durationMinutes?: number | null;
   qualityMetaJson?: ConversationQualityMeta | null;
 };
 
@@ -106,6 +108,23 @@ function minSummaryCharsFor(input: { sessionType?: SessionType | null; sourceTex
   if (input.sourceText.length >= 12000) return 700;
   if (input.sourceText.length <= 2500) return 420;
   return 560;
+}
+
+function deriveSessionDurationMinutes(parts: Array<{ qualityMetaJson?: unknown }> | undefined) {
+  if (!Array.isArray(parts) || parts.length === 0) return null;
+  const totalSeconds = parts.reduce((sum, part) => {
+    const meta = readSessionPartMeta(part.qualityMetaJson);
+    const seconds =
+      typeof meta.audioDurationSeconds === "number"
+        ? meta.audioDurationSeconds
+        : typeof meta.liveDurationSeconds === "number"
+          ? meta.liveDurationSeconds
+          : null;
+    if (typeof seconds !== "number" || !Number.isFinite(seconds) || seconds <= 0) return sum;
+    return sum + seconds;
+  }, 0);
+  if (!Number.isFinite(totalSeconds) || totalSeconds <= 0) return null;
+  return Math.max(1, Math.round(totalSeconds / 60));
 }
 
 function dependencySatisfied(
@@ -356,6 +375,7 @@ async function executeFinalizeJob(job: JobPayload, convo: ConversationPayload) {
     studentName: convo.studentName ?? undefined,
     teacherName: convo.teacherName ?? undefined,
     sessionDate: convo.sessionDate ?? undefined,
+    durationMinutes: convo.durationMinutes ?? undefined,
     minSummaryChars,
     sessionType,
   });
@@ -534,7 +554,7 @@ async function executeJob(job: JobPayload) {
     include: {
       student: { select: { id: true, name: true } },
       user: { select: { name: true } },
-      session: { select: { id: true, type: true, sessionDate: true } },
+      session: { select: { id: true, type: true, sessionDate: true, parts: { select: { qualityMetaJson: true } } } },
     },
   });
   if (!convo) throw new Error("conversation not found");
@@ -552,6 +572,7 @@ async function executeJob(job: JobPayload) {
     formattedTranscript: convo.formattedTranscript,
     studentName: convo.student?.name ?? null,
     teacherName: convo.user?.name ?? DEFAULT_TEACHER_FULL_NAME,
+    durationMinutes: deriveSessionDurationMinutes(convo.session?.parts),
     qualityMetaJson: (convo.qualityMetaJson as ConversationQualityMeta) ?? null,
   };
 

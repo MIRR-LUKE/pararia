@@ -123,7 +123,16 @@ async function callChatCompletions(params: {
   messages: Array<{ role: "system" | "user"; content: string }>;
   max_completion_tokens?: number;
   temperature?: number;
-  response_format?: { type: "json_object" };
+  response_format?:
+    | { type: "json_object" }
+    | {
+        type: "json_schema";
+        json_schema: {
+          name: string;
+          strict?: boolean;
+          schema: Record<string, unknown>;
+        };
+      };
   timeoutMs?: number;
   prompt_cache_key?: string;
   prompt_cache_retention?: "in_memory" | "24h";
@@ -222,6 +231,7 @@ async function callResponsesApi(params: {
   prompt_cache_key?: string;
   prompt_cache_retention?: "in_memory" | "24h";
   verbosity?: "low" | "medium" | "high";
+  textFormat?: Record<string, unknown>;
 }): Promise<ChatResult> {
   if (!LLM_API_KEY) {
     throw new Error("LLM_API_KEY (or OPENAI_API_KEY) is not set.");
@@ -234,7 +244,7 @@ async function callResponsesApi(params: {
     store: false,
     reasoning: { effort: "none" },
     text: {
-      format: { type: "text" },
+      format: params.textFormat ?? { type: "text" },
       ...(params.verbosity ? { verbosity: params.verbosity } : {}),
     },
     ...(params.max_output_tokens ? { max_output_tokens: params.max_output_tokens } : {}),
@@ -345,17 +355,51 @@ export async function callJsonGeneration(params: {
   prompt_cache_key?: string;
   prompt_cache_retention?: "in_memory" | "24h";
   temperature?: number;
+  json_schema?: {
+    name: string;
+    strict?: boolean;
+    schema: Record<string, unknown>;
+  };
 }) {
-  const result = await callChatCompletions({
-    model: params.model,
-    messages: params.messages,
-    timeoutMs: params.timeoutMs,
-    max_completion_tokens: params.max_output_tokens,
-    temperature: typeof params.temperature === "number" ? params.temperature : 0.1,
-    response_format: { type: "json_object" },
-    prompt_cache_key: params.prompt_cache_key,
-    prompt_cache_retention: params.prompt_cache_retention,
-  });
+  let result: ChatResult;
+  try {
+    result = await callResponsesApi({
+      model: params.model,
+      messages: params.messages,
+      timeoutMs: params.timeoutMs,
+      max_output_tokens: params.max_output_tokens,
+      prompt_cache_key: params.prompt_cache_key,
+      prompt_cache_retention: params.prompt_cache_retention,
+      textFormat: params.json_schema
+        ? {
+            type: "json_schema",
+            name: params.json_schema.name,
+            strict: params.json_schema.strict ?? true,
+            schema: params.json_schema.schema,
+          }
+        : { type: "json_object" },
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error ?? "");
+    if (!/(Responses API failed|Responses API retry budget exceeded|404|400|unsupported|invalid|text\\.format|json_schema)/i.test(message)) {
+      throw error;
+    }
+    result = await callChatCompletions({
+      model: params.model,
+      messages: params.messages,
+      timeoutMs: params.timeoutMs,
+      max_completion_tokens: params.max_output_tokens,
+      temperature: typeof params.temperature === "number" ? params.temperature : 0.1,
+      response_format: params.json_schema
+        ? {
+            type: "json_schema",
+            json_schema: params.json_schema,
+          }
+        : { type: "json_object" },
+      prompt_cache_key: params.prompt_cache_key,
+      prompt_cache_retention: params.prompt_cache_retention,
+    });
+  }
 
   const source = typeof result.contentText === "string" && result.contentText.trim() ? result.contentText : result.raw;
   return {

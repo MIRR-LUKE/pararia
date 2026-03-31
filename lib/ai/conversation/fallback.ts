@@ -139,6 +139,7 @@ export function buildInterviewDraftFallbackMarkdown(input: {
   studentName?: string;
   teacherName?: string;
   sessionDate?: string | Date | null;
+  durationMinutes?: number | null;
 }) {
   const lines = filterDeclarativeLines(pickInterviewLines(input.transcript));
   const sleepLine =
@@ -169,36 +170,50 @@ export function buildInterviewDraftFallbackMarkdown(input: {
   const focusTerms = extractTopicTerms(lines, /(睡眠|英語|音読|宿題|スマホ|ベクトル|受験|基礎)/g, 4);
   const summaryLead =
     focusTerms.length > 0
-      ? `面談では${joinTopicTerms(focusTerms)}について確認した。`
+      ? `今回は、${joinTopicTerms(focusTerms)}について面談を行った。`
       : "面談では学習状況と次回方針を確認した。";
   const issueTerms = extractTopicTerms(lines, /(睡眠|宿題|スマホ|ベクトル|受験|基礎)/g, 4);
   const summaryFollow =
     issueTerms.length > 0
-      ? `${joinTopicTerms(issueTerms.slice(0, 3))}は、次回までの確認事項として残した。`
+      ? `${joinTopicTerms(issueTerms.slice(0, 3))}は、次回までの確認事項として整理した。`
       : "次回までの確認事項は transcript から拾えた範囲に限って整理した。";
+  const summaryBody =
+    compactText(sleepLine, 96) || "本人の現状は transcript から確認できた範囲に限って整理した。";
+  const planBody =
+    compactText(studyLine, 96) || "次回までの方針は transcript から確認できた範囲に限って整理した。";
+  const supportBody =
+    compactText(supportLine, 96) || "共有事項は transcript から確認できた範囲に限って整理した。";
+  const toBullet = (line: string) => {
+    const text = compactText(line, 92);
+    return text ? `- ${text.replace(/[。！？]+$/, "")}` : "";
+  };
 
   return repairSummaryMarkdownFormatting(
     [
       "■ 基本情報",
       `対象生徒: ${formatStudentLabel(input.studentName)} 様`,
       `面談日: ${formatSessionDateLabel(input.sessionDate) || "未記録"}`,
-      "面談時間: 未記録",
+      `面談時間: ${
+        typeof input.durationMinutes === "number" && Number.isFinite(input.durationMinutes) && input.durationMinutes > 0
+          ? `${Math.max(1, Math.round(input.durationMinutes))}分`
+          : "未記録"
+      }`,
       `担当チューター: ${formatTeacherLabel(input.teacherName)}`,
       "面談目的: 学習状況の確認と次回方針の整理",
       "",
       "■ 1. サマリー",
-      ...buildParagraph(summaryLead, [sleepLine]),
+      `${summaryLead}${summaryBody ? ` ${summaryBody}` : ""}`.trim(),
       "",
-      ...buildParagraph(summaryFollow, [studyLine, supportLine]),
+      `${summaryFollow}${planBody ? ` ${planBody}` : ""}${supportBody ? ` ${supportBody}` : ""}`.trim(),
       "",
       "■ 2. ポジティブな話題",
-      ...positiveLines.flatMap((line) => quoteEvidenceLine(line, line, "観察")),
+      ...positiveLines.map(toBullet).filter(Boolean),
       "",
       "■ 3. 改善・対策が必要な話題",
-      ...issueLines.flatMap((line) => quoteEvidenceLine(line, line, "不足")),
+      ...issueLines.map(toBullet).filter(Boolean),
       "",
       "■ 4. 保護者への共有ポイント",
-      ...parentLines.flatMap((line) => quoteEvidenceLine(line, line, "共有")),
+      ...parentLines.map(toBullet).filter(Boolean),
     ].join("\n")
   );
 }

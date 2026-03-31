@@ -82,7 +82,7 @@ export function isValidDraftMarkdown(markdown: string | null | undefined, sessio
   const trimmed = repairSummaryMarkdownFormatting(String(markdown ?? ""));
   if (!trimmed.includes("■ 基本情報")) return false;
   if (sessionType === "LESSON_REPORT" && !trimmed.includes("■ 4. 室長・他講師への共有・連携事項")) return false;
-  if (sessionType !== "LESSON_REPORT" && !trimmed.includes("■ 4. 保護者への共有ポイント")) return false;
+  if (sessionType !== "LESSON_REPORT" && !trimmed.includes("■ 3. 改善・対策が必要な話題")) return false;
   return trimmed.length >= Math.min(Math.max(Math.floor(minChars * 0.72), 260), 900);
 }
 
@@ -94,7 +94,7 @@ export function isWeakDraftMarkdown(
 ) {
   const trimmed = repairSummaryMarkdownFormatting(String(markdown ?? ""));
   if (!isValidDraftMarkdown(trimmed, sessionType, minChars)) return true;
-  if (!/(?:^|\n)\s*(?:- |\* |・ )?(?:根拠|evidence|basis)[:：]/.test(trimmed)) return true;
+  if (sessionType === "LESSON_REPORT" && !/(?:^|\n)\s*(?:- |\* |・ )?(?:根拠|evidence|basis)[:：]/.test(trimmed)) return true;
   if (/##\s*授業前チェックイン|##\s*授業後チェックアウト|録音始めた|何喋ろうか忘れちゃった|質問もありますか|以上です。お疲れ/.test(trimmed)) {
     return true;
   }
@@ -109,5 +109,6 @@ export function isWeakDraftMarkdown(
   }
   if ((trimmed.match(/\n- /g) ?? []).length < 6) return true;
   if (/面談日:[^\n]+面談時間:/.test(trimmed)) return true;
+  if (trimmed.includes("根拠:")) return true;
   return false;
 }

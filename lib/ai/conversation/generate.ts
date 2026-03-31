@@ -7,12 +7,12 @@ import {
   buildConversationArtifactFromMarkdown,
 } from "@/lib/conversation-artifact";
 import { buildInterviewDraftFallbackMarkdown, buildLessonDraftFallbackMarkdown } from "./fallback";
-import { buildDraftRetrySystemPrompt, buildDraftSystemPrompt } from "./spec";
+import { buildDraftRetrySystemPrompt, buildDraftSystemPrompt, buildStructuredArtifactJsonSchema } from "./spec";
 import { buildDraftInputBlock, estimateTokens, formatSessionDateLabel, formatStudentLabel, formatTeacherLabel } from "./shared";
 import { callJsonGeneration } from "./transport";
 import type { DraftGenerationInput, DraftGenerationResult, SessionMode } from "./types";
 
-const PROMPT_VERSION = "v5.0";
+const PROMPT_VERSION = "v5.1";
 
 type StructuredDraftEntry = {
   label?: unknown;
@@ -68,6 +68,50 @@ function normalizeSectionText(value: unknown, maxChars = 120) {
     .trim();
 }
 
+function formatInterviewDateLabel(value?: string | Date | null) {
+  if (!value) return "";
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return `${date.getFullYear()}年${date.getMonth() + 1}月${date.getDate()}日`;
+}
+
+function formatDurationLabel(minutes?: number | null) {
+  if (typeof minutes !== "number" || !Number.isFinite(minutes) || minutes <= 0) return "未記録";
+  return `${Math.max(1, Math.round(minutes))}分`;
+}
+
+function stripEntryLabelPrefix(text: string) {
+  return text.replace(/^【[^】]+】\s*/, "").trim();
+}
+
+function ensureSentenceEnding(text: string) {
+  const trimmed = text.trim();
+  if (!trimmed) return "";
+  if (/[。！？]$/.test(trimmed)) return trimmed;
+  return `${trimmed}。`;
+}
+
+function wrapJapaneseParagraph(text: string, maxChars = 120) {
+  const cleaned = ensureSentenceEnding(text);
+  if (!cleaned) return [];
+  const sentences = cleaned.split(/(?<=。|！|？)/).map((part) => part.trim()).filter(Boolean);
+  if (sentences.length === 0) return [cleaned];
+
+  const lines: string[] = [];
+  let current = "";
+  for (const sentence of sentences) {
+    const next = current ? `${current}${sentence}` : sentence;
+    if (current && next.length > maxChars) {
+      lines.push(current);
+      current = sentence;
+      continue;
+    }
+    current = next;
+  }
+  if (current) lines.push(current);
+  return lines;
+}
+
 function normalizeEvidenceList(value: unknown, maxItems = 2) {
   if (!Array.isArray(value)) return [];
   const seen = new Set<string>();
@@ -116,12 +160,14 @@ function buildEntry(
     defaultClaimType?: ConversationArtifactEntry["claimType"];
     defaultActionType?: ConversationArtifactEntry["actionType"];
     maxTextChars?: number;
+    includeLabelInText?: boolean;
   }
 ) {
   const label = normalizeText(input.label ?? defaults.defaultLabel ?? "", 32);
   const textBody = normalizeSectionText(input.text, defaults.maxTextChars ?? 120);
   if (!textBody) return null;
-  const text = label && !textBody.startsWith("【") ? `【${label}】 ${textBody}` : textBody;
+  const includeLabelInText = defaults.includeLabelInText !== false;
+  const text = includeLabelInText && label && !textBody.startsWith("【") ? `【${label}】 ${textBody}` : textBody;
   const evidence = normalizeEvidenceList(input.evidence);
   const claimType = normalizeClaimType(input.claimType) ?? defaults.defaultClaimType;
   const actionType = normalizeActionType(input.actionType) ?? defaults.defaultActionType;
@@ -142,6 +188,7 @@ function normalizeEntryList(
     defaultClaimType?: ConversationArtifactEntry["claimType"];
     defaultActionType?: ConversationArtifactEntry["actionType"];
     maxTextChars?: number;
+    includeLabelInText?: boolean;
   },
   limit: number
 ) {
@@ -186,6 +233,25 @@ function renderEntryLines(entries: ConversationArtifactEntry[], options?: { forc
   return lines;
 }
 
+function renderInterviewSummaryLines(entries: ConversationArtifactEntry[]) {
+  const lines: string[] = [];
+  for (const entry of entries) {
+    const paragraph = ensureSentenceEnding(stripEntryLabelPrefix(entry.text));
+    if (!paragraph) continue;
+    lines.push(...wrapJapaneseParagraph(paragraph));
+    lines.push("");
+  }
+  if (lines.at(-1) === "") lines.pop();
+  return lines;
+}
+
+function renderInterviewBulletLines(entries: ConversationArtifactEntry[]) {
+  return entries
+    .map((entry) => ensureSentenceEnding(stripEntryLabelPrefix(entry.text)))
+    .filter(Boolean)
+    .map((text) => `- ${text}`);
+}
+
 function buildBasicInfoLines(sessionType: SessionMode, input: DraftGenerationInput, basicInfo?: Record<string, unknown> | null) {
   if (sessionType === "LESSON_REPORT") {
     return [
@@ -197,9 +263,10 @@ function buildBasicInfoLines(sessionType: SessionMode, input: DraftGenerationInp
   }
 
   return [
-    `生徒: ${normalizeText(basicInfo?.student, 40) || formatStudentLabel(input.studentName)}`,
-    `講師: ${normalizeText(basicInfo?.teacher, 40) || formatTeacherLabel(input.teacherName)}`,
-    `面談日: ${normalizeText(basicInfo?.date, 32) || formatSessionDateLabel(input.sessionDate) || "未記録"}`,
+    `対象生徒: ${normalizeText(basicInfo?.student, 40) || formatStudentLabel(input.studentName)} 様`,
+    `面談日: ${formatInterviewDateLabel(typeof basicInfo?.date === "string" ? basicInfo.date : null) || normalizeText(basicInfo?.date, 32) || formatInterviewDateLabel(input.sessionDate) || "未記録"}`,
+    `面談時間: ${formatDurationLabel(input.durationMinutes)}`,
+    `担当チューター: ${normalizeText(basicInfo?.teacher, 40) || formatTeacherLabel(input.teacherName)}`,
     `面談目的: ${normalizeText(basicInfo?.purpose, 64) || "学習状況の確認と次回方針の整理"}`,
   ];
 }
@@ -281,10 +348,9 @@ function buildSectionsFromEntries(
 
   return [
     { key: "basic_info", title: "基本情報", lines: basicInfoLines },
-    { key: "summary", title: "1. サマリー", lines: summary.flatMap((entry) => [entry.text, ...entry.evidence.slice(0, 2).map((evidence) => `根拠: ${evidence}`), ""]).filter(Boolean) },
-    { key: "details", title: "2. ポジティブな話題", lines: renderEntryLines(claims) },
-    { key: "actions", title: "3. 改善・対策が必要な話題", lines: renderEntryLines(nextActions) },
-    { key: "share", title: "4. 保護者への共有ポイント", lines: renderEntryLines(sharePoints, { forceLabel: "共有" }) },
+    { key: "summary", title: "1. サマリー", lines: renderInterviewSummaryLines(summary) },
+    { key: "details", title: "2. ポジティブな話題", lines: renderInterviewBulletLines(claims) },
+    { key: "actions", title: "3. 改善・対策が必要な話題", lines: renderInterviewBulletLines(nextActions) },
   ] satisfies ConversationArtifactSection[];
 }
 
@@ -295,7 +361,14 @@ function buildArtifactFromStructuredPayload(
 ) {
   const basicInfo = payload.basicInfo ?? null;
   const summary = ensureMinimum(
-    normalizeEntryList(payload.summary, {}, sessionType === "LESSON_REPORT" ? 3 : 4),
+    normalizeEntryList(
+      payload.summary,
+      {
+        maxTextChars: sessionType === "LESSON_REPORT" ? 180 : 360,
+        includeLabelInText: sessionType === "LESSON_REPORT",
+      },
+      sessionType === "LESSON_REPORT" ? 3 : 4
+    ),
     [],
     sessionType === "LESSON_REPORT" ? 2 : 2
   );
@@ -308,7 +381,7 @@ function buildArtifactFromStructuredPayload(
           2
         )
       : ensureMinimum(
-          normalizeEntryList(payload.claims, { defaultClaimType: "observed", maxTextChars: 110 }, 8),
+          normalizeEntryList(payload.claims, { defaultClaimType: "observed", maxTextChars: 180, includeLabelInText: false }, 8),
           [],
           3
         );
@@ -321,18 +394,32 @@ function buildArtifactFromStructuredPayload(
           3
         )
       : ensureMinimum(
-          normalizeEntryList(payload.nextActions, { defaultClaimType: "missing", defaultActionType: "assessment", maxTextChars: 110 }, 8),
+          normalizeEntryList(
+            payload.nextActions,
+            {
+              defaultClaimType: "missing",
+              defaultActionType: "assessment",
+              maxTextChars: 200,
+              includeLabelInText: false,
+            },
+            8
+          ),
           [],
           3
         );
 
   const sharePoints = ensureMinimum(
-    normalizeEntryList(payload.sharePoints, { maxTextChars: 110 }, 6),
+    normalizeEntryList(
+      payload.sharePoints,
+      { maxTextChars: sessionType === "LESSON_REPORT" ? 110 : 160, includeLabelInText: false },
+      6
+    ),
     [],
-    2
+    sessionType === "LESSON_REPORT" ? 2 : 1
   );
 
-  if (summary.length < 2 || claims.length < 2 || nextActions.length < 2 || sharePoints.length < 2) {
+  const minSharePoints = sessionType === "LESSON_REPORT" ? 2 : 1;
+  if (summary.length < 2 || claims.length < 2 || nextActions.length < 2 || sharePoints.length < minSharePoints) {
     return null;
   }
 
@@ -368,12 +455,19 @@ function buildStructuredUserPrompt(input: DraftGenerationInput, draftInput: { la
     `- 生徒: ${formatStudentLabel(input.studentName)}`,
     `- 講師: ${formatTeacherLabel(input.teacherName)}`,
     `- 日付: ${formatSessionDateLabel(input.sessionDate) || "不明"}`,
+    ...(input.sessionType === "INTERVIEW" ? [`- 面談時間目安: ${formatDurationLabel(input.durationMinutes)}`] : []),
     `- 最低文字数目安: ${input.minSummaryChars}`,
     "",
     "返答ルール:",
     "- JSON オブジェクトのみを返す。",
     "- 配列は空でもよいが、推測で埋めない。",
-    "- text は短い要点文にする。",
+    ...(input.sessionType === "INTERVIEW"
+      ? [
+          "- summary.text は、面談の流れが読めるまとまった段落にする。",
+          "- claims.text は前向きな事実を簡潔に書く。",
+          "- nextActions.text は課題と対策が分かる具体文にする。",
+        ]
+      : ["- text は短い要点文にする。"]),
     "- evidence は transcript から切り出した短い断片だけにする。",
     "",
     "入力:",
@@ -432,6 +526,7 @@ export async function generateConversationDraftFast(input: DraftGenerationInput)
   const model = getFastModel();
   const system = buildDraftSystemPrompt(sessionType);
   const user = buildStructuredUserPrompt(input, draftInput);
+  const jsonSchema = buildStructuredArtifactJsonSchema(sessionType);
   const promptInputTokensEstimate = estimateTokens(system) + estimateTokens(user);
 
   let apiCalls = 0;
@@ -449,6 +544,7 @@ export async function generateConversationDraftFast(input: DraftGenerationInput)
       max_output_tokens: sessionType === "LESSON_REPORT" ? 2200 : 2000,
       prompt_cache_key: buildPromptCacheKey("artifact-fast", sessionType),
       prompt_cache_retention: supportsExtendedPromptCaching(model) ? "24h" : "in_memory",
+      json_schema: jsonSchema,
     });
     const artifact = buildArtifactFromStructuredPayload(sessionType, input, (json ?? {}) as StructuredDraftPayload);
     if (artifact) {
@@ -487,6 +583,7 @@ export async function generateConversationDraftFast(input: DraftGenerationInput)
       max_output_tokens: sessionType === "LESSON_REPORT" ? 2400 : 2200,
       prompt_cache_key: buildPromptCacheKey("artifact-fast-repair", sessionType),
       prompt_cache_retention: supportsExtendedPromptCaching(model) ? "24h" : "in_memory",
+      json_schema: jsonSchema,
     });
     const artifact = buildArtifactFromStructuredPayload(sessionType, input, (json ?? {}) as StructuredDraftPayload);
     if (artifact) {
