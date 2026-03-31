@@ -29,6 +29,12 @@ export type SessionPartMeta = {
   pipelineStage?: SessionPartPipelineStage;
   errorSource?: SessionPartErrorSource;
   uploadMode?: "file_upload" | "direct_recording" | "manual";
+  transcriptionPhase?:
+    | "SPLITTING"
+    | "TRANSCRIBING_SINGLE"
+    | "TRANSCRIBING_CHUNKS"
+    | "MERGING_TRANSCRIPT";
+  transcriptionPhaseUpdatedAt?: string;
   lastAcceptedAt?: string;
   lastQueuedAt?: string;
   lastCompletedAt?: string;
@@ -40,6 +46,15 @@ export type SessionPartMeta = {
   liveReadyChunkCount?: number;
   liveErrorChunkCount?: number;
   liveDurationSeconds?: number;
+  fileSplitUsed?: boolean;
+  fileSplitMinSeconds?: number;
+  fileChunkSeconds?: number;
+  fileChunkConcurrency?: number;
+  fileChunkPlannedCount?: number;
+  fileChunkCount?: number;
+  fileChunkCompletedCount?: number;
+  sttPlanRequestCount?: number;
+  sttPlanRequestWaves?: number;
   [key: string]: unknown;
 };
 

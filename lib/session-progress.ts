@@ -1,5 +1,6 @@
 import type { GenerationProgressState, GenerationStep, GenerationStepStatus } from "@/lib/generation-progress";
 import { readSessionPartMeta } from "@/lib/session-part-meta";
+import { buildTranscriptionPlan } from "@/lib/transcription-plan";
 
 export type SessionProgressStage =
   | "IDLE"
@@ -147,6 +148,89 @@ function estimateConversationProgress(conversation: SessionProgressConversationL
   if (finalizeJob.status === "QUEUED") return clamp(start + 8, start, end);
   if (finalizeJob.status === "ERROR") return clamp(end - 4, start, end);
   return estimateElapsedProgress(start, end, finalizeJob.startedAt ?? conversation?.createdAt, 16_000);
+}
+
+type DetailedTranscriptionCopy = {
+  statusLabel: string;
+  title: string;
+  description: string;
+  value: number;
+};
+
+function buildDetailedTranscriptionCopy(
+  part: SessionProgressPartLike | null,
+  sessionType: "INTERVIEW" | "LESSON_REPORT",
+  start: number,
+  end: number,
+  options: {
+    unitLabel: string;
+    acceptedTitle: string;
+    acceptedDescription: string;
+  }
+): DetailedTranscriptionCopy {
+  if (!part) {
+    return {
+      statusLabel: "文字起こし中",
+      title: options.acceptedTitle,
+      description: options.acceptedDescription,
+      value: start,
+    };
+  }
+
+  const meta = readSessionPartMeta(part.qualityMetaJson);
+  const audioDurationSeconds =
+    readNonNegativeNumber(meta.audioDurationSeconds) ?? readNonNegativeNumber(meta.liveDurationSeconds);
+  const plan = buildTranscriptionPlan({
+    sessionType,
+    durationSeconds: audioDurationSeconds,
+  });
+  const phase = typeof meta.transcriptionPhase === "string" ? meta.transcriptionPhase : null;
+  const plannedChunkCount = Math.max(
+    1,
+    readNonNegativeNumber(meta.fileChunkCount) ??
+      readNonNegativeNumber(meta.fileChunkPlannedCount) ??
+      plan.chunkCount
+  );
+  const completedChunkCount = clamp(readNonNegativeNumber(meta.fileChunkCompletedCount) ?? 0, 0, plannedChunkCount);
+  const splitConcurrency = Math.max(1, readNonNegativeNumber(meta.fileChunkConcurrency) ?? plan.concurrency);
+  const phaseUpdatedAt =
+    (typeof meta.transcriptionPhaseUpdatedAt === "string" ? meta.transcriptionPhaseUpdatedAt : null) ??
+    (typeof meta.lastQueuedAt === "string" ? meta.lastQueuedAt : null);
+
+  if (plan.shouldSplit && phase === "SPLITTING") {
+    return {
+      statusLabel: "音声分割中",
+      title: `${options.unitLabel}を準備しています`,
+      description: `${plan.chunkSeconds}秒ごとに安全に分けています。長い音声でも止まりにくい状態にしてから文字起こしへ進みます。`,
+      value: estimateElapsedProgress(start, Math.min(start + 10, end - 6), phaseUpdatedAt, 8_000),
+    };
+  }
+
+  if (plan.shouldSplit && phase === "TRANSCRIBING_CHUNKS") {
+    const ratio = clamp((completedChunkCount + 0.2) / plannedChunkCount, 0.08, 0.96);
+    return {
+      statusLabel: "文字起こし中",
+      title: `${options.unitLabel}を文字起こし中です`,
+      description: `${plannedChunkCount}本中${completedChunkCount}本完了。${splitConcurrency}本ずつ並列で処理しています。このまま閉じても大丈夫です。`,
+      value: progressFromRatio(start + 6, end, ratio),
+    };
+  }
+
+  if (plan.shouldSplit && phase === "MERGING_TRANSCRIPT") {
+    return {
+      statusLabel: "取りまとめ中",
+      title: "文字起こし結果をまとめています",
+      description: "chunk ごとの結果を一本の文字起こしに統合しています。完了するとすぐログ生成に進みます。",
+      value: estimateElapsedProgress(Math.max(start + 10, start), end, phaseUpdatedAt, 9_000),
+    };
+  }
+
+  return {
+    statusLabel: "文字起こし中",
+    title: options.acceptedTitle,
+    description: options.acceptedDescription,
+    value: estimatePartProgress(part, start, end),
+  };
 }
 
 function extractRejectedMessage(parts: SessionProgressPartLike[]) {
@@ -395,9 +479,14 @@ export function buildSessionProgressState(input: SessionProgressInput): SessionP
     }
 
     if (hasReadyCheckIn && isBusy(checkOut)) {
+      const detail = buildDetailedTranscriptionCopy(checkOut, input.type, 56, 76, {
+        unitLabel: "チェックアウト音声",
+        acceptedTitle: "チェックアウトを文字起こし中です",
+        acceptedDescription: "保存受付は完了しています。このまま閉じても大丈夫です。",
+      });
       return {
         stage: "TRANSCRIBING",
-        statusLabel: "チェックアウト文字起こし中",
+        statusLabel: detail.statusLabel,
         canLeavePage: true,
         canOpenLog: false,
         openLogId: null,
@@ -405,10 +494,10 @@ export function buildSessionProgressState(input: SessionProgressInput): SessionP
         progress: buildProgressPayload(
           labels,
           1,
-          "チェックアウトを文字起こし中です",
-          "保存受付は完了しています。このまま閉じても大丈夫です。",
+          detail.title,
+          detail.description,
           undefined,
-          estimatePartProgress(checkOut, 56, 76)
+          detail.value
         ),
       };
     }
@@ -433,9 +522,14 @@ export function buildSessionProgressState(input: SessionProgressInput): SessionP
     }
 
     if (hasReadyCheckOut && isBusy(checkIn)) {
+      const detail = buildDetailedTranscriptionCopy(checkIn, input.type, 18, 42, {
+        unitLabel: "チェックイン音声",
+        acceptedTitle: "チェックインを文字起こし中です",
+        acceptedDescription: "保存受付は完了しています。このまま閉じても大丈夫です。",
+      });
       return {
         stage: "TRANSCRIBING",
-        statusLabel: "チェックイン文字起こし中",
+        statusLabel: detail.statusLabel,
         canLeavePage: true,
         canOpenLog: false,
         openLogId: null,
@@ -443,18 +537,23 @@ export function buildSessionProgressState(input: SessionProgressInput): SessionP
         progress: buildProgressPayload(
           labels,
           0,
-          "チェックインを文字起こし中です",
-          "保存受付は完了しています。このまま閉じても大丈夫です。",
+          detail.title,
+          detail.description,
           undefined,
-          estimatePartProgress(checkIn, 18, 42)
+          detail.value
         ),
       };
     }
 
     if (isBusy(checkIn)) {
+      const detail = buildDetailedTranscriptionCopy(checkIn, input.type, 16, 36, {
+        unitLabel: "チェックイン音声",
+        acceptedTitle: "チェックインを受け付けました",
+        acceptedDescription: "まずは文字起こしを進めています。このまま閉じても大丈夫です。",
+      });
       return {
         stage: "TRANSCRIBING",
-        statusLabel: "チェックイン文字起こし中",
+        statusLabel: detail.statusLabel,
         canLeavePage: true,
         canOpenLog: false,
         openLogId: null,
@@ -462,18 +561,23 @@ export function buildSessionProgressState(input: SessionProgressInput): SessionP
         progress: buildProgressPayload(
           labels,
           0,
-          "チェックインを受け付けました",
-          "まずは文字起こしを進めています。このまま閉じても大丈夫です。",
+          detail.title,
+          detail.description,
           undefined,
-          estimatePartProgress(checkIn, 16, 36)
+          detail.value
         ),
       };
     }
 
     if (isBusy(checkOut)) {
+      const detail = buildDetailedTranscriptionCopy(checkOut, input.type, 50, 72, {
+        unitLabel: "チェックアウト音声",
+        acceptedTitle: "チェックアウトを受け付けました",
+        acceptedDescription: "文字起こしが終わりしだい、指導報告ログに進みます。",
+      });
       return {
         stage: "TRANSCRIBING",
-        statusLabel: "チェックアウト文字起こし中",
+        statusLabel: detail.statusLabel,
         canLeavePage: true,
         canOpenLog: false,
         openLogId: null,
@@ -481,10 +585,10 @@ export function buildSessionProgressState(input: SessionProgressInput): SessionP
         progress: buildProgressPayload(
           labels,
           1,
-          "チェックアウトを受け付けました",
-          "文字起こしが終わりしだい、指導報告ログに進みます。",
+          detail.title,
+          detail.description,
           undefined,
-          estimatePartProgress(checkOut, 50, 72)
+          detail.value
         ),
       };
     }
@@ -510,9 +614,14 @@ export function buildSessionProgressState(input: SessionProgressInput): SessionP
     }
 
     if (isBusy(full)) {
+      const detail = buildDetailedTranscriptionCopy(full, input.type, 24, 68, {
+        unitLabel: "面談音声",
+        acceptedTitle: "音声を受け付けました",
+        acceptedDescription: "文字起こしを進めています。このまま閉じても大丈夫です。",
+      });
       return {
         stage: "TRANSCRIBING",
-        statusLabel: "文字起こし中",
+        statusLabel: detail.statusLabel,
         canLeavePage: true,
         canOpenLog: false,
         openLogId: null,
@@ -520,10 +629,10 @@ export function buildSessionProgressState(input: SessionProgressInput): SessionP
         progress: buildProgressPayload(
           labels,
           1,
-          "音声を受け付けました",
-          "文字起こしを進めています。このまま閉じても大丈夫です。",
+          detail.title,
+          detail.description,
           undefined,
-          estimatePartProgress(full, 24, 68)
+          detail.value
         ),
       };
     }

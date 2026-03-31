@@ -13,6 +13,7 @@
     "test:generation-progress": "tsx scripts/test-generation-progress.ts",
     "test:stt-fallback": "tsx scripts/test-stt-fallback.ts",
     "test:session-progress": "tsx scripts/test-session-progress.ts",
+    "test:transcription-plan": "tsx scripts/test-transcription-plan.ts",
     "test:conversation-eval": "tsx scripts/test-conversation-eval.ts",
     "test:lesson-report-flow": "tsx scripts/test-lesson-report-flow.ts",
     "test:log-render-and-llm-retries": "tsx scripts/test-log-render-and-llm-retries.ts",

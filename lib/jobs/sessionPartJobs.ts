@@ -27,6 +27,7 @@ import { readSessionPartUpload } from "@/lib/session-part-storage";
 import { getAudioExpiryDate } from "@/lib/system-config";
 import { preprocessTranscript, preprocessTranscriptWithSegments } from "@/lib/transcript/preprocess";
 import { ensureSessionPartReviewedTranscript } from "@/lib/transcript/review";
+import { buildTranscriptionPlan } from "@/lib/transcription-plan";
 import {
   enqueueConversationJobs,
   processAllConversationJobs,
@@ -35,42 +36,6 @@ import {
 const JOB_EXECUTION_RETRIES = 2;
 const activeSessionRuns = new Set<string>();
 
-function readClampedEnvInt(names: string[], fallback: number, min: number, max: number) {
-  for (const name of names) {
-    const raw = process.env[name];
-    if (raw === undefined) continue;
-    const value = Number(raw);
-    if (!Number.isFinite(value)) continue;
-    return Math.max(min, Math.min(max, Math.floor(value)));
-  }
-  return Math.max(min, Math.min(max, Math.floor(fallback)));
-}
-
-const FILE_SPLIT_MIN_SECONDS = readClampedEnvInt(["FILE_SPLIT_MIN_SECONDS"], 75, 60, 300);
-const FILE_SPLIT_CHUNK_SECONDS_INTERVIEW = readClampedEnvInt(
-  ["FILE_SPLIT_CHUNK_SECONDS_INTERVIEW", "FILE_SPLIT_CHUNK_SECONDS"],
-  60,
-  20,
-  120
-);
-const FILE_SPLIT_CHUNK_SECONDS_LESSON = readClampedEnvInt(
-  ["FILE_SPLIT_CHUNK_SECONDS_LESSON", "FILE_SPLIT_CHUNK_SECONDS"],
-  45,
-  20,
-  120
-);
-const FILE_SPLIT_CONCURRENCY_INTERVIEW = readClampedEnvInt(
-  ["FILE_SPLIT_CONCURRENCY_INTERVIEW", "FILE_SPLIT_CONCURRENCY"],
-  8,
-  1,
-  8
-);
-const FILE_SPLIT_CONCURRENCY_LESSON = readClampedEnvInt(
-  ["FILE_SPLIT_CONCURRENCY_LESSON", "FILE_SPLIT_CONCURRENCY"],
-  8,
-  1,
-  8
-);
 const MAX_TRANSCRIPTION_RECOVERY_ATTEMPTS = 4;
 const MAX_PROMOTION_RECOVERY_ATTEMPTS = 5;
 
@@ -183,16 +148,53 @@ async function transcribeStoredFile(part: SessionPartPayload) {
     typeof part.qualityMetaJson?.audioDurationSeconds === "number"
       ? Number(part.qualityMetaJson.audioDurationSeconds)
       : null;
-  const splitChunkSeconds =
-    part.sessionType === SessionType.LESSON_REPORT
-      ? FILE_SPLIT_CHUNK_SECONDS_LESSON
-      : FILE_SPLIT_CHUNK_SECONDS_INTERVIEW;
-  const splitConcurrency =
-    part.sessionType === SessionType.LESSON_REPORT
-      ? FILE_SPLIT_CONCURRENCY_LESSON
-      : FILE_SPLIT_CONCURRENCY_INTERVIEW;
-  const shouldSplit = durationSeconds !== null && Number.isFinite(durationSeconds) && durationSeconds >= FILE_SPLIT_MIN_SECONDS;
+  const plan = buildTranscriptionPlan({
+    sessionType: part.sessionType,
+    durationSeconds,
+  });
+  const splitChunkSeconds = plan.chunkSeconds;
+  const splitConcurrency = plan.concurrency;
+  const shouldSplit = plan.shouldSplit;
   const startedAt = Date.now();
+  let liveMeta =
+    part.qualityMetaJson && typeof part.qualityMetaJson === "object" && !Array.isArray(part.qualityMetaJson)
+      ? ({ ...part.qualityMetaJson } as Record<string, unknown>)
+      : {};
+  liveMeta = {
+    ...liveMeta,
+    fileSplitUsed: shouldSplit,
+    fileSplitMinSeconds: plan.minSplitSeconds,
+    fileChunkSeconds: splitChunkSeconds,
+    fileChunkConcurrency: splitConcurrency,
+    fileChunkPlannedCount: plan.chunkCount,
+    sttPlanRequestCount: plan.requestCount,
+    sttPlanRequestWaves: plan.requestWaves,
+    transcriptionPhase: shouldSplit ? "SPLITTING" : "TRANSCRIBING_SINGLE",
+    transcriptionPhaseUpdatedAt: new Date().toISOString(),
+  };
+  let metaPersistChain = Promise.resolve();
+  const queueMetaPatch = (patch: Record<string, unknown>) => {
+    liveMeta = {
+      ...liveMeta,
+      ...patch,
+    };
+    const snapshot = { ...liveMeta };
+    metaPersistChain = metaPersistChain
+      .then(async () => {
+        await prisma.sessionPart.update({
+          where: { id: part.id },
+          data: {
+            qualityMetaJson: toPrismaJson(snapshot),
+          },
+        });
+      })
+      .catch((error) => {
+        console.error("[sessionPartJobs] Failed to persist transcription progress meta:", error);
+      });
+    return metaPersistChain;
+  };
+
+  await queueMetaPatch({});
 
   if (!shouldSplit) {
     const buffer = await readSessionPartUpload(part.storageUrl);
@@ -242,12 +244,27 @@ async function transcribeStoredFile(part: SessionPartPayload) {
         sttQualityWarnings: stt.meta.qualityWarnings,
         fileSplitUsed: false,
         sttNormalizedRetryUsed: normalizedRetryUsed,
+        fileChunkPlannedCount: 1,
+        fileChunkCount: 1,
+        fileChunkCompletedCount: 1,
+        sttPlanRequestCount: 1,
+        sttPlanRequestWaves: 1,
+        transcriptionPhase: "TRANSCRIBING_SINGLE",
       },
     };
   }
 
+  const splitStartedAt = Date.now();
   const chunkDir = `${part.storageUrl}.chunks`;
   const chunkPaths = await splitAudioIntoChunks(part.storageUrl, chunkDir, splitChunkSeconds);
+  const splitSeconds = Math.round((Date.now() - splitStartedAt) / 1000);
+  await queueMetaPatch({
+    fileChunkCount: chunkPaths.length,
+    fileChunkCompletedCount: 0,
+    transcriptionPhase: "TRANSCRIBING_CHUNKS",
+    transcriptionPhaseUpdatedAt: new Date().toISOString(),
+    sttSplitSeconds: splitSeconds,
+  });
   const durationsMs = await Promise.all(chunkPaths.map((chunkPath) => getAudioDurationMs(chunkPath)));
   const offsetsMs: number[] = [];
   let cursorMs = 0;
@@ -257,6 +274,7 @@ async function transcribeStoredFile(part: SessionPartPayload) {
   }
 
   try {
+    let completedChunkCount = 0;
     const results = await mapWithConcurrency(chunkPaths, splitConcurrency, async (chunkPath, index) => {
       const chunkStartedAt = Date.now();
       const buffer = await readSessionPartUpload(chunkPath);
@@ -271,6 +289,12 @@ async function transcribeStoredFile(part: SessionPartPayload) {
         rawSegments.length > 0
           ? preprocessTranscriptWithSegments(stt.rawTextOriginal, rawSegments)
           : preprocessTranscript(stt.rawTextOriginal);
+      completedChunkCount += 1;
+      await queueMetaPatch({
+        fileChunkCompletedCount: completedChunkCount,
+        transcriptionPhase: "TRANSCRIBING_CHUNKS",
+        transcriptionPhaseUpdatedAt: new Date().toISOString(),
+      });
       return {
         pre,
         stt,
@@ -279,6 +303,12 @@ async function transcribeStoredFile(part: SessionPartPayload) {
       };
     });
 
+    const mergeStartedAt = Date.now();
+    await queueMetaPatch({
+      fileChunkCompletedCount: chunkPaths.length,
+      transcriptionPhase: "MERGING_TRANSCRIPT",
+      transcriptionPhaseUpdatedAt: new Date().toISOString(),
+    });
     const combinedOriginal = results
       .map((result) => String(result.pre.rawTextOriginal ?? "").trim())
       .filter(Boolean)
@@ -315,10 +345,18 @@ async function transcribeStoredFile(part: SessionPartPayload) {
         fileChunkCount: chunkPaths.length,
         fileChunkSeconds: splitChunkSeconds,
         fileChunkConcurrency: splitConcurrency,
+        fileChunkCompletedCount: chunkPaths.length,
         fileChunkWallClockSeconds: results.map((result) => result.wallClockSeconds),
+        sttSplitSeconds: splitSeconds,
+        sttMergeSeconds: Math.round((Date.now() - mergeStartedAt) / 1000),
+        sttPlanRequestCount: plan.requestCount,
+        sttPlanRequestWaves: plan.requestWaves,
+        fileChunkPlannedCount: plan.chunkCount,
+        transcriptionPhase: "MERGING_TRANSCRIPT",
       },
     };
   } finally {
+    await metaPersistChain;
     await cleanupChunkDirectory(chunkDir);
   }
 }

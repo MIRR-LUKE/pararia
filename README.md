@@ -219,13 +219,18 @@ PARARIA は、塾・個別指導・学習コーチング向けの `Teaching OS` 
 - 1 回の生成で structured artifact を作り、表示用 markdown はそこから派生させる
 - hidden な polish を走らせない
 - transcript 表示整形は `FORMAT` に分離し、常時実行しない
-- file upload は server-side chunking を使う
+- file upload は server 側で分割してから STT に渡す
 - ユーザーが選べる音声ファイルは `.mp3` / `.m4a` のみ
 - chunking 条件:
   - `75 秒以上` で分割
-  - 面談は `60 秒` chunk
+  - 面談は `120 秒` chunk
   - 指導報告は `45 秒` chunk
   - `最大 8 並列`
+- 60 分面談の plan benchmark:
+  - 旧 `60 秒 x 60 本 / 8 wave`
+  - 新 `120 秒 x 30 本 / 4 wave`
+  - API 呼び出し本数と wave 数をどちらも `50%` 削減
+- 長い面談ファイルは UI 上で `音声分割 -> 文字起こし -> 取りまとめ -> ログ生成` を分けて表示する
 - session progress API で UI を早く戻す
 - poll で worker を再キックできる
 
@@ -468,6 +473,8 @@ PARARIA は、塾・個別指導・学習コーチング向けの `Teaching OS` 
   - part から conversation を作る
 - `lib/session-progress.ts`
   - Student Room の進捗状態
+- `lib/transcription-plan.ts`
+  - 面談 / 指導報告ごとの file upload chunk plan
 - `lib/transcript/source.ts`
   - evidence 用 transcript と display 用 transcript の切り分け
 - `lib/transcript/glossary.ts`
@@ -528,7 +535,7 @@ PARARIA_AUDIO_RETENTION_DAYS=14
 
 ## 16. 現在の smoke check
 
-2026-03-27 に次を実行して通過確認済み:
+2026-03-31 に次を実行して通過確認済み:
 
 - `npm run typecheck`
 - `npm run test:audio-upload-support`
@@ -539,6 +546,7 @@ PARARIA_AUDIO_RETENTION_DAYS=14
 - `npm run test:log-render-and-llm-retries`
 - `npm run test:live-transcription`
 - `npm run test:session-progress`
+- `npm run test:transcription-plan`
 - `npm run test:stt-fallback`
 - `npm run test:transcript-preprocess`
 - `npm run test:transcript-review`
