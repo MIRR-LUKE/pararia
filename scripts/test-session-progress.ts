@@ -106,35 +106,7 @@ const emptyTranscriptError = buildSessionProgressState({
 
 assert.equal(emptyTranscriptError.stage, "ERROR");
 assert.match(emptyTranscriptError.progress.title, /再取得/);
-assert.match(emptyTranscriptError.progress.description, /別方式/);
-
-const longInterviewSplitting = buildSessionProgressState({
-  sessionId: "session-long-splitting",
-  type: "INTERVIEW",
-  parts: [
-    {
-      id: "part-long-splitting",
-      partType: "FULL",
-      status: "TRANSCRIBING",
-      rawTextOriginal: null,
-      rawTextCleaned: null,
-      qualityMetaJson: {
-        uploadMode: "file_upload",
-        audioDurationSeconds: 3600,
-        fileChunkSeconds: 120,
-        fileChunkPlannedCount: 30,
-        transcriptionPhase: "SPLITTING",
-        transcriptionPhaseUpdatedAt: new Date("2026-03-31T10:00:00.000Z").toISOString(),
-      },
-    },
-  ],
-  conversation: null,
-});
-
-assert.equal(longInterviewSplitting.stage, "TRANSCRIBING");
-assert.equal(longInterviewSplitting.statusLabel, "音声分割中");
-assert.match(longInterviewSplitting.progress.title, /準備/);
-assert.match(longInterviewSplitting.progress.description, /120秒ごと/);
+assert.match(emptyTranscriptError.progress.description, /ローカル STT/);
 
 const longInterviewTranscribing = buildSessionProgressState({
   sessionId: "session-long-transcribing",
@@ -149,11 +121,8 @@ const longInterviewTranscribing = buildSessionProgressState({
       qualityMetaJson: {
         uploadMode: "file_upload",
         audioDurationSeconds: 3600,
-        fileChunkSeconds: 120,
-        fileChunkConcurrency: 8,
-        fileChunkPlannedCount: 30,
-        fileChunkCompletedCount: 12,
-        transcriptionPhase: "TRANSCRIBING_CHUNKS",
+        transcriptionPhase: "TRANSCRIBING_LOCAL",
+        transcriptionPhaseUpdatedAt: new Date("2026-03-31T10:00:00.000Z").toISOString(),
       },
     },
   ],
@@ -162,8 +131,8 @@ const longInterviewTranscribing = buildSessionProgressState({
 
 assert.equal(longInterviewTranscribing.stage, "TRANSCRIBING");
 assert.equal(longInterviewTranscribing.statusLabel, "文字起こし中");
-assert.match(longInterviewTranscribing.progress.description, /30本中12本完了/);
-assert.match(longInterviewTranscribing.progress.description, /8本ずつ並列/);
+assert.match(longInterviewTranscribing.progress.title, /文字起こし中/);
+assert.match(longInterviewTranscribing.progress.description, /ローカルGPU/);
 
 const longInterviewMerging = buildSessionProgressState({
   sessionId: "session-long-merging",
@@ -178,10 +147,7 @@ const longInterviewMerging = buildSessionProgressState({
       qualityMetaJson: {
         uploadMode: "file_upload",
         audioDurationSeconds: 3600,
-        fileChunkSeconds: 120,
-        fileChunkPlannedCount: 30,
-        fileChunkCompletedCount: 30,
-        transcriptionPhase: "MERGING_TRANSCRIPT",
+        transcriptionPhase: "FINALIZING_TRANSCRIPT",
         transcriptionPhaseUpdatedAt: new Date("2026-03-31T10:01:00.000Z").toISOString(),
       },
     },
@@ -191,6 +157,6 @@ const longInterviewMerging = buildSessionProgressState({
 
 assert.equal(longInterviewMerging.stage, "TRANSCRIBING");
 assert.equal(longInterviewMerging.statusLabel, "取りまとめ中");
-assert.match(longInterviewMerging.progress.title, /まとめています/);
+assert.match(longInterviewMerging.progress.title, /整えています/);
 
 console.log("session-progress regression checks passed");

@@ -28,7 +28,6 @@ import { toPrismaJson } from "@/lib/prisma-json";
 import { getAudioExpiryDate, getTranscriptExpiryDate } from "@/lib/system-config";
 import { preprocessTranscript } from "@/lib/transcript/preprocess";
 import { ensureSessionPartReviewedTranscript } from "@/lib/transcript/review";
-import { buildTranscriptionPlan } from "@/lib/transcription-plan";
 
 function parsePartType(raw: string | null) {
   if (raw === SessionPartType.CHECK_IN) return SessionPartType.CHECK_IN;
@@ -160,10 +159,6 @@ export async function POST(
         fileName: file.name,
         buffer,
       });
-      const transcriptionPlan = buildTranscriptionPlan({
-        sessionType: sessionRow.type,
-        durationSeconds: durationGate.durationSeconds,
-      });
       qualityMeta = {
         pipelineStage: "TRANSCRIBING",
         uploadMode: "file_upload",
@@ -174,15 +169,9 @@ export async function POST(
         uploadedBytes: stored.byteSize,
         audioDurationSeconds: durationGate.durationSeconds,
         durationGateSkipped: durationGate.skippedReason ?? null,
-        fileSplitUsed: transcriptionPlan.shouldSplit,
-        fileSplitMinSeconds: transcriptionPlan.minSplitSeconds,
-        fileChunkSeconds: transcriptionPlan.chunkSeconds,
-        fileChunkConcurrency: transcriptionPlan.concurrency,
-        fileChunkPlannedCount: transcriptionPlan.chunkCount,
-        sttPlanRequestCount: transcriptionPlan.requestCount,
-        sttPlanRequestWaves: transcriptionPlan.requestWaves,
-        transcriptionPhase: transcriptionPlan.shouldSplit ? "SPLITTING" : "TRANSCRIBING_SINGLE",
+        transcriptionPhase: "TRANSCRIBING_LOCAL",
         transcriptionPhaseUpdatedAt: new Date().toISOString(),
+        sttEngine: "faster-whisper",
       };
 
       const part = await prisma.sessionPart.upsert({

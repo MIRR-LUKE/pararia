@@ -1,18 +1,20 @@
+import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { randomUUID } from "node:crypto";
+import { mkdir, rm, writeFile } from "node:fs/promises";
+import path from "node:path";
+import { getRuntimePath } from "@/lib/runtime-paths";
 import { normalizeRawTranscriptText } from "@/lib/transcript/source";
 
 type TranscribeInput = {
-  buffer: Buffer;
+  buffer?: Buffer;
+  filePath?: string;
   filename?: string;
   mimeType?: string;
   language?: string;
-  knownSpeakerSamples?: Array<{ name: string; referenceDataUrl: string }>;
 };
 
-const STT_MODEL = "gpt-4o-transcribe-diarize";
-const STT_RESPONSE_FORMAT = "diarized_json" as const;
-const STT_CHUNKING_STRATEGY = "auto" as const;
-const STT_FALLBACK_MODEL = "gpt-4o-transcribe";
-const STT_FALLBACK_RESPONSE_FORMAT = "json" as const;
+const LOCAL_STT_MODEL = process.env.FASTER_WHISPER_MODEL?.trim() || "large-v3";
+const LOCAL_STT_RESPONSE_FORMAT = "segments_json" as const;
 
 export type TranscriptSegment = {
   id?: number | string;
@@ -28,120 +30,58 @@ export type SegmentedTranscriptResult = {
   segments: TranscriptSegment[];
 };
 
+export type TranscriptQualityWarning =
+  | "too_many_short_segments"
+  | "adjacent_duplicates_removed";
+
 export type PipelineTranscriptionResult = SegmentedTranscriptResult & {
   meta: {
     model: string;
-    responseFormat: SttResponseFormat;
+    responseFormat: typeof LOCAL_STT_RESPONSE_FORMAT;
     recoveryUsed: boolean;
-    fallbackUsed: boolean;
+    fallbackUsed: false;
     attemptCount: number;
     segmentCount: number;
-    speakerCount: number;
+    speakerCount: 0;
     qualityWarnings: TranscriptQualityWarning[];
   };
 };
 
-type SttResponseFormat = typeof STT_RESPONSE_FORMAT | typeof STT_FALLBACK_RESPONSE_FORMAT;
-export type TranscriptQualityWarning =
-  | "missing_speaker_labels"
-  | "single_speaker_detected"
-  | "too_many_short_segments"
-  | "adjacent_duplicates_removed";
+type WorkerRequest = {
+  id: string;
+  audio_path: string;
+  language: string;
+};
 
-function getApiKey() {
-  const apiKey = process.env.OPENAI_API_KEY || process.env.STT_API_KEY || "";
-  if (!apiKey) {
-    throw new Error("OPENAI_API_KEY or STT_API_KEY is required.");
-  }
-  return apiKey;
-}
+type WorkerSegment = {
+  id?: number | string;
+  start?: number;
+  end?: number;
+  text?: string;
+};
 
-function getPrimaryTimeoutMs(bufferSize: number) {
-  const fileSizeMB = bufferSize / (1024 * 1024);
-  return Math.min(Math.max(60000, fileSizeMB * 15000), 120000);
-}
+type WorkerSuccessResponse = {
+  id: string;
+  ok: true;
+  text?: string;
+  segments?: WorkerSegment[];
+  model?: string;
+  device?: string;
+  compute_type?: string;
+};
 
-function buildTranscriptionForm(input: TranscribeInput, config: {
-  model: string;
-  responseFormat: SttResponseFormat;
-  chunkingStrategy?: typeof STT_CHUNKING_STRATEGY;
-}) {
-  const form = new FormData();
-  const blob = new Blob([new Uint8Array(input.buffer)], {
-    type: input.mimeType || "application/octet-stream",
-  });
-  form.append("file", blob, input.filename || "audio.webm");
-  form.append("model", config.model);
-  form.append("language", input.language || "ja");
-  form.append("response_format", config.responseFormat);
-  if (config.chunkingStrategy) {
-    form.append("chunking_strategy", config.chunkingStrategy);
-  }
+type WorkerErrorResponse = {
+  id: string;
+  ok: false;
+  error?: string;
+};
 
-  for (const sample of input.knownSpeakerSamples ?? []) {
-    if (!sample?.name?.trim() || !sample?.referenceDataUrl?.trim()) continue;
-    form.append("known_speaker_names[]", sample.name.trim());
-    form.append("known_speaker_references[]", sample.referenceDataUrl.trim());
-  }
+type WorkerResponse = WorkerSuccessResponse | WorkerErrorResponse;
 
-  return form;
-}
-
-function tryParseErrorPayload(text: string) {
-  try {
-    return JSON.parse(text) as {
-      error?: {
-        message?: string;
-        param?: string;
-        code?: string;
-      };
-    };
-  } catch {
-    return null;
-  }
-}
-
-async function callTranscriptionApi(form: FormData, timeoutMs: number) {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-
-  try {
-    const res = await fetch("https://api.openai.com/v1/audio/transcriptions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${getApiKey()}`,
-      },
-      body: form,
-      signal: controller.signal,
-    });
-
-    const contentType = res.headers.get("content-type") || "";
-    if (!res.ok) {
-      const text = await res.text().catch(() => "");
-      let detail: unknown = text || res.statusText;
-      try {
-        detail = text ? JSON.parse(text) : { error: res.statusText };
-      } catch {
-        // keep raw text
-      }
-      throw new Error(`STT failed (${res.status}): ${JSON.stringify(detail)}`);
-    }
-
-    if (/application\/json/i.test(contentType)) {
-      return res.json();
-    }
-
-    const text = await res.text();
-    return { text };
-  } catch (error: any) {
-    if (error?.name === "AbortError") {
-      throw new Error("Speech-to-text timed out. Try a shorter file or retry later.");
-    }
-    throw error;
-  } finally {
-    clearTimeout(timeoutId);
-  }
-}
+type PendingWorkerRequest = {
+  resolve: (value: WorkerSuccessResponse) => void;
+  reject: (reason?: unknown) => void;
+};
 
 function normalizeSegmentText(text: unknown) {
   return typeof text === "string" ? text.replace(/\r\n/g, "\n").replace(/\r/g, "\n").trim() : "";
@@ -160,12 +100,6 @@ function joinSegmentText(left: string, right: string) {
   return `${left}${right}`.trim();
 }
 
-function pickSpeakerLabel(left?: string, right?: string) {
-  const a = typeof left === "string" && left.trim() ? left.trim() : "";
-  const b = typeof right === "string" && right.trim() ? right.trim() : "";
-  return a || b || undefined;
-}
-
 function buildRawTextFromSegments(segments: TranscriptSegment[]) {
   return segments
     .map((segment) => normalizeSegmentText(segment.text))
@@ -174,54 +108,28 @@ function buildRawTextFromSegments(segments: TranscriptSegment[]) {
     .trim();
 }
 
-function mapRawSegments(data: {
-  segments?: Array<Record<string, unknown>>;
-}) {
-  if (!Array.isArray(data.segments)) return [];
-  return data.segments
-    .map((segment) => ({
-      id:
-        typeof segment.id === "number" || typeof segment.id === "string"
-          ? segment.id
-          : undefined,
-      seek: typeof segment.seek === "number" ? segment.seek : undefined,
-      start: typeof segment.start === "number" ? segment.start : undefined,
-      end: typeof segment.end === "number" ? segment.end : undefined,
-      text: typeof segment.text === "string" ? segment.text.trim() : "",
-      speaker: typeof segment.speaker === "string" ? segment.speaker.trim() || undefined : undefined,
-    }))
-    .filter((segment) => Boolean(segment.text));
-}
-
 function normalizeSegments(data: {
-  segments?: Array<Record<string, unknown>>;
-  text?: string;
+  segments?: WorkerSegment[];
 }): {
   segments: TranscriptSegment[];
-  speakerCount: number;
   qualityWarnings: TranscriptQualityWarning[];
-  removedDuplicateCount: number;
 } {
   if (!Array.isArray(data.segments)) {
     return {
       segments: [],
-      speakerCount: 0,
       qualityWarnings: [],
-      removedDuplicateCount: 0,
     };
   }
 
   const mapped = data.segments
-    .map((segment) => ({
+    .map((segment, index) => ({
       id:
         typeof segment.id === "number" || typeof segment.id === "string"
           ? segment.id
-          : undefined,
-      seek: typeof segment.seek === "number" ? segment.seek : undefined,
+          : index,
       start: typeof segment.start === "number" ? segment.start : undefined,
       end: typeof segment.end === "number" ? segment.end : undefined,
       text: normalizeSegmentText(segment.text),
-      speaker: typeof segment.speaker === "string" ? segment.speaker.trim() || undefined : undefined,
     }))
     .filter((segment) => Boolean(segment.text));
 
@@ -241,22 +149,16 @@ function normalizeSegments(data: {
       typeof previous.end === "number" && typeof current.start === "number"
         ? current.start - previous.end
         : null;
-    const sameSpeaker =
-      previous.speaker &&
-      current.speaker &&
-      previous.speaker === current.speaker;
     const exactDuplicate =
       previousComparable.length > 0 &&
       previousComparable === currentComparable &&
       (gap === null || gap <= 1.2);
     const overlapDuplicate =
-      sameSpeaker &&
       previousComparable.length > 8 &&
       currentComparable.length > 8 &&
       (previousComparable.includes(currentComparable) || currentComparable.includes(previousComparable)) &&
       (gap === null || gap <= 0.8);
     const shortContinuation =
-      sameSpeaker &&
       gap !== null &&
       gap >= 0 &&
       gap <= 0.35 &&
@@ -271,7 +173,6 @@ function normalizeSegments(data: {
         ...previous,
         end: typeof current.end === "number" ? current.end : previous.end,
         text: richerText,
-        speaker: pickSpeakerLabel(previous.speaker, current.speaker),
       };
       removedDuplicateCount += 1;
       continue;
@@ -282,7 +183,6 @@ function normalizeSegments(data: {
         ...previous,
         end: typeof current.end === "number" ? current.end : previous.end,
         text: joinSegmentText(previous.text ?? "", current.text ?? ""),
-        speaker: pickSpeakerLabel(previous.speaker, current.speaker),
       };
       continue;
     }
@@ -290,184 +190,235 @@ function normalizeSegments(data: {
     merged.push(current);
   }
 
-  const speakerCount = new Set(
-    merged
-      .map((segment) => (typeof segment.speaker === "string" ? segment.speaker.trim() : ""))
-      .filter(Boolean)
-  ).size;
   const shortSegmentRatio =
     merged.length > 0
       ? merged.filter((segment) => comparableSegmentText(segment.text ?? "").length <= 4).length / merged.length
       : 0;
 
   const qualityWarnings: TranscriptQualityWarning[] = [];
-  if (speakerCount === 0 && merged.length > 0) qualityWarnings.push("missing_speaker_labels");
-  if (speakerCount === 1 && merged.length >= 6) qualityWarnings.push("single_speaker_detected");
   if (shortSegmentRatio >= 0.55 && merged.length >= 8) qualityWarnings.push("too_many_short_segments");
   if (removedDuplicateCount > 0) qualityWarnings.push("adjacent_duplicates_removed");
 
   return {
     segments: merged,
-    speakerCount,
     qualityWarnings,
-    removedDuplicateCount,
   };
 }
 
-async function transcribeAttempt(args: {
-  input: TranscribeInput;
-  model: string;
-  responseFormat: SttResponseFormat;
-  chunkingStrategy?: typeof STT_CHUNKING_STRATEGY;
-  fallbackUsed?: boolean;
-  timeoutMs: number;
-}) {
-  const data = (await callTranscriptionApi(
-    buildTranscriptionForm(args.input, {
-      model: args.model,
-      responseFormat: args.responseFormat,
-      chunkingStrategy: args.chunkingStrategy,
-    }),
-    args.timeoutMs
-  )) as {
-    text?: string;
-    segments?: Array<Record<string, unknown>>;
-  };
+function readWorkerCommand() {
+  return process.env.FASTER_WHISPER_WORKER_COMMAND?.trim() || process.env.FASTER_WHISPER_PYTHON?.trim() || "python";
+}
 
-  const rawSegments = mapRawSegments(data);
-  const normalized = normalizeSegments(data);
-  const segments = normalized.segments;
-  const rawTextOriginal =
-    (normalizeRawTranscriptText(typeof data.text === "string" ? data.text : "") ||
-      normalizeRawTranscriptText(buildRawTextFromSegments(rawSegments)) ||
-      normalizeRawTranscriptText(buildRawTextFromSegments(segments)))
-      .trim();
+function readWorkerArgs() {
+  const raw = process.env.FASTER_WHISPER_WORKER_ARGS_JSON?.trim();
+  if (raw) {
+    try {
+      const parsed = JSON.parse(raw) as unknown;
+      if (Array.isArray(parsed) && parsed.every((value) => typeof value === "string")) {
+        return parsed;
+      }
+    } catch {
+      throw new Error("FASTER_WHISPER_WORKER_ARGS_JSON must be a JSON string array.");
+    }
+  }
+  return [path.join(process.cwd(), "scripts", "faster_whisper_worker.py")];
+}
 
-  if (!rawTextOriginal) {
-    throw new Error("STT returned an empty transcript.");
+function buildWorkerError(message: string, stderr: string) {
+  const detail = stderr.trim();
+  if (!detail) {
+    return new Error(message);
+  }
+  return new Error(`${message}\n${detail}`);
+}
+
+class FasterWhisperWorker {
+  private child: ChildProcessWithoutNullStreams | null = null;
+  private pending = new Map<string, PendingWorkerRequest>();
+  private stdoutBuffer = "";
+  private stderrBuffer = "";
+
+  private handleStdoutChunk(chunk: Buffer | string) {
+    this.stdoutBuffer += String(chunk);
+    while (true) {
+      const newlineIndex = this.stdoutBuffer.indexOf("\n");
+      if (newlineIndex < 0) break;
+      const line = this.stdoutBuffer.slice(0, newlineIndex).trim();
+      this.stdoutBuffer = this.stdoutBuffer.slice(newlineIndex + 1);
+      if (!line) continue;
+      let payload: WorkerResponse;
+      try {
+        payload = JSON.parse(line) as WorkerResponse;
+      } catch {
+        this.rejectAll(buildWorkerError("faster-whisper worker returned invalid JSON.", this.stderrBuffer));
+        return;
+      }
+      const pending = this.pending.get(payload.id);
+      if (!pending) continue;
+      this.pending.delete(payload.id);
+      if (payload.ok) {
+        pending.resolve(payload);
+      } else {
+        pending.reject(buildWorkerError(payload.error?.trim() || "Local STT worker failed.", this.stderrBuffer));
+      }
+    }
   }
 
-  const speakerCount = new Set(
-    segments
-      .map((segment) => (typeof segment.speaker === "string" ? segment.speaker.trim() : ""))
-      .filter(Boolean)
-  ).size;
+  private handleExit = (code: number | null, signal: NodeJS.Signals | null) => {
+    const message =
+      signal
+        ? `faster-whisper worker exited with signal ${signal}.`
+        : `faster-whisper worker exited with code ${code ?? "unknown"}.`;
+    this.child = null;
+    this.stdoutBuffer = "";
+    const error = buildWorkerError(message, this.stderrBuffer);
+    this.stderrBuffer = "";
+    this.rejectAll(error);
+  };
+
+  private rejectAll(error: Error) {
+    for (const pending of this.pending.values()) {
+      pending.reject(error);
+    }
+    this.pending.clear();
+  }
+
+  private ensureWorker() {
+    if (this.child && !this.child.killed) {
+      return this.child;
+    }
+
+    const child = spawn(readWorkerCommand(), readWorkerArgs(), {
+      cwd: process.cwd(),
+      stdio: ["pipe", "pipe", "pipe"],
+      env: process.env,
+    });
+
+    child.stdout.on("data", (chunk) => this.handleStdoutChunk(chunk));
+    child.stderr.on("data", (chunk) => {
+      this.stderrBuffer += String(chunk);
+    });
+    child.on("error", (error) => {
+      this.child = null;
+      this.rejectAll(buildWorkerError(`faster-whisper worker could not start: ${error.message}`, this.stderrBuffer));
+    });
+    child.on("exit", this.handleExit);
+
+    this.child = child;
+    return child;
+  }
+
+  async transcribe(input: {
+    audioPath: string;
+    language: string;
+  }) {
+    const child = this.ensureWorker();
+    const id = randomUUID();
+    const payload: WorkerRequest = {
+      id,
+      audio_path: input.audioPath,
+      language: input.language,
+    };
+
+    return new Promise<WorkerSuccessResponse>((resolve, reject) => {
+      this.pending.set(id, { resolve, reject });
+      child.stdin.write(`${JSON.stringify(payload)}\n`, (error) => {
+        if (!error) return;
+        this.pending.delete(id);
+        reject(buildWorkerError(`faster-whisper worker write failed: ${error.message}`, this.stderrBuffer));
+      });
+    });
+  }
+
+  shutdown() {
+    const child = this.child;
+    this.child = null;
+    this.stdoutBuffer = "";
+    const stderr = this.stderrBuffer;
+    this.stderrBuffer = "";
+    this.rejectAll(buildWorkerError("faster-whisper worker stopped.", stderr));
+    if (!child) return;
+    child.stdin.end();
+    child.kill();
+  }
+}
+
+const sharedWorker = new FasterWhisperWorker();
+
+export function stopLocalSttWorker() {
+  sharedWorker.shutdown();
+}
+
+async function materializeInputFile(input: TranscribeInput) {
+  if (input.filePath?.trim()) {
+    return {
+      audioPath: path.resolve(input.filePath),
+      cleanup: async () => {},
+    };
+  }
+  if (!input.buffer) {
+    throw new Error("buffer or filePath is required for local STT.");
+  }
+
+  const tempDir = getRuntimePath("temp", "stt");
+  await mkdir(tempDir, { recursive: true });
+  const extension = path.extname(input.filename || "").trim() || ".bin";
+  const tempPath = path.join(tempDir, `${Date.now()}-${randomUUID()}${extension}`);
+  await writeFile(tempPath, input.buffer);
 
   return {
-    rawTextOriginal,
-    segments: rawSegments.length > 0 ? rawSegments : segments,
-    meta: {
-      model: args.model,
-      responseFormat: args.responseFormat,
-      recoveryUsed: false,
-      fallbackUsed: args.fallbackUsed === true,
-      attemptCount: 1,
-      segmentCount: rawSegments.length || segments.length,
-      speakerCount,
-      qualityWarnings: normalized.qualityWarnings,
+    audioPath: tempPath,
+    cleanup: async () => {
+      await rm(tempPath, { force: true }).catch(() => {});
     },
   };
 }
 
-function isEmptyTranscriptError(error: unknown) {
-  const message = String((error as any)?.message ?? "");
-  return /empty transcript/i.test(message);
-}
-
-function shouldRetryStt(error: unknown) {
-  const message = String((error as any)?.message ?? "");
-  if (/timed out/i.test(message)) return true;
-
-  const payload = tryParseErrorPayload(message);
-  const statusMatch = message.match(/STT failed \((\d+)\)/i);
-  const statusCode = statusMatch ? Number(statusMatch[1]) : null;
-
-  if (statusCode !== null && statusCode >= 500) return true;
-  if (statusCode === 429) return true;
-  if (payload?.error?.code === "rate_limit_exceeded") return true;
-  return false;
-}
-
 export async function transcribeAudio({
   buffer,
-  filename = "audio.webm",
+  filePath,
+  filename = filePath ? path.basename(filePath) : "audio.webm",
   mimeType = "audio/webm",
   language = "ja",
 }: TranscribeInput): Promise<string> {
-  const result = await transcribeAudioForPipeline({ buffer, filename, mimeType, language });
+  const result = await transcribeAudioForPipeline({ buffer, filePath, filename, mimeType, language });
   return result.rawTextOriginal;
 }
 
 export async function transcribeAudioForPipeline(input: TranscribeInput): Promise<PipelineTranscriptionResult> {
+  const file = await materializeInputFile(input);
   try {
-    return await transcribeAttempt({
-      input,
-      model: STT_MODEL,
-      responseFormat: STT_RESPONSE_FORMAT,
-      chunkingStrategy: STT_CHUNKING_STRATEGY,
-      timeoutMs: getPrimaryTimeoutMs(input.buffer.length),
+    const response = await sharedWorker.transcribe({
+      audioPath: file.audioPath,
+      language: input.language || "ja",
     });
-  } catch (error) {
-    if (isEmptyTranscriptError(error)) {
-      const fallback = await transcribeAttempt({
-        input,
-        model: STT_FALLBACK_MODEL,
-        responseFormat: STT_FALLBACK_RESPONSE_FORMAT,
-        fallbackUsed: true,
-        timeoutMs: getPrimaryTimeoutMs(input.buffer.length),
-      });
 
-      return {
-        ...fallback,
-        meta: {
-          ...fallback.meta,
-          attemptCount: 2,
-        },
-      };
+    const normalized = normalizeSegments({
+      segments: response.segments,
+    });
+    const rawTextOriginal =
+      normalizeRawTranscriptText(typeof response.text === "string" ? response.text : "") ||
+      normalizeRawTranscriptText(buildRawTextFromSegments(normalized.segments));
+
+    if (!rawTextOriginal) {
+      throw new Error("Local STT returned an empty transcript.");
     }
 
-    if (!shouldRetryStt(error)) {
-      throw error;
-    }
-
-    try {
-      const recovered = await transcribeAttempt({
-        input,
-        model: STT_MODEL,
-        responseFormat: STT_RESPONSE_FORMAT,
-        chunkingStrategy: STT_CHUNKING_STRATEGY,
-        timeoutMs: getPrimaryTimeoutMs(input.buffer.length),
-      });
-
-      return {
-        ...recovered,
-        meta: {
-          ...recovered.meta,
-          recoveryUsed: true,
-          attemptCount: 2,
-        },
-      };
-    } catch (retryError) {
-      if (!isEmptyTranscriptError(retryError)) {
-        throw retryError;
-      }
-
-      const fallback = await transcribeAttempt({
-        input,
-        model: STT_FALLBACK_MODEL,
-        responseFormat: STT_FALLBACK_RESPONSE_FORMAT,
-        fallbackUsed: true,
-        timeoutMs: getPrimaryTimeoutMs(input.buffer.length),
-      });
-
-      return {
-        ...fallback,
-        meta: {
-          ...fallback.meta,
-          recoveryUsed: true,
-          attemptCount: 3,
-        },
-      };
-    }
+    return {
+      rawTextOriginal,
+      segments: normalized.segments,
+      meta: {
+        model: `faster-whisper:${response.model?.trim() || LOCAL_STT_MODEL}`,
+        responseFormat: LOCAL_STT_RESPONSE_FORMAT,
+        recoveryUsed: false,
+        fallbackUsed: false,
+        attemptCount: 1,
+        segmentCount: normalized.segments.length,
+        speakerCount: 0,
+        qualityWarnings: normalized.qualityWarnings,
+      },
+    };
+  } finally {
+    await file.cleanup();
   }
 }

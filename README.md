@@ -17,7 +17,8 @@ PARARIA は、塾・個別指導・学習コーチング向けの `Teaching OS` 
 - retry と deterministic recovery は最後の保険で、fallback 前提の設計にはしない
 - `reviewState` が transcript review の現在状態を表す正本
 - `qualityMetaJson.transcriptReview` は review が必要な理由と件数の説明だけを持つ
-- 固有名詞辞書は `内部用` と `外部 STT ヒント用` を分け、provider に送る語は `sendToProvider=true` だけに絞る
+- STT は OpenAI 音声 API を使わず、ローカル GPU の `faster-whisper` を正本にする
+- 固有名詞辞書の `sendToProvider` は将来の外部 STT 切り替え用に残しているが、現行の local STT では使わない
 - `summaryMarkdown` は画面表示や互換用に保存する派生物
 - ログ生成は `ConversationJob.FINALIZE` を中心に動き、失敗時は retry / stale recovery を持つ
 - 自動の後段 polish は **ない**
@@ -220,18 +221,10 @@ PARARIA は、塾・個別指導・学習コーチング向けの `Teaching OS` 
 - 1 回の生成で structured artifact を作り、表示用 markdown はそこから派生させる
 - hidden な polish を走らせない
 - transcript 表示整形は `FORMAT` に分離し、常時実行しない
-- file upload は server 側で分割してから STT に渡す
+- file upload は server 側で丸ごと受け取り、ローカル worker にそのまま渡す
 - ユーザーが選べる音声ファイルは `.mp3` / `.m4a` のみ
-- chunking 条件:
-  - `75 秒以上` で分割
-  - 面談は `120 秒` chunk
-  - 指導報告は `45 秒` chunk
-  - `最大 8 並列`
-- 60 分面談の plan benchmark:
-  - 旧 `60 秒 x 60 本 / 8 wave`
-  - 新 `120 秒 x 30 本 / 4 wave`
-  - API 呼び出し本数と wave 数をどちらも `50%` 削減
-- 長い面談ファイルは UI 上で `音声分割 -> 文字起こし -> 取りまとめ -> ログ生成` を分けて表示する
+- STT worker は長い音声でも 1 本のファイルとして扱い、モデル読み込み後はそのまま全文を起こす
+- UI は `文字起こし中 -> 取りまとめ中 -> ログ生成中` を分けて表示する
 - session progress API で UI を早く戻す
 - poll で worker を再キックできる
 
@@ -349,7 +342,7 @@ PARARIA は、塾・個別指導・学習コーチング向けの `Teaching OS` 
   - markdown そのものを正本として再解釈しない
 - `rawTextOriginal`
   - 元 transcript
-  - provider の返り値を意味を変えずに保存する evidence の保存先
+  - local STT worker の返り値を意味を変えずに保存する evidence の保存先
   - 行末統一と trim 以外の sanitize はしない
 - `reviewedText`
   - proper noun suggestion を反映した確認用 transcript
@@ -409,7 +402,7 @@ PARARIA は、塾・個別指導・学習コーチング向けの `Teaching OS` 
 - `POST /api/sessions/[id]/parts/live`
   - live chunk 累積 duration を見て reject
 - duration 不明なら strict に reject する経路を持つ
-- 面談の diarized STT が空で返った場合は、通常 transcription に 1 段フォールバックして救済する
+- local STT が音声形式を読めないときだけ、同じ local STT のまま一度 `AAC/M4A` へ正規化して再実行する
 
 ## 12. 進捗表示
 
@@ -503,12 +496,14 @@ PARARIA は、塾・個別指導・学習コーチング向けの `Teaching OS` 
   - `FINALIZE / FORMAT` と retry / observability
 - `lib/jobs/sessionPartJobs.ts`
   - STT、live finalize、session promotion
+- `lib/ai/stt.ts`
+  - Node から local `faster-whisper` worker を呼ぶ橋
+- `scripts/faster_whisper_worker.py`
+  - 常駐の `faster-whisper` worker
 - `lib/session-service.ts`
   - part から conversation を作る
 - `lib/session-progress.ts`
   - Student Room の進捗状態
-- `lib/transcription-plan.ts`
-  - 面談 / 指導報告ごとの file upload chunk plan
 - `lib/transcript/source.ts`
   - evidence 用 transcript と display 用 transcript の切り分け
 - `lib/transcript/glossary.ts`
@@ -567,9 +562,29 @@ PARARIA_TRANSCRIPT_RETENTION_DAYS=14
 PARARIA_AUDIO_RETENTION_DAYS=14
 ```
 
+## 15.1 ローカル STT セットアップ
+
+- Python `3.9+` を入れる
+- `pip install faster-whisper` を実行する
+- GPU で動かすときは `faster-whisper` README にある NVIDIA 依存を入れる
+  - 公式 README では `CUDA 12 + cuDNN 9` が基本
+  - Windows では `whisper-standalone-win` の配布ライブラリを `PATH` に置く方法も案内されている
+- GTX 1070 などの手元 GPU でまず試すなら、初期値は `FASTER_WHISPER_COMPUTE_TYPE=int8_float16` のままでよい
+- `FASTER_WHISPER_DEVICE=auto` のままなら、worker は最初に CUDA を試し、だめなら CPU へ落ちる
+- worker コマンドを変えたいときだけ `FASTER_WHISPER_PYTHON` か `FASTER_WHISPER_WORKER_ARGS_JSON` を使う
+- 初回起動時は Hugging Face からモデルを取得するので、最初の 1 回だけ時間がかかる
+
+現行の STT 実行は次の前提です。
+
+- 音声は `scripts/faster_whisper_worker.py` の常駐 worker で起こす
+- 同じモデルを使ったまま transcript を作る
+- 旧 OpenAI STT / diarized fallback / file chunk plan は使わない
+- `rawTextOriginal` は local STT の返り値をそのまま保存する
+- `rawTextCleaned` は display 用の軽整形だけに使う
+
 ## 16. 現在の smoke check
 
-2026-03-31 に次を実行して通過確認済み:
+2026-04-01 に次を実行して通過確認済み:
 
 - `npm run typecheck`
 - `npm run test:audio-upload-support`
@@ -577,11 +592,10 @@ PARARIA_AUDIO_RETENTION_DAYS=14
 - `npm run test:conversation-eval -- --out .tmp/conversation-eval-report.md`
 - `npm run test:generation-progress`
 - `npm run test:lesson-report-flow`
+- `npm run test:local-stt`
 - `npm run test:log-render-and-llm-retries`
 - `npm run test:live-transcription`
 - `npm run test:session-progress`
-- `npm run test:transcription-plan`
-- `npm run test:stt-fallback`
 - `npm run test:transcript-preprocess`
 - `npm run test:transcript-review`
 - `npx tsx scripts/test-conversation-artifact-semantics.ts`

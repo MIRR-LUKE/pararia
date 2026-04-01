@@ -57,7 +57,7 @@
 
 - `npm run typecheck`
 - `npm run test:session-progress`
-- `npm run test:stt-fallback`
+- `npm run test:local-stt`
 - `npm run build`
 
 ## ラベル

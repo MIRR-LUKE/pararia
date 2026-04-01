@@ -51,7 +51,7 @@ Pararia では見るべき点が多い。
 - `npm run test:audio-upload-support`
 - `npm run test:conversation-eval -- --out .tmp/conversation-eval-report.md`
 - `npm run test:session-progress`
-- `npm run test:stt-fallback`
+- `npm run test:local-stt`
 - 現在の固定 2 ケースは `2/2 PASS`
 
 ## ラベル

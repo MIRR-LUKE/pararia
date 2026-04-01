@@ -245,10 +245,9 @@ export async function startLiveChunkTranscription(sessionId: string, partType: S
     if (!chunk || chunk.status === "READY") return;
 
     try {
-      const buffer = await readFile(chunk.storageUrl);
       const sttStart = Date.now();
       const stt = await transcribeAudioForPipeline({
-        buffer,
+        filePath: chunk.storageUrl,
         filename: chunk.fileName || "audio.webm",
         mimeType: chunk.mimeType || "audio/webm",
         language: "ja",

@@ -1,13 +1,7 @@
-import path from "node:path";
 import { JobStatus, Prisma, SessionPartJobType, SessionPartStatus, SessionPartType, SessionType } from "@prisma/client";
 import { transcribeAudioForPipeline } from "@/lib/ai/stt";
-import {
-  cleanupChunkDirectory,
-  getAudioDurationMs,
-  guessAudioMimeType,
-  normalizeAudioForStt,
-  splitAudioIntoChunks,
-} from "@/lib/audio-chunking";
+import { rm } from "node:fs/promises";
+import { normalizeAudioForStt } from "@/lib/audio-processing";
 import { prisma } from "@/lib/db";
 import { finalizeLiveTranscriptionPart } from "@/lib/live-session-transcription";
 import {
@@ -23,11 +17,9 @@ import {
   ensureConversationForSession,
   updateSessionStatusFromParts,
 } from "@/lib/session-service";
-import { readSessionPartUpload } from "@/lib/session-part-storage";
 import { getAudioExpiryDate } from "@/lib/system-config";
 import { preprocessTranscript, preprocessTranscriptWithSegments } from "@/lib/transcript/preprocess";
 import { ensureSessionPartReviewedTranscript } from "@/lib/transcript/review";
-import { buildTranscriptionPlan } from "@/lib/transcription-plan";
 import {
   enqueueConversationJobs,
   processAllConversationJobs,
@@ -110,51 +102,11 @@ function partHasTranscript(part: Pick<SessionPartPayload, "rawTextOriginal" | "r
   return Boolean(part.rawTextCleaned?.trim() || part.rawTextOriginal?.trim());
 }
 
-function offsetSegments(segments: any[], offsetMs: number) {
-  const offsetSeconds = offsetMs / 1000;
-  return segments.map((segment) => ({
-    ...segment,
-    start: typeof segment?.start === "number" ? segment.start + offsetSeconds : segment?.start,
-    end: typeof segment?.end === "number" ? segment.end + offsetSeconds : segment?.end,
-  }));
-}
-
-async function mapWithConcurrency<T, R>(
-  items: T[],
-  concurrency: number,
-  mapper: (item: T, index: number) => Promise<R>
-) {
-  const results = new Array<R>(items.length);
-  let cursor = 0;
-  const workerCount = Math.min(Math.max(1, concurrency), items.length || 1);
-  const workers = Array.from({ length: workerCount }, async () => {
-    while (true) {
-      const current = cursor;
-      cursor += 1;
-      if (current >= items.length) return;
-      results[current] = await mapper(items[current], current);
-    }
-  });
-  await Promise.all(workers);
-  return results;
-}
-
 async function transcribeStoredFile(part: SessionPartPayload) {
   if (!part.storageUrl) {
     throw new Error("session part storage is missing");
   }
 
-  const durationSeconds =
-    typeof part.qualityMetaJson?.audioDurationSeconds === "number"
-      ? Number(part.qualityMetaJson.audioDurationSeconds)
-      : null;
-  const plan = buildTranscriptionPlan({
-    sessionType: part.sessionType,
-    durationSeconds,
-  });
-  const splitChunkSeconds = plan.chunkSeconds;
-  const splitConcurrency = plan.concurrency;
-  const shouldSplit = plan.shouldSplit;
   const startedAt = Date.now();
   let liveMeta =
     part.qualityMetaJson && typeof part.qualityMetaJson === "object" && !Array.isArray(part.qualityMetaJson)
@@ -162,15 +114,9 @@ async function transcribeStoredFile(part: SessionPartPayload) {
       : {};
   liveMeta = {
     ...liveMeta,
-    fileSplitUsed: shouldSplit,
-    fileSplitMinSeconds: plan.minSplitSeconds,
-    fileChunkSeconds: splitChunkSeconds,
-    fileChunkConcurrency: splitConcurrency,
-    fileChunkPlannedCount: plan.chunkCount,
-    sttPlanRequestCount: plan.requestCount,
-    sttPlanRequestWaves: plan.requestWaves,
-    transcriptionPhase: shouldSplit ? "SPLITTING" : "TRANSCRIBING_SINGLE",
+    transcriptionPhase: "TRANSCRIBING_LOCAL",
     transcriptionPhaseUpdatedAt: new Date().toISOString(),
+    sttEngine: "faster-whisper",
   };
   let metaPersistChain = Promise.resolve();
   const queueMetaPatch = (patch: Record<string, unknown>) => {
@@ -196,169 +142,63 @@ async function transcribeStoredFile(part: SessionPartPayload) {
 
   await queueMetaPatch({});
 
-  if (!shouldSplit) {
-    const buffer = await readSessionPartUpload(part.storageUrl);
-    let stt;
-    let normalizedRetryUsed = false;
-    try {
-      stt = await transcribeAudioForPipeline({
-        buffer,
-        filename: part.fileName || "audio.webm",
-        mimeType: part.mimeType || "audio/webm",
-        language: "ja",
-      });
-    } catch (error) {
-      if (!isUnsupportedAudioError(error)) throw error;
-      const normalizedPath = `${part.storageUrl}.stt-normalized.m4a`;
-      try {
-        await normalizeAudioForStt(part.storageUrl, normalizedPath);
-        const normalizedBuffer = await readSessionPartUpload(normalizedPath);
-        stt = await transcribeAudioForPipeline({
-          buffer: normalizedBuffer,
-          filename: "audio-normalized.m4a",
-          mimeType: "audio/mp4",
-          language: "ja",
-        });
-        normalizedRetryUsed = true;
-      } finally {
-        await cleanupChunkDirectory(normalizedPath);
-      }
-    }
-    const pre =
-      stt.segments.length > 0
-        ? preprocessTranscriptWithSegments(stt.rawTextOriginal, stt.segments ?? [])
-        : preprocessTranscript(stt.rawTextOriginal);
-    return {
-      pre,
-      segments: stt.segments ?? [],
-      qualityMeta: {
-        ...(part.qualityMetaJson ?? {}),
-        sttSeconds: Math.round((Date.now() - startedAt) / 1000),
-        sttModel: stt.meta.model,
-        sttResponseFormat: stt.meta.responseFormat,
-        sttRecoveryUsed: stt.meta.recoveryUsed,
-        sttFallbackUsed: stt.meta.fallbackUsed,
-        sttAttemptCount: stt.meta.attemptCount,
-        sttSegmentCount: stt.meta.segmentCount,
-        sttSpeakerCount: stt.meta.speakerCount,
-        sttQualityWarnings: stt.meta.qualityWarnings,
-        fileSplitUsed: false,
-        sttNormalizedRetryUsed: normalizedRetryUsed,
-        fileChunkPlannedCount: 1,
-        fileChunkCount: 1,
-        fileChunkCompletedCount: 1,
-        sttPlanRequestCount: 1,
-        sttPlanRequestWaves: 1,
-        transcriptionPhase: "TRANSCRIBING_SINGLE",
-      },
-    };
-  }
-
-  const splitStartedAt = Date.now();
-  const chunkDir = `${part.storageUrl}.chunks`;
-  const chunkPaths = await splitAudioIntoChunks(part.storageUrl, chunkDir, splitChunkSeconds);
-  const splitSeconds = Math.round((Date.now() - splitStartedAt) / 1000);
-  await queueMetaPatch({
-    fileChunkCount: chunkPaths.length,
-    fileChunkCompletedCount: 0,
-    transcriptionPhase: "TRANSCRIBING_CHUNKS",
-    transcriptionPhaseUpdatedAt: new Date().toISOString(),
-    sttSplitSeconds: splitSeconds,
-  });
-  const durationsMs = await Promise.all(chunkPaths.map((chunkPath) => getAudioDurationMs(chunkPath)));
-  const offsetsMs: number[] = [];
-  let cursorMs = 0;
-  for (const durationMs of durationsMs) {
-    offsetsMs.push(cursorMs);
-    cursorMs += durationMs;
-  }
-
+  let stt;
+  let normalizedRetryUsed = false;
   try {
-    let completedChunkCount = 0;
-    const results = await mapWithConcurrency(chunkPaths, splitConcurrency, async (chunkPath, index) => {
-      const chunkStartedAt = Date.now();
-      const buffer = await readSessionPartUpload(chunkPath);
-      const stt = await transcribeAudioForPipeline({
-        buffer,
-        filename: path.basename(chunkPath) || `chunk-${index}.m4a`,
-        mimeType: guessAudioMimeType(chunkPath),
+    stt = await transcribeAudioForPipeline({
+      filePath: part.storageUrl,
+      filename: part.fileName || "audio.webm",
+      mimeType: part.mimeType || "audio/webm",
+      language: "ja",
+    });
+  } catch (error) {
+    if (!isUnsupportedAudioError(error)) throw error;
+    const normalizedPath = `${part.storageUrl}.stt-normalized.m4a`;
+    try {
+      await normalizeAudioForStt(part.storageUrl, normalizedPath);
+      stt = await transcribeAudioForPipeline({
+        filePath: normalizedPath,
+        filename: "audio-normalized.m4a",
+        mimeType: "audio/mp4",
         language: "ja",
       });
-      const rawSegments = offsetSegments(stt.segments ?? [], offsetsMs[index] ?? 0);
-      const pre =
-        rawSegments.length > 0
-          ? preprocessTranscriptWithSegments(stt.rawTextOriginal, rawSegments)
-          : preprocessTranscript(stt.rawTextOriginal);
-      completedChunkCount += 1;
-      await queueMetaPatch({
-        fileChunkCompletedCount: completedChunkCount,
-        transcriptionPhase: "TRANSCRIBING_CHUNKS",
-        transcriptionPhaseUpdatedAt: new Date().toISOString(),
-      });
-      return {
-        pre,
-        stt,
-        rawSegments,
-        wallClockSeconds: Math.round((Date.now() - chunkStartedAt) / 1000),
-      };
-    });
-
-    const mergeStartedAt = Date.now();
-    await queueMetaPatch({
-      fileChunkCompletedCount: chunkPaths.length,
-      transcriptionPhase: "MERGING_TRANSCRIPT",
-      transcriptionPhaseUpdatedAt: new Date().toISOString(),
-    });
-    const combinedOriginal = results
-      .map((result) => String(result.pre.rawTextOriginal ?? "").trim())
-      .filter(Boolean)
-      .join("\n")
-      .trim();
-    const combinedSegments = results.flatMap((result) => result.rawSegments);
-    const pre =
-      combinedSegments.length > 0
-        ? preprocessTranscriptWithSegments(combinedOriginal, combinedSegments)
-        : preprocessTranscript(combinedOriginal);
-    const speakerCount = new Set(
-      combinedSegments
-        .map((segment) => (typeof segment?.speaker === "string" ? segment.speaker.trim() : ""))
-        .filter(Boolean)
-    ).size;
-    const qualityWarnings = Array.from(
-      new Set(results.flatMap((result) => result.stt.meta.qualityWarnings ?? []))
-    );
-    return {
-      pre,
-      segments: combinedSegments,
-      qualityMeta: {
-        ...(part.qualityMetaJson ?? {}),
-        sttSeconds: Math.round((Date.now() - startedAt) / 1000),
-        sttModel: results[0]?.stt.meta.model ?? "gpt-4o-transcribe-diarize",
-        sttResponseFormat: results[0]?.stt.meta.responseFormat ?? "diarized_json",
-        sttRecoveryUsed: results.some((result) => result.stt.meta.recoveryUsed),
-        sttFallbackUsed: results.some((result) => result.stt.meta.fallbackUsed),
-        sttAttemptCount: results.reduce((total, result) => total + Number(result.stt.meta.attemptCount ?? 1), 0),
-        sttSegmentCount: combinedSegments.length,
-        sttSpeakerCount: speakerCount,
-        sttQualityWarnings: qualityWarnings,
-        fileSplitUsed: true,
-        fileChunkCount: chunkPaths.length,
-        fileChunkSeconds: splitChunkSeconds,
-        fileChunkConcurrency: splitConcurrency,
-        fileChunkCompletedCount: chunkPaths.length,
-        fileChunkWallClockSeconds: results.map((result) => result.wallClockSeconds),
-        sttSplitSeconds: splitSeconds,
-        sttMergeSeconds: Math.round((Date.now() - mergeStartedAt) / 1000),
-        sttPlanRequestCount: plan.requestCount,
-        sttPlanRequestWaves: plan.requestWaves,
-        fileChunkPlannedCount: plan.chunkCount,
-        transcriptionPhase: "MERGING_TRANSCRIPT",
-      },
-    };
+      normalizedRetryUsed = true;
+    } finally {
+      await rm(normalizedPath, { force: true }).catch(() => {});
+    }
   } finally {
     await metaPersistChain;
-    await cleanupChunkDirectory(chunkDir);
   }
+
+  const pre =
+    stt.segments.length > 0
+      ? preprocessTranscriptWithSegments(stt.rawTextOriginal, stt.segments ?? [])
+      : preprocessTranscript(stt.rawTextOriginal);
+  await queueMetaPatch({
+    transcriptionPhase: "FINALIZING_TRANSCRIPT",
+    transcriptionPhaseUpdatedAt: new Date().toISOString(),
+  });
+  await metaPersistChain;
+
+  return {
+    pre,
+    segments: stt.segments ?? [],
+    qualityMeta: {
+      ...(part.qualityMetaJson ?? {}),
+      sttSeconds: Math.round((Date.now() - startedAt) / 1000),
+      sttModel: stt.meta.model,
+      sttResponseFormat: stt.meta.responseFormat,
+      sttRecoveryUsed: stt.meta.recoveryUsed,
+      sttFallbackUsed: stt.meta.fallbackUsed,
+      sttAttemptCount: stt.meta.attemptCount,
+      sttSegmentCount: stt.meta.segmentCount,
+      sttSpeakerCount: stt.meta.speakerCount,
+      sttQualityWarnings: stt.meta.qualityWarnings,
+      sttNormalizedRetryUsed: normalizedRetryUsed,
+      transcriptionPhase: "FINALIZING_TRANSCRIPT",
+      sttEngine: "faster-whisper",
+    },
+  };
 }
 
 async function loadSessionPart(job: SessionPartJobPayload): Promise<SessionPartPayload> {
@@ -554,7 +394,7 @@ async function executeTranscribeFileJob(job: SessionPartJobPayload, part: Sessio
         rawLength: pre.rawTextOriginal.length,
         displayLength: pre.displayTranscript.length,
         segmentCount: segments.length,
-        fileSplitUsed: qualityMeta.fileSplitUsed === true,
+        sttEngine: qualityMeta.sttEngine ?? "faster-whisper",
       }),
       costMetaJson: toPrismaJson({
         seconds: Number(qualityMeta.sttSeconds ?? 0),

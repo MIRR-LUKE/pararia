@@ -1,6 +1,5 @@
 import type { GenerationProgressState, GenerationStep, GenerationStepStatus } from "@/lib/generation-progress";
 import { readSessionPartMeta } from "@/lib/session-part-meta";
-import { buildTranscriptionPlan } from "@/lib/transcription-plan";
 
 export type SessionProgressStage =
   | "IDLE"
@@ -133,7 +132,7 @@ function estimatePartProgress(part: SessionProgressPartLike | null, start: numbe
   const audioDurationSeconds =
     readNonNegativeNumber(meta.audioDurationSeconds) ?? readNonNegativeNumber(meta.liveDurationSeconds);
   const expectedMs = audioDurationSeconds
-    ? clamp(Math.round(audioDurationSeconds * 180), 10_000, 45_000)
+    ? clamp(Math.round(audioDurationSeconds * 180), 10_000, 12 * 60_000)
     : 18_000;
 
   return estimateElapsedProgress(start, end, (meta.lastQueuedAt as string | undefined) ?? (meta.lastAcceptedAt as string | undefined), expectedMs);
@@ -159,7 +158,6 @@ type DetailedTranscriptionCopy = {
 
 function buildDetailedTranscriptionCopy(
   part: SessionProgressPartLike | null,
-  sessionType: "INTERVIEW" | "LESSON_REPORT",
   start: number,
   end: number,
   options: {
@@ -178,57 +176,24 @@ function buildDetailedTranscriptionCopy(
   }
 
   const meta = readSessionPartMeta(part.qualityMetaJson);
-  const audioDurationSeconds =
-    readNonNegativeNumber(meta.audioDurationSeconds) ?? readNonNegativeNumber(meta.liveDurationSeconds);
-  const plan = buildTranscriptionPlan({
-    sessionType,
-    durationSeconds: audioDurationSeconds,
-  });
   const phase = typeof meta.transcriptionPhase === "string" ? meta.transcriptionPhase : null;
-  const plannedChunkCount = Math.max(
-    1,
-    readNonNegativeNumber(meta.fileChunkCount) ??
-      readNonNegativeNumber(meta.fileChunkPlannedCount) ??
-      plan.chunkCount
-  );
-  const completedChunkCount = clamp(readNonNegativeNumber(meta.fileChunkCompletedCount) ?? 0, 0, plannedChunkCount);
-  const splitConcurrency = Math.max(1, readNonNegativeNumber(meta.fileChunkConcurrency) ?? plan.concurrency);
   const phaseUpdatedAt =
     (typeof meta.transcriptionPhaseUpdatedAt === "string" ? meta.transcriptionPhaseUpdatedAt : null) ??
     (typeof meta.lastQueuedAt === "string" ? meta.lastQueuedAt : null);
 
-  if (plan.shouldSplit && phase === "SPLITTING") {
-    return {
-      statusLabel: "音声分割中",
-      title: `${options.unitLabel}を準備しています`,
-      description: `${plan.chunkSeconds}秒ごとに安全に分けています。長い音声でも止まりにくい状態にしてから文字起こしへ進みます。`,
-      value: estimateElapsedProgress(start, Math.min(start + 10, end - 6), phaseUpdatedAt, 8_000),
-    };
-  }
-
-  if (plan.shouldSplit && phase === "TRANSCRIBING_CHUNKS") {
-    const ratio = clamp((completedChunkCount + 0.2) / plannedChunkCount, 0.08, 0.96);
-    return {
-      statusLabel: "文字起こし中",
-      title: `${options.unitLabel}を文字起こし中です`,
-      description: `${plannedChunkCount}本中${completedChunkCount}本完了。${splitConcurrency}本ずつ並列で処理しています。このまま閉じても大丈夫です。`,
-      value: progressFromRatio(start + 6, end, ratio),
-    };
-  }
-
-  if (plan.shouldSplit && phase === "MERGING_TRANSCRIPT") {
+  if (phase === "FINALIZING_TRANSCRIPT") {
     return {
       statusLabel: "取りまとめ中",
-      title: "文字起こし結果をまとめています",
-      description: "chunk ごとの結果を一本の文字起こしに統合しています。完了するとすぐログ生成に進みます。",
+      title: "文字起こし結果を整えています",
+      description: "ローカルGPUで起こした文字を保存用 transcript にまとめています。完了するとすぐログ生成に進みます。",
       value: estimateElapsedProgress(Math.max(start + 10, start), end, phaseUpdatedAt, 9_000),
     };
   }
 
   return {
     statusLabel: "文字起こし中",
-    title: options.acceptedTitle,
-    description: options.acceptedDescription,
+    title: `${options.unitLabel}を文字起こし中です`,
+    description: "ローカルGPUで音声を文字起こししています。音声が長いほど時間はかかりますが、このまま閉じても大丈夫です。",
     value: estimatePartProgress(part, start, end),
   };
 }
@@ -282,7 +247,7 @@ function extractProcessingErrorState(parts: SessionProgressPartLike[]): SessionP
     if (/empty transcript/i.test(lastError)) {
       return {
         title: "文字起こしの再取得が必要です",
-        description: "音声は受け取れましたが、文字起こし結果を取得できませんでした。再開すると別方式も含めて再処理します。",
+        description: "音声は受け取れましたが、文字起こし結果を取得できませんでした。再開するとローカル STT をやり直します。",
         stepIndex: 1,
       };
     }
@@ -479,7 +444,7 @@ export function buildSessionProgressState(input: SessionProgressInput): SessionP
     }
 
     if (hasReadyCheckIn && isBusy(checkOut)) {
-      const detail = buildDetailedTranscriptionCopy(checkOut, input.type, 56, 76, {
+      const detail = buildDetailedTranscriptionCopy(checkOut, 56, 76, {
         unitLabel: "チェックアウト音声",
         acceptedTitle: "チェックアウトを文字起こし中です",
         acceptedDescription: "保存受付は完了しています。このまま閉じても大丈夫です。",
@@ -522,7 +487,7 @@ export function buildSessionProgressState(input: SessionProgressInput): SessionP
     }
 
     if (hasReadyCheckOut && isBusy(checkIn)) {
-      const detail = buildDetailedTranscriptionCopy(checkIn, input.type, 18, 42, {
+      const detail = buildDetailedTranscriptionCopy(checkIn, 18, 42, {
         unitLabel: "チェックイン音声",
         acceptedTitle: "チェックインを文字起こし中です",
         acceptedDescription: "保存受付は完了しています。このまま閉じても大丈夫です。",
@@ -546,7 +511,7 @@ export function buildSessionProgressState(input: SessionProgressInput): SessionP
     }
 
     if (isBusy(checkIn)) {
-      const detail = buildDetailedTranscriptionCopy(checkIn, input.type, 16, 36, {
+      const detail = buildDetailedTranscriptionCopy(checkIn, 16, 36, {
         unitLabel: "チェックイン音声",
         acceptedTitle: "チェックインを受け付けました",
         acceptedDescription: "まずは文字起こしを進めています。このまま閉じても大丈夫です。",
@@ -570,7 +535,7 @@ export function buildSessionProgressState(input: SessionProgressInput): SessionP
     }
 
     if (isBusy(checkOut)) {
-      const detail = buildDetailedTranscriptionCopy(checkOut, input.type, 50, 72, {
+      const detail = buildDetailedTranscriptionCopy(checkOut, 50, 72, {
         unitLabel: "チェックアウト音声",
         acceptedTitle: "チェックアウトを受け付けました",
         acceptedDescription: "文字起こしが終わりしだい、指導報告ログに進みます。",
@@ -614,7 +579,7 @@ export function buildSessionProgressState(input: SessionProgressInput): SessionP
     }
 
     if (isBusy(full)) {
-      const detail = buildDetailedTranscriptionCopy(full, input.type, 24, 68, {
+      const detail = buildDetailedTranscriptionCopy(full, 24, 68, {
         unitLabel: "面談音声",
         acceptedTitle: "音声を受け付けました",
         acceptedDescription: "文字起こしを進めています。このまま閉じても大丈夫です。",
