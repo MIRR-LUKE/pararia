@@ -224,6 +224,17 @@ function readWorkerArgs() {
   return [path.join(process.cwd(), "scripts", "faster_whisper_worker.py")];
 }
 
+function buildWorkerEnv() {
+  const env = { ...process.env } as NodeJS.ProcessEnv;
+  env.PYTHONUTF8 = env.PYTHONUTF8?.trim() || "1";
+  env.PYTHONIOENCODING = env.PYTHONIOENCODING?.trim() || "utf-8";
+  const libraryPath = process.env.FASTER_WHISPER_LIBRARY_PATH?.trim();
+  if (libraryPath) {
+    env.PATH = `${libraryPath};${env.PATH ?? ""}`;
+  }
+  return env;
+}
+
 function buildWorkerError(message: string, stderr: string) {
   const detail = stderr.trim();
   if (!detail) {
@@ -291,7 +302,7 @@ class FasterWhisperWorker {
     const child = spawn(readWorkerCommand(), readWorkerArgs(), {
       cwd: process.cwd(),
       stdio: ["pipe", "pipe", "pipe"],
-      env: process.env,
+      env: buildWorkerEnv(),
     });
 
     child.stdout.on("data", (chunk) => this.handleStdoutChunk(chunk));

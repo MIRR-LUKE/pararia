@@ -569,10 +569,18 @@ PARARIA_AUDIO_RETENTION_DAYS=14
 - GPU で動かすときは `faster-whisper` README にある NVIDIA 依存を入れる
   - 公式 README では `CUDA 12 + cuDNN 9` が基本
   - Windows では `whisper-standalone-win` の配布ライブラリを `PATH` に置く方法も案内されている
-- GTX 1070 などの手元 GPU でまず試すなら、初期値は `FASTER_WHISPER_COMPUTE_TYPE=int8_float16` のままでよい
+- `FASTER_WHISPER_COMPUTE_TYPE=auto` を基本にし、worker 側でその GPU が扱える型へ自動で寄せる
 - `FASTER_WHISPER_DEVICE=auto` のままなら、worker は最初に CUDA を試し、だめなら CPU へ落ちる
+- Windows で CUDA DLL を別ディレクトリに置く場合は `FASTER_WHISPER_LIBRARY_PATH` にそのディレクトリを入れる
+- Windows では worker 側で `PYTHONUTF8=1` / `PYTHONIOENCODING=utf-8` を強制しているので、日本語 transcript をそのまま JSON で受け取れる
 - worker コマンドを変えたいときだけ `FASTER_WHISPER_PYTHON` か `FASTER_WHISPER_WORKER_ARGS_JSON` を使う
 - 初回起動時は Hugging Face からモデルを取得するので、最初の 1 回だけ時間がかかる
+
+実機メモ:
+
+- `GTX 1070 8GB + faster-whisper large-v3` では `FASTER_WHISPER_COMPUTE_TYPE=auto` が安全
+- この構成では `int8_float16` は通らず、worker が CUDA の対応型を見て `int8` などへ自動で寄せる
+- 2026-04-01 にローカル GPU で `.m4a` 実音声 1 本の文字起こしを通し、約 `65 秒` で transcript を返すことを確認済み
 
 現行の STT 実行は次の前提です。
 
