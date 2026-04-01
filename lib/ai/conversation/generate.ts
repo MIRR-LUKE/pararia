@@ -40,7 +40,11 @@ function forceGpt5Family(model: string) {
 }
 
 function getFastModel() {
-  return forceGpt5Family(process.env.LLM_MODEL_FAST || process.env.LLM_MODEL || "gpt-5.4");
+  const requested = forceGpt5Family(process.env.LLM_MODEL_FAST || process.env.LLM_MODEL || "gpt-5.4");
+  if (/gpt-5(?:\.4)?-(mini|nano)/i.test(requested)) {
+    return "gpt-5.4";
+  }
+  return requested;
 }
 
 function supportsExtendedPromptCaching(model: string) {

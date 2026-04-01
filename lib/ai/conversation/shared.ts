@@ -177,6 +177,8 @@ function buildFastDraftEvidenceText(sessionType: SessionMode, transcript: string
 export function buildDraftInputBlock(sessionType: SessionMode, transcript: string) {
   const normalizedTranscript = String(transcript ?? "").replace(/\r/g, "").trim();
   const evidenceBlock = buildFastDraftEvidenceText(sessionType, normalizedTranscript);
+  // Keep raw/reviewed transcript as the source of truth. This block only shapes
+  // what the LLM sees for long inputs; it never overwrites stored transcript data.
   if (estimateTokens(normalizedTranscript) <= 3500) {
     return {
       label: "抽出済み重要発話 + 文字起こし全文",
