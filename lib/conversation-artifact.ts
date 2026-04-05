@@ -40,9 +40,9 @@ export type ConversationArtifact = {
 const INTERVIEW_TITLES: Record<Exclude<ArtifactSectionKey, "unknown">, string[]> = {
   basic_info: ["基本情報"],
   summary: ["1. サマリー"],
-  details: ["2. 学習状況と課題分析"],
-  actions: ["3. 今後の対策・指導内容"],
-  share: ["4. 志望校に関する検討事項"],
+  details: ["2. 学習状況と課題分析", "2. ポジティブな話題"],
+  actions: ["3. 今後の対策・指導内容", "3. 改善・対策が必要な話題"],
+  share: ["4. 志望校に関する検討事項", "4. 保護者への共有ポイント"],
 };
 
 const LESSON_TITLES: Record<Exclude<ArtifactSectionKey, "unknown">, string[]> = {
