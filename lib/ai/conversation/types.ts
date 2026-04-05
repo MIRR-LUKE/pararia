@@ -7,6 +7,15 @@ export type ChatResult = {
   contentText: string | null;
   finishReason?: string;
   refusal?: string;
+  usage?: LlmTokenUsage;
+};
+
+export type LlmTokenUsage = {
+  inputTokens: number;
+  cachedInputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  reasoningTokens: number;
 };
 
 export type DraftGenerationInput = {
@@ -27,4 +36,6 @@ export type DraftGenerationResult = {
   evidenceChars: number;
   usedFallback: boolean;
   inputTokensEstimate: number;
+  tokenUsage: LlmTokenUsage;
+  llmCostUsd: number;
 };

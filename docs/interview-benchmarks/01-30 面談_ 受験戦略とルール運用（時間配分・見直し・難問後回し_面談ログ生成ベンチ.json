@@ -1,0 +1,29 @@
+{
+  "inputPath": "C:\\Users\\lukew\\Desktop\\01-30 面談_ 受験戦略とルール運用（時間配分・見直し・難問後回し.mp3",
+  "audioDurationSeconds": 3046.392,
+  "stt": {
+    "elapsedSeconds": 176.928,
+    "realtimeFactor": 17.21825827455236,
+    "model": "faster-whisper:large-v3",
+    "responseFormat": "segments_json",
+    "attemptCount": 1,
+    "segmentCount": 68,
+    "qualityWarnings": []
+  },
+  "llm": {
+    "elapsedSeconds": 35.05,
+    "model": "gpt-5.4",
+    "apiCalls": 1,
+    "usedFallback": false,
+    "tokenUsage": {
+      "inputTokens": 13390,
+      "cachedInputTokens": 13184,
+      "outputTokens": 2677,
+      "totalTokens": 16067,
+      "reasoningTokens": 0
+    },
+    "costUsd": 0.043966000000000005
+  },
+  "totalElapsedSeconds": 211.978,
+  "generatedAt": "2026-04-05T13:51:05.118Z"
+}

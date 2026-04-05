@@ -16,10 +16,10 @@ export function repairSummaryMarkdownFormatting(text: string) {
     .replace(/^\*\*\s*$/gm, "")
     .replace(/対象\s*\n\s*生徒:/g, "対象生徒:")
     .replace(/(■ 基本情報)\s*(対象生徒:)/, "$1\n$2")
-    .replace(/([^\n])(面談日:|指導日:|面談時間:|教科・単元:|担当チューター:|面談目的:)/g, "$1\n$2")
+    .replace(/([^\n])(面談日:|指導日:|面談時間:|教科・単元:|担当チューター:|面談目的:|テーマ:)/g, "$1\n$2")
     .replace(/([^\n])(■ \d+\.)/g, "$1\n$2")
     .replace(/([^\n])(【)/g, "$1\n$2")
-    .replace(/([^\n])(現状（Before）:|成果（After）:|※特記事項:|生徒:|次回までの宿題:|次回の確認（テスト）事項:)/g, "$1\n$2")
+    .replace(/([^\n])(現状（Before）:|成果（After）:|※特記事項:|(?<!対象)生徒:|次回までの宿題:|次回の確認（テスト）事項:)/g, "$1\n$2")
     .replace(/([^\n])(観察:|推測:|不足:|判断:|次回確認:)/g, "$1\n$2")
     .replace(/([^\n])(根拠:|evidence:|basis:|humanCheckNeeded:)/g, "$1\n$2")
     .replace(/^- \n(観察:|推測:|不足:|判断:|次回確認:)/gm, "- $1")
@@ -82,7 +82,7 @@ export function isValidDraftMarkdown(markdown: string | null | undefined, sessio
   const trimmed = repairSummaryMarkdownFormatting(String(markdown ?? ""));
   if (!trimmed.includes("■ 基本情報")) return false;
   if (sessionType === "LESSON_REPORT" && !trimmed.includes("■ 4. 室長・他講師への共有・連携事項")) return false;
-  if (sessionType !== "LESSON_REPORT" && !trimmed.includes("■ 3. 改善・対策が必要な話題")) return false;
+  if (sessionType !== "LESSON_REPORT" && !trimmed.includes("■ 5. 次回のお勧め話題")) return false;
   return trimmed.length >= Math.min(Math.max(Math.floor(minChars * 0.72), 260), 900);
 }
 
@@ -107,7 +107,11 @@ export function isWeakDraftMarkdown(
     if (!trimmed.includes("【")) return true;
     return false;
   }
-  if ((trimmed.match(/\n- /g) ?? []).length < 6) return true;
+  if (!trimmed.includes("■ 2. 学習状況と課題分析")) return true;
+  if (!trimmed.includes("■ 3. 今後の対策・指導内容")) return true;
+  if (!trimmed.includes("■ 4. 志望校に関する検討事項")) return true;
+  if (!trimmed.includes("■ 5. 次回のお勧め話題")) return true;
+  if ((trimmed.match(/\n- /g) ?? []).length < 7) return true;
   if (/面談日:[^\n]+面談時間:/.test(trimmed)) return true;
   if (trimmed.includes("根拠:")) return true;
   return false;

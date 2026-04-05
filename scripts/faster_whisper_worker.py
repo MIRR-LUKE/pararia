@@ -5,7 +5,7 @@ import sys
 from typing import Any, Dict, List
 
 import ctranslate2
-from faster_whisper import WhisperModel
+from faster_whisper import BatchedInferencePipeline, WhisperModel
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="strict")
@@ -20,12 +20,17 @@ def env_bool(name: str, default: bool) -> bool:
     return raw.strip().lower() not in {"0", "false", "no", "off"}
 
 
+REQUIRE_CUDA = env_bool("FASTER_WHISPER_REQUIRE_CUDA", True)
+
+
 def choose_model() -> tuple[WhisperModel, str, str, str]:
     model_name = os.environ.get("FASTER_WHISPER_MODEL", "large-v3").strip() or "large-v3"
     requested_device = os.environ.get("FASTER_WHISPER_DEVICE", "auto").strip() or "auto"
     requested_compute_type = os.environ.get("FASTER_WHISPER_COMPUTE_TYPE", "auto").strip() or "auto"
 
     if requested_device != "auto":
+        if REQUIRE_CUDA and requested_device != "cuda":
+            raise RuntimeError("FASTER_WHISPER_REQUIRE_CUDA=1 なので CPU 実行は許可されていません。")
         model = WhisperModel(model_name, device=requested_device, compute_type=requested_compute_type)
         return model, model_name, requested_device, requested_compute_type
 
@@ -67,6 +72,8 @@ def choose_model() -> tuple[WhisperModel, str, str, str]:
         model = WhisperModel(model_name, device="cuda", compute_type="default")
         return model, model_name, "cuda", "default"
     except Exception as gpu_error:
+        if REQUIRE_CUDA:
+            raise RuntimeError(f"CUDA で faster-whisper を起動できませんでした: {gpu_error}") from gpu_error
         cpu_compute_type = os.environ.get("FASTER_WHISPER_CPU_COMPUTE_TYPE", "int8").strip() or "int8"
         print(
             f"[faster-whisper] CUDA startup failed, falling back to CPU: {gpu_error}",
@@ -81,16 +88,30 @@ MODEL, MODEL_NAME, MODEL_DEVICE, MODEL_COMPUTE_TYPE = choose_model()
 DEFAULT_BEAM_SIZE = max(1, int(os.environ.get("FASTER_WHISPER_BEAM_SIZE", "5")))
 DEFAULT_VAD_FILTER = env_bool("FASTER_WHISPER_VAD_FILTER", True)
 DEFAULT_CONDITION_ON_PREVIOUS_TEXT = env_bool("FASTER_WHISPER_CONDITION_ON_PREVIOUS_TEXT", True)
+DEFAULT_BATCH_SIZE = max(1, int(os.environ.get("FASTER_WHISPER_BATCH_SIZE", "8")))
+BATCHED_PIPELINE = BatchedInferencePipeline(model=MODEL) if MODEL_DEVICE == "cuda" and DEFAULT_BATCH_SIZE > 1 else None
 
 
 def transcribe(audio_path: str, language: str) -> Dict[str, Any]:
-    segments_iter, info = MODEL.transcribe(
-        audio_path,
+    transcribe_kwargs = dict(
         language=language or "ja",
         beam_size=DEFAULT_BEAM_SIZE,
         vad_filter=DEFAULT_VAD_FILTER,
         condition_on_previous_text=DEFAULT_CONDITION_ON_PREVIOUS_TEXT,
     )
+    if BATCHED_PIPELINE is not None:
+        segments_iter, info = BATCHED_PIPELINE.transcribe(
+            audio_path,
+            batch_size=DEFAULT_BATCH_SIZE,
+            **transcribe_kwargs,
+        )
+        pipeline_kind = "batched"
+    else:
+        segments_iter, info = MODEL.transcribe(
+            audio_path,
+            **transcribe_kwargs,
+        )
+        pipeline_kind = "default"
 
     segments = list(segments_iter)
     payload_segments: List[Dict[str, Any]] = []
@@ -115,6 +136,8 @@ def transcribe(audio_path: str, language: str) -> Dict[str, Any]:
         "model": MODEL_NAME,
         "device": MODEL_DEVICE,
         "compute_type": MODEL_COMPUTE_TYPE,
+        "pipeline": pipeline_kind,
+        "batch_size": DEFAULT_BATCH_SIZE if pipeline_kind == "batched" else 1,
     }
 
 

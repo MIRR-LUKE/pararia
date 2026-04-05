@@ -77,11 +77,20 @@ async function main() {
   assert.doesNotMatch(interviewFallback, /会話をそのまま/);
   assert.doesNotMatch(interviewFallback, /根拠:/);
   assert.match(interviewFallback, /面談時間: 52分/);
+  assert.match(interviewFallback, /■ 2\. 学習状況と課題分析/);
+  assert.match(interviewFallback, /■ 3\. 今後の対策・指導内容/);
+  assert.match(interviewFallback, /■ 4\. 志望校に関する検討事項/);
+  assert.match(interviewFallback, /■ 5\. 次回のお勧め話題/);
 
   const draftInput = buildDraftInputBlock("LESSON_REPORT", noisyLessonTranscript);
   assert.match(draftInput.label, /抽出済み重要発話/);
   assert.match(draftInput.content, /抽出済みの重要発話/);
   assert.match(draftInput.content, /文字起こし全文/);
+
+  const longInterviewTranscript = Array.from({ length: 80 }, (_, index) => `講師: 志望校の話題 ${index + 1} と時間配分の確認をした。`).join("\n");
+  const interviewInput = buildDraftInputBlock("INTERVIEW", longInterviewTranscript);
+  assert.match(interviewInput.label, /抽出済み重要発話 \+ 文字起こし全文/);
+  assert.match(interviewInput.content, /文字起こし全文/);
 
   console.log("conversation draft quality regression check passed");
 }

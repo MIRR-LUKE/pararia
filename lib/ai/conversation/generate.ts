@@ -6,11 +6,12 @@ import {
   type ConversationArtifactSection,
   buildConversationArtifactFromMarkdown,
 } from "@/lib/conversation-artifact";
+import { calculateOpenAiTextCostUsd } from "@/lib/ai/openai-pricing";
 import { buildInterviewDraftFallbackMarkdown, buildLessonDraftFallbackMarkdown } from "./fallback";
 import { buildDraftRetrySystemPrompt, buildDraftSystemPrompt, buildStructuredArtifactJsonSchema } from "./spec";
 import { buildDraftInputBlock, estimateTokens, formatSessionDateLabel, formatStudentLabel, formatTeacherLabel } from "./shared";
 import { callJsonGeneration } from "./transport";
-import type { DraftGenerationInput, DraftGenerationResult, SessionMode } from "./types";
+import type { DraftGenerationInput, DraftGenerationResult, LlmTokenUsage, SessionMode } from "./types";
 
 const PROMPT_VERSION = "v5.1";
 
@@ -62,6 +63,27 @@ function normalizeText(value: unknown, maxChars = 180) {
     .trim();
   if (!text) return "";
   return text.length > maxChars ? `${text.slice(0, maxChars).trim()}…` : text;
+}
+
+function emptyTokenUsage(): LlmTokenUsage {
+  return {
+    inputTokens: 0,
+    cachedInputTokens: 0,
+    outputTokens: 0,
+    totalTokens: 0,
+    reasoningTokens: 0,
+  };
+}
+
+function mergeTokenUsage(current: LlmTokenUsage, next?: Partial<LlmTokenUsage> | null) {
+  if (!next) return current;
+  return {
+    inputTokens: current.inputTokens + Math.max(0, Math.floor(Number(next.inputTokens ?? 0))),
+    cachedInputTokens: current.cachedInputTokens + Math.max(0, Math.floor(Number(next.cachedInputTokens ?? 0))),
+    outputTokens: current.outputTokens + Math.max(0, Math.floor(Number(next.outputTokens ?? 0))),
+    totalTokens: current.totalTokens + Math.max(0, Math.floor(Number(next.totalTokens ?? 0))),
+    reasoningTokens: current.reasoningTokens + Math.max(0, Math.floor(Number(next.reasoningTokens ?? 0))),
+  };
 }
 
 function normalizeSectionText(value: unknown, maxChars = 120) {
@@ -271,7 +293,7 @@ function buildBasicInfoLines(sessionType: SessionMode, input: DraftGenerationInp
     `面談日: ${formatInterviewDateLabel(typeof basicInfo?.date === "string" ? basicInfo.date : null) || normalizeText(basicInfo?.date, 32) || formatInterviewDateLabel(input.sessionDate) || "未記録"}`,
     `面談時間: ${formatDurationLabel(input.durationMinutes)}`,
     `担当チューター: ${normalizeText(basicInfo?.teacher, 40) || formatTeacherLabel(input.teacherName)}`,
-    `面談目的: ${normalizeText(basicInfo?.purpose, 64) || "学習状況の確認と次回方針の整理"}`,
+    `テーマ: ${normalizeText(basicInfo?.purpose, 64) || "学習状況の確認と次回方針の整理"}`,
   ];
 }
 
@@ -350,11 +372,16 @@ function buildSectionsFromEntries(
     ] satisfies ConversationArtifactSection[];
   }
 
+  const actionSplit = splitActionEntries(nextActions);
+  const strategyEntries = actionSplit.assessment;
+  const nextTopicEntries = actionSplit.nextChecks;
   return [
     { key: "basic_info", title: "基本情報", lines: basicInfoLines },
     { key: "summary", title: "1. サマリー", lines: renderInterviewSummaryLines(summary) },
-    { key: "details", title: "2. ポジティブな話題", lines: renderInterviewBulletLines(claims) },
-    { key: "actions", title: "3. 改善・対策が必要な話題", lines: renderInterviewBulletLines(nextActions) },
+    { key: "details", title: "2. 学習状況と課題分析", lines: renderInterviewBulletLines(claims) },
+    { key: "actions", title: "3. 今後の対策・指導内容", lines: renderInterviewBulletLines(strategyEntries) },
+    { key: "share", title: "4. 志望校に関する検討事項", lines: renderInterviewBulletLines(sharePoints) },
+    { key: "unknown", title: "5. 次回のお勧め話題", lines: renderInterviewBulletLines(nextTopicEntries) },
   ] satisfies ConversationArtifactSection[];
 }
 
@@ -385,7 +412,7 @@ function buildArtifactFromStructuredPayload(
           2
         )
       : ensureMinimum(
-          normalizeEntryList(payload.claims, { defaultClaimType: "observed", maxTextChars: 180, includeLabelInText: false }, 8),
+          normalizeEntryList(payload.claims, { defaultClaimType: "observed", maxTextChars: 220, includeLabelInText: false }, 8),
           [],
           3
         );
@@ -403,7 +430,7 @@ function buildArtifactFromStructuredPayload(
             {
               defaultClaimType: "missing",
               defaultActionType: "assessment",
-              maxTextChars: 200,
+              maxTextChars: 220,
               includeLabelInText: false,
             },
             8
@@ -415,7 +442,7 @@ function buildArtifactFromStructuredPayload(
   const sharePoints = ensureMinimum(
     normalizeEntryList(
       payload.sharePoints,
-      { maxTextChars: sessionType === "LESSON_REPORT" ? 110 : 160, includeLabelInText: false },
+      { maxTextChars: sessionType === "LESSON_REPORT" ? 110 : 220, includeLabelInText: false },
       6
     ),
     [],
@@ -467,9 +494,10 @@ function buildStructuredUserPrompt(input: DraftGenerationInput, draftInput: { la
     "- 配列は空でもよいが、推測で埋めない。",
     ...(input.sessionType === "INTERVIEW"
       ? [
-          "- summary.text は、面談の流れが読めるまとまった段落にする。",
-          "- claims.text は前向きな事実を簡潔に書く。",
-          "- nextActions.text は課題と対策が分かる具体文にする。",
+          "- summary.text は、面談全体の流れが読めるまとまった段落にする。",
+          "- claims.text は、学習状況や失点要因、現在の課題が分かる具体文にする。",
+          "- nextActions.text は、指導方針や次回の声かけにそのまま使える具体文にする。",
+          "- sharePoints は、志望校や進路の検討内容があれば必ず入れる。",
         ]
       : ["- text は短い要点文にする。"]),
     "- evidence は transcript から切り出した短い断片だけにする。",
@@ -534,22 +562,24 @@ export async function generateConversationDraftFast(input: DraftGenerationInput)
   const promptInputTokensEstimate = estimateTokens(system) + estimateTokens(user);
 
   let apiCalls = 0;
+  let tokenUsage = emptyTokenUsage();
   const validationErrors: string[] = [];
 
   try {
     apiCalls += 1;
-    const { json, raw, contentText } = await callJsonGeneration({
+    const { json, raw, contentText, usage } = await callJsonGeneration({
       model,
       messages: [
         { role: "system", content: system },
         { role: "user", content: user },
       ],
       timeoutMs: Number(process.env.LLM_CALL_TIMEOUT_MS ?? 90000),
-      max_output_tokens: sessionType === "LESSON_REPORT" ? 2200 : 2000,
+      max_output_tokens: sessionType === "LESSON_REPORT" ? 2200 : 3600,
       prompt_cache_key: buildPromptCacheKey("artifact-fast", sessionType),
       prompt_cache_retention: supportsExtendedPromptCaching(model) ? "24h" : "in_memory",
       json_schema: jsonSchema,
     });
+    tokenUsage = mergeTokenUsage(tokenUsage, usage);
     const artifact = buildArtifactFromStructuredPayload(sessionType, input, (json ?? {}) as StructuredDraftPayload);
     if (artifact) {
       const rendered = renderConversationArtifactMarkdown(artifact);
@@ -562,6 +592,8 @@ export async function generateConversationDraftFast(input: DraftGenerationInput)
           evidenceChars: draftInput.content.length,
           usedFallback: false,
           inputTokensEstimate: promptInputTokensEstimate,
+          tokenUsage,
+          llmCostUsd: calculateOpenAiTextCostUsd(model, tokenUsage),
         };
       }
       validationErrors.push("構造化出力は得られたが、render 後に長すぎる行や unsafe な断片が残った。");
@@ -577,18 +609,19 @@ export async function generateConversationDraftFast(input: DraftGenerationInput)
 
   try {
     apiCalls += 1;
-    const { json, raw, contentText } = await callJsonGeneration({
+    const { json, raw, contentText, usage } = await callJsonGeneration({
       model,
       messages: [
         { role: "system", content: buildDraftRetrySystemPrompt(sessionType) },
         { role: "user", content: buildRepairUserPrompt(user, validationErrors, undefined) },
       ],
       timeoutMs: Number(process.env.LLM_CALL_TIMEOUT_MS ?? 90000),
-      max_output_tokens: sessionType === "LESSON_REPORT" ? 2400 : 2200,
+      max_output_tokens: sessionType === "LESSON_REPORT" ? 2400 : 4200,
       prompt_cache_key: buildPromptCacheKey("artifact-fast-repair", sessionType),
       prompt_cache_retention: supportsExtendedPromptCaching(model) ? "24h" : "in_memory",
       json_schema: jsonSchema,
     });
+    tokenUsage = mergeTokenUsage(tokenUsage, usage);
     const artifact = buildArtifactFromStructuredPayload(sessionType, input, (json ?? {}) as StructuredDraftPayload);
     if (artifact) {
       const rendered = renderConversationArtifactMarkdown(artifact);
@@ -601,6 +634,8 @@ export async function generateConversationDraftFast(input: DraftGenerationInput)
           evidenceChars: draftInput.content.length,
           usedFallback: false,
           inputTokensEstimate: promptInputTokensEstimate,
+          tokenUsage,
+          llmCostUsd: calculateOpenAiTextCostUsd(model, tokenUsage),
         };
       }
       validationErrors.push("repair 後も長すぎる行や unsafe な断片が残った。");
@@ -623,6 +658,8 @@ export async function generateConversationDraftFast(input: DraftGenerationInput)
     evidenceChars: draftInput.content.length,
     usedFallback: true,
     inputTokensEstimate: promptInputTokensEstimate,
+    tokenUsage,
+    llmCostUsd: calculateOpenAiTextCostUsd(model, tokenUsage),
   };
 }
 

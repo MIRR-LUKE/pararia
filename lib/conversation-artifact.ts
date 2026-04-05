@@ -40,9 +40,9 @@ export type ConversationArtifact = {
 const INTERVIEW_TITLES: Record<Exclude<ArtifactSectionKey, "unknown">, string[]> = {
   basic_info: ["基本情報"],
   summary: ["1. サマリー"],
-  details: ["2. ポジティブな話題"],
-  actions: ["3. 改善・対策が必要な話題"],
-  share: ["4. 保護者への共有ポイント"],
+  details: ["2. 学習状況と課題分析"],
+  actions: ["3. 今後の対策・指導内容"],
+  share: ["4. 志望校に関する検討事項"],
 };
 
 const LESSON_TITLES: Record<Exclude<ArtifactSectionKey, "unknown">, string[]> = {
@@ -425,17 +425,17 @@ function synthesizeSectionsFromArtifact(artifact: ConversationArtifact): Convers
     (artifact.sessionType === "LESSON_REPORT" ? "1. 本日の指導サマリー（室長向け要約）" : "1. サマリー");
   const detailsTitle =
     artifact.sections.find((section) => section.key === "details")?.title ??
-    (artifact.sessionType === "LESSON_REPORT" ? "2. 課題と指導成果（Before → After）" : "2. ポジティブな話題");
+    (artifact.sessionType === "LESSON_REPORT" ? "2. 課題と指導成果（Before → After）" : "2. 学習状況と課題分析");
   const actionsTitle =
     artifact.sections.find((section) => section.key === "actions")?.title ??
     (artifact.sessionType === "LESSON_REPORT"
       ? "3. 学習方針と次回アクション（自学習の設計）"
-      : "3. 改善・対策が必要な話題");
+      : "3. 今後の対策・指導内容");
   const shareTitle =
     artifact.sections.find((section) => section.key === "share")?.title ??
     (artifact.sessionType === "LESSON_REPORT"
       ? "4. 室長・他講師への共有・連携事項"
-      : "4. 保護者への共有ポイント");
+      : "4. 志望校に関する検討事項");
 
   const renderEntries = (entries: ConversationArtifactEntry[]) =>
     entries.flatMap((entry) => {
@@ -460,6 +460,13 @@ function synthesizeSectionsFromArtifact(artifact: ConversationArtifact): Convers
   addSection("details", detailsTitle, renderEntries(artifact.claims));
   addSection("actions", actionsTitle, renderEntries(artifact.nextActions));
   addSection("share", shareTitle, renderEntries(artifact.sharePoints));
+  if (artifact.sessionType === "INTERVIEW" && artifact.nextChecks.length > 0) {
+    addSection(
+      "unknown",
+      "5. 次回のお勧め話題",
+      artifact.nextChecks.map((text) => `- ${text}`)
+    );
+  }
 
   return sections;
 }

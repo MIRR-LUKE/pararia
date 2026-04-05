@@ -31,6 +31,7 @@ function buildPromptContextLines(sessionType: SessionMode) {
     "文脈:",
     "あなたは学習塾の教務責任者です。口語の面談 transcript から、管理者がそのまま読める面談ログの元データを抽出してください。",
     "完成した本文そのものではなく、あとで面談ログに整えやすい根拠付きの構造化データを返してください。",
+    "特に、学習状況の整理、受験戦略、志望校の検討、次回の声かけ材料が自然に並ぶようにしてください。",
   ];
 }
 
@@ -53,17 +54,21 @@ export function buildStructuredArtifactSpec(isLesson: boolean) {
   return [
     "出力 JSON の shape:",
     '{ "basicInfo": { "student": string, "teacher": string, "date": string, "purpose": string }, "summary": [{ "text": string, "evidence": string[] }], "claims": [{ "claimType": "observed" | "inferred" | "missing", "text": string, "evidence": string[] }], "nextActions": [{ "label": string, "actionType": "assessment" | "nextCheck", "text": string, "evidence": string[] }], "sharePoints": [{ "text": string, "evidence": string[] }] }',
-    "basicInfo.purpose は 8-32 文字程度で、今回の面談の目的を簡潔に入れる。明確でなければ `学習状況の確認と次回方針の整理` に寄せる。",
-    "summary は 2-3 件。各 text は 2-5 文のまとまった段落にし、学習状況・課題・生活面・進路・次回方針の流れが読めるようにする。",
-    "summary は transcript の要約であり、逐語引用や発話の丸貼りではない。管理者がそのまま読める自然な教務文にする。",
-    "claims は 3-5 件で、主に `2. ポジティブな話題` に相当する前向きな事実や本人の強みを入れる。各 text は 1 文で簡潔にする。",
-    "nextActions は 4-6 件で、主に `3. 改善・対策が必要な話題` に相当する内容を入れる。課題だけでなく、必要な対策や今後の見方まで含めて 1 文で書く。",
-    "nextActions.label は `英語` `数学` `生活習慣` `進路` のような短い論点名にする。",
-    "nextActions.actionType は、今回の判断や対策なら `assessment`、次回に確認したい事項なら `nextCheck` にする。",
-    "sharePoints は 2-4 件。これは内部利用の共有ポイントで、summary や claims と丸かぶりさせない。",
+    "basicInfo.purpose は 12-40 文字程度で、今回の面談テーマを簡潔に入れる。例: `受験戦略と志望校の最終検討`。明確でなければ `学習状況の確認と次回方針の整理` に寄せる。",
+    "summary は 2 件前後。各 text は 3-6 文のまとまった段落にし、管理者がそのまま読める自然な面談要約にする。",
+    "summary では、学習状況、失点要因や課題、今回決めた方針、進路の話があればその流れまで入れる。",
+    "summary は transcript の要約であり、逐語引用や発話の丸貼りではない。口語をそのまま残さない。",
+    "claims は 3-6 件で、主に `2. 学習状況と課題分析` に相当する内容を入れる。前向きな話だけでなく、今の状態・弱点・失点要因を具体的に書く。",
+    "claims.text は 1-3 文で、`国語は...` `時間配分は...` のように論点がすぐ分かる書き方にする。",
+    "nextActions は 4-7 件。`actionType=assessment` は `3. 今後の対策・指導内容`、`actionType=nextCheck` は `5. 次回のお勧め話題` に使う。",
+    "nextActions.label は `国語` `数学` `時間配分` `ルール運用` `進路` のような短い論点名にする。",
+    "assessment の text は、今後どう指導するか・何を徹底するかまで含めて書く。",
+    "nextCheck の text は、次回面談でそのまま使える声かけや確認質問にする。",
+    "sharePoints は 1-4 件。主に `4. 志望校に関する検討事項` に相当する内容を入れる。学校名、受験方式、三者面談、進学ルートなどがあれば優先して書く。",
+    "進路や志望校の話があるときは sharePoints に必ず反映する。話がないときだけ、共有事項に近い内容で補う。",
     "各 evidence は短い根拠断片 1-2 本に絞る。長い transcript の丸貼りは禁止。",
     "ノイズ音声、言い淀み、壊れた引用の貼り付けは禁止。",
-    "抽象語だけで済ませず、教材名・志望校レベル・生活習慣・学習行動など確認できた具体語を残す。",
+    "抽象語だけで済ませず、教材名・志望校名・受験方式・生活習慣・学習行動など確認できた具体語を残す。",
     "claims / nextActions / sharePoints は、`良かったです` `頑張りましょう` のような抽象的な励ましで埋めない。",
     "意味を盛らず、根拠のない断定や感想を足さない。",
   ];

@@ -233,16 +233,18 @@ PARARIA は、塾・個別指導・学習コーチング向けの `Teaching OS` 
 - raw transcript / reviewed transcript は DB にそのまま残し、ここを要約で上書きしない
 - 圧縮は `ログ生成モデルへの入力` のためだけに使う
 - `estimateTokens(text.length / 2)` の簡易見積もりで全文サイズを判定する
-- おおむね `3500 token` 以下なら:
+- 面談は、おおむね `9000 token` 以下なら:
+  - `抽出済み重要発話 + 文字起こし全文` を両方入れる
+- 指導報告などその他のケースは、おおむね `3500 token` 以下なら:
   - `抽出済み重要発話 + 文字起こし全文` を両方入れる
 - それを超える長尺 transcript では:
   - `抽出済み重要発話` だけをログ生成入力に使う
 - 面談の抽出ルール:
-  - 冒頭 `10` 行
-  - 面談キーワードを含む行 `14` 行まで
-  - 情報量が高い行 `12` 行まで
-  - 終盤 `8` 行
-  - 重複除去後に最大 `40` 行
+  - 冒頭 `14` 行
+  - 面談キーワードを含む行 `28` 行まで
+  - 情報量が高い行 `20` 行まで
+  - 終盤 `14` 行
+  - 重複除去後に最大 `72` 行
 - 指導報告の抽出ルール:
   - チェックイン `10` 行まで
   - チェックアウト `12` 行まで
@@ -570,25 +572,46 @@ PARARIA_AUDIO_RETENTION_DAYS=14
   - 公式 README では `CUDA 12 + cuDNN 9` が基本
   - Windows では `whisper-standalone-win` の配布ライブラリを `PATH` に置く方法も案内されている
 - `FASTER_WHISPER_COMPUTE_TYPE=auto` を基本にし、worker 側でその GPU が扱える型へ自動で寄せる
-- `FASTER_WHISPER_DEVICE=auto` のままなら、worker は最初に CUDA を試し、だめなら CPU へ落ちる
+- `FASTER_WHISPER_DEVICE=auto` のままなら、worker は最初に CUDA を試す
+- `FASTER_WHISPER_REQUIRE_CUDA=1` を正本にして、CUDA で起動できない環境は即エラーにする
+- `FASTER_WHISPER_BATCH_SIZE=8` を既定にして、CUDA では `BatchedInferencePipeline` を使う
+- `FASTER_WHISPER_CHUNKING_ENABLED=0` を既定にして、まずは 1 本の音声をそのまま GPU batched inference に流す
 - Windows で CUDA DLL を別ディレクトリに置く場合は `FASTER_WHISPER_LIBRARY_PATH` にそのディレクトリを入れる
+- 何も入っていなくても、repo 内の `.data/local-stt/cuda12` に `cublas64_12.dll` があれば自動でそこを使う
 - Windows では worker 側で `PYTHONUTF8=1` / `PYTHONIOENCODING=utf-8` を強制しているので、日本語 transcript をそのまま JSON で受け取れる
 - worker コマンドを変えたいときだけ `FASTER_WHISPER_PYTHON` か `FASTER_WHISPER_WORKER_ARGS_JSON` を使う
 - 初回起動時は Hugging Face からモデルを取得するので、最初の 1 回だけ時間がかかる
+- 50 分台の面談を `STT -> 面談ログ生成` まで通して測るときは `npm run benchmark:interview-log` を使う
 
 実機メモ:
 
 - `GTX 1070 8GB + faster-whisper large-v3` では `FASTER_WHISPER_COMPUTE_TYPE=auto` が安全
 - この構成では `int8_float16` は通らず、worker が CUDA の対応型を見て `int8` などへ自動で寄せる
+- upstream の `faster-whisper` README では、`RTX 3070 Ti 8GB` 上で `large-v2 / beam_size=5 / batch_size=8` が `13分音声を17秒` という batched benchmark が公開されている
 - 2026-04-01 にローカル GPU で `.m4a` 実音声 1 本の文字起こしを通し、約 `65 秒` で transcript を返すことを確認済み
 
 現行の STT 実行は次の前提です。
 
 - 音声は `scripts/faster_whisper_worker.py` の常駐 worker で起こす
-- 同じモデルを使ったまま transcript を作る
+- 同じ `large-v3` モデルを使ったまま transcript を作る
+- CUDA では `BatchedInferencePipeline` を優先し、CPU へは自動で逃がさない
 - 旧 OpenAI STT / diarized fallback / file chunk plan は使わない
 - `rawTextOriginal` は local STT の返り値をそのまま保存する
 - `rawTextCleaned` は display 用の軽整形だけに使う
+
+今の動き方をふつうの言葉で書くと:
+
+- ふだんは `並列ではない`
+- ふだんは `1本の音声` を `1つのGPU worker` にそのまま渡す
+- その中で `batch_size=8` の GPU 処理を使って速くしている
+- つまり `音声ファイルを細かく切って何本も同時実行` は、今は既定で `オフ`
+- もし `FASTER_WHISPER_CHUNKING_ENABLED=1` にしたときだけ、音声を分けて複数 worker に流す
+- もし `FASTER_WHISPER_POOL_SIZE=2` 以上にしたときだけ、worker を複数立てる
+
+要するに:
+
+- 今の既定は `GPU 1枚で1本をそのまま速く起こす`
+- 今は `ごちゃごちゃした並列処理を常時使う形ではない`
 
 ## 16. 現在の smoke check
 

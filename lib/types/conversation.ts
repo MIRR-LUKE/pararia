@@ -17,6 +17,10 @@ export type ConversationQualityMeta = {
   generatedAt?: string;
   inputTokensEstimate?: number;
   outputTokensEstimate?: number;
+  llmInputTokensActual?: number;
+  llmCachedInputTokensActual?: number;
+  llmOutputTokensActual?: number;
+  llmCostUsd?: number;
   usedFallbackSummary?: boolean;
   reviewReasonCodes?: string[];
   usedReviewedTranscript?: boolean;

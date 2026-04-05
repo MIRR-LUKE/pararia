@@ -199,21 +199,24 @@ export function buildInterviewDraftFallbackMarkdown(input: {
           : "未記録"
       }`,
       `担当チューター: ${formatTeacherLabel(input.teacherName)}`,
-      "面談目的: 学習状況の確認と次回方針の整理",
+      "テーマ: 学習状況の確認と次回方針の整理",
       "",
       "■ 1. サマリー",
       `${summaryLead}${summaryBody ? ` ${summaryBody}` : ""}`.trim(),
       "",
       `${summaryFollow}${planBody ? ` ${planBody}` : ""}${supportBody ? ` ${supportBody}` : ""}`.trim(),
       "",
-      "■ 2. ポジティブな話題",
+      "■ 2. 学習状況と課題分析",
       ...positiveLines.map(toBullet).filter(Boolean),
       "",
-      "■ 3. 改善・対策が必要な話題",
+      "■ 3. 今後の対策・指導内容",
       ...issueLines.map(toBullet).filter(Boolean),
       "",
-      "■ 4. 保護者への共有ポイント",
+      "■ 4. 志望校に関する検討事項",
       ...parentLines.map(toBullet).filter(Boolean),
+      "",
+      "■ 5. 次回のお勧め話題",
+      ...(issueLines.slice(0, 3).map((line) => toBullet(`次回は ${stripSpeakerPrefix(line)} を確認する`)).filter(Boolean)),
     ].join("\n")
   );
 }

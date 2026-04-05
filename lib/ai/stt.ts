@@ -1,7 +1,9 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { existsSync } from "node:fs";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { cleanupAudioChunkDirectory, getAudioDurationSeconds, splitAudioForParallelTranscription } from "@/lib/audio-processing";
 import { getRuntimePath } from "@/lib/runtime-paths";
 import { normalizeRawTranscriptText } from "@/lib/transcript/source";
 
@@ -68,6 +70,8 @@ type WorkerSuccessResponse = {
   model?: string;
   device?: string;
   compute_type?: string;
+  pipeline?: string;
+  batch_size?: number;
 };
 
 type WorkerErrorResponse = {
@@ -228,7 +232,10 @@ function buildWorkerEnv() {
   const env = { ...process.env } as NodeJS.ProcessEnv;
   env.PYTHONUTF8 = env.PYTHONUTF8?.trim() || "1";
   env.PYTHONIOENCODING = env.PYTHONIOENCODING?.trim() || "utf-8";
-  const libraryPath = process.env.FASTER_WHISPER_LIBRARY_PATH?.trim();
+  const defaultCudaPath = path.join(process.cwd(), ".data", "local-stt", "cuda12");
+  const libraryPath =
+    process.env.FASTER_WHISPER_LIBRARY_PATH?.trim() ||
+    (existsSync(path.join(defaultCudaPath, "cublas64_12.dll")) ? defaultCudaPath : "");
   if (libraryPath) {
     env.PATH = `${libraryPath};${env.PATH ?? ""}`;
   }
@@ -243,11 +250,38 @@ function buildWorkerError(message: string, stderr: string) {
   return new Error(`${message}\n${detail}`);
 }
 
+function readChunkingEnabled() {
+  // 既定はオフ。まずは 1 本の音声をそのまま GPU に流す。
+  return process.env.FASTER_WHISPER_CHUNKING_ENABLED?.trim() === "1";
+}
+
+function readChunkSeconds() {
+  const n = Number(process.env.FASTER_WHISPER_CHUNK_SECONDS ?? "60");
+  return Number.isFinite(n) && n >= 10 ? n : 60;
+}
+
+function readChunkOverlapSeconds() {
+  const n = Number(process.env.FASTER_WHISPER_CHUNK_OVERLAP_SECONDS ?? "1.5");
+  return Number.isFinite(n) && n >= 0 ? n : 1.5;
+}
+
+function readChunkMinDurationSeconds() {
+  const n = Number(process.env.FASTER_WHISPER_CHUNK_MIN_DURATION_SECONDS ?? "180");
+  return Number.isFinite(n) && n >= 30 ? n : 180;
+}
+
+function readWorkerPoolSize() {
+  // 既定は 1。複数 worker を立てるのは明示指定のときだけ。
+  const n = Number(process.env.FASTER_WHISPER_POOL_SIZE ?? "1");
+  return Number.isFinite(n) && n >= 1 ? Math.min(8, Math.floor(n)) : 1;
+}
+
 class FasterWhisperWorker {
   private child: ChildProcessWithoutNullStreams | null = null;
   private pending = new Map<string, PendingWorkerRequest>();
   private stdoutBuffer = "";
   private stderrBuffer = "";
+  private inFlight = 0;
 
   private handleStdoutChunk(chunk: Buffer | string) {
     this.stdoutBuffer += String(chunk);
@@ -331,14 +365,22 @@ class FasterWhisperWorker {
       language: input.language,
     };
 
+    this.inFlight += 1;
     return new Promise<WorkerSuccessResponse>((resolve, reject) => {
       this.pending.set(id, { resolve, reject });
       child.stdin.write(`${JSON.stringify(payload)}\n`, (error) => {
         if (!error) return;
         this.pending.delete(id);
+        this.inFlight = Math.max(0, this.inFlight - 1);
         reject(buildWorkerError(`faster-whisper worker write failed: ${error.message}`, this.stderrBuffer));
       });
+    }).finally(() => {
+      this.inFlight = Math.max(0, this.inFlight - 1);
     });
+  }
+
+  getLoad() {
+    return this.inFlight;
   }
 
   shutdown() {
@@ -354,10 +396,16 @@ class FasterWhisperWorker {
   }
 }
 
-const sharedWorker = new FasterWhisperWorker();
+const sharedWorkers = Array.from({ length: readWorkerPoolSize() }, () => new FasterWhisperWorker());
+
+function pickLeastBusyWorker() {
+  return sharedWorkers.reduce((best, current) => (current.getLoad() < best.getLoad() ? current : best), sharedWorkers[0]);
+}
 
 export function stopLocalSttWorker() {
-  sharedWorker.shutdown();
+  for (const worker of sharedWorkers) {
+    worker.shutdown();
+  }
 }
 
 async function materializeInputFile(input: TranscribeInput) {
@@ -399,16 +447,65 @@ export async function transcribeAudio({
 export async function transcribeAudioForPipeline(input: TranscribeInput): Promise<PipelineTranscriptionResult> {
   const file = await materializeInputFile(input);
   try {
-    const response = await sharedWorker.transcribe({
-      audioPath: file.audioPath,
-      language: input.language || "ja",
-    });
+    const language = input.language || "ja";
+    // 普段は 1 本の音声をそのまま 1 worker に渡す。
+    // 分割して並列にするのは env を明示したときだけ。
+    const shouldChunk =
+      readChunkingEnabled() &&
+      Boolean(input.filePath?.trim()) &&
+      (await getAudioDurationSeconds(file.audioPath).catch(() => 0)) >= readChunkMinDurationSeconds();
+    let responses: WorkerSuccessResponse[] = [];
+    let normalized;
 
-    const normalized = normalizeSegments({
-      segments: response.segments,
-    });
+    if (shouldChunk) {
+      const chunkDir = getRuntimePath("temp", "stt-chunks", randomUUID());
+      const chunking = await splitAudioForParallelTranscription(file.audioPath, chunkDir, {
+        chunkSeconds: readChunkSeconds(),
+        overlapSeconds: readChunkOverlapSeconds(),
+      });
+      try {
+        const jobs = chunking.chunks.map(async (chunk) => {
+          const worker = pickLeastBusyWorker();
+          const response = await worker.transcribe({
+            audioPath: chunk.filePath,
+            language,
+          });
+          return { chunk, response };
+        });
+        const settled = await Promise.all(jobs);
+        responses = settled.map((item) => item.response);
+        const offsetSegments: WorkerSegment[] = settled.flatMap(({ chunk, response }) =>
+          (response.segments ?? []).map((segment, idx) => ({
+            id: `${chunk.index}-${segment.id ?? idx}`,
+            start: typeof segment.start === "number" ? segment.start + chunk.startSeconds : undefined,
+            end: typeof segment.end === "number" ? segment.end + chunk.startSeconds : undefined,
+            text: segment.text,
+          }))
+        );
+        offsetSegments.sort((a, b) => (a.start ?? 0) - (b.start ?? 0));
+        normalized = normalizeSegments({ segments: offsetSegments });
+      } finally {
+        await cleanupAudioChunkDirectory(chunkDir);
+      }
+    } else {
+      const response = await pickLeastBusyWorker().transcribe({
+        audioPath: file.audioPath,
+        language,
+      });
+      responses = [response];
+      normalized = normalizeSegments({
+        segments: response.segments,
+      });
+    }
+
+    const primaryResponse = responses[0];
     const rawTextOriginal =
-      normalizeRawTranscriptText(typeof response.text === "string" ? response.text : "") ||
+      normalizeRawTranscriptText(
+        responses
+          .map((entry) => (typeof entry.text === "string" ? entry.text : ""))
+          .filter(Boolean)
+          .join("\n")
+      ) ||
       normalizeRawTranscriptText(buildRawTextFromSegments(normalized.segments));
 
     if (!rawTextOriginal) {
@@ -419,11 +516,11 @@ export async function transcribeAudioForPipeline(input: TranscribeInput): Promis
       rawTextOriginal,
       segments: normalized.segments,
       meta: {
-        model: `faster-whisper:${response.model?.trim() || LOCAL_STT_MODEL}`,
+        model: `faster-whisper:${primaryResponse?.model?.trim() || LOCAL_STT_MODEL}`,
         responseFormat: LOCAL_STT_RESPONSE_FORMAT,
         recoveryUsed: false,
         fallbackUsed: false,
-        attemptCount: 1,
+        attemptCount: responses.length,
         segmentCount: normalized.segments.length,
         speakerCount: 0,
         qualityWarnings: normalized.qualityWarnings,

@@ -1,7 +1,10 @@
 import type { ChatResult } from "./types";
 
-const LLM_API_KEY = process.env.LLM_API_KEY || process.env.OPENAI_API_KEY || "";
 const DEFAULT_LLM_TIMEOUT_MS = clampInt(Number(process.env.LLM_CALL_TIMEOUT_MS ?? 90000), 10000, 180000);
+
+function getLlmApiKey() {
+  return process.env.LLM_API_KEY || process.env.OPENAI_API_KEY || "";
+}
 
 function clampInt(value: number, min: number, max: number) {
   if (!Number.isFinite(value)) return min;
@@ -9,6 +12,17 @@ function clampInt(value: number, min: number, max: number) {
 }
 
 type ChatCompletionResponse = {
+  usage?: {
+    prompt_tokens?: number;
+    completion_tokens?: number;
+    total_tokens?: number;
+    prompt_tokens_details?: {
+      cached_tokens?: number;
+    };
+    completion_tokens_details?: {
+      reasoning_tokens?: number;
+    };
+  };
   choices?: Array<{
     message?: { content?: unknown; refusal?: string };
     finish_reason?: string;
@@ -16,6 +30,17 @@ type ChatCompletionResponse = {
 };
 
 type ResponsesApiResponse = {
+  usage?: {
+    input_tokens?: number;
+    output_tokens?: number;
+    total_tokens?: number;
+    input_tokens_details?: {
+      cached_tokens?: number;
+    };
+    output_tokens_details?: {
+      reasoning_tokens?: number;
+    };
+  };
   output_text?: string;
   output?: Array<{
     type?: string;
@@ -29,6 +54,30 @@ type ResponsesApiResponse = {
     reason?: string;
   };
 };
+
+function normalizeUsageNumber(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? Math.floor(value) : 0;
+}
+
+function extractChatCompletionUsage(data: ChatCompletionResponse) {
+  return {
+    inputTokens: normalizeUsageNumber(data.usage?.prompt_tokens),
+    cachedInputTokens: normalizeUsageNumber(data.usage?.prompt_tokens_details?.cached_tokens),
+    outputTokens: normalizeUsageNumber(data.usage?.completion_tokens),
+    totalTokens: normalizeUsageNumber(data.usage?.total_tokens),
+    reasoningTokens: normalizeUsageNumber(data.usage?.completion_tokens_details?.reasoning_tokens),
+  };
+}
+
+function extractResponsesUsage(data: ResponsesApiResponse) {
+  return {
+    inputTokens: normalizeUsageNumber(data.usage?.input_tokens),
+    cachedInputTokens: normalizeUsageNumber(data.usage?.input_tokens_details?.cached_tokens),
+    outputTokens: normalizeUsageNumber(data.usage?.output_tokens),
+    totalTokens: normalizeUsageNumber(data.usage?.total_tokens),
+    reasoningTokens: normalizeUsageNumber(data.usage?.output_tokens_details?.reasoning_tokens),
+  };
+}
 
 function tryParseJson<T>(text: string): T | null {
   try {
@@ -137,7 +186,8 @@ async function callChatCompletions(params: {
   prompt_cache_key?: string;
   prompt_cache_retention?: "in_memory" | "24h";
 }): Promise<ChatResult> {
-  if (!LLM_API_KEY) {
+  const llmApiKey = getLlmApiKey();
+  if (!llmApiKey) {
     throw new Error("LLM_API_KEY (or OPENAI_API_KEY) is not set.");
   }
 
@@ -160,7 +210,7 @@ async function callChatCompletions(params: {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${LLM_API_KEY}`,
+          Authorization: `Bearer ${llmApiKey}`,
         },
         body: JSON.stringify(requestBody),
         signal: controller.signal,
@@ -204,7 +254,7 @@ async function callChatCompletions(params: {
 
       const data = tryParseJson<ChatCompletionResponse>(raw);
       if (!data) return { raw, contentText: null };
-      return { raw, ...extractChatCompletionContent(data) };
+      return { raw, ...extractChatCompletionContent(data), usage: extractChatCompletionUsage(data) };
     } catch (error) {
       if (attempt < 3 && isRetryableLlmError(error)) {
         await waitForLlmRetry(attempt);
@@ -233,7 +283,8 @@ async function callResponsesApi(params: {
   verbosity?: "low" | "medium" | "high";
   textFormat?: Record<string, unknown>;
 }): Promise<ChatResult> {
-  if (!LLM_API_KEY) {
+  const llmApiKey = getLlmApiKey();
+  if (!llmApiKey) {
     throw new Error("LLM_API_KEY (or OPENAI_API_KEY) is not set.");
   }
 
@@ -262,7 +313,7 @@ async function callResponsesApi(params: {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${LLM_API_KEY}`,
+          Authorization: `Bearer ${llmApiKey}`,
         },
         body: JSON.stringify(requestBody),
         signal: controller.signal,
@@ -307,7 +358,7 @@ async function callResponsesApi(params: {
 
       const data = tryParseJson<ResponsesApiResponse>(raw);
       if (!data) return { raw, contentText: null };
-      return { raw, ...extractResponsesContent(data) };
+      return { raw, ...extractResponsesContent(data), usage: extractResponsesUsage(data) };
     } catch (error) {
       if (attempt < 3 && isRetryableLlmError(error)) {
         await waitForLlmRetry(attempt);
