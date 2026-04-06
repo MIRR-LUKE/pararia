@@ -1,0 +1,44 @@
+FROM runpod/pytorch:2.4.0-py3.11-cuda12.4.1-devel-ubuntu22.04
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONUNBUFFERED=1 \
+    NPM_CONFIG_UPDATE_NOTIFIER=false \
+    NEXT_TELEMETRY_DISABLED=1
+
+WORKDIR /workspace
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl ca-certificates ffmpeg git \
+    && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && apt-get install -y --no-install-recommends nodejs \
+    && npm install -g npm@10 \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY package.json package-lock.json ./
+COPY prisma ./prisma
+RUN npm ci
+
+COPY scripts/requirements.runpod-worker.txt /tmp/requirements.runpod-worker.txt
+RUN python -m pip install --no-cache-dir --upgrade pip \
+    && python -m pip install --no-cache-dir -r /tmp/requirements.runpod-worker.txt
+
+COPY . .
+
+ENV NODE_ENV=production \
+    PARARIA_BACKGROUND_MODE=external \
+    PARARIA_AUDIO_STORAGE_MODE=blob \
+    PARARIA_AUDIO_BLOB_ACCESS=private \
+    FASTER_WHISPER_REQUIRE_CUDA=1 \
+    FASTER_WHISPER_DEVICE=auto \
+    FASTER_WHISPER_COMPUTE_TYPE=auto \
+    FASTER_WHISPER_CPU_COMPUTE_TYPE=int8 \
+    FASTER_WHISPER_BATCH_SIZE=8 \
+    FASTER_WHISPER_BEAM_SIZE=5 \
+    FASTER_WHISPER_VAD_FILTER=1 \
+    FASTER_WHISPER_CONDITION_ON_PREVIOUS_TEXT=1 \
+    FASTER_WHISPER_CHUNKING_ENABLED=0 \
+    FASTER_WHISPER_POOL_SIZE=1
+
+RUN chmod +x scripts/runpod-worker-start.sh
+
+CMD ["bash", "scripts/runpod-worker-start.sh"]

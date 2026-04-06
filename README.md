@@ -298,6 +298,59 @@ npm run worker:gpu
   - チェックアウト `12` 行まで
   - 授業キーワードを含む行 `18` 行まで
   - 情報量が高い行 `14` 行まで
+
+### 7.3 Runpod で GPU worker を動かす
+
+Pararia は、いまの作りだと Runpod の **Serverless endpoint** より **常駐 Pod** のほうが合います。
+
+- Vercel 側は upload と job 登録だけを行う
+- 音声は Blob に置く
+- Runpod Pod は `npm run worker:gpu` を常駐して job を取りに行く
+
+repo には Runpod 用の worker イメージ定義を入れています。
+
+- `Dockerfile.runpod-worker`
+- `scripts/runpod-worker-start.sh`
+- `scripts/requirements.runpod-worker.txt`
+- `.github/workflows/publish-runpod-worker.yml`
+- 詳細手順: [docs/runpod-worker.md](docs/runpod-worker.md)
+
+GitHub Actions の `Publish Runpod Worker Image` が通ると、GHCR に worker イメージが出ます。
+
+- `ghcr.io/<GitHub owner>/pararia-runpod-worker:latest`
+
+Runpod 側では、Pod 作成時に次を入れれば動きます。
+
+- Container Image: `ghcr.io/<GitHub owner>/pararia-runpod-worker:latest`
+- GPU: まずは `RTX 4090` か `RTX 5090`
+- Start Command: 空でよい
+
+必須 env:
+
+- `DATABASE_URL`
+- `DIRECT_URL`
+- `BLOB_READ_WRITE_TOKEN`
+- `OPENAI_API_KEY`
+- `PARARIA_BACKGROUND_MODE=external`
+- `PARARIA_AUDIO_STORAGE_MODE=blob`
+- `PARARIA_AUDIO_BLOB_ACCESS=private`
+
+STT 推奨値:
+
+- `FASTER_WHISPER_MODEL=large-v3`
+- `FASTER_WHISPER_REQUIRE_CUDA=1`
+- `FASTER_WHISPER_DEVICE=auto`
+- `FASTER_WHISPER_COMPUTE_TYPE=auto`
+- `FASTER_WHISPER_BATCH_SIZE=8`
+- `FASTER_WHISPER_CHUNKING_ENABLED=0`
+- `FASTER_WHISPER_POOL_SIZE=1`
+
+GPU が強いときの最初の目安:
+
+- `RTX 4090`: `FASTER_WHISPER_BATCH_SIZE=16`
+- `RTX 5090`: `FASTER_WHISPER_BATCH_SIZE=24`
+
+まずは `chunking off / pool 1` のまま、1 本の音声をそのまま GPU に流すのが安全です。
   - 終盤 `6` 行
   - 重複除去後に最大 `42` 行
 - ノイズ除外:

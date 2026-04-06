@@ -1,0 +1,16 @@
+node_modules
+.next
+.git
+.github/CODEOWNERS
+.vscode
+.vercel
+.data
+.tmp
+.runtime
+artifacts
+coverage
+*.log
+.env
+.env.*
+!.env.example
+!.github/workflows/*.yml
