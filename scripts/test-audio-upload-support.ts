@@ -5,6 +5,7 @@ import {
   buildUnsupportedAudioUploadErrorMessage,
   guessAudioMimeTypeFromFileName,
   isSupportedAudioUpload,
+  isSupportedRecordedAudio,
 } from "../lib/audio-upload-support";
 
 assert.equal(AUDIO_UPLOAD_ACCEPT_ATTR, ".mp3,.m4a");
@@ -16,6 +17,11 @@ assert.equal(isSupportedAudioUpload({ fileName: "sample.wav", mimeType: "audio/w
 assert.equal(isSupportedAudioUpload({ fileName: "sample.wav", mimeType: "audio/mp4" }), false);
 assert.equal(isSupportedAudioUpload({ fileName: "sample.webm", mimeType: "audio/webm" }), false);
 assert.equal(isSupportedAudioUpload({ fileName: "sample", mimeType: "audio/mp4" }), false);
+
+assert.equal(isSupportedRecordedAudio({ fileName: "sample.webm", mimeType: "audio/webm;codecs=opus" }), true);
+assert.equal(isSupportedRecordedAudio({ fileName: "sample.ogg", mimeType: "audio/ogg" }), true);
+assert.equal(isSupportedRecordedAudio({ fileName: "sample.m4a", mimeType: "audio/mp4" }), true);
+assert.equal(isSupportedRecordedAudio({ fileName: "sample.mp3", mimeType: "audio/mpeg" }), false);
 
 assert.equal(guessAudioMimeTypeFromFileName("sample.mp3"), "audio/mpeg");
 assert.equal(guessAudioMimeTypeFromFileName("sample.m4a"), "audio/mp4");

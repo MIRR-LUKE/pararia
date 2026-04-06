@@ -232,6 +232,8 @@ PARARIA は、塾・個別指導・学習コーチング向けの `Teaching OS` 
 
 - raw transcript / reviewed transcript は DB にそのまま残し、ここを要約で上書きしない
 - 圧縮は `ログ生成モデルへの入力` のためだけに使う
+- prompt の共通ルールは先頭にまとめ、毎回変わる生徒名・日付・transcript は後ろへ置く
+- 初回生成と repair は同じ prompt cache namespace を使い、共通 prefix のキャッシュを使い回す
 - `estimateTokens(text.length / 2)` の簡易見積もりで全文サイズを判定する
 - 面談は、おおむね `9000 token` 以下なら:
   - `抽出済み重要発話 + 文字起こし全文` を両方入れる
@@ -258,6 +260,29 @@ PARARIA は、塾・個別指導・学習コーチング向けの `Teaching OS` 
   - `以上です`
   - 短い相づちだけの行
   - 英字が多いノイズ行
+
+### 7.2 prompt cache と実コストの見方
+
+- OpenAI への会話ログ生成は、リクエストとしては毎回全文を送る
+- ただし `gpt-5.4` では prompt cache が効くので、同じ先頭部分は初回より安くなる
+- Pararia では:
+  - system prompt の固定ルール
+  - 構造化 JSON schema に関する固定指示
+  - repair 時の共通 prefix
+  をできるだけ前に寄せ、cache が効きやすい形にしている
+- そのため、実コストを見るときは次の 2 つを分けて見る
+  - `cold`: その cache namespace で最初の 1 回
+  - `warm`: 直後に同じ条件でもう 1 回流したとき
+- ただし `cold` でも、直前のベンチや同じ prefix の別リクエストで cache が温まっていれば cached input が乗る
+- 完全に cache なしの上限を見たいときは、`cachedInputTokens = 0` として同じ token 数で計算し直す
+- `warm` の方が安いのは正常
+- 請求がベンチより高く見えるときは、たいてい `cold` に近い条件になっている
+- 実ベンチでは `docs/interview-benchmarks/*.json` に:
+  - 入力トークン
+  - キャッシュ入力トークン
+  - 出力トークン
+  - cold / warm の個別コスト
+  を残す
 - 重要:
   - 圧縮はあくまで `長尺入力を安全に扱うための evidence pick`
   - 生成物が弱い / 根拠が薄い場合は repair または deterministic recovery に進む

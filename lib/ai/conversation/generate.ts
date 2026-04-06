@@ -8,7 +8,7 @@ import {
 } from "@/lib/conversation-artifact";
 import { calculateOpenAiTextCostUsd } from "@/lib/ai/openai-pricing";
 import { buildInterviewDraftFallbackMarkdown, buildLessonDraftFallbackMarkdown } from "./fallback";
-import { buildDraftRetrySystemPrompt, buildDraftSystemPrompt, buildStructuredArtifactJsonSchema } from "./spec";
+import { buildDraftSystemPrompt, buildStructuredArtifactJsonSchema } from "./spec";
 import { buildDraftInputBlock, estimateTokens, formatSessionDateLabel, formatStudentLabel, formatTeacherLabel } from "./shared";
 import { callJsonGeneration } from "./transport";
 import type { DraftGenerationInput, DraftGenerationResult, LlmTokenUsage, SessionMode } from "./types";
@@ -52,8 +52,27 @@ function supportsExtendedPromptCaching(model: string) {
   return /^gpt-5(?:\.|$|-)/i.test(model) || /^gpt-4\.1(?:$|-)/i.test(model);
 }
 
-function buildPromptCacheKey(kind: string, sessionType?: SessionMode) {
-  return ["conversation-pipeline", PROMPT_VERSION, kind, sessionType ?? "COMMON"].join(":");
+function buildPromptCacheKey(namespace: string, sessionType?: SessionMode) {
+  return ["conversation-pipeline", PROMPT_VERSION, namespace, sessionType ?? "COMMON"].join(":");
+}
+
+function resolvePromptCacheSettings(model: string, input: DraftGenerationInput, sessionType: SessionMode) {
+  if (input.promptCacheRetention === null) {
+    return {
+      promptCacheKey: undefined,
+      promptCacheRetention: undefined,
+    };
+  }
+
+  const namespace = normalizeText(input.promptCacheNamespace, 48) || "artifact";
+  const retention =
+    input.promptCacheRetention ??
+    (supportsExtendedPromptCaching(model) ? "24h" : "in_memory");
+
+  return {
+    promptCacheKey: buildPromptCacheKey(namespace, sessionType),
+    promptCacheRetention: retention,
+  };
 }
 
 function normalizeText(value: unknown, maxChars = 180) {
@@ -489,19 +508,6 @@ function buildStructuredUserPrompt(input: DraftGenerationInput, draftInput: { la
     ...(input.sessionType === "INTERVIEW" ? [`- 面談時間目安: ${formatDurationLabel(input.durationMinutes)}`] : []),
     `- 最低文字数目安: ${input.minSummaryChars}`,
     "",
-    "返答ルール:",
-    "- JSON オブジェクトのみを返す。",
-    "- 配列は空でもよいが、推測で埋めない。",
-    ...(input.sessionType === "INTERVIEW"
-      ? [
-          "- summary.text は、面談全体の流れが読めるまとまった段落にする。",
-          "- claims.text は、学習状況や失点要因、現在の課題が分かる具体文にする。",
-          "- nextActions.text は、指導方針や次回の声かけにそのまま使える具体文にする。",
-          "- sharePoints は、志望校や進路の検討内容があれば必ず入れる。",
-        ]
-      : ["- text は短い要点文にする。"]),
-    "- evidence は transcript から切り出した短い断片だけにする。",
-    "",
     "入力:",
     `${draftInput.label}:`,
     draftInput.content,
@@ -509,14 +515,11 @@ function buildStructuredUserPrompt(input: DraftGenerationInput, draftInput: { la
 }
 
 function buildRepairUserPrompt(
-  baseUserPrompt: string,
   errors: string[],
   previousRaw?: string | null
 ) {
   return [
-    baseUserPrompt,
-    "",
-    "前回の出力の問題:",
+    "再生成で直すこと:",
     ...errors.map((error) => `- ${error}`),
     ...(previousRaw ? ["", "前回の出力:", previousRaw.slice(0, 4000)] : []),
   ].join("\n");
@@ -560,6 +563,7 @@ export async function generateConversationDraftFast(input: DraftGenerationInput)
   const user = buildStructuredUserPrompt(input, draftInput);
   const jsonSchema = buildStructuredArtifactJsonSchema(sessionType);
   const promptInputTokensEstimate = estimateTokens(system) + estimateTokens(user);
+  const { promptCacheKey, promptCacheRetention } = resolvePromptCacheSettings(model, input, sessionType);
 
   let apiCalls = 0;
   let tokenUsage = emptyTokenUsage();
@@ -575,8 +579,8 @@ export async function generateConversationDraftFast(input: DraftGenerationInput)
       ],
       timeoutMs: Number(process.env.LLM_CALL_TIMEOUT_MS ?? 90000),
       max_output_tokens: sessionType === "LESSON_REPORT" ? 2200 : 3600,
-      prompt_cache_key: buildPromptCacheKey("artifact-fast", sessionType),
-      prompt_cache_retention: supportsExtendedPromptCaching(model) ? "24h" : "in_memory",
+      prompt_cache_key: promptCacheKey,
+      prompt_cache_retention: promptCacheRetention ?? undefined,
       json_schema: jsonSchema,
     });
     tokenUsage = mergeTokenUsage(tokenUsage, usage);
@@ -612,13 +616,14 @@ export async function generateConversationDraftFast(input: DraftGenerationInput)
     const { json, raw, contentText, usage } = await callJsonGeneration({
       model,
       messages: [
-        { role: "system", content: buildDraftRetrySystemPrompt(sessionType) },
-        { role: "user", content: buildRepairUserPrompt(user, validationErrors, undefined) },
+        { role: "system", content: system },
+        { role: "user", content: user },
+        { role: "user", content: buildRepairUserPrompt(validationErrors, undefined) },
       ],
       timeoutMs: Number(process.env.LLM_CALL_TIMEOUT_MS ?? 90000),
       max_output_tokens: sessionType === "LESSON_REPORT" ? 2400 : 4200,
-      prompt_cache_key: buildPromptCacheKey("artifact-fast-repair", sessionType),
-      prompt_cache_retention: supportsExtendedPromptCaching(model) ? "24h" : "in_memory",
+      prompt_cache_key: promptCacheKey,
+      prompt_cache_retention: promptCacheRetention ?? undefined,
       json_schema: jsonSchema,
     });
     tokenUsage = mergeTokenUsage(tokenUsage, usage);

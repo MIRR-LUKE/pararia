@@ -42,6 +42,8 @@ type Props = {
   autoStartOnMount?: boolean;
 };
 
+type UploadSource = "file_upload" | "direct_recording";
+
 const MAX_SECONDS: Record<SessionConsoleMode, number> = {
   INTERVIEW: 60 * 60,
   LESSON_REPORT: 10 * 60,
@@ -114,7 +116,13 @@ function buildUploadFileName(
   part: SessionConsoleLessonPart,
   mimeType: string
 ) {
-  const ext = mimeType.includes("ogg") ? "ogg" : mimeType.includes("wav") ? "wav" : "webm";
+  const ext = mimeType.includes("ogg")
+    ? "ogg"
+    : mimeType.includes("wav")
+      ? "wav"
+      : mimeType.includes("mp4") || mimeType.includes("m4a")
+        ? "m4a"
+        : "webm";
   const prefix =
     mode === "INTERVIEW" ? "interview" : part === "CHECK_OUT" ? "lesson-checkout" : "lesson-checkin";
   return `${prefix}-${studentId}-${new Date().toISOString().slice(0, 19)}.${ext}`;
@@ -124,6 +132,19 @@ function buildChunkUploadFileName(baseName: string, sequence: number) {
   const dotIndex = baseName.lastIndexOf(".");
   if (dotIndex === -1) return `${baseName}-chunk-${String(sequence).padStart(4, "0")}`;
   return `${baseName.slice(0, dotIndex)}-chunk-${String(sequence).padStart(4, "0")}${baseName.slice(dotIndex)}`;
+}
+
+function pickRecordingMimeType() {
+  if (typeof MediaRecorder === "undefined") return null;
+  const candidates = [
+    "audio/webm;codecs=opus",
+    "audio/webm",
+    "audio/mp4;codecs=mp4a.40.2",
+    "audio/mp4",
+    "audio/ogg;codecs=opus",
+    "audio/ogg",
+  ];
+  return candidates.find((candidate) => MediaRecorder.isTypeSupported(candidate)) ?? null;
 }
 
 export function StudentSessionConsole({
@@ -530,7 +551,7 @@ export function StudentSessionConsole({
   }, [releaseLockClient, stopHeartbeat]);
 
   const uploadAudioFile = useCallback(
-    async (file: File) => {
+    async (file: File, uploadSource: UploadSource = "file_upload") => {
       let savedSessionId: string | null = null;
       let partSaved = false;
 
@@ -552,6 +573,7 @@ export function StudentSessionConsole({
         form.append("partType", mode === "INTERVIEW" ? "FULL" : lessonPart);
         form.append("file", file);
         form.append("lockToken", token);
+        form.append("uploadSource", uploadSource);
 
         const res = await fetch(`/api/sessions/${sessionId}/parts`, {
           method: "POST",
@@ -569,7 +591,7 @@ export function StudentSessionConsole({
           setRecoverableSessionId(savedSessionId);
           setError(nextError?.message ?? "音声は保存済みですが、処理の開始に失敗しました。");
         } else {
-          setError(nextError?.message ?? "録音の保存に失敗しました。");
+          setError(nextError?.message ?? "音声の保存に失敗しました。");
         }
       } finally {
         await finalizeLock();
@@ -608,6 +630,9 @@ export function StudentSessionConsole({
       if (typeof MediaRecorder === "undefined") {
         throw new Error("このブラウザは録音に対応していません。");
       }
+      if (!navigator.mediaDevices?.getUserMedia) {
+        throw new Error("このブラウザはマイク入力に対応していません。");
+      }
 
       await acquireLock();
       const sessionId = await resolveTargetSessionId();
@@ -620,11 +645,7 @@ export function StudentSessionConsole({
       liveUploadedUntilMsRef.current = 0;
       liveChunkSequenceRef.current = 0;
 
-      const mimeCandidates = ["audio/webm;codecs=opus", "audio/webm", "audio/ogg;codecs=opus"];
-      const mimeType = mimeCandidates.find((candidate) => MediaRecorder.isTypeSupported(candidate));
-      if (!mimeType) {
-        throw new Error("このブラウザでは録音形式を選べませんでした。");
-      }
+      const preferredMimeType = pickRecordingMimeType();
 
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
@@ -635,12 +656,22 @@ export function StudentSessionConsole({
       });
       mediaStreamRef.current = stream;
       chunksRef.current = [];
-      mimeTypeRef.current = mimeType;
-
-      const recorder = new MediaRecorder(stream, {
-        mimeType,
-        audioBitsPerSecond: 64000,
-      });
+      let recorder: MediaRecorder;
+      try {
+        recorder = preferredMimeType
+          ? new MediaRecorder(stream, {
+              mimeType: preferredMimeType,
+              audioBitsPerSecond: 64000,
+            })
+          : new MediaRecorder(stream, {
+              audioBitsPerSecond: 64000,
+            });
+      } catch {
+        recorder = preferredMimeType
+          ? new MediaRecorder(stream, { mimeType: preferredMimeType })
+          : new MediaRecorder(stream);
+      }
+      mimeTypeRef.current = recorder.mimeType || preferredMimeType || "audio/webm";
       mediaRecorderRef.current = recorder;
 
       recorder.ondataavailable = (event) => {
@@ -679,10 +710,10 @@ export function StudentSessionConsole({
               await finalizeLiveRecording(liveSessionId);
             } catch {
               liveStreamingEnabledRef.current = false;
-              await uploadAudioFile(file);
+              await uploadAudioFile(file, "direct_recording");
             }
           } else {
-            await uploadAudioFile(file);
+            await uploadAudioFile(file, "direct_recording");
           }
         } finally {
           stopTracks(mediaStreamRef.current);
@@ -786,7 +817,7 @@ export function StudentSessionConsole({
         return;
       }
       setCreatedConversationId(null);
-      await uploadAudioFile(file);
+      await uploadAudioFile(file, "file_upload");
     },
     [lockConflict, mode, recordingLock?.lock?.lockedByName, uploadAudioFile]
   );

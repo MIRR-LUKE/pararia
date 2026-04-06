@@ -21,6 +21,7 @@ import {
   SUPPORTED_AUDIO_UPLOAD_EXTENSIONS,
   buildUnsupportedAudioUploadErrorMessage,
   isSupportedAudioUpload,
+  isSupportedRecordedAudio,
 } from "@/lib/audio-upload-support";
 import { releaseRecordingLock, verifyRecordingLockForAudioUpload } from "@/lib/recording/lockService";
 import { requireAuthorizedSession } from "@/lib/server/request-auth";
@@ -64,6 +65,9 @@ export async function POST(
     const transcript = (formData.get("transcript") as string | null)?.trim() ?? "";
     const file = formData.get("file") as File | null;
     const lockTokenRaw = (formData.get("lockToken") as string | null)?.trim() ?? "";
+    const uploadSource = ((formData.get("uploadSource") as string | null)?.trim() || "file_upload") as
+      | "file_upload"
+      | "direct_recording";
 
     if (!file && !transcript) {
       return NextResponse.json({ error: "file or transcript is required" }, { status: 400 });
@@ -97,10 +101,17 @@ export async function POST(
       audioLockToken = lockTokenRaw;
       audioStudentId = sessionRow.studentId;
       audioUserId = sessionAuth.user.id;
-      if (!isSupportedAudioUpload({ fileName: file.name, mimeType: file.type })) {
+      const isAcceptedAudio =
+        uploadSource === "direct_recording"
+          ? isSupportedRecordedAudio({ fileName: file.name, mimeType: file.type })
+          : isSupportedAudioUpload({ fileName: file.name, mimeType: file.type });
+      if (!isAcceptedAudio) {
         return NextResponse.json(
           {
-            error: buildUnsupportedAudioUploadErrorMessage(),
+            error:
+              uploadSource === "direct_recording"
+                ? "録音データの形式を読み取れませんでした。ブラウザを変えるか、音声ファイルアップロードをお試しください。"
+                : buildUnsupportedAudioUploadErrorMessage(),
             code: "unsupported_audio_format",
             supportedExtensions: SUPPORTED_AUDIO_UPLOAD_EXTENSIONS,
             supportedExtensionsLabel: AUDIO_UPLOAD_EXTENSIONS_LABEL,
@@ -161,7 +172,8 @@ export async function POST(
       });
       qualityMeta = {
         pipelineStage: "TRANSCRIBING",
-        uploadMode: "file_upload",
+        uploadMode: uploadSource === "direct_recording" ? "direct_recording" : "file_upload",
+        captureSource: uploadSource,
         lastAcceptedAt: new Date().toISOString(),
         lastQueuedAt: new Date().toISOString(),
         uploadedFileName: file.name,

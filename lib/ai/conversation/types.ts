@@ -26,6 +26,8 @@ export type DraftGenerationInput = {
   durationMinutes?: number | null;
   minSummaryChars: number;
   sessionType?: SessionMode;
+  promptCacheNamespace?: string | null;
+  promptCacheRetention?: "in_memory" | "24h" | null;
 };
 
 export type DraftGenerationResult = {

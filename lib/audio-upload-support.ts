@@ -10,6 +10,12 @@ const SUPPORTED_AUDIO_UPLOAD_MIME_PATTERNS = [
   /^audio\/x-m4a$/i,
 ] as const;
 
+const SUPPORTED_RECORDED_AUDIO_MIME_PATTERNS = [
+  /^audio\/webm(?:;|$)/i,
+  /^audio\/ogg(?:;|$)/i,
+  /^audio\/mp4(?:;|$)/i,
+] as const;
+
 export type SupportedAudioUploadExtension = (typeof SUPPORTED_AUDIO_UPLOAD_EXTENSIONS)[number];
 
 export { SUPPORTED_AUDIO_UPLOAD_EXTENSIONS };
@@ -39,6 +45,16 @@ export function isSupportedAudioUpload(input: { fileName?: string | null; mimeTy
   const mimeType = String(input.mimeType || "").trim().toLowerCase();
   if (!mimeType) return true;
   return SUPPORTED_AUDIO_UPLOAD_MIME_PATTERNS.some((pattern) => pattern.test(mimeType));
+}
+
+export function isSupportedRecordedAudio(input: { fileName?: string | null; mimeType?: string | null }) {
+  const mimeType = String(input.mimeType || "").trim().toLowerCase();
+  if (mimeType) {
+    return SUPPORTED_RECORDED_AUDIO_MIME_PATTERNS.some((pattern) => pattern.test(mimeType));
+  }
+
+  const fileName = String(input.fileName || "").trim().toLowerCase();
+  return fileName.endsWith(".webm") || fileName.endsWith(".ogg") || fileName.endsWith(".mp4") || fileName.endsWith(".m4a");
 }
 
 export function buildUnsupportedAudioUploadErrorMessage() {
