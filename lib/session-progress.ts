@@ -185,7 +185,7 @@ function buildDetailedTranscriptionCopy(
     return {
       statusLabel: "取りまとめ中",
       title: "文字起こし結果を整えています",
-      description: "ローカルGPUで起こした文字を保存用 transcript にまとめています。完了するとすぐログ生成に進みます。",
+      description: "STT worker で起こした文字を保存用 transcript にまとめています。完了するとすぐログ生成に進みます。",
       value: estimateElapsedProgress(Math.max(start + 10, start), end, phaseUpdatedAt, 9_000),
     };
   }
@@ -193,7 +193,7 @@ function buildDetailedTranscriptionCopy(
   return {
     statusLabel: "文字起こし中",
     title: `${options.unitLabel}を文字起こし中です`,
-    description: "ローカルGPUで音声を文字起こししています。音声が長いほど時間はかかりますが、このまま閉じても大丈夫です。",
+    description: "STT worker で音声を文字起こししています。音声が長いほど時間はかかりますが、このまま閉じても大丈夫です。",
     value: estimatePartProgress(part, start, end),
   };
 }
@@ -247,7 +247,7 @@ function extractProcessingErrorState(parts: SessionProgressPartLike[]): SessionP
     if (/empty transcript/i.test(lastError)) {
       return {
         title: "文字起こしの再取得が必要です",
-        description: "音声は受け取れましたが、文字起こし結果を取得できませんでした。再開するとローカル STT をやり直します。",
+        description: "音声は受け取れましたが、文字起こし結果を取得できませんでした。再開すると STT worker 側の処理をやり直します。",
         stepIndex: 1,
       };
     }

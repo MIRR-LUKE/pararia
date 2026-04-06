@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { generateConversationDraftFast } from "@/lib/ai/conversation/generate";
 import { getAudioDurationSeconds } from "@/lib/audio-processing";
-import { transcribeAudioForPipeline, stopLocalSttWorker } from "@/lib/ai/stt";
+import { transcribeAudioForPipeline, stopFasterWhisperWorkers } from "@/lib/ai/stt";
 
 const DEFAULT_AUDIO_PATH =
   "C:/Users/lukew/Desktop/01-30 面談_ 受験戦略とルール運用（時間配分・見直し・難問後回し.mp3";
@@ -235,7 +235,7 @@ async function main() {
     `- 2回目（warm）の外部 API コスト合計: ${formatUsd(warmRun.draft.llmCostUsd)}`,
     `- STT + LLM 合計時間（cold）: ${totalElapsedSecondsCold.toFixed(1)}秒 (${formatSeconds(totalElapsedSecondsCold)})`,
     `- STT + LLM 合計時間（warm）: ${totalElapsedSecondsWarm.toFixed(1)}秒 (${formatSeconds(totalElapsedSecondsWarm)})`,
-    "- メモ: STT はローカル GPU 実行なので外部 API 課金は 0。電気代や GPU 本体費用はこのベンチには含めない。",
+    "- メモ: STT は faster-whisper の GPU worker 実行なので外部 API 課金は 0。インフラ費用はこのベンチには含めない。",
     "- メモ: cold はその cache namespace で最初の 1 回、warm は直後に同じ条件でもう 1 回流した結果。",
     "",
     "## 生成された面談ログ",
@@ -263,5 +263,5 @@ main()
     process.exitCode = 1;
   })
   .finally(() => {
-    stopLocalSttWorker();
+    stopFasterWhisperWorkers();
   });

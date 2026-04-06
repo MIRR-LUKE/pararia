@@ -1,6 +1,6 @@
 import path from "node:path";
 import { mkdir, writeFile } from "node:fs/promises";
-import { transcribeAudioForPipeline, stopLocalSttWorker } from "../lib/ai/stt";
+import { transcribeAudioForPipeline, stopFasterWhisperWorkers } from "../lib/ai/stt";
 import { getAudioDurationSeconds } from "../lib/audio-processing";
 
 function resolveInputPath() {
@@ -91,5 +91,5 @@ main()
     process.exitCode = 1;
   })
   .finally(() => {
-    stopLocalSttWorker();
+    stopFasterWhisperWorkers();
   });

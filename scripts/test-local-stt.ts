@@ -8,7 +8,7 @@ process.env.FASTER_WHISPER_WORKER_ARGS_JSON = JSON.stringify([
 process.env.FASTER_WHISPER_MODEL = "large-v3";
 
 async function main() {
-  const { stopLocalSttWorker, transcribeAudioForPipeline } = await import("../lib/ai/stt");
+  const { stopFasterWhisperWorkers, transcribeAudioForPipeline } = await import("../lib/ai/stt");
 
   try {
     const result = await transcribeAudioForPipeline({
@@ -32,7 +32,7 @@ async function main() {
 
     console.log("local faster-whisper bridge regression check passed");
   } finally {
-    stopLocalSttWorker();
+    stopFasterWhisperWorkers();
   }
 }
 

@@ -17,7 +17,7 @@ import {
   getLiveTranscriptionProgress,
   startLiveChunkTranscription,
 } from "@/lib/live-session-transcription";
-import { shouldRunBackgroundJobsInline } from "@/lib/jobs/execution-mode";
+import { getExternalWorkerAudioStorageError, shouldRunBackgroundJobsInline } from "@/lib/jobs/execution-mode";
 import { requireAuthorizedSession } from "@/lib/server/request-auth";
 import { getAudioExpiryDate } from "@/lib/system-config";
 import { maybeEnsureRunpodWorker } from "@/lib/runpod/worker-control";
@@ -62,6 +62,17 @@ export async function POST(
     });
     if (!sessionRow || sessionRow.student.organizationId !== sessionAuth.user.organizationId) {
       return NextResponse.json({ error: "セッションが見つかりません。" }, { status: 404 });
+    }
+
+    const externalWorkerAudioStorageError = getExternalWorkerAudioStorageError();
+    if (externalWorkerAudioStorageError) {
+      return NextResponse.json(
+        {
+          error: externalWorkerAudioStorageError,
+          code: "runpod_blob_storage_required",
+        },
+        { status: 409 }
+      );
     }
 
     const contentType = request.headers.get("content-type") || "";

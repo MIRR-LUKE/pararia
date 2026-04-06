@@ -11,7 +11,7 @@ on:
       - package.json
       - package-lock.json
       - prisma/**
-      - scripts/run-local-gpu-worker.ts
+      - scripts/run-runpod-worker.ts
       - scripts/faster_whisper_worker.py
       - scripts/runpod-worker-start.sh
       - scripts/requirements.runpod-worker.txt

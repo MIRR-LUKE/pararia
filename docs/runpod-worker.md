@@ -1,60 +1,38 @@
 # Runpod worker 運用
 
-Pararia の本番 web は Vercel に置いたまま、STT だけ Runpod の GPU worker で回す構成です。
+Pararia の STT 主導線は `web -> queue -> Runpod worker -> LLM finalize` です。
+`localhost` でも `Vercel production` でも、web 側は同じ contract を使い、Runpod 側が STT と後段ジョブを処理します。
 
-## いまの作りに合う形
+## いまの前提
 
-いまの Pararia は、web 側が job を DB に積み、worker がそれを取りに行く作りです。
-なので Runpod では **Serverless endpoint より Pod worker** のほうが自然です。
-ただし 4090 を常駐させると高いので、運用は **on-demand 起動 + idle stop** を前提にします。
+- web 側は job を DB に積み、必要なら Runpod Pod を自動 wake する
+- 音声 upload / live chunk は `Vercel Blob` に置き、web と Runpod worker から同じ参照を読む
+- Runpod worker は `faster-whisper` で STT し、そのまま `FINALIZE` / `FORMAT` まで進める
+- 4090 を常駐させず、**on-demand 起動 + idle stop** を前提にする
 
-- Vercel: ログイン、録音、upload、job 登録
-- Blob: 音声の共有保存
-- Runpod Pod: `npm run worker:gpu` を必要時だけ起動
-- OpenAI: 面談ログ / 指導報告ログの生成
-
-## GitHub から使うもの
-
-repo には次を入れています。
+## repo に入っているもの
 
 - `Dockerfile.runpod-worker`
+- `scripts/run-runpod-worker.ts`
 - `scripts/runpod-worker-start.sh`
 - `scripts/requirements.runpod-worker.txt`
 - `.github/workflows/publish-runpod-worker.yml`
+- `scripts/runpod-deploy.ts`
+- `scripts/runpod-manage.ts`
 
-GitHub Actions が通ると、worker イメージを GHCR に出します。
+## web 側で必要な env
 
-- 画像名: `ghcr.io/<GitHub owner>/pararia-runpod-worker:latest`
+- `PARARIA_BACKGROUND_MODE=external`
+- `PARARIA_AUDIO_STORAGE_MODE=blob`
+- `PARARIA_AUDIO_BLOB_ACCESS=private`
+- `NEXT_PUBLIC_AUDIO_STORAGE_MODE=blob`
+- `BLOB_READ_WRITE_TOKEN`
 
-## Runpod でやること
+本番 web から自動 wake したいときは、さらに:
 
-### 1. GitHub Actions でイメージを出す
+- `RUNPOD_API_KEY`
 
-GitHub の Actions で `Publish Runpod Worker Image` を実行します。
-
-通ったら GHCR に `latest` と `sha-...` が出ます。
-
-CLI で出したいときは、repo から次でも確認できます。
-
-```bash
-gh workflow run "Publish Runpod Worker Image" --ref main
-gh run watch --workflow "Publish Runpod Worker Image"
-```
-
-### 2. Runpod で Pod を作る
-
-Runpod の Pods で次を入れます。
-
-- Container Image: `ghcr.io/<GitHub owner>/pararia-runpod-worker:latest`
-- GPU: まずは `RTX 4090` か `RTX 5090`
-- Container Disk: `30GB` 以上推奨
-- Volume: 必須ではない
-- Start Command: 空でよい
-  - Dockerfile 側の `CMD` で worker を起動します
-
-初回だけは Pod 定義が必要ですが、その後は stop / start を API で回せます。
-
-### 3. Runpod に入れる env
+## Runpod Pod に入れる env
 
 必須:
 
@@ -76,85 +54,39 @@ STT 推奨値:
 - `FASTER_WHISPER_CHUNKING_ENABLED=0`
 - `FASTER_WHISPER_POOL_SIZE=1`
 
-GPU が強いときの最初の目安:
+worker loop 調整:
 
-- RTX 4090: `FASTER_WHISPER_BATCH_SIZE=16`
-- RTX 5090: `FASTER_WHISPER_BATCH_SIZE=24`
+- `RUNPOD_WORKER_SESSION_PART_LIMIT=8`
+- `RUNPOD_WORKER_SESSION_PART_CONCURRENCY=1`
+- `RUNPOD_WORKER_CONVERSATION_LIMIT=6`
+- `RUNPOD_WORKER_CONVERSATION_CONCURRENCY=2`
+- `RUNPOD_WORKER_IDLE_WAIT_MS=2500`
+- `RUNPOD_WORKER_ACTIVE_WAIT_MS=200`
+- `RUNPOD_WORKER_AUTO_STOP_IDLE_MS=300000`
 
-まずは 1 worker / chunking off のまま速さを見るのが安全です。
+## GHCR へ worker image を publish
 
-on-demand 推奨値:
+GitHub Actions の `Publish Runpod Worker Image` を実行します。
 
-- `LOCAL_GPU_WORKER_AUTO_STOP_IDLE_MS=300000`
-  - queue が空のまま 5 分経ったら worker が自分で Pod を stop する
-
-## 起動確認
-
-Pod のログに次が出れば worker 自体は起動しています。
-
-```text
-[runpod-worker] starting
-[local-gpu-worker] started
+```bash
+gh workflow run "Publish Runpod Worker Image" --ref main
+gh run watch --workflow "Publish Runpod Worker Image"
 ```
 
-そのあと、Vercel 側で音声 upload をすると、Pod 側に次のようなログが出ます。
+成功すると GHCR に次が出ます。
 
-```text
-[local-gpu-worker] tick
-[conversation-jobs] job_started
-[conversation-jobs] job_completed
-```
+- `ghcr.io/<GitHub owner>/pararia-runpod-worker:latest`
+- `ghcr.io/<GitHub owner>/pararia-runpod-worker:sha-...`
 
-## 詰まりやすい点
+## Pod を API で作る / 起こす / 止める
 
-### Blob token がない
-
-`BLOB_READ_WRITE_TOKEN` が入っていないと upload token 発行が失敗します。
-
-### inline のままになっている
-
-`PARARIA_BACKGROUND_MODE=external` が入っていないと、Vercel 側で job をその場実行しようとして詰まります。
-
-### GHCR が private のまま
-
-GHCR イメージが private のままだと、Runpod から pull できません。
-その場合は次のどちらかです。
-
-- package を public にする
-- Runpod 側で GHCR pull 用の認証を入れる
-
-## 参考
-
-- Runpod は Pod-first の流れを案内しています
-- Runpod docs: https://docs.runpod.io/serverless/development/dual-mode-worker
-
-## API で Pod を作る / 起こす / 止める
-
-repo には Runpod REST API 用のスクリプトも入れています。
-
-- `scripts/runpod-deploy.ts`
-- `scripts/runpod-manage.ts`
-- `npm run runpod:deploy`
-- `npm run runpod:start`
-- `npm run runpod:status`
-- `npm run runpod:stop`
-
-必要な env:
-
-- `RUNPOD_API_KEY`
-- `DATABASE_URL`
-- `DIRECT_URL`
-- `BLOB_READ_WRITE_TOKEN`
-- `OPENAI_API_KEY`
-
-PowerShell に直接入れられないときは、repo ルートの `.env.local` に次を追記してください。
-このスクリプトは `.env.local` → `.env` の順で自動読込します。
+PowerShell へ直接 env を入れづらいときは、repo ルートの `.env.local` に次を入れます。
 
 ```bash
 RUNPOD_API_KEY="your-runpod-api-key"
 ```
 
-最小実行例:
+新規作成:
 
 ```bash
 npm run runpod:deploy -- --gpu="NVIDIA GeForce RTX 4090" --name="pararia-gpu-worker"
@@ -172,7 +104,7 @@ npm run runpod:start -- --wait
 npm run runpod:status
 ```
 
-止める:
+停止:
 
 ```bash
 npm run runpod:stop
@@ -188,17 +120,42 @@ npm run runpod:stop
 - `--volume=0`
 - `--gpu-count=1`
 
-`runpod:deploy` は Pod を 1 台新規作成して worker 用 env をまとめて入れます。
-`runpod:start` は同名 Pod があれば start、なければ create します。
-`runpod:stop` は同名 Pod を止めます。
+## 起動確認
 
-## 本番 web から自動 wake したいとき
+Pod のログに次が出れば worker loop は起動しています。
 
-upload / regenerate の enqueue 時に Pod を自動 wake するコードは repo に入れています。
-ただしそれを **Pararia 本番** で使うには、Vercel 側の server env にも `RUNPOD_API_KEY` が必要です。
+```text
+[runpod-worker] starting
+[runpod-worker] started
+```
 
-- local だけ `RUNPOD_API_KEY` がある
-  - この端末から `npm run runpod:start` はできる
-  - 本番 web からの自動 wake はまだできない
-- Vercel にも `RUNPOD_API_KEY` がある
-  - 本番 web の upload / regenerate から自動 wake できる
+upload / regenerate が入ると、次のようなログが出ます。
+
+```text
+[runpod-worker] tick
+[conversation-jobs] job_started
+[conversation-jobs] job_completed
+```
+
+## よく詰まる点
+
+### `PARARIA_AUDIO_STORAGE_MODE=blob` になっていない
+
+`external` なのに `local` 保存だと Runpod worker が音声を読めません。
+現行コードではこの組み合わせを route で reject します。
+
+### `BLOB_READ_WRITE_TOKEN` がない
+
+upload token 発行や worker 側の読み出しが失敗します。
+
+### `RUNPOD_API_KEY` が web 側にない
+
+ローカル端末から `npm run runpod:start` はできますが、upload 時の自動 wake はできません。
+
+### GHCR image が pull できない
+
+GHCR package が private のままなら、Runpod から pull できる公開設定か認証が必要です。
+
+## 参考
+
+- Runpod docs: https://docs.runpod.io/serverless/development/dual-mode-worker

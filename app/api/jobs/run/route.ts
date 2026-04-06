@@ -10,7 +10,7 @@ async function handleRequest(request: Request) {
         {
           ok: false,
           error: "external_worker_mode_enabled",
-          message: "この環境は external worker mode です。ローカルGPU worker を起動してください。",
+          message: "この環境は external worker mode です。Runpod worker を起動してください。",
         },
         { status: 409 }
       );

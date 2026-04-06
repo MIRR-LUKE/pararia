@@ -15,8 +15,8 @@ type TranscribeInput = {
   language?: string;
 };
 
-const LOCAL_STT_MODEL = process.env.FASTER_WHISPER_MODEL?.trim() || "large-v3";
-const LOCAL_STT_RESPONSE_FORMAT = "segments_json" as const;
+const FASTER_WHISPER_MODEL_NAME = process.env.FASTER_WHISPER_MODEL?.trim() || "large-v3";
+const FASTER_WHISPER_RESPONSE_FORMAT = "segments_json" as const;
 
 export type TranscriptSegment = {
   id?: number | string;
@@ -39,7 +39,7 @@ export type TranscriptQualityWarning =
 export type PipelineTranscriptionResult = SegmentedTranscriptResult & {
   meta: {
     model: string;
-    responseFormat: typeof LOCAL_STT_RESPONSE_FORMAT;
+    responseFormat: typeof FASTER_WHISPER_RESPONSE_FORMAT;
     recoveryUsed: boolean;
     fallbackUsed: false;
     attemptCount: number;
@@ -304,7 +304,7 @@ class FasterWhisperWorker {
       if (payload.ok) {
         pending.resolve(payload);
       } else {
-        pending.reject(buildWorkerError(payload.error?.trim() || "Local STT worker failed.", this.stderrBuffer));
+        pending.reject(buildWorkerError(payload.error?.trim() || "faster-whisper worker failed.", this.stderrBuffer));
       }
     }
   }
@@ -408,6 +408,8 @@ export function stopLocalSttWorker() {
   }
 }
 
+export const stopFasterWhisperWorkers = stopLocalSttWorker;
+
 async function materializeInputFile(input: TranscribeInput) {
   if (input.filePath?.trim()) {
     return {
@@ -416,7 +418,7 @@ async function materializeInputFile(input: TranscribeInput) {
     };
   }
   if (!input.buffer) {
-    throw new Error("buffer or filePath is required for local STT.");
+    throw new Error("buffer or filePath is required for faster-whisper STT.");
   }
 
   const tempDir = getRuntimePath("temp", "stt");
@@ -509,15 +511,15 @@ export async function transcribeAudioForPipeline(input: TranscribeInput): Promis
       normalizeRawTranscriptText(buildRawTextFromSegments(normalized.segments));
 
     if (!rawTextOriginal) {
-      throw new Error("Local STT returned an empty transcript.");
+      throw new Error("faster-whisper STT returned an empty transcript.");
     }
 
     return {
       rawTextOriginal,
       segments: normalized.segments,
       meta: {
-        model: `faster-whisper:${primaryResponse?.model?.trim() || LOCAL_STT_MODEL}`,
-        responseFormat: LOCAL_STT_RESPONSE_FORMAT,
+        model: `faster-whisper:${primaryResponse?.model?.trim() || FASTER_WHISPER_MODEL_NAME}`,
+        responseFormat: FASTER_WHISPER_RESPONSE_FORMAT,
         recoveryUsed: false,
         fallbackUsed: false,
         attemptCount: responses.length,

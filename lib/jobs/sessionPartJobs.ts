@@ -119,7 +119,7 @@ async function transcribeStoredFile(part: SessionPartPayload) {
       : {};
   liveMeta = {
     ...liveMeta,
-    transcriptionPhase: "TRANSCRIBING_LOCAL",
+    transcriptionPhase: "TRANSCRIBING_EXTERNAL",
     transcriptionPhaseUpdatedAt: new Date().toISOString(),
     sttEngine: "faster-whisper",
   };

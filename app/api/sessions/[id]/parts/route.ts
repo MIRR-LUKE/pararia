@@ -29,7 +29,7 @@ import { toPrismaJson } from "@/lib/prisma-json";
 import { getAudioExpiryDate, getTranscriptExpiryDate } from "@/lib/system-config";
 import { preprocessTranscript } from "@/lib/transcript/preprocess";
 import { ensureSessionPartReviewedTranscript } from "@/lib/transcript/review";
-import { shouldRunBackgroundJobsInline } from "@/lib/jobs/execution-mode";
+import { getExternalWorkerAudioStorageError, shouldRunBackgroundJobsInline } from "@/lib/jobs/execution-mode";
 import { maybeEnsureRunpodWorker } from "@/lib/runpod/worker-control";
 
 function parsePartType(raw: string | null) {
@@ -81,6 +81,17 @@ export async function POST(
     }
     if (file && hasBlobUpload) {
       return NextResponse.json({ error: "file and blobUrl cannot be sent together" }, { status: 400 });
+    }
+
+    const externalWorkerAudioStorageError = getExternalWorkerAudioStorageError();
+    if ((file || hasBlobUpload) && externalWorkerAudioStorageError) {
+      return NextResponse.json(
+        {
+          error: externalWorkerAudioStorageError,
+          code: "runpod_blob_storage_required",
+        },
+        { status: 409 }
+      );
     }
 
     if (file || hasBlobUpload) {
@@ -210,7 +221,7 @@ export async function POST(
         uploadedBytes: stored.byteSize,
         audioDurationSeconds: durationSeconds,
         durationGateSkipped,
-        transcriptionPhase: "TRANSCRIBING_LOCAL",
+        transcriptionPhase: "TRANSCRIBING_EXTERNAL",
         transcriptionPhaseUpdatedAt: new Date().toISOString(),
         sttEngine: "faster-whisper",
       };

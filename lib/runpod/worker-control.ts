@@ -71,6 +71,10 @@ function readStringEnv(name: string, fallback = "") {
   return process.env[name]?.trim() || fallback;
 }
 
+function readStringEnvWithLegacy(name: string, legacyName: string, fallback = "") {
+  return readStringEnv(name, readStringEnv(legacyName, fallback));
+}
+
 function readRequiredEnv(name: string) {
   const value = readStringEnv(name);
   if (!value) {
@@ -81,6 +85,12 @@ function readRequiredEnv(name: string) {
 
 function readIntEnv(name: string, fallback: number, min = 0) {
   const value = Number(process.env[name] ?? fallback);
+  if (!Number.isFinite(value)) return fallback;
+  return Math.max(min, Math.floor(value));
+}
+
+function readIntEnvWithLegacy(name: string, legacyName: string, fallback: number, min = 0) {
+  const value = Number(process.env[name] ?? process.env[legacyName] ?? fallback);
   if (!Number.isFinite(value)) return fallback;
   return Math.max(min, Math.floor(value));
 }
@@ -211,7 +221,12 @@ export function getRunpodWorkerConfig(): RunpodWorkerConfig | null {
     containerDiskInGb: readIntEnv("RUNPOD_WORKER_CONTAINER_DISK_GB", 30, 0),
     volumeInGb: readIntEnv("RUNPOD_WORKER_VOLUME_GB", 0, 0),
     gpuCount: readIntEnv("RUNPOD_WORKER_GPU_COUNT", 1, 1),
-    autoStopIdleMs: readIntEnv("LOCAL_GPU_WORKER_AUTO_STOP_IDLE_MS", DEFAULT_AUTO_STOP_IDLE_MS, 0),
+    autoStopIdleMs: readIntEnvWithLegacy(
+      "RUNPOD_WORKER_AUTO_STOP_IDLE_MS",
+      "LOCAL_GPU_WORKER_AUTO_STOP_IDLE_MS",
+      DEFAULT_AUTO_STOP_IDLE_MS,
+      0
+    ),
     apiTimeoutMs: readIntEnv("RUNPOD_API_TIMEOUT_MS", DEFAULT_API_TIMEOUT_MS, 1_000),
   };
 }
@@ -282,13 +297,21 @@ function buildRunpodWorkerEnv(autoStopIdleMs: number) {
     FASTER_WHISPER_CHUNK_OVERLAP_SECONDS: readStringEnv("FASTER_WHISPER_CHUNK_OVERLAP_SECONDS", "1.5"),
     FASTER_WHISPER_CHUNK_MIN_DURATION_SECONDS: readStringEnv("FASTER_WHISPER_CHUNK_MIN_DURATION_SECONDS", "180"),
     FASTER_WHISPER_POOL_SIZE: readStringEnv("FASTER_WHISPER_POOL_SIZE", "1"),
-    LOCAL_GPU_WORKER_SESSION_PART_LIMIT: readStringEnv("LOCAL_GPU_WORKER_SESSION_PART_LIMIT", "8"),
-    LOCAL_GPU_WORKER_SESSION_PART_CONCURRENCY: readStringEnv("LOCAL_GPU_WORKER_SESSION_PART_CONCURRENCY", "1"),
-    LOCAL_GPU_WORKER_CONVERSATION_LIMIT: readStringEnv("LOCAL_GPU_WORKER_CONVERSATION_LIMIT", "6"),
-    LOCAL_GPU_WORKER_CONVERSATION_CONCURRENCY: readStringEnv("LOCAL_GPU_WORKER_CONVERSATION_CONCURRENCY", "2"),
-    LOCAL_GPU_WORKER_IDLE_WAIT_MS: readStringEnv("LOCAL_GPU_WORKER_IDLE_WAIT_MS", "2500"),
-    LOCAL_GPU_WORKER_ACTIVE_WAIT_MS: readStringEnv("LOCAL_GPU_WORKER_ACTIVE_WAIT_MS", "200"),
-    LOCAL_GPU_WORKER_AUTO_STOP_IDLE_MS: String(autoStopIdleMs),
+    RUNPOD_WORKER_SESSION_PART_LIMIT: readStringEnvWithLegacy("RUNPOD_WORKER_SESSION_PART_LIMIT", "LOCAL_GPU_WORKER_SESSION_PART_LIMIT", "8"),
+    RUNPOD_WORKER_SESSION_PART_CONCURRENCY: readStringEnvWithLegacy(
+      "RUNPOD_WORKER_SESSION_PART_CONCURRENCY",
+      "LOCAL_GPU_WORKER_SESSION_PART_CONCURRENCY",
+      "1"
+    ),
+    RUNPOD_WORKER_CONVERSATION_LIMIT: readStringEnvWithLegacy("RUNPOD_WORKER_CONVERSATION_LIMIT", "LOCAL_GPU_WORKER_CONVERSATION_LIMIT", "6"),
+    RUNPOD_WORKER_CONVERSATION_CONCURRENCY: readStringEnvWithLegacy(
+      "RUNPOD_WORKER_CONVERSATION_CONCURRENCY",
+      "LOCAL_GPU_WORKER_CONVERSATION_CONCURRENCY",
+      "2"
+    ),
+    RUNPOD_WORKER_IDLE_WAIT_MS: readStringEnvWithLegacy("RUNPOD_WORKER_IDLE_WAIT_MS", "LOCAL_GPU_WORKER_IDLE_WAIT_MS", "2500"),
+    RUNPOD_WORKER_ACTIVE_WAIT_MS: readStringEnvWithLegacy("RUNPOD_WORKER_ACTIVE_WAIT_MS", "LOCAL_GPU_WORKER_ACTIVE_WAIT_MS", "200"),
+    RUNPOD_WORKER_AUTO_STOP_IDLE_MS: String(autoStopIdleMs),
   } satisfies Record<string, string>;
 
   return Object.fromEntries(Object.entries(env).filter(([, value]) => value !== ""));

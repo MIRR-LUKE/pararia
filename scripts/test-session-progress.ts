@@ -106,7 +106,7 @@ const emptyTranscriptError = buildSessionProgressState({
 
 assert.equal(emptyTranscriptError.stage, "ERROR");
 assert.match(emptyTranscriptError.progress.title, /再取得/);
-assert.match(emptyTranscriptError.progress.description, /ローカル STT/);
+assert.match(emptyTranscriptError.progress.description, /STT worker/);
 
 const longInterviewTranscribing = buildSessionProgressState({
   sessionId: "session-long-transcribing",
@@ -121,7 +121,7 @@ const longInterviewTranscribing = buildSessionProgressState({
       qualityMetaJson: {
         uploadMode: "file_upload",
         audioDurationSeconds: 3600,
-        transcriptionPhase: "TRANSCRIBING_LOCAL",
+        transcriptionPhase: "TRANSCRIBING_EXTERNAL",
         transcriptionPhaseUpdatedAt: new Date("2026-03-31T10:00:00.000Z").toISOString(),
       },
     },
@@ -132,7 +132,7 @@ const longInterviewTranscribing = buildSessionProgressState({
 assert.equal(longInterviewTranscribing.stage, "TRANSCRIBING");
 assert.equal(longInterviewTranscribing.statusLabel, "文字起こし中");
 assert.match(longInterviewTranscribing.progress.title, /文字起こし中/);
-assert.match(longInterviewTranscribing.progress.description, /ローカルGPU/);
+assert.match(longInterviewTranscribing.progress.description, /STT worker/);
 
 const longInterviewMerging = buildSessionProgressState({
   sessionId: "session-long-merging",
