@@ -319,6 +319,10 @@ GitHub Actions の `Publish Runpod Worker Image` が通ると、GHCR に worker 
 
 - `ghcr.io/<GitHub owner>/pararia-runpod-worker:latest`
 
+Runpod REST API で Pod を作るスクリプトも入れています。
+
+- `npm run runpod:deploy -- --gpu="NVIDIA GeForce RTX 4090" --name="pararia-gpu-worker"`
+
 Runpod 側では、Pod 作成時に次を入れれば動きます。
 
 - Container Image: `ghcr.io/<GitHub owner>/pararia-runpod-worker:latest`

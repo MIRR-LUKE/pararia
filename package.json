@@ -24,6 +24,7 @@
     "benchmark:interview-log": "tsx scripts/run-interview-log-benchmark.ts",
     "worker:gpu": "tsx scripts/run-local-gpu-worker.ts",
     "worker:gpu:once": "tsx scripts/run-local-gpu-worker.ts --once",
+    "runpod:deploy": "tsx scripts/runpod-deploy.ts",
     "verify": "npm run lint && npm run typecheck && npm run build",
     "postinstall": "prisma generate",
     "prisma:generate": "prisma generate",
