@@ -11,6 +11,7 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends curl ca-certificates ffmpeg git \
     && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
     && apt-get install -y --no-install-recommends nodejs \
+    && ln -sf "$(command -v python3)" /usr/local/bin/python \
     && npm install -g npm@10 \
     && rm -rf /var/lib/apt/lists/*
 
@@ -19,8 +20,8 @@ COPY prisma ./prisma
 RUN npm ci
 
 COPY scripts/requirements.runpod-worker.txt /tmp/requirements.runpod-worker.txt
-RUN python -m pip install --no-cache-dir --upgrade pip \
-    && python -m pip install --no-cache-dir -r /tmp/requirements.runpod-worker.txt
+RUN python3 -m pip install --no-cache-dir --upgrade pip \
+    && python3 -m pip install --no-cache-dir -r /tmp/requirements.runpod-worker.txt
 
 COPY . .
 
