@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import { ConversationJobType, JobStatus } from "@prisma/client";
 import { processAllConversationJobs } from "@/lib/jobs/conversationJobs";
 import { requireAuthorizedSession } from "@/lib/server/request-auth";
+import { shouldRunBackgroundJobsInline } from "@/lib/jobs/execution-mode";
 
 export async function POST(
   _request: Request,
@@ -47,9 +48,11 @@ export async function POST(
       skipDuplicates: true,
     });
 
-    void processAllConversationJobs(params.id).catch((error) => {
-      console.error("[POST /api/conversations/[id]/format] Background process failed:", error);
-    });
+    if (shouldRunBackgroundJobsInline()) {
+      void processAllConversationJobs(params.id).catch((error) => {
+        console.error("[POST /api/conversations/[id]/format] Background process failed:", error);
+      });
+    }
 
     return NextResponse.json({ ok: true, message: "format job queued" });
   } catch (error: any) {

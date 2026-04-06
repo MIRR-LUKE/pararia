@@ -1,9 +1,21 @@
 import { NextResponse } from "next/server";
 import { processQueuedJobs } from "@/lib/jobs/conversationJobs";
 import { processQueuedSessionPartJobs } from "@/lib/jobs/sessionPartJobs";
+import { shouldRunBackgroundJobsInline } from "@/lib/jobs/execution-mode";
 
 async function handleRequest(request: Request) {
   try {
+    if (!shouldRunBackgroundJobsInline()) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "external_worker_mode_enabled",
+          message: "この環境は external worker mode です。ローカルGPU worker を起動してください。",
+        },
+        { status: 409 }
+      );
+    }
+
     const { searchParams } = new URL(request.url);
     const body = request.method === "POST" ? await request.json().catch(() => ({})) : {};
     const limit = Number(searchParams.get("limit") ?? 3);

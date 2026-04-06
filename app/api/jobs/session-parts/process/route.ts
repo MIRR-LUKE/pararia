@@ -1,8 +1,20 @@
 import { NextResponse } from "next/server";
 import { processQueuedSessionPartJobs } from "@/lib/jobs/sessionPartJobs";
+import { shouldRunBackgroundJobsInline } from "@/lib/jobs/execution-mode";
 
 export async function POST(request: Request) {
   try {
+    if (!shouldRunBackgroundJobsInline()) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "external_worker_mode_enabled",
+          message: "この環境は external worker mode です。ローカルGPU worker を起動してください。",
+        },
+        { status: 409 }
+      );
+    }
+
     const body = await request.json().catch(() => ({}));
     const limit = Number(body?.limit ?? 1);
     const concurrency = Number(body?.concurrency ?? process.env.SESSION_PART_JOB_CONCURRENCY ?? 1);

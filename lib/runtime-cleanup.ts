@@ -1,5 +1,10 @@
-import { rm } from "node:fs/promises";
 import path from "node:path";
+import {
+  deleteStorageEntry,
+  getAudioStorageMode,
+  isRemoteStorageUrl,
+  resolveStorageReference,
+} from "@/lib/audio-storage";
 import { getRuntimeRootDir } from "@/lib/runtime-paths";
 
 function normalizeResolved(filePath: string) {
@@ -14,15 +19,20 @@ export function isWithinRuntimeRoot(filePath: string) {
 
 export async function deleteRuntimeEntry(filePath: string) {
   if (!filePath) return false;
+  if (getAudioStorageMode() === "blob" || isRemoteStorageUrl(filePath)) {
+    return deleteStorageEntry(filePath);
+  }
   if (!isWithinRuntimeRoot(filePath)) return false;
-  await rm(filePath, { recursive: true, force: true }).catch(() => {});
-  return true;
+  return deleteStorageEntry(filePath);
 }
 
 export function getRuntimeDeletionTargets(filePath: string | null | undefined) {
   if (!filePath) return [];
+  if (getAudioStorageMode() === "blob" || isRemoteStorageUrl(filePath)) {
+    return [filePath];
+  }
 
-  const resolved = path.resolve(filePath);
+  const resolved = path.resolve(resolveStorageReference(filePath));
   const targets = new Set<string>();
   if (isWithinRuntimeRoot(resolved)) {
     targets.add(resolved);

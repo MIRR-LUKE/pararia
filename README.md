@@ -18,6 +18,8 @@ PARARIA は、塾・個別指導・学習コーチング向けの `Teaching OS` 
 - `reviewState` が transcript review の現在状態を表す正本
 - `qualityMetaJson.transcriptReview` は review が必要な理由と件数の説明だけを持つ
 - STT は OpenAI 音声 API を使わず、ローカル GPU の `faster-whisper` を正本にする
+- デプロイ済み web で local GPU を使うときは、web 側は enqueue のみ、別プロセスの local GPU worker が job を取りに行く
+- その構成では通常 upload と live chunk を `Vercel Blob` に置き、web と local GPU worker の両方から読めるようにする
 - 固有名詞辞書の `sendToProvider` は将来の外部 STT 切り替え用に残しているが、現行の local STT では使わない
 - `summaryMarkdown` は画面表示や互換用に保存する派生物
 - ログ生成は `ConversationJob.FINALIZE` を中心に動き、失敗時は retry / stale recovery を持つ
@@ -221,14 +223,58 @@ PARARIA は、塾・個別指導・学習コーチング向けの `Teaching OS` 
 - 1 回の生成で structured artifact を作り、表示用 markdown はそこから派生させる
 - hidden な polish を走らせない
 - transcript 表示整形は `FORMAT` に分離し、常時実行しない
-- file upload は server 側で丸ごと受け取り、ローカル worker にそのまま渡す
+- local mode の file upload は server 側で受け取り、そのまま runtime 保存する
+- blob mode の file upload は browser から `Vercel Blob` へ直接送り、API には blob の参照だけを渡す
 - ユーザーが選べる音声ファイルは `.mp3` / `.m4a` のみ
 - STT worker は長い音声でも 1 本のファイルとして扱い、モデル読み込み後はそのまま全文を起こす
 - UI は `文字起こし中 -> 取りまとめ中 -> ログ生成中` を分けて表示する
 - session progress API で UI を早く戻す
 - poll で worker を再キックできる
 
-### 7.1 長尺 transcript をどう入力するか
+### 7.1 デプロイ済み web + 今の自前 GPU で動かすとき
+
+この構成では、`Vercel 上の web` と `自分の PC の GPU worker` を分ける。
+
+- web 側:
+  - session / part / conversation を作る
+  - 音声を受ける
+  - job を `QUEUED` に積む
+  - 進捗 API を返す
+- local GPU worker 側:
+  - 同じ本番 DB を見る
+  - `QUEUED` の session part job / conversation job を取りに行く
+  - `faster-whisper` で STT
+  - transcript / artifact / markdown を本番 DB へ戻す
+
+必要な env:
+
+- web 側
+  - `PARARIA_BACKGROUND_MODE=external`
+  - `PARARIA_AUDIO_STORAGE_MODE=blob`
+  - `PARARIA_AUDIO_BLOB_ACCESS=private`
+  - `NEXT_PUBLIC_AUDIO_STORAGE_MODE=blob`
+  - `BLOB_READ_WRITE_TOKEN=...`
+- local GPU worker 側
+  - 本番と同じ `DATABASE_URL`
+  - 本番と同じ `DIRECT_URL`
+  - 同じ `BLOB_READ_WRITE_TOKEN`
+  - `PARARIA_BACKGROUND_MODE=external`
+  - `PARARIA_AUDIO_STORAGE_MODE=blob`
+
+起動:
+
+```bash
+npm run worker:gpu
+```
+
+補足:
+
+- `external` では web 側の `?process=1` や `/api/jobs/run` は実行しない
+- 60分級の音声ファイル upload は browser から blob へ直接送る
+- live 録音 chunk は app route を通るが、保存先は blob へ寄せる
+- local GPU worker が止まると job は `QUEUED` のまま残るので、worker を再起動すれば続きから処理できる
+
+### 7.2 長尺 transcript をどう入力するか
 
 - raw transcript / reviewed transcript は DB にそのまま残し、ここを要約で上書きしない
 - 圧縮は `ログ生成モデルへの入力` のためだけに使う
@@ -261,7 +307,7 @@ PARARIA は、塾・個別指導・学習コーチング向けの `Teaching OS` 
   - 短い相づちだけの行
   - 英字が多いノイズ行
 
-### 7.2 prompt cache と実コストの見方
+### 7.3 prompt cache と実コストの見方
 
 - OpenAI への会話ログ生成は、リクエストとしては毎回全文を送る
 - ただし `gpt-5.4` では prompt cache が効くので、同じ先頭部分は初回より安くなる
@@ -288,7 +334,7 @@ PARARIA は、塾・個別指導・学習コーチング向けの `Teaching OS` 
   - 生成物が弱い / 根拠が薄い場合は repair または deterministic recovery に進む
   - repair でもモデルは落とさず、同じ `gpt-5.4` で再試行する
 
-### 7.2 速度を落とすものとして明示的にやめたこと
+### 7.4 速度を落とすものとして明示的にやめたこと
 
 - analyze -> reduce -> finalize の多段 LLM
 - 自動の追加仕上げ job
@@ -578,7 +624,8 @@ PARARIA は、塾・個別指導・学習コーチング向けの `Teaching OS` 
 ## 15. ローカル保存先ルール
 
 - runtime data は source code と分けて扱う
-- 音声アップロード、live chunk、manifest などの runtime file は `PARARIA_RUNTIME_DIR` 配下へ保存する
+- local mode では、音声アップロード、live chunk、manifest などの runtime file は `PARARIA_RUNTIME_DIR` 配下へ保存する
+- blob mode では、通常 upload と live chunk は `Vercel Blob` に保存する
 - `PARARIA_RUNTIME_DIR` 未設定時は後方互換のため repo 配下の `.data/` を使う
 - `PARARIA_RUNTIME_DIR` を repo 外へ向けると、uploads / temp audio を完全に分離できる
 - `.data/` と `.tmp/` は Git 管理対象に入れない
@@ -610,6 +657,7 @@ PARARIA_AUDIO_RETENTION_DAYS=14
 - `FASTER_WHISPER_REQUIRE_CUDA=1` を正本にして、CUDA で起動できない環境は即エラーにする
 - `FASTER_WHISPER_BATCH_SIZE=8` を既定にして、CUDA では `BatchedInferencePipeline` を使う
 - `FASTER_WHISPER_CHUNKING_ENABLED=0` を既定にして、まずは 1 本の音声をそのまま GPU batched inference に流す
+- production を local GPU で回すときは `npm run worker:gpu` を常駐させる
 - Windows で CUDA DLL を別ディレクトリに置く場合は `FASTER_WHISPER_LIBRARY_PATH` にそのディレクトリを入れる
 - 何も入っていなくても、repo 内の `.data/local-stt/cuda12` に `cublas64_12.dll` があれば自動でそこを使う
 - Windows では worker 側で `PYTHONUTF8=1` / `PYTHONIOENCODING=utf-8` を強制しているので、日本語 transcript をそのまま JSON で受け取れる

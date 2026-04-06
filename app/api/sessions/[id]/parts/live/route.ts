@@ -17,6 +17,7 @@ import {
   getLiveTranscriptionProgress,
   startLiveChunkTranscription,
 } from "@/lib/live-session-transcription";
+import { shouldRunBackgroundJobsInline } from "@/lib/jobs/execution-mode";
 import { requireAuthorizedSession } from "@/lib/server/request-auth";
 import { getAudioExpiryDate } from "@/lib/system-config";
 
@@ -169,14 +170,16 @@ export async function POST(
         },
       });
 
-      void startLiveChunkTranscription(params.id, partType, sequence).catch((error) => {
-        console.error("[POST /api/sessions/[id]/parts/live] Chunk transcription failed:", {
-          sessionId: params.id,
-          partType,
-          sequence,
-          error: error?.message ?? String(error),
+      if (shouldRunBackgroundJobsInline()) {
+        void startLiveChunkTranscription(params.id, partType, sequence).catch((error) => {
+          console.error("[POST /api/sessions/[id]/parts/live] Chunk transcription failed:", {
+            sessionId: params.id,
+            partType,
+            sequence,
+            error: error?.message ?? String(error),
+          });
         });
-      });
+      }
 
       return NextResponse.json({
         ok: true,
@@ -265,9 +268,11 @@ export async function POST(
 
     const session = await updateSessionStatusFromParts(params.id);
     await enqueueSessionPartJob(part.id, SessionPartJobType.FINALIZE_LIVE_PART);
-    void processAllSessionPartJobs(params.id).catch((error) => {
-      console.error("[POST /api/sessions/[id]/parts/live] Background session part processing failed:", error);
-    });
+    if (shouldRunBackgroundJobsInline()) {
+      void processAllSessionPartJobs(params.id).catch((error) => {
+        console.error("[POST /api/sessions/[id]/parts/live] Background session part processing failed:", error);
+      });
+    }
 
     return NextResponse.json({
       part,

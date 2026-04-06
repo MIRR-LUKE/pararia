@@ -24,6 +24,8 @@ import {
   savePendingRecordingDraft,
   type PendingRecordingDraftRecord,
 } from "@/lib/recording/pendingRecordingStore";
+import { uploadFileToBlobFromBrowser } from "@/lib/blob-browser-upload";
+import { buildSessionPartUploadPathname } from "@/lib/audio-storage-paths";
 import type { RecordingLockInfo, SessionItem, SessionPipelineInfo } from "./roomTypes";
 import styles from "./studentSessionConsole.module.css";
 
@@ -75,6 +77,8 @@ const LIVE_STT_WINDOW_MS: Record<SessionConsoleMode, number> = {
   INTERVIEW: 15_000,
   LESSON_REPORT: 8_000,
 };
+const CLIENT_AUDIO_STORAGE_MODE =
+  process.env.NEXT_PUBLIC_AUDIO_STORAGE_MODE?.trim().toLowerCase() === "blob" ? "blob" : "local";
 
 function stopTracks(stream: MediaStream | null) {
   stream?.getTracks().forEach((track) => track.stop());
@@ -742,12 +746,28 @@ export function StudentSessionConsole({
       try {
         const token = await ensureLockForAudio();
         const sessionId = await resolveTargetSessionId();
+        const uploadPartType = mode === "INTERVIEW" ? "FULL" : lessonPart;
         savedSessionId = sessionId;
         const form = new FormData();
-        form.append("partType", mode === "INTERVIEW" ? "FULL" : lessonPart);
-        form.append("file", file);
+        form.append("partType", uploadPartType);
         form.append("lockToken", token);
         form.append("uploadSource", uploadSource);
+
+        if (CLIENT_AUDIO_STORAGE_MODE === "blob") {
+          setMessage("音声を共有保存へ送っています。");
+          const blob = await uploadFileToBlobFromBrowser({
+            pathname: buildSessionPartUploadPathname(sessionId, uploadPartType, file.name),
+            file,
+            access: "private",
+            handleUploadUrl: "/api/blob/upload",
+          });
+          form.append("blobUrl", blob.url);
+          form.append("fileName", file.name);
+          form.append("blobContentType", blob.contentType || file.type);
+          form.append("blobSize", String(file.size));
+        } else {
+          form.append("file", file);
+        }
 
         const res = await fetch(`/api/sessions/${sessionId}/parts`, {
           method: "POST",

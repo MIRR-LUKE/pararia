@@ -29,6 +29,7 @@ import { toPrismaJson } from "@/lib/prisma-json";
 import { getAudioExpiryDate, getTranscriptExpiryDate } from "@/lib/system-config";
 import { preprocessTranscript } from "@/lib/transcript/preprocess";
 import { ensureSessionPartReviewedTranscript } from "@/lib/transcript/review";
+import { shouldRunBackgroundJobsInline } from "@/lib/jobs/execution-mode";
 
 function parsePartType(raw: string | null) {
   if (raw === SessionPartType.CHECK_IN) return SessionPartType.CHECK_IN;
@@ -64,16 +65,24 @@ export async function POST(
     const partType = parsePartType((formData.get("partType") as string | null) ?? null);
     const transcript = (formData.get("transcript") as string | null)?.trim() ?? "";
     const file = formData.get("file") as File | null;
+    const blobUrl = (formData.get("blobUrl") as string | null)?.trim() ?? "";
+    const uploadedFileName = (formData.get("fileName") as string | null)?.trim() ?? "";
+    const uploadedMimeType = (formData.get("blobContentType") as string | null)?.trim() ?? "";
+    const uploadedByteSize = Number(formData.get("blobSize") ?? NaN);
     const lockTokenRaw = (formData.get("lockToken") as string | null)?.trim() ?? "";
     const uploadSource = ((formData.get("uploadSource") as string | null)?.trim() || "file_upload") as
       | "file_upload"
       | "direct_recording";
+    const hasBlobUpload = Boolean(blobUrl);
 
-    if (!file && !transcript) {
+    if (!file && !hasBlobUpload && !transcript) {
       return NextResponse.json({ error: "file or transcript is required" }, { status: 400 });
     }
+    if (file && hasBlobUpload) {
+      return NextResponse.json({ error: "file and blobUrl cannot be sent together" }, { status: 400 });
+    }
 
-    if (file) {
+    if (file || hasBlobUpload) {
       if (!lockTokenRaw) {
         return NextResponse.json(
           {
@@ -101,10 +110,12 @@ export async function POST(
       audioLockToken = lockTokenRaw;
       audioStudentId = sessionRow.studentId;
       audioUserId = sessionAuth.user.id;
+      const audioFileName = file?.name || uploadedFileName;
+      const audioMimeType = file?.type || uploadedMimeType;
       const isAcceptedAudio =
         uploadSource === "direct_recording"
-          ? isSupportedRecordedAudio({ fileName: file.name, mimeType: file.type })
-          : isSupportedAudioUpload({ fileName: file.name, mimeType: file.type });
+          ? isSupportedRecordedAudio({ fileName: audioFileName, mimeType: audioMimeType })
+          : isSupportedAudioUpload({ fileName: audioFileName, mimeType: audioMimeType });
       if (!isAcceptedAudio) {
         return NextResponse.json(
           {
@@ -131,56 +142,73 @@ export async function POST(
         ? getAudioExpiryDate()
         : getTranscriptExpiryDate();
 
-    if (file) {
+    if (file || hasBlobUpload) {
       sourceType = ConversationSourceType.AUDIO;
-      const buffer = Buffer.from(await file.arrayBuffer());
-      const durationSec = await getAudioDurationSecondsFromBuffer(buffer, {
-        fileName: file.name,
-        mimeType: file.type,
-      });
-      const maxDurationSeconds = getRecordingMaxDurationSeconds(sessionRow.type);
-      const maxLabel = sessionRow.type === "LESSON_REPORT" ? "10分" : "60分";
-      const durationGate = evaluateDurationGate(durationSec, {
-        maxSeconds: maxDurationSeconds,
-        rejectUnknown: true,
-        tooLongMessageJa:
-          sessionRow.type === "LESSON_REPORT"
-            ? `指導報告のチェックイン / チェックアウト音声は1回${maxLabel}までです。音声を分割して保存してください。`
-            : `面談音声は1回${maxLabel}までです。音声を分割して保存してください。`,
-        unknownMessageJa:
-          sessionRow.type === "LESSON_REPORT"
-            ? "指導報告音声の長さを確認できませんでした。10分以内のファイルを選び直してください。"
-            : "面談音声の長さを確認できませんでした。60分以内のファイルを選び直してください。",
-      });
-      if (!durationGate.ok) {
-        return NextResponse.json(
-          {
-            error: durationGate.messageJa,
-            code: durationGate.code,
-            durationSeconds: durationGate.durationSeconds,
-            minRequiredSeconds: "minRequiredSeconds" in durationGate ? durationGate.minRequiredSeconds : undefined,
-            maxAllowedSeconds: "maxAllowedSeconds" in durationGate ? durationGate.maxAllowedSeconds : undefined,
-          },
-          { status: 422 }
-        );
+      const audioFileName = file?.name || uploadedFileName || "audio.m4a";
+      const audioMimeType = file?.type || uploadedMimeType || "audio/mp4";
+      let stored: { storageUrl: string; fileName?: string; byteSize: number | null };
+      let durationGateSkipped: string | null = null;
+      let durationSeconds: number | null = null;
+
+      if (file) {
+        const buffer = Buffer.from(await file.arrayBuffer());
+        const maxDurationSeconds = getRecordingMaxDurationSeconds(sessionRow.type);
+        const maxLabel = sessionRow.type === "LESSON_REPORT" ? "10分" : "60分";
+        durationSeconds = await getAudioDurationSecondsFromBuffer(buffer, {
+          fileName: audioFileName,
+          mimeType: audioMimeType,
+        });
+        const durationGate = evaluateDurationGate(durationSeconds, {
+          maxSeconds: maxDurationSeconds,
+          rejectUnknown: true,
+          tooLongMessageJa:
+            sessionRow.type === "LESSON_REPORT"
+              ? `指導報告のチェックイン / チェックアウト音声は1回${maxLabel}までです。音声を分割して保存してください。`
+              : `面談音声は1回${maxLabel}までです。音声を分割して保存してください。`,
+          unknownMessageJa:
+            sessionRow.type === "LESSON_REPORT"
+              ? "指導報告音声の長さを確認できませんでした。10分以内のファイルを選び直してください。"
+              : "面談音声の長さを確認できませんでした。60分以内のファイルを選び直してください。",
+        });
+        if (!durationGate.ok) {
+          return NextResponse.json(
+            {
+              error: durationGate.messageJa,
+              code: durationGate.code,
+              durationSeconds: durationGate.durationSeconds,
+              minRequiredSeconds: "minRequiredSeconds" in durationGate ? durationGate.minRequiredSeconds : undefined,
+              maxAllowedSeconds: "maxAllowedSeconds" in durationGate ? durationGate.maxAllowedSeconds : undefined,
+            },
+            { status: 422 }
+          );
+        }
+        stored = await saveSessionPartUpload({
+          sessionId: params.id,
+          partType,
+          fileName: audioFileName,
+          buffer,
+          contentType: audioMimeType,
+        });
+      } else {
+        stored = {
+          storageUrl: blobUrl,
+          fileName: audioFileName,
+          byteSize: Number.isFinite(uploadedByteSize) && uploadedByteSize > 0 ? uploadedByteSize : null,
+        };
+        durationGateSkipped = "blob_client_upload_pending_worker_validation";
       }
-      const stored = await saveSessionPartUpload({
-        sessionId: params.id,
-        partType,
-        fileName: file.name,
-        buffer,
-      });
+
       qualityMeta = {
         pipelineStage: "TRANSCRIBING",
         uploadMode: uploadSource === "direct_recording" ? "direct_recording" : "file_upload",
         captureSource: uploadSource,
         lastAcceptedAt: new Date().toISOString(),
         lastQueuedAt: new Date().toISOString(),
-        uploadedFileName: file.name,
-        uploadedMimeType: file.type,
+        uploadedFileName: audioFileName,
+        uploadedMimeType: audioMimeType,
         uploadedBytes: stored.byteSize,
-        audioDurationSeconds: durationGate.durationSeconds,
-        durationGateSkipped: durationGate.skippedReason ?? null,
+        audioDurationSeconds: durationSeconds,
+        durationGateSkipped,
         transcriptionPhase: "TRANSCRIBING_LOCAL",
         transcriptionPhaseUpdatedAt: new Date().toISOString(),
         sttEngine: "faster-whisper",
@@ -196,8 +224,8 @@ export async function POST(
         update: {
           sourceType,
           status: SessionPartStatus.TRANSCRIBING,
-          fileName: file.name,
-          mimeType: file.type || null,
+          fileName: audioFileName,
+          mimeType: audioMimeType || null,
           byteSize: stored.byteSize,
           storageUrl: stored.storageUrl,
           rawTextOriginal: "",
@@ -213,8 +241,8 @@ export async function POST(
           partType,
           sourceType,
           status: SessionPartStatus.TRANSCRIBING,
-          fileName: file.name,
-          mimeType: file.type || null,
+          fileName: audioFileName,
+          mimeType: audioMimeType || null,
           byteSize: stored.byteSize,
           storageUrl: stored.storageUrl,
           rawTextOriginal: "",
@@ -229,9 +257,11 @@ export async function POST(
 
       const session = await updateSessionStatusFromParts(params.id);
       await enqueueSessionPartJob(part.id, SessionPartJobType.TRANSCRIBE_FILE);
-      void processAllSessionPartJobs(params.id).catch((error) => {
-        console.error("[POST /api/sessions/[id]/parts] Background session part processing failed:", error);
-      });
+      if (shouldRunBackgroundJobsInline()) {
+        void processAllSessionPartJobs(params.id).catch((error) => {
+          console.error("[POST /api/sessions/[id]/parts] Background session part processing failed:", error);
+        });
+      }
 
       return NextResponse.json({
         ok: true,
@@ -372,9 +402,11 @@ export async function POST(
 
     const session = await updateSessionStatusFromParts(params.id);
     await enqueueSessionPartJob(part.id, SessionPartJobType.PROMOTE_SESSION);
-    void processAllSessionPartJobs(params.id).catch((error) => {
-      console.error("[POST /api/sessions/[id]/parts] Background session part promotion failed:", error);
-    });
+    if (shouldRunBackgroundJobsInline()) {
+      void processAllSessionPartJobs(params.id).catch((error) => {
+        console.error("[POST /api/sessions/[id]/parts] Background session part promotion failed:", error);
+      });
+    }
 
     return NextResponse.json({
       part,

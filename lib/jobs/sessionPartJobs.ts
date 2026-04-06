@@ -1,7 +1,8 @@
 import { JobStatus, Prisma, SessionPartJobType, SessionPartStatus, SessionPartType, SessionType } from "@prisma/client";
 import { transcribeAudioForPipeline } from "@/lib/ai/stt";
 import { rm } from "node:fs/promises";
-import { normalizeAudioForStt } from "@/lib/audio-processing";
+import { getAudioDurationSeconds, normalizeAudioForStt } from "@/lib/audio-processing";
+import { materializeStorageFile } from "@/lib/audio-storage";
 import { prisma } from "@/lib/db";
 import { finalizeLiveTranscriptionPart } from "@/lib/live-session-transcription";
 import {
@@ -11,7 +12,9 @@ import {
 } from "@/lib/session-part-meta";
 import { toPrismaJson } from "@/lib/prisma-json";
 import {
+  evaluateDurationGate,
   evaluateTranscriptSubstance,
+  getRecordingMaxDurationSeconds,
 } from "@/lib/recording/validation";
 import {
   ensureConversationForSession,
@@ -24,6 +27,7 @@ import {
   enqueueConversationJobs,
   processAllConversationJobs,
 } from "@/lib/jobs/conversationJobs";
+import { shouldRunBackgroundJobsInline } from "@/lib/jobs/execution-mode";
 
 const JOB_EXECUTION_RETRIES = 2;
 const activeSessionRuns = new Set<string>();
@@ -108,6 +112,7 @@ async function transcribeStoredFile(part: SessionPartPayload) {
   }
 
   const startedAt = Date.now();
+  let localAudio: Awaited<ReturnType<typeof materializeStorageFile>> | null = null;
   let liveMeta =
     part.qualityMetaJson && typeof part.qualityMetaJson === "object" && !Array.isArray(part.qualityMetaJson)
       ? ({ ...part.qualityMetaJson } as Record<string, unknown>)
@@ -144,18 +149,45 @@ async function transcribeStoredFile(part: SessionPartPayload) {
 
   let stt;
   let normalizedRetryUsed = false;
+  let measuredDurationSeconds: number | null = null;
   try {
+    localAudio = await materializeStorageFile(part.storageUrl, {
+      fileName: part.fileName,
+    });
+    measuredDurationSeconds = await getAudioDurationSeconds(localAudio.filePath).catch(() => 0);
+    const maxDurationSeconds = getRecordingMaxDurationSeconds(part.sessionType);
+    const durationGate = evaluateDurationGate(measuredDurationSeconds, {
+      maxSeconds: maxDurationSeconds,
+      rejectUnknown: true,
+      tooLongMessageJa:
+        part.sessionType === SessionType.LESSON_REPORT
+          ? "指導報告のチェックイン / チェックアウト音声は1回10分までです。音声を分割して保存してください。"
+          : "面談音声は1回60分までです。音声を分割して保存してください。",
+      unknownMessageJa:
+        part.sessionType === SessionType.LESSON_REPORT
+          ? "指導報告音声の長さを確認できませんでした。10分以内のファイルを選び直してください。"
+          : "面談音声の長さを確認できませんでした。60分以内のファイルを選び直してください。",
+    });
+    if (!durationGate.ok) {
+      const gateError = new Error(durationGate.messageJa) as Error & {
+        durationGate?: typeof durationGate;
+      };
+      gateError.durationGate = durationGate;
+      throw gateError;
+    }
+
     stt = await transcribeAudioForPipeline({
-      filePath: part.storageUrl,
+      filePath: localAudio.filePath,
       filename: part.fileName || "audio.webm",
       mimeType: part.mimeType || "audio/webm",
       language: "ja",
     });
   } catch (error) {
     if (!isUnsupportedAudioError(error)) throw error;
-    const normalizedPath = `${part.storageUrl}.stt-normalized.m4a`;
+    if (!localAudio) throw error;
+    const normalizedPath = `${localAudio.filePath}.stt-normalized.m4a`;
     try {
-      await normalizeAudioForStt(part.storageUrl, normalizedPath);
+      await normalizeAudioForStt(localAudio.filePath, normalizedPath);
       stt = await transcribeAudioForPipeline({
         filePath: normalizedPath,
         filename: "audio-normalized.m4a",
@@ -167,6 +199,7 @@ async function transcribeStoredFile(part: SessionPartPayload) {
       await rm(normalizedPath, { force: true }).catch(() => {});
     }
   } finally {
+    await localAudio?.cleanup().catch(() => {});
     await metaPersistChain;
   }
 
@@ -195,6 +228,7 @@ async function transcribeStoredFile(part: SessionPartPayload) {
       sttSpeakerCount: stt.meta.speakerCount,
       sttQualityWarnings: stt.meta.qualityWarnings,
       sttNormalizedRetryUsed: normalizedRetryUsed,
+      audioDurationSeconds: measuredDurationSeconds,
       transcriptionPhase: "FINALIZING_TRANSCRIPT",
       sttEngine: "faster-whisper",
     },
@@ -347,7 +381,37 @@ async function enqueuePromotionJob(sessionPartId: string) {
 }
 
 async function executeTranscribeFileJob(job: SessionPartJobPayload, part: SessionPartPayload) {
-  const { pre, segments, qualityMeta } = await transcribeStoredFile(part);
+  let transcription;
+  try {
+    transcription = await transcribeStoredFile(part);
+  } catch (error: any) {
+    if (error?.durationGate && !error.durationGate.ok) {
+      await markPartRejected(part, error.durationGate.messageJa, {
+        validationRejection: {
+          code: error.durationGate.code,
+          messageJa: error.durationGate.messageJa,
+          durationSeconds: error.durationGate.durationSeconds,
+          maxAllowedSeconds: "maxAllowedSeconds" in error.durationGate ? error.durationGate.maxAllowedSeconds : undefined,
+          at: new Date().toISOString(),
+        },
+      });
+      await prisma.sessionPartJob.update({
+        where: { id: job.id },
+        data: {
+          status: JobStatus.DONE,
+          finishedAt: new Date(),
+          outputJson: toPrismaJson({
+            rejected: true,
+            code: error.durationGate.code,
+          }),
+        },
+      });
+      return;
+    }
+    throw error;
+  }
+
+  const { pre, segments, qualityMeta } = transcription;
 
   const substance = evaluateTranscriptSubstance(pre.displayTranscript || pre.rawTextOriginal);
 
@@ -519,9 +583,11 @@ async function executePromoteSessionJob(job: SessionPartJobPayload, part: Sessio
 
   const conversationId = await ensureConversationForSession(part.sessionId);
   await enqueueConversationJobs(conversationId);
-  void processAllConversationJobs(conversationId).catch((error) => {
-    console.error("[sessionPartJobs] Background conversation processing failed:", error);
-  });
+  if (shouldRunBackgroundJobsInline()) {
+    void processAllConversationJobs(conversationId).catch((error) => {
+      console.error("[sessionPartJobs] Background conversation processing failed:", error);
+    });
+  }
 
   await prisma.sessionPartJob.update({
     where: { id: job.id },

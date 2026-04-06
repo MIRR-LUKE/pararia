@@ -6,6 +6,7 @@ import { buildSessionProgressState } from "@/lib/session-progress";
 import { buildSummaryPreview } from "@/lib/session-part-meta";
 import { requireAuthorizedSession } from "@/lib/server/request-auth";
 import { pickDisplayTranscriptText } from "@/lib/transcript/source";
+import { shouldRunBackgroundJobsInline } from "@/lib/jobs/execution-mode";
 
 export async function GET(
   request: Request,
@@ -60,7 +61,7 @@ export async function GET(
     }
 
     const { searchParams } = new URL(request.url);
-    if (searchParams.get("process") === "1") {
+    if (searchParams.get("process") === "1" && shouldRunBackgroundJobsInline()) {
       void processAllSessionPartJobs(session.id).catch(() => {});
       if (session.conversation?.id) {
         void processAllConversationJobs(session.conversation.id).catch(() => {});

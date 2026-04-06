@@ -8,6 +8,7 @@ import { renderConversationArtifactOrFallback } from "@/lib/conversation-artifac
 import { getTranscriptExpiryDate } from "@/lib/system-config";
 import { ensureConversationReviewedTranscript } from "@/lib/transcript/review";
 import { sanitizeSummaryMarkdown } from "@/lib/user-facing-japanese";
+import { shouldRunBackgroundJobsInline } from "@/lib/jobs/execution-mode";
 
 export async function GET(request: Request) {
   try {
@@ -170,9 +171,11 @@ export async function POST(request: Request) {
     await ensureConversationReviewedTranscript(conversation.id);
 
     await enqueueConversationJobs(conversation.id);
-    void processAllConversationJobs(conversation.id).catch((error) => {
-      console.error("[POST /api/conversations] Background process failed:", error);
-    });
+    if (shouldRunBackgroundJobsInline()) {
+      void processAllConversationJobs(conversation.id).catch((error) => {
+        console.error("[POST /api/conversations] Background process failed:", error);
+      });
+    }
 
     return NextResponse.json({ conversation }, { status: 201 });
   } catch (error: any) {

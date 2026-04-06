@@ -22,6 +22,8 @@
     "test:conversation-draft-quality": "tsx scripts/test-conversation-draft-quality.ts",
     "test:recording-policy": "tsx scripts/test-recording-policy.ts",
     "benchmark:interview-log": "tsx scripts/run-interview-log-benchmark.ts",
+    "worker:gpu": "tsx scripts/run-local-gpu-worker.ts",
+    "worker:gpu:once": "tsx scripts/run-local-gpu-worker.ts --once",
     "verify": "npm run lint && npm run typecheck && npm run build",
     "postinstall": "prisma generate",
     "prisma:generate": "prisma generate",
@@ -35,6 +37,7 @@
   },
   "dependencies": {
     "@prisma/client": "^5.9.0",
+    "@vercel/blob": "^2.3.3",
     "bcryptjs": "^2.4.3",
     "clsx": "^2.0.0",
     "iconv-lite": "^0.6.3",

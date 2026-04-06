@@ -1,8 +1,12 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import path from "node:path";
 import { SessionPartType } from "@prisma/client";
 import { transcribeAudioForPipeline, type TranscriptSegment } from "@/lib/ai/stt";
-import { getRuntimePath } from "@/lib/runtime-paths";
+import {
+  materializeStorageFile,
+  readStorageText,
+  saveStorageBuffer,
+  saveStorageText,
+} from "@/lib/audio-storage";
+import { buildLiveChunkPathname, buildLiveManifestPathname } from "@/lib/audio-storage-paths";
 import { preprocessTranscript, preprocessTranscriptWithSegments } from "@/lib/transcript/preprocess";
 
 type LiveChunkStatus = "PENDING" | "TRANSCRIBING" | "READY" | "ERROR";
@@ -67,14 +71,8 @@ type FinalizedLivePart = {
   qualityMeta: Record<string, unknown>;
 };
 
-const LIVE_AUDIO_ROOT = getRuntimePath("session-audio", "live");
 const manifestLocks = new Map<string, Promise<void>>();
 const chunkTranscriptionRuns = new Map<string, Promise<void>>();
-
-function sanitizeFileName(name: string) {
-  const base = String(name || "audio.webm").trim();
-  return base.replace(/[<>:"/\\|?*\x00-\x1F]/g, "-").replace(/\s+/g, "-");
-}
 
 function partKey(sessionId: string, partType: SessionPartType) {
   return `${sessionId}:${partType}`;
@@ -84,12 +82,8 @@ function chunkKey(sessionId: string, partType: SessionPartType, sequence: number
   return `${sessionId}:${partType}:${sequence}`;
 }
 
-function getPartDir(sessionId: string, partType: SessionPartType) {
-  return path.join(LIVE_AUDIO_ROOT, sessionId, partType.toLowerCase());
-}
-
 function getManifestPath(sessionId: string, partType: SessionPartType) {
-  return path.join(getPartDir(sessionId, partType), "manifest.json");
+  return buildLiveManifestPathname(sessionId, partType);
 }
 
 async function withManifestLock<T>(key: string, fn: () => Promise<T>) {
@@ -113,14 +107,9 @@ async function withManifestLock<T>(key: string, fn: () => Promise<T>) {
   }
 }
 
-async function ensurePartDir(sessionId: string, partType: SessionPartType) {
-  await mkdir(getPartDir(sessionId, partType), { recursive: true });
-}
-
 async function readManifest(sessionId: string, partType: SessionPartType): Promise<LivePartManifest> {
-  const manifestPath = getManifestPath(sessionId, partType);
   try {
-    const raw = await readFile(manifestPath, "utf8");
+    const raw = await readStorageText(getManifestPath(sessionId, partType));
     const parsed = JSON.parse(raw) as LivePartManifest;
     return {
       sessionId,
@@ -143,11 +132,9 @@ async function readManifest(sessionId: string, partType: SessionPartType): Promi
 }
 
 async function writeManifest(manifest: LivePartManifest) {
-  await ensurePartDir(manifest.sessionId, manifest.partType);
-  const manifestPath = getManifestPath(manifest.sessionId, manifest.partType);
-  await writeFile(
-    manifestPath,
-    JSON.stringify(
+  await saveStorageText({
+    storagePathname: getManifestPath(manifest.sessionId, manifest.partType),
+    text: JSON.stringify(
       {
         ...manifest,
         updatedAt: new Date().toISOString(),
@@ -155,8 +142,9 @@ async function writeManifest(manifest: LivePartManifest) {
       null,
       2
     ),
-    "utf8"
-  );
+    contentType: "application/json; charset=utf-8",
+    allowOverwrite: true,
+  });
 }
 
 function withOffsetSegments(segments: TranscriptSegment[] = [], offsetMs: number) {
@@ -193,17 +181,23 @@ export async function appendLiveTranscriptionChunk(input: AppendChunkInput) {
       };
     }
 
-    await ensurePartDir(input.sessionId, input.partType);
-    const chunkFileName = `${String(input.sequence).padStart(5, "0")}-${sanitizeFileName(path.basename(input.fileName || "audio.webm"))}`;
-    const storageUrl = path.join(getPartDir(input.sessionId, input.partType), chunkFileName);
-    await writeFile(storageUrl, input.buffer);
+    const storage = await saveStorageBuffer({
+      storagePathname: buildLiveChunkPathname(
+        input.sessionId,
+        input.partType,
+        input.sequence,
+        input.fileName || "audio.webm"
+      ),
+      buffer: input.buffer,
+      contentType: input.mimeType || "audio/webm",
+    });
 
     const entry: LiveChunkEntry = {
       sequence: input.sequence,
       fileName: input.fileName,
       mimeType: input.mimeType,
       byteSize: input.buffer.byteLength,
-      storageUrl,
+      storageUrl: storage.storageUrl,
       startedAtMs: Math.max(0, Math.floor(input.startedAtMs)),
       durationMs: Math.max(0, Math.floor(input.durationMs)),
       status: "PENDING",
@@ -244,10 +238,14 @@ export async function startLiveChunkTranscription(sessionId: string, partType: S
 
     if (!chunk || chunk.status === "READY") return;
 
+    let localAudio: Awaited<ReturnType<typeof materializeStorageFile>> | null = null;
     try {
       const sttStart = Date.now();
+      localAudio = await materializeStorageFile(chunk.storageUrl, {
+        fileName: chunk.fileName,
+      });
       const stt = await transcribeAudioForPipeline({
-        filePath: chunk.storageUrl,
+        filePath: localAudio.filePath,
         filename: chunk.fileName || "audio.webm",
         mimeType: chunk.mimeType || "audio/webm",
         language: "ja",
@@ -289,6 +287,8 @@ export async function startLiveChunkTranscription(sessionId: string, partType: S
         await writeManifest(manifest);
       });
       throw error;
+    } finally {
+      await localAudio?.cleanup().catch(() => {});
     }
   })();
 
