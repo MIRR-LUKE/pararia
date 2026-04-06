@@ -326,6 +326,7 @@ function buildCreateBody(
   return {
     name: overrides?.name ?? config.name,
     imageName: overrides?.image ?? config.image,
+    dockerStartCmd: ["bash", "scripts/runpod-worker-start.sh"],
     gpuTypeIds: [overrides?.gpu ?? config.gpu],
     gpuCount: overrides?.gpuCount ?? config.gpuCount,
     containerDiskInGb: overrides?.containerDiskInGb ?? config.containerDiskInGb,

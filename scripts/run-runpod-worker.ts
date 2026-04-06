@@ -4,6 +4,8 @@ import { stopFasterWhisperWorkers } from "../lib/ai/stt";
 import { processQueuedJobs } from "../lib/jobs/conversationJobs";
 import { processQueuedSessionPartJobs } from "../lib/jobs/sessionPartJobs";
 import { stopCurrentRunpodPod } from "../lib/runpod/worker-control";
+import { saveStorageText } from "../lib/audio-storage";
+import { prisma } from "../lib/db";
 
 type QueueRunResult = {
   processed: number;
@@ -34,6 +36,82 @@ function readNonNegativeIntEnvWithLegacy(name: string, legacyName: string, fallb
 function readOptionalEnv(name: string) {
   const value = process.env[name]?.trim();
   return value ? value : undefined;
+}
+
+function getWorkerHeartbeatPath(fileName: string) {
+  const podId = process.env.RUNPOD_POD_ID?.trim() || "local";
+  return `runpod-worker/heartbeats/${podId}/${fileName}`;
+}
+
+async function recordWorkerStartupHeartbeat(input: {
+  scope: WorkerScope;
+  sessionPartLimit: number;
+  sessionPartConcurrency: number;
+  conversationLimit: number;
+  conversationConcurrency: number;
+  autoStopIdleMs: number;
+  idleWaitMs: number;
+  activeWaitMs: number;
+  once: boolean;
+}) {
+  const payload = {
+    event: "worker_process_started",
+    podId: process.env.RUNPOD_POD_ID?.trim() || null,
+    startedAt: new Date().toISOString(),
+    scope: input.scope,
+    sessionPartLimit: input.sessionPartLimit,
+    sessionPartConcurrency: input.sessionPartConcurrency,
+    conversationLimit: input.conversationLimit,
+    conversationConcurrency: input.conversationConcurrency,
+    autoStopIdleMs: input.autoStopIdleMs,
+    idleWaitMs: input.idleWaitMs,
+    activeWaitMs: input.activeWaitMs,
+    once: input.once,
+  };
+
+  await saveStorageText({
+    storagePathname: getWorkerHeartbeatPath("startup.json"),
+    text: JSON.stringify(payload, null, 2),
+    allowOverwrite: true,
+  }).catch(() => {});
+
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+    await prisma.auditLog.create({
+      data: {
+        action: `[runpod-worker] startup pod=${payload.podId ?? "local"} session=${payload.scope.sessionId ?? "-"} conversation=${payload.scope.conversationId ?? "-"} spl=${payload.sessionPartLimit} cl=${payload.conversationLimit}`,
+      },
+    });
+    await saveStorageText({
+      storagePathname: getWorkerHeartbeatPath("db-ok.json"),
+      text: JSON.stringify(
+        {
+          ...payload,
+          event: "worker_db_ok",
+          checkedAt: new Date().toISOString(),
+        },
+        null,
+        2
+      ),
+      allowOverwrite: true,
+    }).catch(() => {});
+  } catch (error: any) {
+    await saveStorageText({
+      storagePathname: getWorkerHeartbeatPath("db-error.json"),
+      text: JSON.stringify(
+        {
+          ...payload,
+          event: "worker_db_error",
+          checkedAt: new Date().toISOString(),
+          error: error?.message ?? String(error),
+        },
+        null,
+        2
+      ),
+      allowOverwrite: true,
+    }).catch(() => {});
+    throw error;
+  }
 }
 
 async function processQueueOnce(
@@ -117,6 +195,18 @@ async function main() {
     idleWaitMs,
     autoStopIdleMs,
     scope,
+    once,
+  });
+
+  await recordWorkerStartupHeartbeat({
+    scope,
+    sessionPartLimit,
+    sessionPartConcurrency,
+    conversationLimit,
+    conversationConcurrency,
+    autoStopIdleMs,
+    idleWaitMs,
+    activeWaitMs,
     once,
   });
 
