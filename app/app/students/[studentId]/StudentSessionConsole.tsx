@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/Button";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { GenerationProgress } from "@/components/ui/GenerationProgress";
 import {
   AUDIO_UPLOAD_ACCEPT_ATTR,
@@ -11,6 +12,17 @@ import {
 } from "@/lib/audio-upload-support";
 import { buildLessonReportFlowMessage, getLessonReportPartState } from "@/lib/lesson-report-flow";
 import { RECORDING_LOCK_HEARTBEAT_MS } from "@/lib/recording/lockConstants";
+import {
+  DEFAULT_MIN_RECORDING_DURATION_SEC,
+  buildRecordingTooLongMessage,
+  buildRecordingTooShortMessage,
+} from "@/lib/recording/policy";
+import {
+  clearPendingRecordingDraft,
+  loadPendingRecordingDraft,
+  savePendingRecordingDraft,
+  type PendingRecordingDraftRecord,
+} from "@/lib/recording/pendingRecordingStore";
 import type { RecordingLockInfo, SessionItem, SessionPipelineInfo } from "./roomTypes";
 import styles from "./studentSessionConsole.module.css";
 
@@ -43,11 +55,20 @@ type Props = {
 };
 
 type UploadSource = "file_upload" | "direct_recording";
+type StopIntent = "save" | "cancel";
+type PendingRecordingDraft = {
+  key: string;
+  file: File;
+  createdAt: string;
+  durationSeconds: number | null;
+  sizeBytes: number;
+};
 
 const MAX_SECONDS: Record<SessionConsoleMode, number> = {
   INTERVIEW: 60 * 60,
   LESSON_REPORT: 10 * 60,
 };
+const MIN_SECONDS = DEFAULT_MIN_RECORDING_DURATION_SEC;
 const RECORDING_TIMESLICE_MS = 1000;
 const LIVE_STT_WINDOW_MS: Record<SessionConsoleMode, number> = {
   INTERVIEW: 15_000,
@@ -147,6 +168,33 @@ function pickRecordingMimeType() {
   return candidates.find((candidate) => MediaRecorder.isTypeSupported(candidate)) ?? null;
 }
 
+function getDurationValidationMessage(
+  mode: SessionConsoleMode,
+  durationSeconds: number | null
+) {
+  if (durationSeconds !== null && durationSeconds < MIN_SECONDS) {
+    return buildRecordingTooShortMessage(MIN_SECONDS);
+  }
+  if (durationSeconds !== null && durationSeconds > MAX_SECONDS[mode]) {
+    return buildRecordingTooLongMessage(mode, MAX_SECONDS[mode]);
+  }
+  return null;
+}
+
+function toPendingDraft(record: PendingRecordingDraftRecord) {
+  const file = new File([record.blob], record.fileName, {
+    type: record.mimeType || "audio/webm",
+    lastModified: Date.parse(record.updatedAt) || Date.now(),
+  });
+  return {
+    key: record.key,
+    file,
+    createdAt: record.createdAt,
+    durationSeconds: record.durationSeconds,
+    sizeBytes: record.sizeBytes,
+  } satisfies PendingRecordingDraft;
+}
+
 export function StudentSessionConsole({
   studentId,
   studentName,
@@ -171,6 +219,9 @@ export function StudentSessionConsole({
   const [createdConversationId, setCreatedConversationId] = useState<string | null>(null);
   const [sessionProgress, setSessionProgress] = useState<SessionPipelineInfo | null>(ongoingLessonSession?.pipeline ?? null);
   const [recoverableSessionId, setRecoverableSessionId] = useState<string | null>(null);
+  const [pendingDraft, setPendingDraft] = useState<PendingRecordingDraft | null>(null);
+  const [showCancelDialog, setShowCancelDialog] = useState(false);
+  const [showDiscardDraftDialog, setShowDiscardDraftDialog] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -188,9 +239,15 @@ export function StudentSessionConsole({
   const lockTokenRef = useRef<string | null>(null);
   const heartbeatRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const autoStartedRef = useRef(false);
+  const secondsRef = useRef(0);
+  const stopIntentRef = useRef<StopIntent>("save");
 
   const lessonFlowState = getLessonReportPartState(ongoingLessonSession?.parts ?? []);
   const lessonFlowMessage = buildLessonReportFlowMessage(ongoingLessonSession);
+
+  useEffect(() => {
+    secondsRef.current = seconds;
+  }, [seconds]);
 
   useEffect(() => {
     if (mode === "LESSON_REPORT") {
@@ -207,6 +264,71 @@ export function StudentSessionConsole({
     recordingLock?.active &&
     recordingLock.lock &&
     !recordingLock.lock.isHeldByViewer;
+
+  const hasNavigationGuard = state === "recording" || state === "uploading" || Boolean(pendingDraft);
+
+  useEffect(() => {
+    if (!hasNavigationGuard || typeof window === "undefined") return undefined;
+
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [hasNavigationGuard]);
+
+  useEffect(() => {
+    if (!hasNavigationGuard || typeof document === "undefined" || typeof window === "undefined") return undefined;
+
+    const handleAnchorNavigation = (event: MouseEvent) => {
+      const target = event.target as Element | null;
+      const anchor = target?.closest("a[href]") as HTMLAnchorElement | null;
+      if (!anchor) return;
+      if (anchor.target === "_blank" || anchor.hasAttribute("download")) return;
+      const href = anchor.getAttribute("href");
+      if (!href || href.startsWith("#")) return;
+      const nextUrl = new URL(anchor.href, window.location.href);
+      const currentUrl = new URL(window.location.href);
+      const isSameLocation =
+        nextUrl.origin === currentUrl.origin &&
+        nextUrl.pathname === currentUrl.pathname &&
+        nextUrl.search === currentUrl.search &&
+        nextUrl.hash === currentUrl.hash;
+      if (isSameLocation) return;
+
+      event.preventDefault();
+      event.stopPropagation();
+      const confirmed = window.confirm(
+        pendingDraft
+          ? "未送信の録音データがあります。移動すると再送前の確認を忘れやすくなります。移動しますか？"
+          : "録音中または保存前の音声があります。移動すると録音が失われることがあります。移動しますか？"
+      );
+      if (confirmed) {
+        window.location.href = nextUrl.toString();
+      }
+    };
+
+    document.addEventListener("click", handleAnchorNavigation, true);
+    return () => document.removeEventListener("click", handleAnchorNavigation, true);
+  }, [hasNavigationGuard, pendingDraft]);
+
+  useEffect(() => {
+    if (state !== "recording" || typeof document === "undefined") return undefined;
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState !== "hidden") return;
+      try {
+        mediaRecorderRef.current?.requestData();
+      } catch {
+        // noop
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
+  }, [state]);
 
   const stopHeartbeat = useCallback(() => {
     if (heartbeatRef.current) {
@@ -236,6 +358,42 @@ export function StudentSessionConsole({
     },
     [studentId]
   );
+
+  const clearPendingDraftState = useCallback(async () => {
+    await clearPendingRecordingDraft({ studentId, mode, lessonPart }).catch(() => {});
+    setPendingDraft(null);
+  }, [lessonPart, mode, studentId]);
+
+  const savePendingDraftState = useCallback(
+    async (file: File, durationSeconds: number | null) => {
+      const record = await savePendingRecordingDraft({
+        studentId,
+        mode,
+        lessonPart,
+        file,
+        durationSeconds,
+      });
+      setPendingDraft(toPendingDraft(record));
+    },
+    [lessonPart, mode, studentId]
+  );
+
+  const downloadPendingDraft = useCallback(() => {
+    if (typeof window === "undefined" || !pendingDraft) return;
+    const url = URL.createObjectURL(pendingDraft.file);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = pendingDraft.file.name;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 0);
+  }, [pendingDraft]);
+
+  const loadPendingDraftState = useCallback(async () => {
+    const record = await loadPendingRecordingDraft({ studentId, mode, lessonPart }).catch(() => null);
+    setPendingDraft(record ? toPendingDraft(record) : null);
+  }, [lessonPart, mode, studentId]);
 
   const acquireLock = useCallback(async () => {
     const res = await fetch(`/api/students/${studentId}/recording-lock`, {
@@ -581,9 +739,16 @@ export function StudentSessionConsole({
         });
         const body = await res.json().catch(() => ({}));
         if (!res.ok) {
-          throw new Error(body?.error ?? "音声の保存に失敗しました。");
+          const apiError = new Error(body?.error ?? "音声の保存に失敗しました。") as Error & {
+            code?: string;
+          };
+          apiError.code = typeof body?.code === "string" ? body.code : undefined;
+          throw apiError;
         }
         partSaved = true;
+        if (uploadSource === "direct_recording") {
+          await clearPendingDraftState();
+        }
         await handleSavedPartResponse(body, sessionId);
       } catch (nextError: any) {
         setState("error");
@@ -591,7 +756,13 @@ export function StudentSessionConsole({
           setRecoverableSessionId(savedSessionId);
           setError(nextError?.message ?? "音声は保存済みですが、処理の開始に失敗しました。");
         } else {
-          setError(nextError?.message ?? "音声の保存に失敗しました。");
+          if (uploadSource === "direct_recording" && pendingDraft) {
+            setError(
+              `${nextError?.message ?? "音声の保存に失敗しました。"} 録音データはこの端末に一時保存したままです。再送するか、先にダウンロードしてください。`
+            );
+          } else {
+            setError(nextError?.message ?? "音声の保存に失敗しました。");
+          }
         }
       } finally {
         await finalizeLock();
@@ -599,10 +770,12 @@ export function StudentSessionConsole({
     },
     [
       ensureLockForAudio,
+      clearPendingDraftState,
       finalizeLock,
       handleSavedPartResponse,
       lessonPart,
       mode,
+      pendingDraft,
       resolveTargetSessionId,
     ]
   );
@@ -615,10 +788,16 @@ export function StudentSessionConsole({
     setSeconds(0);
     setEstimatedSize("0 B");
     setIsPaused(false);
+    stopIntentRef.current = "save";
 
     if (lockConflict) {
       setState("error");
       setError(`${recordingLock?.lock?.lockedByName ?? "他のユーザー"} が録音中です。終了後に開始してください。`);
+      return;
+    }
+    if (pendingDraft) {
+      setState("error");
+      setError("未送信の録音データが残っています。先に再送するか、端末へ保存してから破棄してください。");
       return;
     }
 
@@ -691,8 +870,22 @@ export function StudentSessionConsole({
       };
 
       recorder.onerror = () => {
-        setState("error");
-        setError("録音中にエラーが発生しました。");
+        stopIntentRef.current = "cancel";
+        setState("uploading");
+        setError(null);
+        setMessage("録音中に問題が発生したため、ここまでの音声を保全しています。");
+        try {
+          recorder.requestData();
+        } catch {
+          // noop
+        }
+        try {
+          recorder.stop();
+        } catch {
+          setState("error");
+          setError("録音中にエラーが発生し、音声の保全にも失敗しました。");
+          void finalizeLock();
+        }
       };
 
       recorder.onstop = async () => {
@@ -704,6 +897,26 @@ export function StudentSessionConsole({
             buildUploadFileName(studentId, mode, lessonPart, activeMimeType),
             { type: activeMimeType }
           );
+          const parsedDurationSeconds = await readAudioDurationSeconds(file);
+          const durationSeconds =
+            parsedDurationSeconds ?? (secondsRef.current > 0 ? secondsRef.current : null);
+          await savePendingDraftState(file, durationSeconds);
+
+          if (stopIntentRef.current === "cancel") {
+            setState("idle");
+            setMessage("録音を中止しました。ここまでの音声はこの端末に一時保存しました。必要なら再送またはダウンロードできます。");
+            setError(null);
+            await finalizeLock();
+            return;
+          }
+
+          const durationMessage = getDurationValidationMessage(mode, durationSeconds);
+          if (durationMessage) {
+            setState("error");
+            setError(durationMessage);
+            await finalizeLock();
+            return;
+          }
           const liveSessionId = recordingSessionIdRef.current;
           if (liveStreamingEnabledRef.current && liveSessionId) {
             try {
@@ -715,6 +928,10 @@ export function StudentSessionConsole({
           } else {
             await uploadAudioFile(file, "direct_recording");
           }
+        } catch (nextError: any) {
+          setState("error");
+          setError(nextError?.message ?? "録音データの保全または保存に失敗しました。");
+          await finalizeLock();
         } finally {
           stopTracks(mediaStreamRef.current);
           mediaStreamRef.current = null;
@@ -747,9 +964,11 @@ export function StudentSessionConsole({
   }, [
     acquireLock,
     finalizeLock,
+    savePendingDraftState,
     lessonPart,
     lockConflict,
     mode,
+    pendingDraft,
     queueLiveChunkUpload,
     recordingLock?.lock?.lockedByName,
     resolveTargetSessionId,
@@ -768,12 +987,30 @@ export function StudentSessionConsole({
 
   const stopRecording = useCallback(() => {
     try {
+      stopIntentRef.current = "save";
       mediaRecorderRef.current?.stop();
       setState("uploading");
       setMessage("録音を保存しています。");
     } catch {
       setState("error");
       setError("録音停止に失敗しました。");
+    }
+  }, []);
+
+  const requestCancelRecording = useCallback(() => {
+    setShowCancelDialog(true);
+  }, []);
+
+  const confirmCancelRecording = useCallback(() => {
+    setShowCancelDialog(false);
+    try {
+      stopIntentRef.current = "cancel";
+      mediaRecorderRef.current?.stop();
+      setState("uploading");
+      setMessage("録音を中止して保全しています。");
+    } catch {
+      setState("error");
+      setError("録音のキャンセルに失敗しました。");
     }
   }, []);
 
@@ -807,13 +1044,10 @@ export function StudentSessionConsole({
         return;
       }
       const durationSeconds = await readAudioDurationSeconds(file);
-      if (durationSeconds !== null && durationSeconds > MAX_SECONDS[mode]) {
+      const durationMessage = getDurationValidationMessage(mode, durationSeconds);
+      if (durationMessage) {
         setState("error");
-        setError(
-          mode === "LESSON_REPORT"
-            ? "指導報告のチェックイン / チェックアウト音声は1回10分までです。10分以内に分割してください。"
-            : "面談音声は1回60分までです。60分以内に分割してください。"
-        );
+        setError(durationMessage);
         return;
       }
       setCreatedConversationId(null);
@@ -822,9 +1056,35 @@ export function StudentSessionConsole({
     [lockConflict, mode, recordingLock?.lock?.lockedByName, uploadAudioFile]
   );
 
-  const canRecord = !lockConflict && state !== "uploading" && state !== "processing";
-  const canUpload = canRecord && state !== "recording";
+  const retryPendingDraftUpload = useCallback(async () => {
+    if (!pendingDraft) return;
+    setError(null);
+    setMessage("一時保存した録音を再送しています。");
+    await uploadAudioFile(pendingDraft.file, "direct_recording");
+  }, [pendingDraft, uploadAudioFile]);
+
+  const discardPendingDraft = useCallback(async () => {
+    setShowDiscardDraftDialog(false);
+    await clearPendingDraftState();
+    setError(null);
+    setMessage("一時保存していた録音データを破棄しました。");
+    if (state === "error") {
+      setState("idle");
+    }
+  }, [clearPendingDraftState, state]);
+
+  useEffect(() => {
+    void loadPendingDraftState();
+  }, [loadPendingDraftState]);
+
+  const canRecord = !lockConflict && !pendingDraft && state !== "uploading" && state !== "processing";
+  const canUpload = !lockConflict && state !== "recording" && state !== "uploading" && state !== "processing";
   const canStartFromCircle = canRecord && state !== "recording";
+  const canFinishRecording = seconds >= MIN_SECONDS;
+  const pendingDraftCanUpload = pendingDraft
+    ? pendingDraft.durationSeconds === null || !getDurationValidationMessage(mode, pendingDraft.durationSeconds)
+    : false;
+  const remainingSecondsUntilSavable = Math.max(0, MIN_SECONDS - seconds);
   const generationProgress =
     state === "uploading" || state === "processing"
       ? sessionProgress?.progress ?? {
@@ -874,7 +1134,7 @@ export function StudentSessionConsole({
               type="button"
               className={`${styles.modeButton} ${mode === "INTERVIEW" ? styles.modeButtonActive : ""}`}
               onClick={() => onModeChange("INTERVIEW")}
-              disabled={state === "recording"}
+              disabled={state === "recording" || Boolean(pendingDraft)}
             >
               面談
             </button>
@@ -882,7 +1142,7 @@ export function StudentSessionConsole({
               type="button"
               className={`${styles.modeButton} ${mode === "LESSON_REPORT" ? styles.modeButtonActive : ""}`}
               onClick={() => onModeChange("LESSON_REPORT")}
-              disabled={state === "recording"}
+              disabled={state === "recording" || Boolean(pendingDraft)}
             >
               指導報告
             </button>
@@ -900,7 +1160,7 @@ export function StudentSessionConsole({
                       : styles.lessonStepPending
                 }`}
                 onClick={() => onLessonPartChange("CHECK_IN")}
-                disabled={state === "recording" || lessonFlowState.hasCheckIn}
+                disabled={state === "recording" || Boolean(pendingDraft) || lessonFlowState.hasCheckIn}
               >
                 <span className={styles.lessonStepNum}>
                   {lessonFlowState.hasReadyCheckIn ? "✓" : lessonFlowState.hasCheckIn ? "…" : "1"}
@@ -920,7 +1180,7 @@ export function StudentSessionConsole({
                         : styles.lessonStepPending
                 }`}
                 onClick={() => onLessonPartChange("CHECK_OUT")}
-                disabled={state === "recording" || !lessonFlowState.hasCheckIn}
+                disabled={state === "recording" || Boolean(pendingDraft) || !lessonFlowState.hasCheckIn}
               >
                 <span className={styles.lessonStepNum}>
                   {lessonFlowState.hasReadyCheckOut ? "✓" : lessonFlowState.hasCheckOut ? "…" : !lessonFlowState.hasCheckIn ? "🔒" : "2"}
@@ -998,9 +1258,17 @@ export function StudentSessionConsole({
                 <Button variant="secondary" onClick={togglePause}>
                   {isPaused ? "再開" : "一時停止"}
                 </Button>
-                <Button onClick={stopRecording}>終了</Button>
+                <Button variant="secondary" onClick={requestCancelRecording}>
+                  キャンセル
+                </Button>
+                <Button onClick={stopRecording} disabled={!canFinishRecording}>
+                  終了
+                </Button>
               </div>
-              <div className={styles.supportLine}>現在のサイズ: {estimatedSize}</div>
+              <div className={styles.supportLine}>
+                現在のサイズ: {estimatedSize}
+                {!canFinishRecording ? ` / 保存できるまであと${remainingSecondsUntilSavable}秒` : ""}
+              </div>
             </>
           ) : (
             <>
@@ -1039,6 +1307,31 @@ export function StudentSessionConsole({
             </div>
           ) : null}
 
+          {pendingDraft ? (
+            <div className={styles.warningBox}>
+              <strong>未送信の録音データがあります</strong>
+              <p>
+                {new Date(pendingDraft.createdAt).toLocaleString("ja-JP")} に保存した録音です。
+                {pendingDraft.durationSeconds
+                  ? ` 長さは約${Math.round(pendingDraft.durationSeconds)}秒、サイズは ${formatBytes(
+                      pendingDraft.sizeBytes
+                    )} です。`
+                  : ` サイズは ${formatBytes(pendingDraft.sizeBytes)} です。`}
+              </p>
+              <div className={styles.inlineActions}>
+                {pendingDraftCanUpload ? (
+                  <Button onClick={() => void retryPendingDraftUpload()}>一時保存した録音を再送</Button>
+                ) : null}
+                <Button variant="secondary" onClick={downloadPendingDraft}>
+                  端末へ保存
+                </Button>
+                <Button variant="secondary" onClick={() => setShowDiscardDraftDialog(true)}>
+                  破棄する
+                </Button>
+              </div>
+            </div>
+          ) : null}
+
           {error ? (
             <div className={styles.errorBox}>
               <strong>処理に失敗しました</strong>
@@ -1065,6 +1358,32 @@ export function StudentSessionConsole({
           ) : null}
         </div>
       </div>
+
+      <ConfirmDialog
+        open={showCancelDialog}
+        title="録音を中止しますか？"
+        description="ここまでの録音はこの端末に一時保存できます。あとで再送することも、端末へ保存してから破棄することもできます。"
+        details={[
+          "終了は保存して処理へ進みます。",
+          "キャンセルはサーバーへ送らず、この端末に一時保存します。",
+        ]}
+        confirmLabel="録音を中止する"
+        cancelLabel="続ける"
+        tone="danger"
+        onConfirm={confirmCancelRecording}
+        onCancel={() => setShowCancelDialog(false)}
+      />
+
+      <ConfirmDialog
+        open={showDiscardDraftDialog}
+        title="一時保存した録音を破棄しますか？"
+        description="破棄すると、この端末に残っている再送用の録音データも消えます。"
+        confirmLabel="破棄する"
+        cancelLabel="戻る"
+        tone="danger"
+        onConfirm={() => void discardPendingDraft()}
+        onCancel={() => setShowDiscardDraftDialog(false)}
+      />
     </div>
   );
 }

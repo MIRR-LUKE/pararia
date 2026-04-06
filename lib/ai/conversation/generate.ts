@@ -297,6 +297,14 @@ function renderInterviewBulletLines(entries: ConversationArtifactEntry[]) {
     .map((text) => `- ${text}`);
 }
 
+function renderInterviewOptionalSectionLines(
+  entries: ConversationArtifactEntry[],
+  emptyMessage: string
+) {
+  const lines = renderInterviewBulletLines(entries);
+  return lines.length > 0 ? lines : [emptyMessage];
+}
+
 function buildBasicInfoLines(sessionType: SessionMode, input: DraftGenerationInput, basicInfo?: Record<string, unknown> | null) {
   if (sessionType === "LESSON_REPORT") {
     return [
@@ -397,10 +405,26 @@ function buildSectionsFromEntries(
   return [
     { key: "basic_info", title: "基本情報", lines: basicInfoLines },
     { key: "summary", title: "1. サマリー", lines: renderInterviewSummaryLines(summary) },
-    { key: "details", title: "2. 学習状況と課題分析", lines: renderInterviewBulletLines(claims) },
-    { key: "actions", title: "3. 今後の対策・指導内容", lines: renderInterviewBulletLines(strategyEntries) },
-    { key: "share", title: "4. 志望校に関する検討事項", lines: renderInterviewBulletLines(sharePoints) },
-    { key: "unknown", title: "5. 次回のお勧め話題", lines: renderInterviewBulletLines(nextTopicEntries) },
+    {
+      key: "details",
+      title: "2. 学習状況と課題分析",
+      lines: renderInterviewOptionalSectionLines(claims, "今回の面談では、学習状況や課題として追加で整理できる話はしていませんでした。"),
+    },
+    {
+      key: "actions",
+      title: "3. 今後の対策・指導内容",
+      lines: renderInterviewOptionalSectionLines(strategyEntries, "今回の面談では、具体的な対策や指導方針までは話していませんでした。"),
+    },
+    {
+      key: "share",
+      title: "4. 志望校に関する検討事項",
+      lines: renderInterviewOptionalSectionLines(sharePoints, "今回の面談では、志望校や進路の具体的な話はしていませんでした。"),
+    },
+    {
+      key: "unknown",
+      title: "5. 次回のお勧め話題",
+      lines: renderInterviewOptionalSectionLines(nextTopicEntries, "今回の面談では、次回に向けた具体的な確認項目までは話していませんでした。"),
+    },
   ] satisfies ConversationArtifactSection[];
 }
 
@@ -468,9 +492,15 @@ function buildArtifactFromStructuredPayload(
     sessionType === "LESSON_REPORT" ? 2 : 1
   );
 
-  const minSharePoints = sessionType === "LESSON_REPORT" ? 2 : 1;
-  if (summary.length < 2 || claims.length < 2 || nextActions.length < 2 || sharePoints.length < minSharePoints) {
-    return null;
+  if (sessionType === "LESSON_REPORT") {
+    if (summary.length < 2 || claims.length < 2 || nextActions.length < 2 || sharePoints.length < 2) {
+      return null;
+    }
+  } else {
+    const interviewSignalCount = claims.length + nextActions.length + sharePoints.length;
+    if (summary.length < 1 || interviewSignalCount < 2) {
+      return null;
+    }
   }
 
   const sections = buildSectionsFromEntries(

@@ -417,18 +417,26 @@ PARARIA は、塾・個別指導・学習コーチング向けの `Teaching OS` 
 ### 11.1 client 側
 
 - `StudentSessionConsole` が録音秒数上限で停止
+- 録音中または未送信の録音がある間は、ブラウザ離脱で警告を出す
+- 録音中にアプリ内リンクを押したときも、移動前に確認する
+- 録音の `終了` は 60 秒以上たってからだけ押せる
+- `キャンセル` はサーバーへ送らず、この端末に一時保存する
+- 録音停止後は先に端末へ一時保存してから upload する
+- upload 失敗時は、一時保存した録音を `再送 / 端末へ保存 / 破棄` できる
 - file upload 前に audio metadata を見て長すぎるファイルを reject
+- file upload 前に audio metadata を見て短すぎるファイルも reject
 - file picker では `.mp3` / `.m4a` 以外を選べない
 - 拡張子 / MIME が `.mp3` / `.m4a` に合わないファイルは reject する
 
 ### 11.2 server 側
 
 - `POST /api/sessions/[id]/parts`
-  - file upload duration を解析して reject
+  - file upload duration を解析して `短すぎる / 長すぎる` を reject
   - `.mp3` / `.m4a` 以外の file upload を reject
 - `POST /api/sessions/[id]/parts/live`
   - live chunk 累積 duration を見て reject
 - duration 不明なら strict に reject する経路を持つ
+- STT 後に内容が薄すぎる transcript は reject し、録り直しを促す
 - local STT が音声形式を読めないときだけ、同じ local STT のまま一度 `AAC/M4A` へ正規化して再実行する
 
 ## 12. 進捗表示

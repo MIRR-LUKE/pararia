@@ -187,6 +187,10 @@ export function buildInterviewDraftFallbackMarkdown(input: {
     const text = compactText(line, 92);
     return text ? `- ${text.replace(/[。！？]+$/, "")}` : "";
   };
+  const buildSectionLines = (items: string[], emptyMessage: string) => {
+    const rendered = items.map(toBullet).filter(Boolean);
+    return rendered.length > 0 ? rendered : [emptyMessage];
+  };
 
   return repairSummaryMarkdownFormatting(
     [
@@ -207,16 +211,30 @@ export function buildInterviewDraftFallbackMarkdown(input: {
       `${summaryFollow}${planBody ? ` ${planBody}` : ""}${supportBody ? ` ${supportBody}` : ""}`.trim(),
       "",
       "■ 2. 学習状況と課題分析",
-      ...positiveLines.map(toBullet).filter(Boolean),
+      ...buildSectionLines(
+        positiveLines,
+        "今回の面談では、学習状況や課題として追加で整理できる話はしていませんでした。"
+      ),
       "",
       "■ 3. 今後の対策・指導内容",
-      ...issueLines.map(toBullet).filter(Boolean),
+      ...buildSectionLines(
+        issueLines,
+        "今回の面談では、具体的な対策や指導方針までは話していませんでした。"
+      ),
       "",
       "■ 4. 志望校に関する検討事項",
-      ...parentLines.map(toBullet).filter(Boolean),
+      ...buildSectionLines(
+        parentLines,
+        "今回の面談では、志望校や進路の具体的な話はしていませんでした。"
+      ),
       "",
       "■ 5. 次回のお勧め話題",
-      ...(issueLines.slice(0, 3).map((line) => toBullet(`次回は ${stripSpeakerPrefix(line)} を確認する`)).filter(Boolean)),
+      ...buildSectionLines(
+        issueLines
+          .slice(0, 3)
+          .map((line) => `次回は ${stripSpeakerPrefix(line)} を確認する`),
+        "今回の面談では、次回に向けた具体的な確認項目までは話していませんでした。"
+      ),
     ].join("\n")
   );
 }

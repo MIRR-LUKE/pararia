@@ -5,11 +5,14 @@
  */
 
 import { parseBuffer } from "music-metadata";
-
-/** 両モード共通: これ未満の録音は STT に回さない（秒） */
-export const DEFAULT_MIN_RECORDING_DURATION_SEC = 60;
-export const DEFAULT_MAX_INTERVIEW_DURATION_SEC = 60 * 60;
-export const DEFAULT_MAX_LESSON_PART_DURATION_SEC = 10 * 60;
+import {
+  buildRecordingTooLongMessage,
+  buildRecordingTooShortMessage,
+  buildUnknownDurationMessage,
+  DEFAULT_MAX_INTERVIEW_DURATION_SEC,
+  DEFAULT_MAX_LESSON_PART_DURATION_SEC,
+  DEFAULT_MIN_RECORDING_DURATION_SEC,
+} from "@/lib/recording/policy";
 
 /** 意味のある文字数の下限（日本語想定・空白除外後） */
 export const DEFAULT_MIN_SIGNIFICANT_CHARS = 35;
@@ -125,7 +128,7 @@ export function evaluateDurationGate(
         durationSeconds: null,
         messageJa:
           opts?.unknownMessageJa ||
-          "音声の長さを確認できませんでした。別形式で保存し直すか、ファイルを分割してアップロードしてください。",
+          buildUnknownDurationMessage("INTERVIEW"),
       };
     }
     return { ok: true, durationSeconds: null, skippedReason: "duration_parse_failed" };
@@ -137,7 +140,7 @@ export function evaluateDurationGate(
       code: "recording_too_short",
       durationSeconds,
       minRequiredSeconds: min,
-      messageJa: `録音が${min}秒未満のため、ログ生成を開始できません。${min}秒以上録音するか、十分な長さの音声ファイルをアップロードしてください。`,
+      messageJa: buildRecordingTooShortMessage(min),
     };
   }
 
@@ -149,7 +152,7 @@ export function evaluateDurationGate(
       maxAllowedSeconds: max,
       messageJa:
         opts?.tooLongMessageJa ||
-        `録音が長すぎます。上限は${max}秒です。音声を分割するか、録音時間を短くしてください。`,
+        buildRecordingTooLongMessage("INTERVIEW", max),
     };
   }
 

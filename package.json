@@ -20,6 +20,7 @@
     "test:transcript-review": "tsx scripts/test-transcript-review.ts",
     "test:transcript-preprocess": "tsx scripts/test-transcript-preprocess.ts",
     "test:conversation-draft-quality": "tsx scripts/test-conversation-draft-quality.ts",
+    "test:recording-policy": "tsx scripts/test-recording-policy.ts",
     "benchmark:interview-log": "tsx scripts/run-interview-log-benchmark.ts",
     "verify": "npm run lint && npm run typecheck && npm run build",
     "postinstall": "prisma generate",
