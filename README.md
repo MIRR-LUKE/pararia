@@ -348,6 +348,9 @@ Runpod 側では、Pod 作成時に次を入れれば動きます。
 - `PARARIA_AUDIO_BLOB_ACCESS=private`
 - `NEXT_PUBLIC_AUDIO_STORAGE_MODE=blob`
 
+private GHCR image を使うときは、Runpod 側の container registry auth を作って
+`RUNPOD_WORKER_CONTAINER_REGISTRY_AUTH_ID` も渡す。
+
 PowerShell のセッションに env を入れられない場合は、repo ルートの `.env.local` に次を追記すれば `npm run runpod:deploy` でそのまま使えます。
 
 ```bash
@@ -393,7 +396,9 @@ GPU が強いときの最初の目安:
 速度優先の補足:
 
 - `beam_size=1` を既定にし、精度より 1 本の完了速度を優先する
-- `compute_type=auto` のままにして、CUDA では worker 側が `int8_float16 -> float16 -> int8_float32 -> int8 -> float32` の順で最速候補を選ぶ
+- `compute_type=auto` のままでよいが、worker image は `CTranslate2 4.7.1 + CUDA 12.8` 前提にする
+- `RTX 4090` など pre-Blackwell では `int8_float16` 系を優先する
+- `RTX 5090` など Blackwell では `cuBLAS` の制約を避けるため `float16` 系を優先する
 - production queue から特定の session だけ処理したいときは `RUNPOD_WORKER_ONLY_SESSION_ID` を使う
 - STT だけ測りたいときは `RUNPOD_WORKER_CONVERSATION_LIMIT=0` で conversation job を止められる
 

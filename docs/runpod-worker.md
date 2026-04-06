@@ -70,7 +70,9 @@ worker loop 調整:
 速度優先の補足:
 
 - 1 本最速を狙うときは `FASTER_WHISPER_BEAM_SIZE=1` を基本にする
-- `compute_type=auto` のままで、worker 側が CUDA の対応状況を見て最速候補を選ぶ
+- `compute_type=auto` のままでよいが、worker image は `CTranslate2 4.7.1 + CUDA 12.8` 前提にする
+- `RTX 4090` など pre-Blackwell では `int8_float16` 系を優先する
+- `RTX 5090` など Blackwell では `float16` 系を優先する
 - benchmark 専用に 1 session だけ処理したいときは `RUNPOD_WORKER_ONLY_SESSION_ID` を使う
 - STT だけ見たいときは `RUNPOD_WORKER_CONVERSATION_LIMIT=0` で conversation job を止められる
 
@@ -121,6 +123,9 @@ SHA 固定 image を使う例:
 ```bash
 npm run runpod:start -- --fresh --wait --image=ghcr.io/<GitHub owner>/pararia-runpod-worker:sha-<commit>
 ```
+
+private GHCR image のときは、Runpod の container registry auth を作り、
+`RUNPOD_WORKER_CONTAINER_REGISTRY_AUTH_ID` または `--registry-auth-id=...` を使う。
 
 状態確認:
 
