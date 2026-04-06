@@ -220,6 +220,7 @@ export function StudentSessionConsole({
   const [sessionProgress, setSessionProgress] = useState<SessionPipelineInfo | null>(ongoingLessonSession?.pipeline ?? null);
   const [recoverableSessionId, setRecoverableSessionId] = useState<string | null>(null);
   const [pendingDraft, setPendingDraft] = useState<PendingRecordingDraft | null>(null);
+  const [pendingDraftPersistence, setPendingDraftPersistence] = useState<"durable" | "memory" | null>(null);
   const [showCancelDialog, setShowCancelDialog] = useState(false);
   const [showDiscardDraftDialog, setShowDiscardDraftDialog] = useState(false);
 
@@ -362,18 +363,31 @@ export function StudentSessionConsole({
   const clearPendingDraftState = useCallback(async () => {
     await clearPendingRecordingDraft({ studentId, mode, lessonPart }).catch(() => {});
     setPendingDraft(null);
+    setPendingDraftPersistence(null);
   }, [lessonPart, mode, studentId]);
 
   const savePendingDraftState = useCallback(
     async (file: File, durationSeconds: number | null) => {
-      const record = await savePendingRecordingDraft({
-        studentId,
-        mode,
-        lessonPart,
-        file,
-        durationSeconds,
-      });
-      setPendingDraft(toPendingDraft(record));
+      try {
+        const record = await savePendingRecordingDraft({
+          studentId,
+          mode,
+          lessonPart,
+          file,
+          durationSeconds,
+        });
+        setPendingDraft(toPendingDraft(record));
+        setPendingDraftPersistence("durable");
+      } catch {
+        setPendingDraft({
+          key: `memory:${studentId}:${mode}:${lessonPart}`,
+          file,
+          createdAt: new Date().toISOString(),
+          durationSeconds,
+          sizeBytes: file.size,
+        });
+        setPendingDraftPersistence("memory");
+      }
     },
     [lessonPart, mode, studentId]
   );
@@ -393,6 +407,7 @@ export function StudentSessionConsole({
   const loadPendingDraftState = useCallback(async () => {
     const record = await loadPendingRecordingDraft({ studentId, mode, lessonPart }).catch(() => null);
     setPendingDraft(record ? toPendingDraft(record) : null);
+    setPendingDraftPersistence(record ? "durable" : null);
   }, [lessonPart, mode, studentId]);
 
   const acquireLock = useCallback(async () => {
@@ -1078,7 +1093,7 @@ export function StudentSessionConsole({
   }, [loadPendingDraftState]);
 
   const canRecord = !lockConflict && !pendingDraft && state !== "uploading" && state !== "processing";
-  const canUpload = !lockConflict && state !== "recording" && state !== "uploading" && state !== "processing";
+  const canUpload = !lockConflict && !pendingDraft && state !== "recording" && state !== "uploading" && state !== "processing";
   const canStartFromCircle = canRecord && state !== "recording";
   const canFinishRecording = seconds >= MIN_SECONDS;
   const pendingDraftCanUpload = pendingDraft
@@ -1317,6 +1332,9 @@ export function StudentSessionConsole({
                       pendingDraft.sizeBytes
                     )} です。`
                   : ` サイズは ${formatBytes(pendingDraft.sizeBytes)} です。`}
+                {pendingDraftPersistence === "memory"
+                  ? " このタブ上には残っていますが、ページを閉じると消える可能性があります。先に再送するか、端末へ保存してください。"
+                  : ""}
               </p>
               <div className={styles.inlineActions}>
                 {pendingDraftCanUpload ? (

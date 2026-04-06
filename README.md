@@ -423,6 +423,7 @@ PARARIA は、塾・個別指導・学習コーチング向けの `Teaching OS` 
 - `キャンセル` はサーバーへ送らず、この端末に一時保存する
 - 録音停止後は先に端末へ一時保存してから upload する
 - upload 失敗時は、一時保存した録音を `再送 / 端末へ保存 / 破棄` できる
+- `IndexedDB` へ保存できないブラウザ状態でも、そのタブ上ではメモリ保持して `再送 / 端末へ保存` を続けられる
 - file upload 前に audio metadata を見て長すぎるファイルを reject
 - file upload 前に audio metadata を見て短すぎるファイルも reject
 - file picker では `.mp3` / `.m4a` 以外を選べない
