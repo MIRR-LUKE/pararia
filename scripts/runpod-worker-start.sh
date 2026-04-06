@@ -1,6 +1,20 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+workspace_dir="${PARARIA_RUNPOD_WORKSPACE_DIR:-/workspace}"
+package_json="${workspace_dir}/package.json"
+worker_script="${workspace_dir}/scripts/run-runpod-worker.ts"
+
+if [[ ! -f "${package_json}" ]]; then
+  echo "[runpod-worker] missing package.json at ${package_json}" >&2
+  exit 1
+fi
+
+if [[ ! -f "${worker_script}" ]]; then
+  echo "[runpod-worker] missing worker entrypoint at ${worker_script}" >&2
+  exit 1
+fi
+
 required_envs=(
   DATABASE_URL
   DIRECT_URL
@@ -21,8 +35,8 @@ if [[ "$missing" -ne 0 ]]; then
 fi
 
 echo "[runpod-worker] starting"
-echo "[runpod-worker] background_mode=${PARARIA_BACKGROUND_MODE:-external} audio_storage=${PARARIA_AUDIO_STORAGE_MODE:-blob} model=${FASTER_WHISPER_MODEL:-large-v3} batch=${FASTER_WHISPER_BATCH_SIZE:-8}"
+echo "[runpod-worker] workspace=${workspace_dir} background_mode=${PARARIA_BACKGROUND_MODE:-external} audio_storage=${PARARIA_AUDIO_STORAGE_MODE:-blob} model=${FASTER_WHISPER_MODEL:-large-v3} batch=${FASTER_WHISPER_BATCH_SIZE:-8}"
 auto_stop_idle_ms="${RUNPOD_WORKER_AUTO_STOP_IDLE_MS:-${LOCAL_GPU_WORKER_AUTO_STOP_IDLE_MS:-300000}}"
 echo "[runpod-worker] auto_stop_idle_ms=${auto_stop_idle_ms}"
 
-exec npm run worker:runpod
+exec npm --prefix "${workspace_dir}" run worker:runpod

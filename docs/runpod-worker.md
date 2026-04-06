@@ -88,6 +88,8 @@ gh run watch --workflow "Publish Runpod Worker Image"
 - `ghcr.io/<GitHub owner>/pararia-runpod-worker:latest`
 - `ghcr.io/<GitHub owner>/pararia-runpod-worker:sha-...`
 
+切り分けや本番固定では `latest` ではなく `sha-...` を使います。
+
 ## Pod を API で作る / 起こす / 止める
 
 PowerShell へ直接 env を入れづらいときは、repo ルートの `.env.local` に次を入れます。
@@ -112,6 +114,12 @@ fresh image で必ず作り直す:
 
 ```bash
 npm run runpod:start -- --fresh --wait
+```
+
+SHA 固定 image を使う例:
+
+```bash
+npm run runpod:start -- --fresh --wait --image=ghcr.io/<GitHub owner>/pararia-runpod-worker:sha-<commit>
 ```
 
 状態確認:
@@ -143,6 +151,9 @@ npm run runpod:terminate
 - `--gpu-count=1`
 
 ## 起動確認
+
+`npm run runpod:start -- --wait` は、Pod が `RUNNING` になるだけでなく、
+worker が `runpod-worker/heartbeats/<podId>/db-ok.json` を書くまで待ちます。
 
 Pod のログに次が出れば worker loop は起動しています。
 

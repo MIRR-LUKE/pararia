@@ -42,4 +42,4 @@ ENV NODE_ENV=production \
 RUN chmod +x scripts/runpod-worker-start.sh
 
 ENTRYPOINT []
-CMD ["bash", "scripts/runpod-worker-start.sh"]
+CMD ["bash", "/workspace/scripts/runpod-worker-start.sh"]
