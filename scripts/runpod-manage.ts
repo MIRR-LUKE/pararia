@@ -6,6 +6,7 @@ import {
   getRunpodPodById,
   getRunpodWorkerConfig,
   stopManagedRunpodWorker,
+  terminateManagedRunpodWorker,
 } from "../lib/runpod/worker-control";
 import { loadLocalEnvFiles } from "./lib/load-local-env";
 
@@ -71,7 +72,7 @@ async function main() {
   }
 
   if (command === "start") {
-    const ensured = await ensureRunpodWorker(config);
+    const ensured = await ensureRunpodWorker(config, { fresh: hasFlag("fresh") });
     const wait = hasFlag("wait");
     const timeoutMs = Number(readArg("timeout-ms") ?? 8 * 60 * 1000);
     const pollMs = Number(readArg("poll-ms") ?? 5_000);
@@ -97,6 +98,12 @@ async function main() {
   if (command === "stop") {
     const stopped = await stopManagedRunpodWorker(config);
     console.log(JSON.stringify(stopped, null, 2));
+    return;
+  }
+
+  if (command === "terminate") {
+    const terminated = await terminateManagedRunpodWorker(config);
+    console.log(JSON.stringify(terminated, null, 2));
     return;
   }
 

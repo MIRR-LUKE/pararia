@@ -46,6 +46,7 @@ export type RunpodWorkerConfig = {
 export type RunpodWorkerEnsureResult = {
   action: "already_running" | "started_existing" | "created_new";
   pod: RunpodPod;
+  terminatedPodIds?: string[];
 };
 
 export type RunpodWorkerWakeResult = {
@@ -63,6 +64,13 @@ export type RunpodWorkerStopResult = {
   ok: boolean;
   stoppedPodIds: string[];
   alreadyStoppedPodIds: string[];
+  skipped?: string;
+  error?: string;
+};
+
+export type RunpodWorkerTerminateResult = {
+  ok: boolean;
+  terminatedPodIds: string[];
   skipped?: string;
   error?: string;
 };
@@ -365,9 +373,59 @@ export async function createRunpodWorkerPod(
   return normalizePod(payload);
 }
 
-export async function ensureRunpodWorker(config?: RunpodWorkerConfig): Promise<RunpodWorkerEnsureResult> {
+async function terminateRunpodPod(podId: string, config: RunpodWorkerConfig) {
+  await runpodRequest(`/pods/${podId}`, { method: "DELETE", config });
+}
+
+export async function terminateManagedRunpodWorker(config?: RunpodWorkerConfig): Promise<RunpodWorkerTerminateResult> {
+  const resolved = config ?? getRunpodWorkerConfig();
+  if (!resolved) {
+    return {
+      ok: false,
+      terminatedPodIds: [],
+      skipped: "RUNPOD_API_KEY is not configured on this machine.",
+    };
+  }
+
+  try {
+    const pods = await getManagedRunpodPods(resolved);
+    for (const pod of pods) {
+      await terminateRunpodPod(pod.id, resolved);
+    }
+    return {
+      ok: true,
+      terminatedPodIds: pods.map((pod) => pod.id),
+    };
+  } catch (error: any) {
+    return {
+      ok: false,
+      terminatedPodIds: [],
+      error: error?.message ?? String(error),
+    };
+  }
+}
+
+export async function ensureRunpodWorker(
+  config?: RunpodWorkerConfig,
+  opts?: {
+    fresh?: boolean;
+  }
+): Promise<RunpodWorkerEnsureResult> {
   const resolved = config ?? requireRunpodWorkerConfig();
+  const fresh = Boolean(opts?.fresh);
+  const terminatedPodIds: string[] = [];
   const existingPods = await getManagedRunpodPods(resolved);
+  if (fresh && existingPods.length > 0) {
+    for (const pod of existingPods) {
+      await terminateRunpodPod(pod.id, resolved);
+      terminatedPodIds.push(pod.id);
+    }
+  }
+  if (fresh) {
+    const created = await createRunpodWorkerPod(undefined, resolved);
+    return { action: "created_new", pod: created, terminatedPodIds };
+  }
+
   const running = existingPods.find((pod) => isActivePod(pod));
   if (running) {
     return { action: "already_running", pod: running };

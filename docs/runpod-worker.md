@@ -108,6 +108,12 @@ npm run runpod:deploy -- --gpu="NVIDIA GeForce RTX 4090" --name="pararia-gpu-wor
 npm run runpod:start -- --wait
 ```
 
+fresh image で必ず作り直す:
+
+```bash
+npm run runpod:start -- --fresh --wait
+```
+
 状態確認:
 
 ```bash
@@ -118,6 +124,12 @@ npm run runpod:status
 
 ```bash
 npm run runpod:stop
+```
+
+完全に消す:
+
+```bash
+npm run runpod:terminate
 ```
 
 主な引数:
