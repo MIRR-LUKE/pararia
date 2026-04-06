@@ -5,6 +5,16 @@ import { processQueuedJobs } from "../lib/jobs/conversationJobs";
 import { processQueuedSessionPartJobs } from "../lib/jobs/sessionPartJobs";
 import { stopCurrentRunpodPod } from "../lib/runpod/worker-control";
 
+type QueueRunResult = {
+  processed: number;
+  errors: string[];
+};
+
+type WorkerScope = {
+  sessionId?: string;
+  conversationId?: string;
+};
+
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -21,9 +31,31 @@ function readNonNegativeIntEnvWithLegacy(name: string, legacyName: string, fallb
   return Number.isFinite(parsed) ? Math.max(0, Math.floor(parsed)) : fallback;
 }
 
-async function processQueueOnce(sessionPartLimit: number, sessionPartConcurrency: number, conversationLimit: number, conversationConcurrency: number) {
-  const sessionPartJobs = await processQueuedSessionPartJobs(sessionPartLimit, sessionPartConcurrency);
-  const conversationJobs = await processQueuedJobs(conversationLimit, conversationConcurrency);
+function readOptionalEnv(name: string) {
+  const value = process.env[name]?.trim();
+  return value ? value : undefined;
+}
+
+async function processQueueOnce(
+  sessionPartLimit: number,
+  sessionPartConcurrency: number,
+  conversationLimit: number,
+  conversationConcurrency: number,
+  scope: WorkerScope
+) {
+  const empty: QueueRunResult = { processed: 0, errors: [] };
+  const sessionPartJobs =
+    sessionPartLimit > 0
+      ? await processQueuedSessionPartJobs(sessionPartLimit, sessionPartConcurrency, scope.sessionId ? { sessionId: scope.sessionId } : undefined)
+      : empty;
+  const conversationJobs =
+    conversationLimit > 0
+      ? await processQueuedJobs(
+          conversationLimit,
+          conversationConcurrency,
+          scope.conversationId ? { conversationId: scope.conversationId } : undefined
+        )
+      : empty;
   return {
     sessionPartJobs,
     conversationJobs,
@@ -33,13 +65,17 @@ async function processQueueOnce(sessionPartLimit: number, sessionPartConcurrency
 }
 
 async function main() {
-  const sessionPartLimit = readIntEnvWithLegacy("RUNPOD_WORKER_SESSION_PART_LIMIT", "LOCAL_GPU_WORKER_SESSION_PART_LIMIT", 8);
+  const sessionPartLimit = readNonNegativeIntEnvWithLegacy("RUNPOD_WORKER_SESSION_PART_LIMIT", "LOCAL_GPU_WORKER_SESSION_PART_LIMIT", 8);
   const sessionPartConcurrency = readIntEnvWithLegacy(
     "RUNPOD_WORKER_SESSION_PART_CONCURRENCY",
     "LOCAL_GPU_WORKER_SESSION_PART_CONCURRENCY",
     Number(process.env.SESSION_PART_JOB_CONCURRENCY ?? 1)
   );
-  const conversationLimit = readIntEnvWithLegacy("RUNPOD_WORKER_CONVERSATION_LIMIT", "LOCAL_GPU_WORKER_CONVERSATION_LIMIT", 6);
+  const conversationLimit = readNonNegativeIntEnvWithLegacy(
+    "RUNPOD_WORKER_CONVERSATION_LIMIT",
+    "LOCAL_GPU_WORKER_CONVERSATION_LIMIT",
+    6
+  );
   const conversationConcurrency = readIntEnvWithLegacy(
     "RUNPOD_WORKER_CONVERSATION_CONCURRENCY",
     "LOCAL_GPU_WORKER_CONVERSATION_CONCURRENCY",
@@ -53,6 +89,10 @@ async function main() {
     "LOCAL_GPU_WORKER_AUTO_STOP_IDLE_MS",
     defaultAutoStopIdleMs
   );
+  const scope: WorkerScope = {
+    sessionId: readOptionalEnv("RUNPOD_WORKER_ONLY_SESSION_ID"),
+    conversationId: readOptionalEnv("RUNPOD_WORKER_ONLY_CONVERSATION_ID"),
+  };
   const once = process.argv.includes("--once");
   let lastActiveAt = Date.now();
 
@@ -76,6 +116,7 @@ async function main() {
     conversationConcurrency,
     idleWaitMs,
     autoStopIdleMs,
+    scope,
     once,
   });
 
@@ -84,7 +125,8 @@ async function main() {
       sessionPartLimit,
       sessionPartConcurrency,
       conversationLimit,
-      conversationConcurrency
+      conversationConcurrency,
+      scope
     );
 
     if (tick.processed > 0 || tick.errors.length > 0) {
@@ -104,7 +146,8 @@ async function main() {
         sessionPartLimit,
         sessionPartConcurrency,
         conversationLimit,
-        conversationConcurrency
+        conversationConcurrency,
+        scope
       );
       if (confirm.processed === 0 && confirm.errors.length === 0) {
         const stopResult = await stopCurrentRunpodPod();

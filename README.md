@@ -360,10 +360,12 @@ worker loop の調整 env:
 - `RUNPOD_WORKER_SESSION_PART_LIMIT=8`
 - `RUNPOD_WORKER_SESSION_PART_CONCURRENCY=1`
 - `RUNPOD_WORKER_CONVERSATION_LIMIT=6`
-- `RUNPOD_WORKER_CONVERSATION_CONCURRENCY=2`
+- `RUNPOD_WORKER_CONVERSATION_CONCURRENCY=1`
 - `RUNPOD_WORKER_IDLE_WAIT_MS=2500`
 - `RUNPOD_WORKER_ACTIVE_WAIT_MS=200`
 - `RUNPOD_WORKER_AUTO_STOP_IDLE_MS=300000`
+- `RUNPOD_WORKER_ONLY_SESSION_ID=...`
+- `RUNPOD_WORKER_ONLY_CONVERSATION_ID=...`
 
 STT 推奨値:
 
@@ -371,7 +373,8 @@ STT 推奨値:
 - `FASTER_WHISPER_REQUIRE_CUDA=1`
 - `FASTER_WHISPER_DEVICE=auto`
 - `FASTER_WHISPER_COMPUTE_TYPE=auto`
-- `FASTER_WHISPER_BATCH_SIZE=8`
+- `FASTER_WHISPER_BEAM_SIZE=1`
+- `FASTER_WHISPER_BATCH_SIZE=16`
 - `FASTER_WHISPER_CHUNKING_ENABLED=0`
 - `FASTER_WHISPER_POOL_SIZE=1`
 
@@ -379,6 +382,13 @@ GPU が強いときの最初の目安:
 
 - `RTX 4090`: `FASTER_WHISPER_BATCH_SIZE=16`
 - `RTX 5090`: `FASTER_WHISPER_BATCH_SIZE=24`
+
+速度優先の補足:
+
+- `beam_size=1` を既定にし、精度より 1 本の完了速度を優先する
+- `compute_type=auto` のままにして、CUDA では worker 側が `int8_float16 -> float16 -> int8_float32 -> int8 -> float32` の順で最速候補を選ぶ
+- production queue から特定の session だけ処理したいときは `RUNPOD_WORKER_ONLY_SESSION_ID` を使う
+- STT だけ測りたいときは `RUNPOD_WORKER_CONVERSATION_LIMIT=0` で conversation job を止められる
 
 まずは `chunking off / pool 1` のまま、1 本の音声をそのまま GPU に流すのが安全です。
   - 終盤 `6` 行
@@ -761,7 +771,7 @@ PARARIA_AUDIO_RETENTION_DAYS=14
 
 - ふだんは `並列ではない`
 - ふだんは `1本の音声` を `1つのGPU worker` にそのまま渡す
-- その中で `batch_size=8` の GPU 処理を使って速くしている
+- その中で `beam_size=1` と `batch_size=16` を基本に GPU 処理を速くしている
 - つまり `音声ファイルを細かく切って何本も同時実行` は、今は既定で `オフ`
 - もし `FASTER_WHISPER_CHUNKING_ENABLED=1` にしたときだけ、音声を分けて複数 worker に流す
 - もし `FASTER_WHISPER_POOL_SIZE=2` 以上にしたときだけ、worker を複数立てる

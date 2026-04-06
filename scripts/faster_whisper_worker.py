@@ -85,7 +85,7 @@ def choose_model() -> tuple[WhisperModel, str, str, str]:
 
 
 MODEL, MODEL_NAME, MODEL_DEVICE, MODEL_COMPUTE_TYPE = choose_model()
-DEFAULT_BEAM_SIZE = max(1, int(os.environ.get("FASTER_WHISPER_BEAM_SIZE", "5")))
+DEFAULT_BEAM_SIZE = max(1, int(os.environ.get("FASTER_WHISPER_BEAM_SIZE", "1")))
 DEFAULT_VAD_FILTER = env_bool("FASTER_WHISPER_VAD_FILTER", True)
 DEFAULT_CONDITION_ON_PREVIOUS_TEXT = env_bool("FASTER_WHISPER_CONDITION_ON_PREVIOUS_TEXT", True)
 DEFAULT_BATCH_SIZE = max(1, int(os.environ.get("FASTER_WHISPER_BATCH_SIZE", "8")))
