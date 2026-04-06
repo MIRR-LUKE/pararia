@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
@@ -1227,7 +1228,14 @@ export function StudentSessionConsole({
             disabled={!canStartFromCircle}
             aria-label="録音を開始する"
           >
-            <span className={styles.microphoneGlyph} aria-hidden />
+            <Image
+              src="/icons/mic-icon.svg"
+              alt=""
+              aria-hidden
+              width={14}
+              height={19}
+              className={styles.microphoneGlyph}
+            />
           </button>
 
           <div className={styles.recorderMeta}>
