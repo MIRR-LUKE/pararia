@@ -30,6 +30,7 @@ import { getAudioExpiryDate, getTranscriptExpiryDate } from "@/lib/system-config
 import { preprocessTranscript } from "@/lib/transcript/preprocess";
 import { ensureSessionPartReviewedTranscript } from "@/lib/transcript/review";
 import { shouldRunBackgroundJobsInline } from "@/lib/jobs/execution-mode";
+import { maybeEnsureRunpodWorker } from "@/lib/runpod/worker-control";
 
 function parsePartType(raw: string | null) {
   if (raw === SessionPartType.CHECK_IN) return SessionPartType.CHECK_IN;
@@ -257,10 +258,15 @@ export async function POST(
 
       const session = await updateSessionStatusFromParts(params.id);
       await enqueueSessionPartJob(part.id, SessionPartJobType.TRANSCRIBE_FILE);
+      const workerWake = shouldRunBackgroundJobsInline()
+        ? null
+        : await maybeEnsureRunpodWorker();
       if (shouldRunBackgroundJobsInline()) {
         void processAllSessionPartJobs(params.id).catch((error) => {
           console.error("[POST /api/sessions/[id]/parts] Background session part processing failed:", error);
         });
+      } else if (workerWake?.attempted && !workerWake.ok) {
+        console.error("[POST /api/sessions/[id]/parts] Runpod worker wake failed:", workerWake);
       }
 
       return NextResponse.json({
@@ -269,6 +275,7 @@ export async function POST(
         generationDeferred: true,
         part,
         session,
+        workerWake,
       });
     } else {
       const pre = preprocessTranscript(transcript);
@@ -402,16 +409,22 @@ export async function POST(
 
     const session = await updateSessionStatusFromParts(params.id);
     await enqueueSessionPartJob(part.id, SessionPartJobType.PROMOTE_SESSION);
+    const workerWake = shouldRunBackgroundJobsInline()
+      ? null
+      : await maybeEnsureRunpodWorker();
     if (shouldRunBackgroundJobsInline()) {
       void processAllSessionPartJobs(params.id).catch((error) => {
         console.error("[POST /api/sessions/[id]/parts] Background session part promotion failed:", error);
       });
+    } else if (workerWake?.attempted && !workerWake.ok) {
+      console.error("[POST /api/sessions/[id]/parts] Runpod worker wake failed:", workerWake);
     }
 
     return NextResponse.json({
       part,
       session,
       generationDeferred: true,
+      workerWake,
     });
   } catch (error: any) {
     console.error("[POST /api/sessions/[id]/parts] Error:", error);

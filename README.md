@@ -319,9 +319,13 @@ GitHub Actions の `Publish Runpod Worker Image` が通ると、GHCR に worker 
 
 - `ghcr.io/<GitHub owner>/pararia-runpod-worker:latest`
 
-Runpod REST API で Pod を作るスクリプトも入れています。
+Runpod REST API で Pod を作る / 起こす / 止めるスクリプトも入れています。
 
 - `npm run runpod:deploy -- --gpu="NVIDIA GeForce RTX 4090" --name="pararia-gpu-worker"`
+- `npm run runpod:start`
+- `npm run runpod:status`
+- `npm run runpod:stop`
+- `scripts/runpod-deploy.ts` は `.env.local` → `.env` の順で env を自動読込する
 
 Runpod 側では、Pod 作成時に次を入れれば動きます。
 
@@ -338,6 +342,18 @@ Runpod 側では、Pod 作成時に次を入れれば動きます。
 - `PARARIA_BACKGROUND_MODE=external`
 - `PARARIA_AUDIO_STORAGE_MODE=blob`
 - `PARARIA_AUDIO_BLOB_ACCESS=private`
+
+PowerShell のセッションに env を入れられない場合は、repo ルートの `.env.local` に次を追記すれば `npm run runpod:deploy` でそのまま使えます。
+
+```bash
+RUNPOD_API_KEY="your-runpod-api-key"
+```
+
+on-demand 運用のときは、worker は queue が空のまま `LOCAL_GPU_WORKER_AUTO_STOP_IDLE_MS` 経過で自分の Pod を stop します。
+既定は `300000` ms（5分）です。
+
+本番 web の upload / regenerate から自動で Pod を wake したい場合は、Vercel 側の server env にも `RUNPOD_API_KEY` を入れて deploy してください。
+それが未設定でも、ローカル端末から `npm run runpod:start` で手動 wake はできます。
 
 STT 推奨値:
 

@@ -20,6 +20,7 @@ import {
 import { shouldRunBackgroundJobsInline } from "@/lib/jobs/execution-mode";
 import { requireAuthorizedSession } from "@/lib/server/request-auth";
 import { getAudioExpiryDate } from "@/lib/system-config";
+import { maybeEnsureRunpodWorker } from "@/lib/runpod/worker-control";
 
 function parsePartType(raw: string | null) {
   if (raw === SessionPartType.CHECK_IN) return SessionPartType.CHECK_IN;
@@ -268,16 +269,22 @@ export async function POST(
 
     const session = await updateSessionStatusFromParts(params.id);
     await enqueueSessionPartJob(part.id, SessionPartJobType.FINALIZE_LIVE_PART);
+    const workerWake = shouldRunBackgroundJobsInline()
+      ? null
+      : await maybeEnsureRunpodWorker();
     if (shouldRunBackgroundJobsInline()) {
       void processAllSessionPartJobs(params.id).catch((error) => {
         console.error("[POST /api/sessions/[id]/parts/live] Background session part processing failed:", error);
       });
+    } else if (workerWake?.attempted && !workerWake.ok) {
+      console.error("[POST /api/sessions/[id]/parts/live] Runpod worker wake failed:", workerWake);
     }
 
     return NextResponse.json({
       part,
       session,
       generationDeferred: true,
+      workerWake,
     });
   } catch (error: any) {
     console.error("[POST /api/sessions/[id]/parts/live] Error:", error);
