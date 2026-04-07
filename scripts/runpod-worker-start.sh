@@ -2,6 +2,8 @@
 set -euo pipefail
 
 workspace_dir="${PARARIA_RUNPOD_WORKSPACE_DIR:-/workspace}"
+export PARARIA_RUNPOD_WORKSPACE_DIR="${workspace_dir}"
+mkdir -p "${workspace_dir}/.cache/faster-whisper"
 package_json="${workspace_dir}/package.json"
 worker_script="${workspace_dir}/scripts/run-runpod-worker.ts"
 

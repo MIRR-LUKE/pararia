@@ -6,6 +6,7 @@ import subprocess
 import sys
 import threading
 import time
+from pathlib import Path
 from typing import Any, Dict, List, Sequence
 
 import ctranslate2
@@ -24,7 +25,23 @@ def env_bool(name: str, default: bool) -> bool:
     return raw.strip().lower() not in {"0", "false", "no", "off"}
 
 
+def resolve_download_root() -> str | None:
+    explicit = os.environ.get("FASTER_WHISPER_DOWNLOAD_ROOT", "").strip()
+    if explicit:
+        Path(explicit).mkdir(parents=True, exist_ok=True)
+        return explicit
+
+    workspace_dir = os.environ.get("PARARIA_RUNPOD_WORKSPACE_DIR", "").strip()
+    if workspace_dir:
+        root = Path(workspace_dir) / ".cache" / "faster-whisper"
+        root.mkdir(parents=True, exist_ok=True)
+        return str(root)
+
+    return None
+
+
 REQUIRE_CUDA = env_bool("FASTER_WHISPER_REQUIRE_CUDA", True)
+DOWNLOAD_ROOT = resolve_download_root()
 UNSAFE_BLACKWELL_INT8_TYPES = {
     "int8",
     "int8_float16",
@@ -225,7 +242,12 @@ def choose_model() -> tuple[WhisperModel, str, str, str]:
         if REQUIRE_CUDA and requested_device != "cuda":
             raise RuntimeError("FASTER_WHISPER_REQUIRE_CUDA=1 なので CPU 実行は許可されていません。")
         resolved_compute_type = preferred_cuda_order[0] if requested_device == "cuda" and preferred_cuda_order else requested_compute_type
-        model = WhisperModel(model_name, device=requested_device, compute_type=resolved_compute_type)
+        model = WhisperModel(
+            model_name,
+            device=requested_device,
+            compute_type=resolved_compute_type,
+            download_root=DOWNLOAD_ROOT,
+        )
         return model, model_name, requested_device, resolved_compute_type
 
     supported_cuda_compute_types = list(ctranslate2.get_supported_compute_types("cuda"))
@@ -236,7 +258,12 @@ def choose_model() -> tuple[WhisperModel, str, str, str]:
         if compute_type != "auto" and compute_type not in supported_cuda_compute_types and compute_type != "default":
             continue
         try:
-            model = WhisperModel(model_name, device="cuda", compute_type=compute_type)
+            model = WhisperModel(
+                model_name,
+                device="cuda",
+                compute_type=compute_type,
+                download_root=DOWNLOAD_ROOT,
+            )
             actual_compute_type = compute_type
             if compute_type == "auto":
                 if is_blackwell_gpu(gpu_name, gpu_compute_capability):
@@ -261,7 +288,7 @@ def choose_model() -> tuple[WhisperModel, str, str, str]:
             continue
 
     try:
-        model = WhisperModel(model_name, device="cuda", compute_type="default")
+        model = WhisperModel(model_name, device="cuda", compute_type="default", download_root=DOWNLOAD_ROOT)
         return model, model_name, "cuda", "default"
     except Exception as gpu_error:
         if REQUIRE_CUDA:
@@ -272,7 +299,12 @@ def choose_model() -> tuple[WhisperModel, str, str, str]:
             file=sys.stderr,
             flush=True,
         )
-        model = WhisperModel(model_name, device="cpu", compute_type=cpu_compute_type)
+        model = WhisperModel(
+            model_name,
+            device="cpu",
+            compute_type=cpu_compute_type,
+            download_root=DOWNLOAD_ROOT,
+        )
         return model, model_name, "cpu", cpu_compute_type
 
 
@@ -297,6 +329,7 @@ sys.stdout.write(
             "batch_size": DEFAULT_BATCH_SIZE if BATCHED_PIPELINE is not None else 1,
             "gpu_name": PRIMARY_GPU_NAME,
             "gpu_compute_capability": PRIMARY_GPU_COMPUTE_CAPABILITY,
+            "download_root": DOWNLOAD_ROOT,
         },
         ensure_ascii=False,
     )
