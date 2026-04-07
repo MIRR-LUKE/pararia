@@ -166,6 +166,16 @@ async function stopPodWhenSessionPartQueueDrains(
   const confirm = await processQueueOnce(sessionPartLimit, sessionPartConcurrency, 0, conversationConcurrency, scope);
   if (confirm.sessionPartJobs.processed === 0 && confirm.errors.length === 0) {
     const stopResult = await stopCurrentRunpodPod();
+    if (!stopResult.ok) {
+      console.log("[runpod-worker] session_part_queue_drained_stop_failed", {
+        podId: process.env.RUNPOD_POD_ID ?? null,
+        stopResult,
+      });
+      return {
+        stopped: false,
+        confirm,
+      };
+    }
     console.log("[runpod-worker] session_part_queue_drained_stop", {
       podId: process.env.RUNPOD_POD_ID ?? null,
       stopResult,
@@ -323,6 +333,15 @@ async function main() {
       );
       if (confirm.processed === 0 && confirm.errors.length === 0) {
         const stopResult = await stopCurrentRunpodPod();
+        if (!stopResult.ok) {
+          lastActiveAt = Date.now();
+          console.log("[runpod-worker] idle_auto_stop_failed", {
+            autoStopIdleMs,
+            podId: process.env.RUNPOD_POD_ID ?? null,
+            stopResult,
+          });
+          continue;
+        }
         console.log("[runpod-worker] idle_auto_stop", {
           autoStopIdleMs,
           podId: process.env.RUNPOD_POD_ID ?? null,

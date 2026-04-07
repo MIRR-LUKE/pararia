@@ -298,6 +298,7 @@ async function runpodRequest(pathname: string, init?: RunpodFetchOptions) {
 
 function buildRunpodWorkerEnv(autoStopIdleMs: number) {
   const env = {
+    RUNPOD_API_KEY: readRequiredEnv("RUNPOD_API_KEY"),
     DATABASE_URL: readRequiredEnv("DATABASE_URL"),
     DIRECT_URL: readRequiredEnv("DIRECT_URL"),
     BLOB_READ_WRITE_TOKEN: readRequiredEnv("BLOB_READ_WRITE_TOKEN"),
