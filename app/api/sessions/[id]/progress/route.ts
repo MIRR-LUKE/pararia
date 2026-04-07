@@ -7,6 +7,7 @@ import { buildSummaryPreview } from "@/lib/session-part-meta";
 import { requireAuthorizedSession } from "@/lib/server/request-auth";
 import { pickDisplayTranscriptText } from "@/lib/transcript/source";
 import { shouldRunBackgroundJobsInline } from "@/lib/jobs/execution-mode";
+import { maybeStopRunpodWorkerWhenSessionPartQueueIdle } from "@/lib/runpod/idle-stop";
 
 export async function GET(
   request: Request,
@@ -66,7 +67,12 @@ export async function GET(
         void processAllSessionPartJobs(session.id).catch(() => {});
       }
       if (session.conversation?.id) {
-        void processAllConversationJobs(session.conversation.id).catch(() => {});
+        void (async () => {
+          try {
+            await processAllConversationJobs(session.conversation!.id);
+          } catch {}
+        })();
+        await maybeStopRunpodWorkerWhenSessionPartQueueIdle().catch(() => {});
       }
     }
 

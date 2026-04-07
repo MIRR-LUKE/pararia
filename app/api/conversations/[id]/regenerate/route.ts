@@ -8,6 +8,7 @@ import {
 } from "@/lib/jobs/conversationJobs";
 import { ensureConversationReviewedTranscript } from "@/lib/transcript/review";
 import { requireAuthorizedSession } from "@/lib/server/request-auth";
+import { maybeStopRunpodWorkerWhenSessionPartQueueIdle } from "@/lib/runpod/idle-stop";
 
 export async function POST(
   request: Request,
@@ -84,9 +85,15 @@ export async function POST(
     await ensureConversationReviewedTranscript(params.id);
 
     await enqueueConversationJobs(params.id, { includeFormat });
-    void processAllConversationJobs(params.id).catch((error) => {
-      console.error("[POST /api/conversations/[id]/regenerate] Background process failed:", error);
-    });
+    void (async () => {
+      try {
+        await processAllConversationJobs(params.id);
+      } catch (error) {
+        console.error("[POST /api/conversations/[id]/regenerate] Background process failed:", error);
+      } finally {
+        await maybeStopRunpodWorkerWhenSessionPartQueueIdle().catch(() => {});
+      }
+    })();
 
     if (conversation.sessionId) {
       await prisma.session.update({

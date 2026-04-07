@@ -28,6 +28,7 @@ import {
   processAllConversationJobs,
 } from "@/lib/jobs/conversationJobs";
 import { shouldRunBackgroundJobsInline } from "@/lib/jobs/execution-mode";
+import { maybeStopRunpodWorkerWhenSessionPartQueueIdle } from "@/lib/runpod/idle-stop";
 
 const JOB_EXECUTION_RETRIES = 2;
 const activeSessionRuns = new Set<string>();
@@ -672,6 +673,10 @@ async function executePromoteSessionJob(job: SessionPartJobPayload, part: Sessio
         conversationId,
       }),
     },
+  });
+
+  await maybeStopRunpodWorkerWhenSessionPartQueueIdle().catch((error) => {
+    console.warn("[sessionPartJobs] failed to stop Runpod worker after promotion", error);
   });
 }
 

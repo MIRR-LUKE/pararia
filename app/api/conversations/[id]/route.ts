@@ -13,6 +13,7 @@ import { toPrismaJson } from "@/lib/prisma-json";
 import { syncSessionAfterConversation } from "@/lib/session-service";
 import { sanitizeFormattedTranscript, sanitizeSummaryMarkdown, sanitizeTranscriptText } from "@/lib/user-facing-japanese";
 import { normalizeRawTranscriptText, pickDisplayTranscriptText } from "@/lib/transcript/source";
+import { maybeStopRunpodWorkerWhenSessionPartQueueIdle } from "@/lib/runpod/idle-stop";
 
 function toStringArray(value: unknown) {
   if (!Array.isArray(value)) return [];
@@ -124,7 +125,13 @@ export async function GET(
       return NextResponse.json({ error: "not found" }, { status: 404 });
     }
     if (process === "1") {
-      void processAllConversationJobs(params.id).catch(() => {});
+      void (async () => {
+        try {
+          await processAllConversationJobs(params.id);
+        } finally {
+          await maybeStopRunpodWorkerWhenSessionPartQueueIdle().catch(() => {});
+        }
+      })();
     }
 
     const renderedSummary = renderConversationArtifactOrFallback(
