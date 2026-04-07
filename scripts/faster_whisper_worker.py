@@ -207,11 +207,32 @@ def choose_model() -> tuple[WhisperModel, str, str, str]:
 
 
 MODEL, MODEL_NAME, MODEL_DEVICE, MODEL_COMPUTE_TYPE = choose_model()
+PRIMARY_GPU_NAME = read_primary_gpu_name()
+PRIMARY_GPU_COMPUTE_CAPABILITY = read_primary_gpu_compute_capability()
 DEFAULT_BEAM_SIZE = max(1, int(os.environ.get("FASTER_WHISPER_BEAM_SIZE", "1")))
 DEFAULT_VAD_FILTER = env_bool("FASTER_WHISPER_VAD_FILTER", True)
 DEFAULT_CONDITION_ON_PREVIOUS_TEXT = env_bool("FASTER_WHISPER_CONDITION_ON_PREVIOUS_TEXT", True)
 DEFAULT_BATCH_SIZE = max(1, int(os.environ.get("FASTER_WHISPER_BATCH_SIZE", "8")))
 BATCHED_PIPELINE = BatchedInferencePipeline(model=MODEL) if MODEL_DEVICE == "cuda" and DEFAULT_BATCH_SIZE > 1 else None
+
+sys.stdout.write(
+    json.dumps(
+        {
+            "event": "ready",
+            "ok": True,
+            "model": MODEL_NAME,
+            "device": MODEL_DEVICE,
+            "compute_type": MODEL_COMPUTE_TYPE,
+            "pipeline": "batched" if BATCHED_PIPELINE is not None else "default",
+            "batch_size": DEFAULT_BATCH_SIZE if BATCHED_PIPELINE is not None else 1,
+            "gpu_name": PRIMARY_GPU_NAME,
+            "gpu_compute_capability": PRIMARY_GPU_COMPUTE_CAPABILITY,
+        },
+        ensure_ascii=False,
+    )
+    + "\n"
+)
+sys.stdout.flush()
 
 
 def transcribe(audio_path: str, language: str) -> Dict[str, Any]:

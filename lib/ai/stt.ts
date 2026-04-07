@@ -46,6 +46,10 @@ export type PipelineTranscriptionResult = SegmentedTranscriptResult & {
     segmentCount: number;
     speakerCount: 0;
     qualityWarnings: TranscriptQualityWarning[];
+    device?: string;
+    computeType?: string;
+    pipeline?: string;
+    batchSize?: number;
   };
 };
 
@@ -81,6 +85,18 @@ type WorkerErrorResponse = {
 };
 
 type WorkerResponse = WorkerSuccessResponse | WorkerErrorResponse;
+
+type WorkerReadyResponse = {
+  event: "ready";
+  ok: true;
+  model?: string;
+  device?: string;
+  compute_type?: string;
+  pipeline?: string;
+  batch_size?: number;
+  gpu_name?: string;
+  gpu_compute_capability?: string;
+};
 
 type PendingWorkerRequest = {
   resolve: (value: WorkerSuccessResponse) => void;
@@ -282,6 +298,10 @@ class FasterWhisperWorker {
   private stdoutBuffer = "";
   private stderrBuffer = "";
   private inFlight = 0;
+  private readyInfo: WorkerReadyResponse | null = null;
+  private readyPromise: Promise<WorkerReadyResponse> | null = null;
+  private resolveReady: ((value: WorkerReadyResponse) => void) | null = null;
+  private rejectReady: ((reason?: unknown) => void) | null = null;
 
   private handleStdoutChunk(chunk: Buffer | string) {
     this.stdoutBuffer += String(chunk);
@@ -291,12 +311,25 @@ class FasterWhisperWorker {
       const line = this.stdoutBuffer.slice(0, newlineIndex).trim();
       this.stdoutBuffer = this.stdoutBuffer.slice(newlineIndex + 1);
       if (!line) continue;
-      let payload: WorkerResponse;
+      let payload: WorkerResponse | WorkerReadyResponse;
       try {
         payload = JSON.parse(line) as WorkerResponse;
       } catch {
         this.rejectAll(buildWorkerError("faster-whisper worker returned invalid JSON.", this.stderrBuffer));
         return;
+      }
+      if (
+        payload &&
+        typeof payload === "object" &&
+        "event" in payload &&
+        (payload as { event?: unknown }).event === "ready"
+      ) {
+        const readyPayload = payload as WorkerReadyResponse;
+        this.readyInfo = readyPayload;
+        this.resolveReady?.(readyPayload);
+        this.resolveReady = null;
+        this.rejectReady = null;
+        continue;
       }
       const pending = this.pending.get(payload.id);
       if (!pending) continue;
@@ -318,6 +351,11 @@ class FasterWhisperWorker {
     this.stdoutBuffer = "";
     const error = buildWorkerError(message, this.stderrBuffer);
     this.stderrBuffer = "";
+    this.rejectReady?.(error);
+    this.readyPromise = null;
+    this.resolveReady = null;
+    this.rejectReady = null;
+    this.readyInfo = null;
     this.rejectAll(error);
   };
 
@@ -339,6 +377,11 @@ class FasterWhisperWorker {
       env: buildWorkerEnv(),
     });
 
+    this.readyInfo = null;
+    this.readyPromise = new Promise<WorkerReadyResponse>((resolve, reject) => {
+      this.resolveReady = resolve;
+      this.rejectReady = reject;
+    });
     child.stdout.on("data", (chunk) => this.handleStdoutChunk(chunk));
     child.stderr.on("data", (chunk) => {
       this.stderrBuffer += String(chunk);
@@ -351,6 +394,15 @@ class FasterWhisperWorker {
 
     this.child = child;
     return child;
+  }
+
+  async warm() {
+    this.ensureWorker();
+    if (this.readyInfo) return this.readyInfo;
+    if (!this.readyPromise) {
+      throw new Error("faster-whisper worker readiness promise is unavailable.");
+    }
+    return this.readyPromise;
   }
 
   async transcribe(input: {
@@ -389,6 +441,11 @@ class FasterWhisperWorker {
     this.stdoutBuffer = "";
     const stderr = this.stderrBuffer;
     this.stderrBuffer = "";
+    this.rejectReady?.(buildWorkerError("faster-whisper worker stopped.", stderr));
+    this.readyPromise = null;
+    this.resolveReady = null;
+    this.rejectReady = null;
+    this.readyInfo = null;
     this.rejectAll(buildWorkerError("faster-whisper worker stopped.", stderr));
     if (!child) return;
     child.stdin.end();
@@ -406,6 +463,10 @@ export function stopLocalSttWorker() {
   for (const worker of sharedWorkers) {
     worker.shutdown();
   }
+}
+
+export async function warmFasterWhisperWorkers() {
+  return Promise.all(sharedWorkers.map((worker) => worker.warm()));
 }
 
 export const stopFasterWhisperWorkers = stopLocalSttWorker;
@@ -514,20 +575,27 @@ export async function transcribeAudioForPipeline(input: TranscribeInput): Promis
       throw new Error("faster-whisper STT returned an empty transcript.");
     }
 
-    return {
-      rawTextOriginal,
-      segments: normalized.segments,
-      meta: {
-        model: `faster-whisper:${primaryResponse?.model?.trim() || FASTER_WHISPER_MODEL_NAME}`,
-        responseFormat: FASTER_WHISPER_RESPONSE_FORMAT,
-        recoveryUsed: false,
-        fallbackUsed: false,
-        attemptCount: responses.length,
-        segmentCount: normalized.segments.length,
-        speakerCount: 0,
-        qualityWarnings: normalized.qualityWarnings,
-      },
-    };
+      return {
+        rawTextOriginal,
+        segments: normalized.segments,
+        meta: {
+          model: `faster-whisper:${primaryResponse?.model?.trim() || FASTER_WHISPER_MODEL_NAME}`,
+          responseFormat: FASTER_WHISPER_RESPONSE_FORMAT,
+          recoveryUsed: false,
+          fallbackUsed: false,
+          attemptCount: responses.length,
+          segmentCount: normalized.segments.length,
+          speakerCount: 0,
+          qualityWarnings: normalized.qualityWarnings,
+          device: primaryResponse?.device?.trim() || undefined,
+          computeType: primaryResponse?.compute_type?.trim() || undefined,
+          pipeline: primaryResponse?.pipeline?.trim() || undefined,
+          batchSize:
+            typeof primaryResponse?.batch_size === "number" && Number.isFinite(primaryResponse.batch_size)
+              ? primaryResponse.batch_size
+              : undefined,
+        },
+      };
   } finally {
     await file.cleanup();
   }

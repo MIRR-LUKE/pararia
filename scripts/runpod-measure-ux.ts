@@ -42,6 +42,10 @@ type RunpodMeasureResult = {
   queueToConversationMs?: number | null;
   sttSeconds?: number | null;
   sttModel?: string | null;
+  sttDevice?: string | null;
+  sttComputeType?: string | null;
+  sttPipeline?: string | null;
+  sttBatchSize?: number | null;
   transcriptChars?: number | null;
   finalizeDurationMs?: number | null;
   finalizeQueueLagMs?: number | null;
@@ -744,6 +748,10 @@ async function main() {
         result.queueToSttMs = completedAt.getTime() - enqueueStartedAt.getTime();
         result.sttSeconds = typeof partMeta.sttSeconds === "number" ? partMeta.sttSeconds : null;
         result.sttModel = typeof partMeta.sttModel === "string" ? partMeta.sttModel : null;
+        result.sttDevice = typeof partMeta.sttDevice === "string" ? partMeta.sttDevice : null;
+        result.sttComputeType = typeof partMeta.sttComputeType === "string" ? partMeta.sttComputeType : null;
+        result.sttPipeline = typeof partMeta.sttPipeline === "string" ? partMeta.sttPipeline : null;
+        result.sttBatchSize = typeof partMeta.sttBatchSize === "number" ? partMeta.sttBatchSize : null;
         result.transcriptChars = currentPart.rawTextOriginal?.length ?? null;
       }
 

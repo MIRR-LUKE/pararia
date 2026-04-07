@@ -1,6 +1,6 @@
 #!/usr/bin/env tsx
 
-import { stopFasterWhisperWorkers } from "../lib/ai/stt";
+import { stopFasterWhisperWorkers, warmFasterWhisperWorkers } from "../lib/ai/stt";
 import { processQueuedJobs } from "../lib/jobs/conversationJobs";
 import { processQueuedSessionPartJobs } from "../lib/jobs/sessionPartJobs";
 import { stopCurrentRunpodPod } from "../lib/runpod/worker-control";
@@ -53,6 +53,15 @@ async function recordWorkerStartupHeartbeat(input: {
   idleWaitMs: number;
   activeWaitMs: number;
   once: boolean;
+  sttWarm?: {
+    model?: string;
+    device?: string;
+    computeType?: string;
+    pipeline?: string;
+    batchSize?: number;
+    gpuName?: string;
+    gpuComputeCapability?: string;
+  } | null;
 }) {
   const payload = {
     event: "worker_process_started",
@@ -67,6 +76,7 @@ async function recordWorkerStartupHeartbeat(input: {
     idleWaitMs: input.idleWaitMs,
     activeWaitMs: input.activeWaitMs,
     once: input.once,
+    sttWarm: input.sttWarm ?? null,
   };
 
   await saveStorageText({
@@ -203,6 +213,13 @@ async function main() {
     once,
   });
 
+  const warmInfo = await warmFasterWhisperWorkers()
+    .then((items) => items[0] ?? null)
+    .catch((error: any) => {
+      console.error("[runpod-worker] stt_warm_failed", error);
+      throw error;
+    });
+
   await recordWorkerStartupHeartbeat({
     scope,
     sessionPartLimit,
@@ -213,6 +230,17 @@ async function main() {
     idleWaitMs,
     activeWaitMs,
     once,
+    sttWarm: warmInfo
+      ? {
+          model: warmInfo.model,
+          device: warmInfo.device,
+          computeType: warmInfo.compute_type,
+          pipeline: warmInfo.pipeline,
+          batchSize: warmInfo.batch_size,
+          gpuName: warmInfo.gpu_name,
+          gpuComputeCapability: warmInfo.gpu_compute_capability,
+        }
+      : null,
   });
 
   while (!stopped) {
