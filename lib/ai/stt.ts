@@ -36,6 +36,23 @@ export type TranscriptQualityWarning =
   | "too_many_short_segments"
   | "adjacent_duplicates_removed";
 
+type WorkerGpuSnapshot = {
+  utilization_gpu_percent?: number;
+  memory_used_mb?: number;
+  memory_total_mb?: number;
+};
+
+type WorkerGpuMonitor = {
+  sample_count?: number;
+  utilization_percent_max?: number;
+  utilization_percent_avg?: number;
+  memory_used_mb_max?: number;
+  memory_used_mb_min?: number;
+  memory_total_mb?: number;
+  sampled_at_ms_start?: number;
+  sampled_at_ms_end?: number;
+};
+
 export type PipelineTranscriptionResult = SegmentedTranscriptResult & {
   meta: {
     model: string;
@@ -50,6 +67,11 @@ export type PipelineTranscriptionResult = SegmentedTranscriptResult & {
     computeType?: string;
     pipeline?: string;
     batchSize?: number;
+    gpuName?: string;
+    gpuComputeCapability?: string;
+    gpuSnapshotBefore?: WorkerGpuSnapshot;
+    gpuSnapshotAfter?: WorkerGpuSnapshot;
+    gpuMonitor?: WorkerGpuMonitor;
   };
 };
 
@@ -76,6 +98,11 @@ type WorkerSuccessResponse = {
   compute_type?: string;
   pipeline?: string;
   batch_size?: number;
+  gpu_name?: string;
+  gpu_compute_capability?: string;
+  gpu_snapshot_before?: WorkerGpuSnapshot;
+  gpu_snapshot_after?: WorkerGpuSnapshot;
+  gpu_monitor?: WorkerGpuMonitor;
 };
 
 type WorkerErrorResponse = {
@@ -594,6 +621,11 @@ export async function transcribeAudioForPipeline(input: TranscribeInput): Promis
             typeof primaryResponse?.batch_size === "number" && Number.isFinite(primaryResponse.batch_size)
               ? primaryResponse.batch_size
               : undefined,
+          gpuName: primaryResponse?.gpu_name?.trim() || undefined,
+          gpuComputeCapability: primaryResponse?.gpu_compute_capability?.trim() || undefined,
+          gpuSnapshotBefore: primaryResponse?.gpu_snapshot_before,
+          gpuSnapshotAfter: primaryResponse?.gpu_snapshot_after,
+          gpuMonitor: primaryResponse?.gpu_monitor,
         },
       };
   } finally {

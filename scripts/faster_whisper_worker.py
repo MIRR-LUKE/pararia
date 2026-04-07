@@ -4,6 +4,8 @@ import os
 import re
 import subprocess
 import sys
+import threading
+import time
 from typing import Any, Dict, List, Sequence
 
 import ctranslate2
@@ -73,6 +75,74 @@ def read_primary_gpu_compute_capability() -> str:
         pass
 
     return ""
+
+
+def read_primary_gpu_snapshot() -> Dict[str, int] | None:
+    try:
+        completed = subprocess.run(
+            [
+                "nvidia-smi",
+                "--query-gpu=utilization.gpu,memory.used,memory.total",
+                "--format=csv,noheader,nounits",
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        for line in completed.stdout.splitlines():
+            raw = [part.strip() for part in line.split(",")]
+            if len(raw) < 3:
+                continue
+            utilization_gpu_percent = int(float(raw[0]))
+            memory_used_mb = int(float(raw[1]))
+            memory_total_mb = int(float(raw[2]))
+            return {
+                "utilization_gpu_percent": utilization_gpu_percent,
+                "memory_used_mb": memory_used_mb,
+                "memory_total_mb": memory_total_mb,
+            }
+    except Exception:
+        pass
+
+    return None
+
+
+def monitor_primary_gpu_activity(
+    stop_event: threading.Event,
+    samples: List[Dict[str, int]],
+    interval_seconds: float = 0.5,
+) -> None:
+    while not stop_event.is_set():
+        snapshot = read_primary_gpu_snapshot()
+        if snapshot is not None:
+            samples.append(
+                {
+                    **snapshot,
+                    "sampled_at_ms": int(time.time() * 1000),
+                }
+            )
+        if stop_event.wait(interval_seconds):
+            break
+
+
+def summarize_gpu_samples(samples: Sequence[Dict[str, int]]) -> Dict[str, Any] | None:
+    if not samples:
+        return None
+
+    utilization_samples = [sample["utilization_gpu_percent"] for sample in samples]
+    memory_used_samples = [sample["memory_used_mb"] for sample in samples]
+    memory_total_samples = [sample["memory_total_mb"] for sample in samples]
+
+    return {
+        "sample_count": len(samples),
+        "utilization_percent_max": max(utilization_samples),
+        "utilization_percent_avg": round(sum(utilization_samples) / len(utilization_samples), 1),
+        "memory_used_mb_max": max(memory_used_samples),
+        "memory_used_mb_min": min(memory_used_samples),
+        "memory_total_mb": max(memory_total_samples),
+        "sampled_at_ms_start": samples[0]["sampled_at_ms"],
+        "sampled_at_ms_end": samples[-1]["sampled_at_ms"],
+    }
 
 
 def is_blackwell_gpu(gpu_name: str, compute_capability: str) -> bool:
@@ -242,21 +312,42 @@ def transcribe(audio_path: str, language: str) -> Dict[str, Any]:
         vad_filter=DEFAULT_VAD_FILTER,
         condition_on_previous_text=DEFAULT_CONDITION_ON_PREVIOUS_TEXT,
     )
-    if BATCHED_PIPELINE is not None:
-        segments_iter, info = BATCHED_PIPELINE.transcribe(
-            audio_path,
-            batch_size=DEFAULT_BATCH_SIZE,
-            **transcribe_kwargs,
-        )
-        pipeline_kind = "batched"
-    else:
-        segments_iter, info = MODEL.transcribe(
-            audio_path,
-            **transcribe_kwargs,
-        )
-        pipeline_kind = "default"
+    gpu_snapshot_before = read_primary_gpu_snapshot()
+    gpu_samples: List[Dict[str, int]] = []
+    gpu_monitor_stop = threading.Event()
+    gpu_monitor_thread: threading.Thread | None = None
 
-    segments = list(segments_iter)
+    if MODEL_DEVICE == "cuda":
+        gpu_monitor_thread = threading.Thread(
+            target=monitor_primary_gpu_activity,
+            args=(gpu_monitor_stop, gpu_samples),
+            daemon=True,
+        )
+        gpu_monitor_thread.start()
+
+    try:
+        if BATCHED_PIPELINE is not None:
+            segments_iter, info = BATCHED_PIPELINE.transcribe(
+                audio_path,
+                batch_size=DEFAULT_BATCH_SIZE,
+                **transcribe_kwargs,
+            )
+            pipeline_kind = "batched"
+        else:
+            segments_iter, info = MODEL.transcribe(
+                audio_path,
+                **transcribe_kwargs,
+            )
+            pipeline_kind = "default"
+
+        segments = list(segments_iter)
+    finally:
+        if gpu_monitor_thread is not None:
+            gpu_monitor_stop.set()
+            gpu_monitor_thread.join(timeout=2.0)
+
+    gpu_snapshot_after = read_primary_gpu_snapshot()
+    gpu_monitor_summary = summarize_gpu_samples(gpu_samples)
     payload_segments: List[Dict[str, Any]] = []
     for index, segment in enumerate(segments):
         text = (getattr(segment, "text", "") or "").strip()
@@ -281,6 +372,11 @@ def transcribe(audio_path: str, language: str) -> Dict[str, Any]:
         "compute_type": MODEL_COMPUTE_TYPE,
         "pipeline": pipeline_kind,
         "batch_size": DEFAULT_BATCH_SIZE if pipeline_kind == "batched" else 1,
+        "gpu_name": PRIMARY_GPU_NAME,
+        "gpu_compute_capability": PRIMARY_GPU_COMPUTE_CAPABILITY,
+        "gpu_snapshot_before": gpu_snapshot_before,
+        "gpu_snapshot_after": gpu_snapshot_after,
+        "gpu_monitor": gpu_monitor_summary,
     }
 
 
