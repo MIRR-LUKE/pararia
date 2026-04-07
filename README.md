@@ -351,6 +351,9 @@ Runpod 側では、Pod 作成時に次を入れれば動きます。
 private GHCR image を使うときは、Runpod 側の container registry auth を作って
 `RUNPOD_WORKER_CONTAINER_REGISTRY_AUTH_ID` も渡す。
 
+GPU は `RUNPOD_WORKER_GPU_CANDIDATES` で優先順を指定できます。
+既定は `NVIDIA GeForce RTX 5090,NVIDIA GeForce RTX 4090` で、5090 が取れないときだけ 4090 にフォールバックします。
+
 PowerShell のセッションに env を入れられない場合は、repo ルートの `.env.local` に次を追記すれば `npm run runpod:deploy` でそのまま使えます。
 
 ```bash

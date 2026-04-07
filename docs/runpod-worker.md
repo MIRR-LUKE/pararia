@@ -31,6 +31,7 @@ Pararia の STT 主導線は `web -> queue -> Runpod worker -> LLM finalize` で
 本番 web から自動 wake したいときは、さらに:
 
 - `RUNPOD_API_KEY`
+- `RUNPOD_WORKER_GPU_CANDIDATES` 例: `NVIDIA GeForce RTX 5090,NVIDIA GeForce RTX 4090`
 
 ## Runpod Pod に入れる env
 

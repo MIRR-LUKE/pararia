@@ -1,7 +1,8 @@
 const RUNPOD_API_BASE = "https://rest.runpod.io/v1";
 const DEFAULT_WORKER_NAME = "pararia-gpu-worker";
 const DEFAULT_WORKER_IMAGE = "ghcr.io/mirr-luke/pararia-runpod-worker:latest";
-const DEFAULT_WORKER_GPU = "NVIDIA GeForce RTX 4090";
+const DEFAULT_WORKER_GPU = "NVIDIA GeForce RTX 5090";
+const DEFAULT_WORKER_GPU_FALLBACK = "NVIDIA GeForce RTX 4090";
 const DEFAULT_AUTO_STOP_IDLE_MS = 5 * 60 * 1000;
 const DEFAULT_API_TIMEOUT_MS = 15_000;
 
@@ -34,7 +35,9 @@ export type RunpodWorkerConfig = {
   apiKey: string;
   name: string;
   image: string;
+  containerRegistryAuthId?: string | null;
   gpu: string;
+  gpuCandidates: string[];
   secureCloud: boolean;
   containerDiskInGb: number;
   volumeInGb: number;
@@ -83,6 +86,12 @@ function readStringEnvWithLegacy(name: string, legacyName: string, fallback = ""
   return readStringEnv(name, readStringEnv(legacyName, fallback));
 }
 
+function readStringListEnv(name: string, fallback: string[] = []) {
+  const raw = readStringEnv(name);
+  const items = (raw ? raw.split(",") : fallback).map((item) => item.trim()).filter(Boolean);
+  return [...new Set(items)];
+}
+
 function readRequiredEnv(name: string) {
   const value = readStringEnv(name);
   if (!value) {
@@ -107,6 +116,10 @@ function readBoolEnv(name: string, fallback: boolean) {
   const raw = readStringEnv(name);
   if (!raw) return fallback;
   return raw === "1" || raw.toLowerCase() === "true" || raw.toLowerCase() === "yes";
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function readPodStatus(pod: RunpodPod | null | undefined) {
@@ -220,11 +233,18 @@ function matchesManagedPod(pod: RunpodPod, config: RunpodWorkerConfig) {
 export function getRunpodWorkerConfig(): RunpodWorkerConfig | null {
   const apiKey = readStringEnv("RUNPOD_API_KEY");
   if (!apiKey) return null;
+  const legacyGpu = readStringEnv("RUNPOD_WORKER_GPU", "");
+  const gpuCandidates = readStringListEnv("RUNPOD_WORKER_GPU_CANDIDATES", [
+    DEFAULT_WORKER_GPU,
+    legacyGpu || DEFAULT_WORKER_GPU_FALLBACK,
+  ]);
   return {
     apiKey,
     name: readStringEnv("RUNPOD_WORKER_NAME", DEFAULT_WORKER_NAME),
     image: readStringEnv("RUNPOD_WORKER_IMAGE", DEFAULT_WORKER_IMAGE),
-    gpu: readStringEnv("RUNPOD_WORKER_GPU", DEFAULT_WORKER_GPU),
+    containerRegistryAuthId: readStringEnv("RUNPOD_WORKER_CONTAINER_REGISTRY_AUTH_ID", "") || null,
+    gpu: gpuCandidates[0] || DEFAULT_WORKER_GPU,
+    gpuCandidates,
     secureCloud: readBoolEnv("RUNPOD_WORKER_SECURE_CLOUD", false),
     containerDiskInGb: readIntEnv("RUNPOD_WORKER_CONTAINER_DISK_GB", 30, 0),
     volumeInGb: readIntEnv("RUNPOD_WORKER_VOLUME_GB", 0, 0),
@@ -329,19 +349,44 @@ function buildRunpodWorkerEnv(autoStopIdleMs: number) {
 
 function buildCreateBody(
   config: RunpodWorkerConfig,
-  overrides?: Partial<Omit<RunpodWorkerConfig, "apiKey" | "apiTimeoutMs" | "autoStopIdleMs">>
+  overrides?: Partial<Omit<RunpodWorkerConfig, "apiKey" | "apiTimeoutMs" | "autoStopIdleMs">>,
+  options?: {
+    includeRuntimeConfig?: boolean;
+  }
 ) {
+  const includeRuntimeConfig = options?.includeRuntimeConfig ?? true;
   return {
     name: overrides?.name ?? config.name,
     imageName: overrides?.image ?? config.image,
-    dockerStartCmd: ["bash", "/workspace/scripts/runpod-worker-start.sh"],
+    containerRegistryAuthId: overrides?.containerRegistryAuthId ?? config.containerRegistryAuthId ?? undefined,
     gpuTypeIds: [overrides?.gpu ?? config.gpu],
     gpuCount: overrides?.gpuCount ?? config.gpuCount,
     containerDiskInGb: overrides?.containerDiskInGb ?? config.containerDiskInGb,
     volumeInGb: overrides?.volumeInGb ?? config.volumeInGb,
     cloudType: (overrides?.secureCloud ?? config.secureCloud) ? "SECURE" : "COMMUNITY",
-    env: buildRunpodWorkerEnv(config.autoStopIdleMs),
+    ...(includeRuntimeConfig
+      ? {
+          dockerStartCmd: ["bash", "/workspace/scripts/runpod-worker-start.sh"],
+          env: buildRunpodWorkerEnv(config.autoStopIdleMs),
+        }
+      : {}),
   };
+}
+
+function getGpuCandidates(
+  config: RunpodWorkerConfig,
+  overrides?: Partial<Omit<RunpodWorkerConfig, "apiKey" | "apiTimeoutMs" | "autoStopIdleMs">>
+) {
+  const preferred = overrides?.gpu?.trim();
+  return [...new Set([preferred, ...(config.gpuCandidates ?? []), config.gpu].filter(Boolean) as string[])];
+}
+
+function isCapacityErrorMessage(message: string) {
+  return (
+    /does not have the resources to deploy your pod/i.test(message) ||
+    /no spot price found/i.test(message) ||
+    /insufficient capacity/i.test(message)
+  );
 }
 
 export async function listRunpodPods(config?: RunpodWorkerConfig) {
@@ -365,12 +410,68 @@ export async function createRunpodWorkerPod(
   config?: RunpodWorkerConfig
 ) {
   const resolved = config ?? requireRunpodWorkerConfig();
-  const payload = await runpodRequest("/pods", {
-    method: "POST",
-    body: JSON.stringify(buildCreateBody(resolved, overrides)),
-    config: resolved,
-  });
-  return normalizePod(payload);
+  const createAttempts = readIntEnv("RUNPOD_CREATE_RETRY_ATTEMPTS", 6, 1);
+  const createDelayMs = readIntEnv("RUNPOD_CREATE_RETRY_DELAY_MS", 5_000, 250);
+  const capacityErrors: string[] = [];
+  const gpuCandidates = getGpuCandidates(resolved, overrides);
+
+  for (const gpu of gpuCandidates) {
+    let payload: unknown;
+    let lastError: unknown;
+
+    for (let attempt = 1; attempt <= createAttempts; attempt += 1) {
+      try {
+        payload = await runpodRequest("/pods", {
+          method: "POST",
+          // Work around Runpod custom-image create failures when env is included in the initial POST.
+          body: JSON.stringify(buildCreateBody(resolved, { ...overrides, gpu }, { includeRuntimeConfig: false })),
+          config: resolved,
+        });
+        lastError = null;
+        break;
+      } catch (error: any) {
+        lastError = error;
+        const message = String(error?.message ?? error);
+        const shouldRetry = attempt < createAttempts && isCapacityErrorMessage(message);
+        if (!shouldRetry) {
+          if (!isCapacityErrorMessage(message)) {
+            throw error;
+          }
+          break;
+        }
+        await sleep(createDelayMs);
+      }
+    }
+
+    if (!payload) {
+      capacityErrors.push(`${gpu}: ${String((lastError as Error | undefined)?.message ?? lastError ?? "capacity unavailable")}`);
+      continue;
+    }
+
+    const created = normalizePod(payload);
+    if (!created.id) {
+      return created;
+    }
+
+    try {
+      const updated = await runpodRequest(`/pods/${created.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          dockerStartCmd: ["bash", "/workspace/scripts/runpod-worker-start.sh"],
+          env: buildRunpodWorkerEnv(resolved.autoStopIdleMs),
+        }),
+        config: resolved,
+      });
+      return normalizePod(updated);
+    } catch (error) {
+      await terminateRunpodPod(created.id, resolved).catch(() => {});
+      throw error;
+    }
+  }
+
+  throw new Error(
+    `Runpod worker creation failed for all GPU candidates (${gpuCandidates.join(" -> ")}): ${capacityErrors.join(" | ")}`
+  );
 }
 
 async function terminateRunpodPod(podId: string, config: RunpodWorkerConfig) {
