@@ -9,6 +9,7 @@ import { loadLocalEnvFiles } from "./lib/load-local-env";
 import { loadEnvFile } from "./lib/load-env-file";
 
 type GpuProfileName = "4090" | "5090";
+type StartupMode = "direct" | "bootstrap";
 
 type GpuProfile = {
   name: GpuProfileName;
@@ -22,6 +23,8 @@ type RunpodMeasureResult = {
   ok: boolean;
   profile: GpuProfileName;
   gpu: string;
+  startupMode: StartupMode;
+  workerImage?: string | null;
   interruptible: boolean;
   sourceAudioPath: string;
   clipAudioPath?: string;
@@ -184,6 +187,10 @@ function buildBootstrapCommand(gitRef: string) {
   return ["bash", "-lc", lines.join("\n")];
 }
 
+function buildDirectStartCommand() {
+  return ["bash", "/workspace/scripts/runpod-worker-start.sh"];
+}
+
 function buildWorkerEnv(input: {
   sessionId: string;
   autoStopIdleMs: number;
@@ -324,6 +331,75 @@ async function createBootstrapWorkerPod(input: {
   throw lastError instanceof Error ? lastError : new Error(String(lastError ?? "failed to create Runpod pod"));
 }
 
+async function createDirectWorkerPod(input: {
+  profile: GpuProfile;
+  sessionId: string;
+  autoStopIdleMs: number;
+  name: string;
+  interruptible: boolean;
+  createRetries: number;
+  createRetryWaitMs: number;
+  image: string;
+  containerRegistryAuthId?: string | null;
+}) {
+  let attempt = 0;
+  let lastError: unknown = null;
+
+  while (attempt <= input.createRetries) {
+    attempt += 1;
+    try {
+      const requestedAt = new Date();
+      const created = await runpodRequest("/pods", {
+        method: "POST",
+        body: JSON.stringify({
+          name: input.name,
+          imageName: input.image,
+          containerRegistryAuthId: input.containerRegistryAuthId || undefined,
+          gpuTypeIds: [input.profile.gpu],
+          gpuCount: 1,
+          cloudType: "COMMUNITY",
+          interruptible: input.interruptible,
+          containerDiskInGb: 30,
+          volumeInGb: 0,
+        }),
+      });
+
+      const podId = String(created.id ?? "").trim();
+      if (!podId) {
+        throw new Error(`Runpod create did not return a pod id: ${JSON.stringify(created)}`);
+      }
+
+      await runpodRequest(`/pods/${podId}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          dockerStartCmd: buildDirectStartCommand(),
+          env: buildWorkerEnv({
+            sessionId: input.sessionId,
+            autoStopIdleMs: input.autoStopIdleMs,
+            profile: input.profile,
+          }),
+        }),
+      });
+
+      return {
+        podId,
+        requestedAt,
+        attempt,
+      };
+    } catch (error) {
+      lastError = error;
+      const message = error instanceof Error ? error.message : String(error);
+      const retryable = /does not have the resources|no spot price found/i.test(message);
+      if (!retryable || attempt > input.createRetries) {
+        break;
+      }
+      await sleep(input.createRetryWaitMs);
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new Error(String(lastError ?? "failed to create Runpod pod"));
+}
+
 async function waitForWorkerReady(podId: string, timeoutMs: number, pollMs: number) {
   const startedAt = Date.now();
   while (Date.now() - startedAt <= timeoutMs) {
@@ -414,9 +490,15 @@ async function main() {
   const createRetries = readNumberArg("create-retries", 2);
   const createRetryWaitMs = readNumberArg("create-retry-wait-ms", 30000);
   const interruptible = readBoolArg("interruptible", false);
+  const startupMode = (parseArg("startup-mode", "direct") ?? "direct") as StartupMode;
   const gitRef = parseArg("git-ref", "main")!;
   const fallbackEnvFile = path.resolve(parseArg("fallback-env-file", ".tmp/.env.production.runpod")!);
   const outputDir = path.resolve(parseArg("out-dir", ".tmp/runpod-ux")!);
+  const workerImage = parseArg("image", process.env.RUNPOD_WORKER_IMAGE?.trim() || "ghcr.io/mirr-luke/pararia-runpod-worker:latest");
+  const containerRegistryAuthId = parseArg(
+    "registry-auth-id",
+    process.env.RUNPOD_WORKER_CONTAINER_REGISTRY_AUTH_ID?.trim() || ""
+  );
 
   if (!existsSync(sourceAudioPath)) {
     throw new Error(`source audio not found: ${sourceAudioPath}`);
@@ -441,6 +523,8 @@ async function main() {
     ok: false,
     profile: profile.name,
     gpu: profile.gpu,
+    startupMode,
+    workerImage: startupMode === "direct" ? workerImage : null,
     interruptible,
     sourceAudioPath,
     audioDurationSeconds: null,
@@ -530,6 +614,30 @@ async function main() {
     createdSessionId = session.id;
     result.sessionId = session.id;
 
+    const podPromise =
+      startupMode === "direct"
+        ? createDirectWorkerPod({
+            profile,
+            sessionId: session.id,
+            autoStopIdleMs,
+            name: `pararia-ux-${profile.name}-${Date.now()}`,
+            interruptible,
+            createRetries,
+            createRetryWaitMs,
+            image: must(workerImage, "worker image is required for direct startup."),
+            containerRegistryAuthId: containerRegistryAuthId || null,
+          })
+        : createBootstrapWorkerPod({
+            profile,
+            gitRef,
+            sessionId: session.id,
+            autoStopIdleMs,
+            name: `pararia-ux-${profile.name}-${Date.now()}`,
+            interruptible,
+            createRetries,
+            createRetryWaitMs,
+          });
+
     const audioBuffer = await readFile(measureAudioPath);
     const stored = await saveSessionPartUpload({
       sessionId: session.id,
@@ -582,16 +690,7 @@ async function main() {
     await updateSessionStatusFromParts(session.id);
     await enqueueSessionPartJob(part.id, "TRANSCRIBE_FILE");
 
-    const pod = await createBootstrapWorkerPod({
-      profile,
-      gitRef,
-      sessionId: session.id,
-      autoStopIdleMs,
-      name: `pararia-ux-${profile.name}-${Date.now()}`,
-      interruptible,
-      createRetries,
-      createRetryWaitMs,
-    });
+    const pod = await podPromise;
     podId = pod.podId;
     result.podId = podId;
     result.createAttempts = pod.attempt;

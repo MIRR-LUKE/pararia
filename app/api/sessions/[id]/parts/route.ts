@@ -158,6 +158,7 @@ export async function POST(
       sourceType = ConversationSourceType.AUDIO;
       const audioFileName = file?.name || uploadedFileName || "audio.m4a";
       const audioMimeType = file?.type || uploadedMimeType || "audio/mp4";
+      const workerWakePromise = shouldRunBackgroundJobsInline() ? null : maybeEnsureRunpodWorker();
       let stored: { storageUrl: string; fileName?: string; byteSize: number | null };
       let durationGateSkipped: string | null = null;
       let durationSeconds: number | null = null;
@@ -269,9 +270,7 @@ export async function POST(
 
       const session = await updateSessionStatusFromParts(params.id);
       await enqueueSessionPartJob(part.id, SessionPartJobType.TRANSCRIBE_FILE);
-      const workerWake = shouldRunBackgroundJobsInline()
-        ? null
-        : await maybeEnsureRunpodWorker();
+      const workerWake = workerWakePromise ? await workerWakePromise : null;
       if (shouldRunBackgroundJobsInline()) {
         void processAllSessionPartJobs(params.id).catch((error) => {
           console.error("[POST /api/sessions/[id]/parts] Background session part processing failed:", error);

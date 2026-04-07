@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireAuthorizedSession } from "@/lib/server/request-auth";
+import { shouldRunBackgroundJobsInline } from "@/lib/jobs/execution-mode";
+import { maybeEnsureRunpodWorker } from "@/lib/runpod/worker-control";
 
 export const runtime = "nodejs";
 
@@ -34,6 +36,18 @@ export async function POST(request: Request) {
     const pathname = body?.payload?.pathname?.trim() ?? "";
     if (body?.type !== "blob.generate-client-token" || !pathname.startsWith("session-audio/uploads/")) {
       return NextResponse.json({ error: "audio upload path is invalid" }, { status: 400 });
+    }
+
+    if (!shouldRunBackgroundJobsInline()) {
+      void maybeEnsureRunpodWorker()
+        .then((workerWake) => {
+          if (workerWake.attempted && !workerWake.ok) {
+            console.error("[POST /api/blob/upload] Runpod worker wake failed:", workerWake);
+          }
+        })
+        .catch((error) => {
+          console.error("[POST /api/blob/upload] Runpod worker wake crashed:", error);
+        });
     }
 
     const { generateClientTokenFromReadWriteToken } = await import("@vercel/blob/client");
