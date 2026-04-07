@@ -1,0 +1,8 @@
+.git
+.github
+.next
+.data
+.tmp
+node_modules
+task.md
+tsconfig.tsbuildinfo
