@@ -61,8 +61,10 @@ export async function GET(
     }
 
     const { searchParams } = new URL(request.url);
-    if (searchParams.get("process") === "1" && shouldRunBackgroundJobsInline()) {
-      void processAllSessionPartJobs(session.id).catch(() => {});
+    if (searchParams.get("process") === "1") {
+      if (shouldRunBackgroundJobsInline()) {
+        void processAllSessionPartJobs(session.id).catch(() => {});
+      }
       if (session.conversation?.id) {
         void processAllConversationJobs(session.conversation.id).catch(() => {});
       }

@@ -157,6 +157,37 @@ async function processQueueOnce(
   };
 }
 
+async function stopPodWhenSessionPartQueueDrains(
+  sessionPartLimit: number,
+  sessionPartConcurrency: number,
+  conversationConcurrency: number,
+  scope: WorkerScope
+) {
+  const confirm = await processQueueOnce(sessionPartLimit, sessionPartConcurrency, 0, conversationConcurrency, scope);
+  if (confirm.sessionPartJobs.processed === 0 && confirm.errors.length === 0) {
+    const stopResult = await stopCurrentRunpodPod();
+    console.log("[runpod-worker] session_part_queue_drained_stop", {
+      podId: process.env.RUNPOD_POD_ID ?? null,
+      stopResult,
+    });
+    return {
+      stopped: true,
+      confirm,
+    };
+  }
+
+  console.log("[runpod-worker] session_part_queue_drained_stop_aborted", {
+    processed: confirm.processed,
+    sessionPartProcessed: confirm.sessionPartJobs.processed,
+    conversationProcessed: confirm.conversationJobs.processed,
+    errorCount: confirm.errors.length,
+  });
+  return {
+    stopped: false,
+    confirm,
+  };
+}
+
 async function main() {
   const sessionPartLimit = readNonNegativeIntEnvWithLegacy("RUNPOD_WORKER_SESSION_PART_LIMIT", "LOCAL_GPU_WORKER_SESSION_PART_LIMIT", 8);
   const sessionPartConcurrency = readIntEnvWithLegacy(
@@ -167,7 +198,7 @@ async function main() {
   const conversationLimit = readNonNegativeIntEnvWithLegacy(
     "RUNPOD_WORKER_CONVERSATION_LIMIT",
     "LOCAL_GPU_WORKER_CONVERSATION_LIMIT",
-    6
+    0
   );
   const conversationConcurrency = readIntEnvWithLegacy(
     "RUNPOD_WORKER_CONVERSATION_CONCURRENCY",
@@ -260,6 +291,24 @@ async function main() {
         conversationProcessed: tick.conversationJobs.processed,
         errorCount: tick.errors.length,
       });
+    }
+
+    if (
+      conversationLimit === 0 &&
+      tick.errors.length === 0 &&
+      tick.sessionPartJobs.processed > 0
+    ) {
+      const drained = await stopPodWhenSessionPartQueueDrains(
+        sessionPartLimit,
+        sessionPartConcurrency,
+        conversationConcurrency,
+        scope
+      );
+      if (drained.stopped) {
+        break;
+      }
+      lastActiveAt = Date.now();
+      continue;
     }
 
     if (once) break;

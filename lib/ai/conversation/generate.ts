@@ -8,9 +8,9 @@ import {
 } from "@/lib/conversation-artifact";
 import { calculateOpenAiTextCostUsd } from "@/lib/ai/openai-pricing";
 import { buildInterviewDraftFallbackMarkdown, buildLessonDraftFallbackMarkdown } from "./fallback";
-import { buildDraftSystemPrompt, buildStructuredArtifactJsonSchema } from "./spec";
+import { buildDraftRetrySystemPrompt, buildDraftSystemPrompt, buildStructuredArtifactJsonSchema } from "./spec";
 import { buildDraftInputBlock, estimateTokens, formatSessionDateLabel, formatStudentLabel, formatTeacherLabel } from "./shared";
-import { callJsonGeneration } from "./transport";
+import { callJsonGeneration, callTextGeneration } from "./transport";
 import type { DraftGenerationInput, DraftGenerationResult, LlmTokenUsage, SessionMode } from "./types";
 
 const PROMPT_VERSION = "v5.1";
@@ -555,6 +555,37 @@ function buildRepairUserPrompt(
   ].join("\n");
 }
 
+function buildMarkdownRecoveryUserPrompt(sessionType: SessionMode, errors: string[]) {
+  const headings =
+    sessionType === "LESSON_REPORT"
+      ? [
+          "■ 基本情報",
+          "■ 1. 本日の指導サマリー（室長向け要約）",
+          "■ 2. 課題と指導成果（Before → After）",
+          "■ 3. 学習方針と次回アクション（自学習の設計）",
+          "■ 4. 室長・他講師への共有・連携事項",
+        ]
+      : [
+          "■ 基本情報",
+          "■ 1. サマリー",
+          "■ 2. 学習状況と課題分析",
+          "■ 3. 今後の対策・指導内容",
+          "■ 4. 志望校に関する検討事項",
+          "■ 5. 次回のお勧め話題",
+        ];
+
+  return [
+    "JSON ではなく、そのままユーザーに見せる markdown を返してください。",
+    "次の見出しをこの順番で必ず使ってください:",
+    ...headings.map((heading) => `- ${heading}`),
+    "会話の逐語転写を貼らず、自然な日本語の要約にしてください。",
+    "同じ文や同じエピソードを別セクションへ繰り返さないでください。",
+    "根拠のない推測は避け、事実が薄い section は『今回の面談では話していませんでした。』を使ってください。",
+    "箇条書き section は 2-5 個まで、短く具体的に書いてください。",
+    ...(errors.length > 0 ? ["", "前回失敗した点:", ...errors.map((error) => `- ${error}`)] : []),
+  ].join("\n");
+}
+
 function buildDeterministicRecovery(input: DraftGenerationInput) {
   const markdown =
     input.sessionType === "LESSON_REPORT"
@@ -583,6 +614,12 @@ function isUnsafeStructuredSummary(markdown: string) {
     .filter((line) => !/^根拠[:：]/.test(line))
     .filter((line) => line.length >= 150);
   return longLines.length >= 2;
+}
+
+function isFatalGenerationErrorMessage(message: string) {
+  return /(invalid_api_key|incorrect api key|authentication|unauthorized|401|403|api key .* not set|llm api failed)/i.test(
+    message
+  );
 }
 
 export async function generateConversationDraftFast(input: DraftGenerationInput): Promise<DraftGenerationResult> {
@@ -682,6 +719,56 @@ export async function generateConversationDraftFast(input: DraftGenerationInput)
     }
   } catch (error) {
     validationErrors.push(error instanceof Error ? error.message : "structured repair failed");
+  }
+
+  try {
+    apiCalls += 1;
+    const markdownResult = await callTextGeneration({
+      model,
+      messages: [
+        { role: "system", content: buildDraftRetrySystemPrompt(sessionType) },
+        { role: "user", content: user },
+        { role: "user", content: buildMarkdownRecoveryUserPrompt(sessionType, validationErrors) },
+      ],
+      timeoutMs: Number(process.env.LLM_CALL_TIMEOUT_MS ?? 90000),
+      max_output_tokens: sessionType === "LESSON_REPORT" ? 2400 : 4200,
+      prompt_cache_key: promptCacheKey,
+      prompt_cache_retention: promptCacheRetention ?? undefined,
+      verbosity: "medium",
+    });
+    tokenUsage = mergeTokenUsage(tokenUsage, markdownResult.usage);
+    const markdown = String(markdownResult.contentText ?? markdownResult.raw ?? "").trim();
+    if (markdown) {
+      const artifact = buildConversationArtifactFromMarkdown({
+        sessionType,
+        summaryMarkdown: markdown,
+        generatedAt: new Date(),
+      });
+      const rendered = renderConversationArtifactMarkdown(artifact);
+      if (!isUnsafeStructuredSummary(rendered)) {
+        return {
+          summaryMarkdown: rendered,
+          artifact,
+          model,
+          apiCalls,
+          evidenceChars: draftInput.content.length,
+          usedFallback: false,
+          inputTokensEstimate: promptInputTokensEstimate,
+          tokenUsage,
+          llmCostUsd: calculateOpenAiTextCostUsd(model, tokenUsage),
+        };
+      }
+      validationErrors.push("markdown 再生成でも unsafe な逐語転写が残った。");
+    } else {
+      validationErrors.push("markdown 再生成が空だった。");
+    }
+  } catch (error) {
+    validationErrors.push(error instanceof Error ? error.message : "markdown recovery failed");
+  }
+
+  const fatalError = validationErrors.find((message) => isFatalGenerationErrorMessage(message));
+  if (fatalError) {
+    throw new Error(`LLM generation failed: ${fatalError}`);
   }
 
   const recovered = buildDeterministicRecovery(input);
