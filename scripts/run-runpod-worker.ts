@@ -131,7 +131,12 @@ async function processQueueOnce(
       ? await processQueuedJobs(
           conversationLimit,
           conversationConcurrency,
-          scope.conversationId ? { conversationId: scope.conversationId } : undefined
+          scope.conversationId || scope.sessionId
+            ? {
+                ...(scope.conversationId ? { conversationId: scope.conversationId } : {}),
+                ...(scope.sessionId ? { sessionId: scope.sessionId } : {}),
+              }
+            : undefined
         )
       : empty;
   return {

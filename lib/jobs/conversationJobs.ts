@@ -44,6 +44,7 @@ type JobPayload = {
 
 type ProcessJobsOptions = {
   conversationId?: string;
+  sessionId?: string;
 };
 
 type ConversationPayload = {
@@ -208,6 +209,7 @@ async function recoverExpiredRunningJobs(opts?: ProcessJobsOptions) {
       leaseExpiresAt: { lt: now },
       type: { in: ACTIVE_JOB_TYPES },
       ...(opts?.conversationId ? { conversationId: opts.conversationId } : {}),
+      ...(opts?.sessionId ? { conversation: { sessionId: opts.sessionId } } : {}),
     },
     select: {
       id: true,
@@ -258,6 +260,7 @@ async function claimNextJob(opts?: ProcessJobsOptions): Promise<JobPayload | nul
   await prisma.conversationJob.deleteMany({
     where: {
       ...(opts?.conversationId ? { conversationId: opts.conversationId } : {}),
+      ...(opts?.sessionId ? { conversation: { sessionId: opts.sessionId } } : {}),
       type: { notIn: ACTIVE_JOB_TYPES },
     },
   });
@@ -270,6 +273,7 @@ async function claimNextJob(opts?: ProcessJobsOptions): Promise<JobPayload | nul
       status: JobStatus.QUEUED,
       type: { in: ACTIVE_JOB_TYPES },
       ...(opts?.conversationId ? { conversationId: opts.conversationId } : {}),
+      ...(opts?.sessionId ? { conversation: { sessionId: opts.sessionId } } : {}),
       OR: [{ nextRetryAt: null }, { nextRetryAt: { lte: now } }],
     },
     orderBy: [{ createdAt: "asc" }],

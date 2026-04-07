@@ -30,6 +30,7 @@
     "runpod:stop": "tsx scripts/runpod-manage.ts stop",
     "runpod:terminate": "tsx scripts/runpod-manage.ts terminate",
     "runpod:status": "tsx scripts/runpod-manage.ts status",
+    "runpod:measure-ux": "tsx scripts/runpod-measure-ux.ts",
     "verify": "npm run lint && npm run typecheck && npm run build",
     "postinstall": "prisma generate",
     "prisma:generate": "prisma generate",
