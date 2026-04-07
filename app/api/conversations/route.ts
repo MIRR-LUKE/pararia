@@ -8,8 +8,6 @@ import { renderConversationArtifactOrFallback } from "@/lib/conversation-artifac
 import { getTranscriptExpiryDate } from "@/lib/system-config";
 import { ensureConversationReviewedTranscript } from "@/lib/transcript/review";
 import { sanitizeSummaryMarkdown } from "@/lib/user-facing-japanese";
-import { shouldRunBackgroundJobsInline } from "@/lib/jobs/execution-mode";
-import { maybeEnsureRunpodWorker } from "@/lib/runpod/worker-control";
 
 export async function GET(request: Request) {
   try {
@@ -172,18 +170,11 @@ export async function POST(request: Request) {
     await ensureConversationReviewedTranscript(conversation.id);
 
     await enqueueConversationJobs(conversation.id);
-    const workerWake = shouldRunBackgroundJobsInline()
-      ? null
-      : await maybeEnsureRunpodWorker();
-    if (shouldRunBackgroundJobsInline()) {
-      void processAllConversationJobs(conversation.id).catch((error) => {
-        console.error("[POST /api/conversations] Background process failed:", error);
-      });
-    } else if (workerWake?.attempted && !workerWake.ok) {
-      console.error("[POST /api/conversations] Runpod worker wake failed:", workerWake);
-    }
+    void processAllConversationJobs(conversation.id).catch((error) => {
+      console.error("[POST /api/conversations] Background process failed:", error);
+    });
 
-    return NextResponse.json({ conversation, workerWake }, { status: 201 });
+    return NextResponse.json({ conversation }, { status: 201 });
   } catch (error: any) {
     console.error("[POST /api/conversations] Error:", error);
     return NextResponse.json(

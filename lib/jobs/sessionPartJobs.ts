@@ -106,6 +106,59 @@ function partHasTranscript(part: Pick<SessionPartPayload, "rawTextOriginal" | "r
   return Boolean(part.rawTextCleaned?.trim() || part.rawTextOriginal?.trim());
 }
 
+function getSessionPartRecoveryPlan(
+  jobType: SessionPartJobType,
+  error: unknown,
+  attempts: number
+) {
+  if (jobType === SessionPartJobType.PROMOTE_SESSION) {
+    const recoverable = isRecoverablePromotionErrorMessage(error);
+    return {
+      recoverable,
+      canRetry: recoverable && attempts < MAX_PROMOTION_RECOVERY_ATTEMPTS,
+      maxAttempts: MAX_PROMOTION_RECOVERY_ATTEMPTS,
+    };
+  }
+
+  const recoverable = isRecoverableTranscriptionErrorMessage(error);
+  return {
+    recoverable,
+    canRetry: recoverable && attempts < MAX_TRANSCRIPTION_RECOVERY_ATTEMPTS,
+    maxAttempts: MAX_TRANSCRIPTION_RECOVERY_ATTEMPTS,
+  };
+}
+
+async function markPartRecovering(
+  part: SessionPartPayload,
+  jobType: SessionPartJobType,
+  errorMessage: string,
+  attempts: number,
+  maxAttempts: number
+) {
+  const promotionRetry = jobType === SessionPartJobType.PROMOTE_SESSION && partHasTranscript(part);
+  const retryQueuedAt = new Date().toISOString();
+
+  await prisma.sessionPart.update({
+    where: { id: part.id },
+    data: {
+      status: promotionRetry ? SessionPartStatus.READY : SessionPartStatus.TRANSCRIBING,
+      qualityMetaJson: toSessionPartMetaJson(part.qualityMetaJson, {
+        pipelineStage: promotionRetry ? "GENERATING" : "TRANSCRIBING",
+        errorSource: undefined,
+        lastError: null,
+        retryPending: true,
+        retryAttempt: attempts,
+        retryMaxAttempts: maxAttempts,
+        lastRecoverableError: errorMessage,
+        lastRecoverableErrorAt: retryQueuedAt,
+        promotionRetryQueuedAt: promotionRetry ? retryQueuedAt : undefined,
+        transcriptionRetryQueuedAt: promotionRetry ? undefined : retryQueuedAt,
+      }),
+    },
+  });
+  await updateSessionStatusFromParts(part.sessionId);
+}
+
 async function transcribeStoredFile(part: SessionPartPayload) {
   if (!part.storageUrl) {
     throw new Error("session part storage is missing");
@@ -282,6 +335,7 @@ async function markPartRejected(part: SessionPartPayload, message: string, detai
       qualityMetaJson: toSessionPartMetaJson(meta, {
         ...details,
         pipelineStage: "REJECTED",
+        retryPending: false,
       }),
     },
   });
@@ -299,6 +353,7 @@ async function markPartExecutionError(part: SessionPartPayload, errorMessage: st
         pipelineStage: "ERROR",
         errorSource: "TRANSCRIPTION",
         lastError: errorMessage,
+        retryPending: false,
       }),
     },
   });
@@ -316,6 +371,7 @@ async function markPartPromotionError(part: SessionPartPayload, errorMessage: st
         errorSource: "PROMOTION",
         lastError: errorMessage,
         lastPromotionErrorAt: new Date().toISOString(),
+        retryPending: false,
       }),
     },
   });
@@ -351,6 +407,7 @@ async function markPartReady(input: {
         lastError: null,
         errorSource: undefined,
         pipelineStage: "READY",
+        retryPending: false,
         summaryPreview: buildSummaryPreview(input.rawTextCleaned || input.rawTextOriginal),
         lastCompletedAt: new Date().toISOString(),
       }),
@@ -697,6 +754,7 @@ async function requeueRecoverableTranscriptionJobs(opts?: ProcessSessionPartJobs
           pipelineStage: "TRANSCRIBING",
           errorSource: undefined,
           lastError: null,
+          retryPending: true,
           transcriptionRetryQueuedAt: new Date().toISOString(),
         }),
       },
@@ -776,6 +834,7 @@ async function requeueRecoverablePromotionJobs(opts?: ProcessSessionPartJobsOpti
           pipelineStage: "GENERATING",
           errorSource: undefined,
           lastError: null,
+          retryPending: true,
           promotionRetryQueuedAt: new Date().toISOString(),
         }),
       },
@@ -879,6 +938,12 @@ export async function processQueuedSessionPartJobs(
       } catch (error: any) {
         const message = error?.message ?? "unknown session part job error";
         errors.push(message);
+        const currentJob = await prisma.sessionPartJob.findUnique({
+          where: { id: job.id },
+          select: { attempts: true },
+        });
+        const attempts = currentJob?.attempts ?? 1;
+        const recovery = getSessionPartRecoveryPlan(job.type, error, attempts);
         await prisma.sessionPartJob.update({
           where: { id: job.id },
           data: {
@@ -889,7 +954,9 @@ export async function processQueuedSessionPartJobs(
         });
         const part = await loadSessionPart(job).catch(() => null);
         if (part) {
-          if (job.type === SessionPartJobType.PROMOTE_SESSION && partHasTranscript(part)) {
+          if (recovery.canRetry && (job.type !== SessionPartJobType.PROMOTE_SESSION || partHasTranscript(part))) {
+            await markPartRecovering(part, job.type, message, attempts, recovery.maxAttempts).catch(() => {});
+          } else if (job.type === SessionPartJobType.PROMOTE_SESSION && partHasTranscript(part)) {
             await markPartPromotionError(part, message).catch(() => {});
           } else {
             await markPartExecutionError(part, message).catch(() => {});

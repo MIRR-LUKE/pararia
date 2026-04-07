@@ -419,22 +419,14 @@ export async function POST(
 
     const session = await updateSessionStatusFromParts(params.id);
     await enqueueSessionPartJob(part.id, SessionPartJobType.PROMOTE_SESSION);
-    const workerWake = shouldRunBackgroundJobsInline()
-      ? null
-      : await maybeEnsureRunpodWorker();
-    if (shouldRunBackgroundJobsInline()) {
-      void processAllSessionPartJobs(params.id).catch((error) => {
-        console.error("[POST /api/sessions/[id]/parts] Background session part promotion failed:", error);
-      });
-    } else if (workerWake?.attempted && !workerWake.ok) {
-      console.error("[POST /api/sessions/[id]/parts] Runpod worker wake failed:", workerWake);
-    }
+    void processAllSessionPartJobs(params.id).catch((error) => {
+      console.error("[POST /api/sessions/[id]/parts] Background session part promotion failed:", error);
+    });
 
     return NextResponse.json({
       part,
       session,
       generationDeferred: true,
-      workerWake,
     });
   } catch (error: any) {
     console.error("[POST /api/sessions/[id]/parts] Error:", error);

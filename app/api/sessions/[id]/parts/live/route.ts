@@ -12,6 +12,7 @@ import { toSessionPartMetaJson } from "@/lib/session-part-meta";
 import { verifyRecordingLockForAudioUpload } from "@/lib/recording/lockService";
 import { toPrismaJson } from "@/lib/prisma-json";
 import { getRecordingMaxDurationSeconds } from "@/lib/recording/validation";
+import { isLiveChunkUploadEnabled } from "@/lib/recording/live-chunk-upload";
 import {
   appendLiveTranscriptionChunk,
   getLiveTranscriptionProgress,
@@ -62,6 +63,15 @@ export async function POST(
     });
     if (!sessionRow || sessionRow.student.organizationId !== sessionAuth.user.organizationId) {
       return NextResponse.json({ error: "セッションが見つかりません。" }, { status: 404 });
+    }
+    if (!isLiveChunkUploadEnabled()) {
+      return NextResponse.json(
+        {
+          error: "先行文字起こしは現在無効です。録音終了後の保存アップロードへ切り替えてください。",
+          code: "live_chunk_upload_disabled",
+        },
+        { status: 409 }
+      );
     }
 
     const externalWorkerAudioStorageError = getExternalWorkerAudioStorageError();

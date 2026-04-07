@@ -24,6 +24,7 @@ import {
   savePendingRecordingDraft,
   type PendingRecordingDraftRecord,
 } from "@/lib/recording/pendingRecordingStore";
+import { isLiveChunkUploadEnabled } from "@/lib/recording/live-chunk-upload";
 import { uploadFileToBlobFromBrowser } from "@/lib/blob-browser-upload";
 import { buildSessionPartUploadPathname } from "@/lib/audio-storage-paths";
 import type { RecordingLockInfo, SessionItem, SessionPipelineInfo } from "./roomTypes";
@@ -79,6 +80,7 @@ const LIVE_STT_WINDOW_MS: Record<SessionConsoleMode, number> = {
 };
 const CLIENT_AUDIO_STORAGE_MODE =
   process.env.NEXT_PUBLIC_AUDIO_STORAGE_MODE?.trim().toLowerCase() === "blob" ? "blob" : "local";
+const LIVE_CHUNK_UPLOAD_ENABLED = isLiveChunkUploadEnabled();
 
 function stopTracks(stream: MediaStream | null) {
   stream?.getTracks().forEach((track) => track.stop());
@@ -852,7 +854,9 @@ export function StudentSessionConsole({
       await acquireLock();
       const sessionId = await resolveTargetSessionId();
       recordingSessionIdRef.current = sessionId;
-      liveStreamingEnabledRef.current = true;
+      // For stability we default to one finalized upload instead of chunked
+      // in-flight transcription. This keeps Runpod and retry behavior simple.
+      liveStreamingEnabledRef.current = LIVE_CHUNK_UPLOAD_ENABLED;
       liveUploadErrorRef.current = null;
       liveUploadQueueRef.current = Promise.resolve();
       livePendingChunksRef.current = [];

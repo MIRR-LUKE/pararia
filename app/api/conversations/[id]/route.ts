@@ -13,7 +13,6 @@ import { toPrismaJson } from "@/lib/prisma-json";
 import { syncSessionAfterConversation } from "@/lib/session-service";
 import { sanitizeFormattedTranscript, sanitizeSummaryMarkdown, sanitizeTranscriptText } from "@/lib/user-facing-japanese";
 import { normalizeRawTranscriptText, pickDisplayTranscriptText } from "@/lib/transcript/source";
-import { shouldRunBackgroundJobsInline } from "@/lib/jobs/execution-mode";
 
 function toStringArray(value: unknown) {
   if (!Array.isArray(value)) return [];
@@ -66,7 +65,7 @@ export async function GET(
       if (!briefConversation) {
         return NextResponse.json({ error: "not found" }, { status: 404 });
       }
-      if (process === "1" && shouldRunBackgroundJobsInline()) {
+      if (process === "1") {
         void processAllConversationJobs(params.id).catch(() => {});
       }
       return NextResponse.json({ conversation: briefConversation });
@@ -124,7 +123,7 @@ export async function GET(
     if (!conversation) {
       return NextResponse.json({ error: "not found" }, { status: 404 });
     }
-    if (process === "1" && shouldRunBackgroundJobsInline()) {
+    if (process === "1") {
       void processAllConversationJobs(params.id).catch(() => {});
     }
 
