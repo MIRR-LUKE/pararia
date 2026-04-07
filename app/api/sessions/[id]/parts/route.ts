@@ -222,7 +222,7 @@ export async function POST(
         uploadedBytes: stored.byteSize,
         audioDurationSeconds: durationSeconds,
         durationGateSkipped,
-        transcriptionPhase: "TRANSCRIBING_EXTERNAL",
+        transcriptionPhase: "PREPARING_STT",
         transcriptionPhaseUpdatedAt: new Date().toISOString(),
         sttEngine: "faster-whisper",
       };

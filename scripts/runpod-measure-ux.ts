@@ -793,7 +793,7 @@ async function main() {
             uploadedMimeType: clipDurationSeconds > 0 ? "audio/mp4" : "audio/mpeg",
             uploadedBytes: stored.byteSize,
             audioDurationSeconds: result.audioDurationSeconds,
-            transcriptionPhase: "TRANSCRIBING_EXTERNAL",
+            transcriptionPhase: "PREPARING_STT",
             transcriptionPhaseUpdatedAt: enqueueStartedAt.toISOString(),
             sttEngine: "faster-whisper",
           }

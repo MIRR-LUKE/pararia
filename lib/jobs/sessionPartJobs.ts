@@ -172,7 +172,7 @@ async function transcribeStoredFile(part: SessionPartPayload) {
       : {};
   liveMeta = {
     ...liveMeta,
-    transcriptionPhase: "TRANSCRIBING_EXTERNAL",
+    transcriptionPhase: "PREPARING_STT",
     transcriptionPhaseUpdatedAt: new Date().toISOString(),
     sttEngine: "faster-whisper",
   };
@@ -229,6 +229,10 @@ async function transcribeStoredFile(part: SessionPartPayload) {
       throw gateError;
     }
 
+    await queueMetaPatch({
+      transcriptionPhase: "TRANSCRIBING_EXTERNAL",
+      transcriptionPhaseUpdatedAt: new Date().toISOString(),
+    });
     stt = await transcribeAudioForPipeline({
       filePath: localAudio.filePath,
       filename: part.fileName || "audio.webm",
@@ -241,6 +245,10 @@ async function transcribeStoredFile(part: SessionPartPayload) {
     const normalizedPath = `${localAudio.filePath}.stt-normalized.m4a`;
     try {
       await normalizeAudioForStt(localAudio.filePath, normalizedPath);
+      await queueMetaPatch({
+        transcriptionPhase: "TRANSCRIBING_EXTERNAL",
+        transcriptionPhaseUpdatedAt: new Date().toISOString(),
+      });
       stt = await transcribeAudioForPipeline({
         filePath: normalizedPath,
         filename: "audio-normalized.m4a",

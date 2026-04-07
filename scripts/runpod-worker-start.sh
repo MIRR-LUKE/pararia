@@ -41,4 +41,11 @@ echo "[runpod-worker] workspace=${workspace_dir} background_mode=${PARARIA_BACKG
 auto_stop_idle_ms="${RUNPOD_WORKER_AUTO_STOP_IDLE_MS:-${LOCAL_GPU_WORKER_AUTO_STOP_IDLE_MS:-300000}}"
 echo "[runpod-worker] auto_stop_idle_ms=${auto_stop_idle_ms}"
 
+tsx_bin="${workspace_dir}/node_modules/.bin/tsx"
+if [[ -x "${tsx_bin}" ]]; then
+  echo "[runpod-worker] exec=tsx-direct"
+  exec "${tsx_bin}" "${worker_script}"
+fi
+
+echo "[runpod-worker] exec=npm-fallback"
 exec npm --prefix "${workspace_dir}" run worker:runpod

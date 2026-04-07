@@ -30,6 +30,7 @@ export type SessionPartMeta = {
   errorSource?: SessionPartErrorSource;
   uploadMode?: "file_upload" | "direct_recording" | "manual";
   transcriptionPhase?:
+    | "PREPARING_STT"
     | "TRANSCRIBING_EXTERNAL"
     | "TRANSCRIBING_LOCAL"
     | "FINALIZING_TRANSCRIPT";

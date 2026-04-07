@@ -601,8 +601,8 @@ export function StudentSessionConsole({
       setState("processing");
       setMessage(
         mode === "INTERVIEW"
-          ? "保存受付が完了しました。文字起こしと面談ログ生成を進めています。"
-          : "チェックアウトの保存受付が完了しました。文字起こし後に指導報告ログへ進みます。"
+          ? "文字起こし準備中です。STT worker の起動が終わりしだい、文字起こしに入ります。"
+          : "文字起こし準備中です。STT worker の起動が終わりしだい、指導報告ログの準備に入ります。"
       );
       await onRefresh();
       return pollSessionProgress(sessionId);
@@ -1128,8 +1128,8 @@ export function StudentSessionConsole({
   const generationProgress =
     state === "uploading" || state === "processing"
       ? sessionProgress?.progress ?? {
-          title: "保存受付が完了しました",
-          description: "処理を開始しています。このまま閉じても大丈夫です。",
+          title: "文字起こし準備中です",
+          description: "STT worker を起動しています。このまま閉じても大丈夫です。",
           value: 18,
           steps:
             mode === "LESSON_REPORT"
@@ -1265,7 +1265,11 @@ export function StudentSessionConsole({
           <div className={styles.recorderMeta}>
             {state === "recording" ? <div className={styles.currentMode}>{modeLabel(mode, lessonPart)}</div> : null}
             <div className={styles.currentStudent}>
-              {state === "recording" ? `${studentName} を録音中` : idleHeadline}
+              {state === "recording"
+                ? `${studentName} を録音中`
+                : state === "uploading" || state === "processing"
+                  ? generationProgress?.title ?? "文字起こし準備中です"
+                  : idleHeadline}
             </div>
             <div className={styles.statusLine}>
               {state === "recording"

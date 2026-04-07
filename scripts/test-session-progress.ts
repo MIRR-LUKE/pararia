@@ -134,6 +134,32 @@ assert.equal(longInterviewTranscribing.statusLabel, "文字起こし中");
 assert.match(longInterviewTranscribing.progress.title, /文字起こし中/);
 assert.match(longInterviewTranscribing.progress.description, /STT worker/);
 
+const preparingInterviewTranscription = buildSessionProgressState({
+  sessionId: "session-preparing-transcription",
+  type: "INTERVIEW",
+  parts: [
+    {
+      id: "part-preparing-transcription",
+      partType: "FULL",
+      status: "TRANSCRIBING",
+      rawTextOriginal: null,
+      rawTextCleaned: null,
+      qualityMetaJson: {
+        uploadMode: "file_upload",
+        audioDurationSeconds: 3600,
+        transcriptionPhase: "PREPARING_STT",
+        transcriptionPhaseUpdatedAt: new Date("2026-03-31T10:00:00.000Z").toISOString(),
+      },
+    },
+  ],
+  conversation: null,
+});
+
+assert.equal(preparingInterviewTranscription.stage, "TRANSCRIBING");
+assert.equal(preparingInterviewTranscription.statusLabel, "起動中");
+assert.match(preparingInterviewTranscription.progress.title, /準備中/);
+assert.match(preparingInterviewTranscription.progress.description, /起動/);
+
 const longInterviewMerging = buildSessionProgressState({
   sessionId: "session-long-merging",
   type: "INTERVIEW",

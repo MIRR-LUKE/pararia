@@ -132,8 +132,8 @@ function estimatePartProgress(part: SessionProgressPartLike | null, start: numbe
   const audioDurationSeconds =
     readNonNegativeNumber(meta.audioDurationSeconds) ?? readNonNegativeNumber(meta.liveDurationSeconds);
   const expectedMs = audioDurationSeconds
-    ? clamp(Math.round(audioDurationSeconds * 180), 10_000, 12 * 60_000)
-    : 18_000;
+    ? clamp(Math.round(audioDurationSeconds * 18), 12_000, 120_000)
+    : 24_000;
 
   return estimateElapsedProgress(start, end, (meta.lastQueuedAt as string | undefined) ?? (meta.lastAcceptedAt as string | undefined), expectedMs);
 }
@@ -180,6 +180,15 @@ function buildDetailedTranscriptionCopy(
   const phaseUpdatedAt =
     (typeof meta.transcriptionPhaseUpdatedAt === "string" ? meta.transcriptionPhaseUpdatedAt : null) ??
     (typeof meta.lastQueuedAt === "string" ? meta.lastQueuedAt : null);
+
+  if (phase === "PREPARING_STT") {
+    return {
+      statusLabel: "起動中",
+      title: "文字起こし準備中です",
+      description: "STT worker を起動して音声の取得と初期化を進めています。起動が終わるとすぐ文字起こしに入ります。",
+      value: estimateElapsedProgress(start, Math.max(start + 8, end - 12), phaseUpdatedAt, 45_000),
+    };
+  }
 
   if (phase === "FINALIZING_TRANSCRIPT") {
     return {
@@ -417,7 +426,7 @@ export function buildSessionProgressState(input: SessionProgressInput): SessionP
           labels,
           2,
           "チェックインとチェックアウトを統合しています",
-          "文字起こしをまとめて、指導報告ログを生成しています。",
+          "gpt-5.4 で文字起こしを要約し、指導報告ログ本文を生成しています。",
           undefined,
           estimateConversationProgress(conversation, 78, 96)
         ),
@@ -571,7 +580,7 @@ export function buildSessionProgressState(input: SessionProgressInput): SessionP
           labels,
           2,
           "面談の要点を整理しています",
-          "文字起こしが終わり、面談ログ本文を生成しています。",
+          "gpt-5.4 で文字起こしを要約し、面談ログ本文を生成しています。",
           undefined,
           estimateConversationProgress(conversation, 76, 96)
         ),
