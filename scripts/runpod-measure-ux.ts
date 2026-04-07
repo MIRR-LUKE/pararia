@@ -9,7 +9,7 @@ import { loadLocalEnvFiles } from "./lib/load-local-env";
 import { loadEnvFile } from "./lib/load-env-file";
 
 type GpuProfileName = "4090" | "5090";
-type StartupMode = "direct" | "bootstrap";
+type StartupMode = "direct" | "bootstrap" | "reuse";
 
 type GpuProfile = {
   name: GpuProfileName;
@@ -25,6 +25,7 @@ type RunpodMeasureResult = {
   gpu: string;
   startupMode: StartupMode;
   workerImage?: string | null;
+  workerName?: string | null;
   interruptible: boolean;
   sourceAudioPath: string;
   clipAudioPath?: string;
@@ -32,6 +33,8 @@ type RunpodMeasureResult = {
   clipDurationSeconds?: number;
   audioDurationSeconds: number | null;
   createAttempts?: number;
+  reusePreparedPodId?: string | null;
+  reusePreparedAt?: string | null;
   podId?: string;
   podReadyAt?: string | null;
   podReadyMs?: number | null;
@@ -228,6 +231,8 @@ function buildWorkerEnv(input: {
     FASTER_WHISPER_CHUNKING_ENABLED: "0",
     FASTER_WHISPER_POOL_SIZE: "1",
     FASTER_WHISPER_WORKER_COMMAND: "python3",
+    FASTER_WHISPER_DOWNLOAD_ROOT:
+      process.env.FASTER_WHISPER_DOWNLOAD_ROOT?.trim() || "/workspace/.cache/faster-whisper",
     RUNPOD_WORKER_SESSION_PART_LIMIT: "1",
     RUNPOD_WORKER_SESSION_PART_CONCURRENCY: "1",
     RUNPOD_WORKER_CONVERSATION_LIMIT: "1",
@@ -260,6 +265,69 @@ async function runpodRequest(pathname: string, init: RequestInit) {
     throw new Error(`Runpod API request failed: ${response.status} ${JSON.stringify(payload)}`);
   }
   return payload as Record<string, unknown>;
+}
+
+type RunpodPodInfo = {
+  id: string;
+  name?: string | null;
+  desiredStatus?: string | null;
+  imageName?: string | null;
+};
+
+async function listRunpodPods() {
+  const payload = await runpodRequest("/pods", { method: "GET" });
+  const candidates = Array.isArray(payload)
+    ? payload
+    : Array.isArray(payload.data)
+      ? payload.data
+      : Array.isArray(payload.pods)
+        ? payload.pods
+        : [];
+  return candidates
+    .map((item) => {
+      const raw = item && typeof item === "object" ? (item as Record<string, unknown>) : {};
+      return {
+        id: typeof raw.id === "string" ? raw.id : "",
+        name: typeof raw.name === "string" ? raw.name : null,
+        desiredStatus: typeof raw.desiredStatus === "string" ? raw.desiredStatus : null,
+        imageName: typeof raw.imageName === "string" ? raw.imageName : null,
+      } satisfies RunpodPodInfo;
+    })
+    .filter((item) => item.id);
+}
+
+async function terminatePodsByName(name: string) {
+  const pods = (await listRunpodPods()).filter((pod) => pod.name === name);
+  for (const pod of pods) {
+    await runpodRequest(`/pods/${pod.id}`, { method: "DELETE" }).catch(() => {});
+  }
+}
+
+async function stopRunpodPod(podId: string) {
+  await runpodRequest(`/pods/${podId}/stop`, { method: "POST" });
+}
+
+async function startRunpodPod(podId: string) {
+  await runpodRequest(`/pods/${podId}/start`, { method: "POST" });
+}
+
+async function patchRunpodPodWorkerConfig(input: {
+  podId: string;
+  sessionId: string;
+  autoStopIdleMs: number;
+  profile: GpuProfile;
+}) {
+  await runpodRequest(`/pods/${input.podId}`, {
+    method: "PATCH",
+    body: JSON.stringify({
+      dockerStartCmd: buildDirectStartCommand(),
+      env: buildWorkerEnv({
+        sessionId: input.sessionId,
+        autoStopIdleMs: input.autoStopIdleMs,
+        profile: input.profile,
+      }),
+    }),
+  });
 }
 
 function getHeartbeatPath(podId: string, fileName: string) {
@@ -404,17 +472,19 @@ async function createDirectWorkerPod(input: {
   throw lastError instanceof Error ? lastError : new Error(String(lastError ?? "failed to create Runpod pod"));
 }
 
-async function waitForWorkerReady(podId: string, timeoutMs: number, pollMs: number) {
+async function waitForWorkerReady(podId: string, timeoutMs: number, pollMs: number, minCheckedAtMs?: number) {
   const startedAt = Date.now();
   while (Date.now() - startedAt <= timeoutMs) {
     const dbOk = await tryReadStorageJson(getHeartbeatPath(podId, "db-ok.json"));
     if (dbOk) {
       const checkedAt = typeof dbOk.checkedAt === "string" ? new Date(dbOk.checkedAt) : new Date();
-      return {
-        ok: true,
-        readiness: dbOk,
-        checkedAt,
-      };
+      if (!minCheckedAtMs || checkedAt.getTime() >= minCheckedAtMs) {
+        return {
+          ok: true,
+          readiness: dbOk,
+          checkedAt,
+        };
+      }
     }
 
     const dbError = await tryReadStorageJson(getHeartbeatPath(podId, "db-error.json"));
@@ -499,6 +569,8 @@ async function main() {
   const fallbackEnvFile = path.resolve(parseArg("fallback-env-file", ".tmp/.env.production.runpod")!);
   const outputDir = path.resolve(parseArg("out-dir", ".tmp/runpod-ux")!);
   const workerImage = parseArg("image", process.env.RUNPOD_WORKER_IMAGE?.trim() || "ghcr.io/mirr-luke/pararia-runpod-worker:latest");
+  const workerName = parseArg("worker-name", `pararia-ux-${profileName}-reuse`) ?? `pararia-ux-${profileName}-reuse`;
+  const prepareFresh = readBoolArg("prepare-fresh", true);
   const containerRegistryAuthId = parseArg(
     "registry-auth-id",
     process.env.RUNPOD_WORKER_CONTAINER_REGISTRY_AUTH_ID?.trim() || ""
@@ -529,6 +601,7 @@ async function main() {
     gpu: profile.gpu,
     startupMode,
     workerImage: startupMode === "direct" ? workerImage : null,
+    workerName: startupMode === "reuse" ? workerName : null,
     interruptible,
     sourceAudioPath,
     audioDurationSeconds: null,
@@ -542,6 +615,7 @@ async function main() {
   let createdPartId: string | null = null;
   let createdConversationId: string | null = null;
   let podId: string | null = null;
+  let keepStoppedPod = false;
 
   try {
     const [
@@ -563,6 +637,29 @@ async function main() {
       import("../lib/audio-processing"),
       import("../lib/system-config"),
     ]);
+
+    if (startupMode === "reuse") {
+      if (prepareFresh) {
+        await terminatePodsByName(workerName);
+      }
+      const prepared = await createDirectWorkerPod({
+        profile,
+        sessionId: "__prepare__",
+        autoStopIdleMs,
+        name: workerName,
+        interruptible,
+        createRetries,
+        createRetryWaitMs,
+        image: must(workerImage, "worker image is required for reuse startup."),
+        containerRegistryAuthId: containerRegistryAuthId || null,
+      });
+      result.reusePreparedPodId = prepared.podId;
+      result.reusePreparedAt = prepared.requestedAt.toISOString();
+      await waitForWorkerReady(prepared.podId, timeoutMs, pollMs);
+      await stopRunpodPod(prepared.podId);
+      podId = prepared.podId;
+      keepStoppedPod = true;
+    }
 
     let measureAudioPath = sourceAudioPath;
     if (clipDurationSeconds > 0) {
@@ -619,7 +716,24 @@ async function main() {
     result.sessionId = session.id;
 
     const podPromise =
-      startupMode === "direct"
+      startupMode === "reuse"
+        ? (async () => {
+            const preparedPodId = must(podId, "prepared pod id is required for reuse startup.");
+            await patchRunpodPodWorkerConfig({
+              podId: preparedPodId,
+              sessionId: session.id,
+              autoStopIdleMs,
+              profile,
+            });
+            const requestedAt = new Date();
+            await startRunpodPod(preparedPodId);
+            return {
+              podId: preparedPodId,
+              requestedAt,
+              attempt: 0,
+            };
+          })()
+        : startupMode === "direct"
         ? createDirectWorkerPod({
             profile,
             sessionId: session.id,
@@ -699,7 +813,7 @@ async function main() {
     result.podId = podId;
     result.createAttempts = pod.attempt;
 
-    const readiness = await waitForWorkerReady(podId, timeoutMs, pollMs);
+    const readiness = await waitForWorkerReady(podId, timeoutMs, pollMs, pod.requestedAt.getTime());
     result.podReadyAt = readiness.checkedAt.toISOString();
     result.podReadyMs = readiness.checkedAt.getTime() - pod.requestedAt.getTime();
 
@@ -784,7 +898,11 @@ async function main() {
     process.exitCode = 1;
   } finally {
     await writeFile(outputPath, JSON.stringify(result, null, 2), "utf8");
-    await deleteRunpodPod(podId);
+    if (keepStoppedPod && podId) {
+      await stopRunpodPod(podId).catch(() => {});
+    } else {
+      await deleteRunpodPod(podId);
+    }
     await cleanupBenchmarkRecords({
       sessionId: createdSessionId,
       studentId: createdStudentId,
