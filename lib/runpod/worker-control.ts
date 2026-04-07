@@ -342,9 +342,45 @@ function buildRunpodWorkerEnv(autoStopIdleMs: number) {
     RUNPOD_WORKER_AUTO_STOP_IDLE_MS: String(autoStopIdleMs),
     RUNPOD_WORKER_ONLY_SESSION_ID: readStringEnv("RUNPOD_WORKER_ONLY_SESSION_ID", ""),
     RUNPOD_WORKER_ONLY_CONVERSATION_ID: readStringEnv("RUNPOD_WORKER_ONLY_CONVERSATION_ID", ""),
+    RUNPOD_WORKER_RUNTIME_REVISION: readStringEnv(
+      "RUNPOD_WORKER_RUNTIME_REVISION",
+      process.env.VERCEL_GIT_COMMIT_SHA ?? ""
+    ),
   } satisfies Record<string, string>;
 
   return Object.fromEntries(Object.entries(env).filter(([, value]) => value !== ""));
+}
+
+async function applyRunpodWorkerRuntimeConfig(
+  podId: string,
+  config: RunpodWorkerConfig
+) {
+  const updated = await runpodRequest(`/pods/${podId}`, {
+    method: "PATCH",
+    body: JSON.stringify({
+      dockerStartCmd: ["bash", "/workspace/scripts/runpod-worker-start.sh"],
+      env: buildRunpodWorkerEnv(config.autoStopIdleMs),
+    }),
+    config,
+  });
+  return normalizePod(updated);
+}
+
+function shouldRecycleStoppedPod(pod: RunpodPod, config: RunpodWorkerConfig) {
+  const desiredRevision = buildRunpodWorkerEnv(config.autoStopIdleMs).RUNPOD_WORKER_RUNTIME_REVISION?.trim() ?? "";
+  const currentRevision = pod.env?.RUNPOD_WORKER_RUNTIME_REVISION?.trim() ?? "";
+  const currentImage = (pod.imageName || pod.image || "").trim();
+  const desiredImage = config.image.trim();
+
+  if (currentImage && currentImage !== desiredImage) {
+    return true;
+  }
+
+  if (desiredRevision && currentRevision !== desiredRevision) {
+    return true;
+  }
+
+  return false;
 }
 
 function buildCreateBody(
@@ -454,15 +490,7 @@ export async function createRunpodWorkerPod(
     }
 
     try {
-      const updated = await runpodRequest(`/pods/${created.id}`, {
-        method: "PATCH",
-        body: JSON.stringify({
-          dockerStartCmd: ["bash", "/workspace/scripts/runpod-worker-start.sh"],
-          env: buildRunpodWorkerEnv(resolved.autoStopIdleMs),
-        }),
-        config: resolved,
-      });
-      return normalizePod(updated);
+      return await applyRunpodWorkerRuntimeConfig(created.id, resolved);
     } catch (error) {
       await terminateRunpodPod(created.id, resolved).catch(() => {});
       throw error;
@@ -534,13 +562,22 @@ export async function ensureRunpodWorker(
 
   const stopped = existingPods.find((pod) => isStoppedPod(pod));
   if (stopped) {
+    if (shouldRecycleStoppedPod(stopped, resolved)) {
+      await terminateRunpodPod(stopped.id, resolved);
+      terminatedPodIds.push(stopped.id);
+      const created = await createRunpodWorkerPod(undefined, resolved);
+      return { action: "created_new", pod: created, terminatedPodIds };
+    }
+
+    const refreshed = await applyRunpodWorkerRuntimeConfig(stopped.id, resolved);
     await runpodRequest(`/pods/${stopped.id}/start`, { method: "POST", config: resolved });
     return {
       action: "started_existing",
       pod: {
-        ...stopped,
+        ...refreshed,
         desiredStatus: "RUNNING",
       },
+      terminatedPodIds,
     };
   }
 
