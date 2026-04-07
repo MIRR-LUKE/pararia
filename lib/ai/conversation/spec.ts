@@ -35,6 +35,15 @@ function buildPromptContextLines(sessionType: SessionMode) {
   ];
 }
 
+function buildInterviewMarkdownContextLines() {
+  return [
+    "文脈:",
+    "あなたは学習塾の教務責任者です。口語の面談 transcript から、管理者がそのまま読める面談ログ本文を作成してください。",
+    "返すのは完成した markdown 本文のみです。JSON、前置き、補足説明は返さないでください。",
+    "学習状況の整理、今後の対策、志望校の検討、次回確認事項が自然に並ぶ面談ログにしてください。",
+  ];
+}
+
 export function buildStructuredArtifactSpec(isLesson: boolean) {
   if (isLesson) {
     return [
@@ -73,6 +82,29 @@ export function buildStructuredArtifactSpec(isLesson: boolean) {
     "claims / nextActions / sharePoints は、`良かったです` `頑張りましょう` のような抽象的な励ましで埋めない。",
     "足りない話題を想像で補わない。該当しない見出しは空で返す。",
     "意味を盛らず、根拠のない断定や感想を足さない。",
+  ];
+}
+
+function buildInterviewMarkdownSpec() {
+  return [
+    "出力形式:",
+    "- 必ず markdown 本文だけを返す。JSON は返さない。",
+    "- 見出しは次の順番・表記で固定する。",
+    "  1. ■ 基本情報",
+    "  2. ■ 1. サマリー",
+    "  3. ■ 2. 学習状況と課題分析",
+    "  4. ■ 3. 今後の対策・指導内容",
+    "  5. ■ 4. 志望校に関する検討事項",
+    "  6. ■ 5. 次回のお勧め話題",
+    "- 基本情報は `対象生徒 / 面談日 / 面談時間 / 担当チューター / テーマ` の 5 行だけにする。",
+    "- `1. サマリー` は 2 段落まで。管理者がそのまま読める自然な日本語にする。",
+    "- `2` から `5` は各 section 2-4 個の箇条書きを基本にし、1行ずつ短く具体的に書く。",
+    "- `5. 次回のお勧め話題` は、次回面談でそのまま使える確認項目や声かけにする。",
+    "- 該当する話題がない section は、`今回の面談では...話していませんでした。` という 1 行だけを置く。",
+    "- `根拠:` 行は出さない。",
+    "- transcript の丸貼り、相づち、質問文の連打、導入や締めの定型句は残さない。",
+    "- 同じ論点を複数 section へ繰り返し書かない。",
+    "- transcript にない事実や推測を足さない。",
   ];
 }
 
@@ -216,6 +248,23 @@ export function buildDraftSystemPrompt(sessionType: SessionMode) {
 export function buildDraftRetrySystemPrompt(sessionType: SessionMode) {
   return [
     ...buildPromptBody(sessionType),
+    ...buildRetrySupplementLines(),
+  ].join("\n");
+}
+
+export function buildInterviewMarkdownSystemPrompt() {
+  return [
+    ...buildEvidenceFirstRules(),
+    ...buildInterviewMarkdownContextLines(),
+    ...buildInterviewMarkdownSpec(),
+  ].join("\n");
+}
+
+export function buildInterviewMarkdownRetrySystemPrompt() {
+  return [
+    ...buildEvidenceFirstRules(),
+    ...buildInterviewMarkdownContextLines(),
+    ...buildInterviewMarkdownSpec(),
     ...buildRetrySupplementLines(),
   ].join("\n");
 }

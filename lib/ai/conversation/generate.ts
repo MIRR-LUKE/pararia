@@ -8,12 +8,19 @@ import {
 } from "@/lib/conversation-artifact";
 import { calculateOpenAiTextCostUsd } from "@/lib/ai/openai-pricing";
 import { buildInterviewDraftFallbackMarkdown, buildLessonDraftFallbackMarkdown } from "./fallback";
-import { buildDraftRetrySystemPrompt, buildDraftSystemPrompt, buildStructuredArtifactJsonSchema } from "./spec";
+import {
+  buildDraftRetrySystemPrompt,
+  buildDraftSystemPrompt,
+  buildInterviewMarkdownRetrySystemPrompt,
+  buildInterviewMarkdownSystemPrompt,
+  buildStructuredArtifactJsonSchema,
+} from "./spec";
+import { isWeakDraftMarkdown, repairSummaryMarkdownFormatting } from "./normalize";
 import { buildDraftInputBlock, estimateTokens, formatSessionDateLabel, formatStudentLabel, formatTeacherLabel } from "./shared";
 import { callJsonGeneration, callTextGeneration } from "./transport";
 import type { DraftGenerationInput, DraftGenerationResult, LlmTokenUsage, SessionMode } from "./types";
 
-const PROMPT_VERSION = "v5.1";
+const PROMPT_VERSION = "v5.2";
 
 type StructuredDraftEntry = {
   label?: unknown;
@@ -555,6 +562,40 @@ function buildRepairUserPrompt(
   ].join("\n");
 }
 
+function buildInterviewMarkdownUserPrompt(input: DraftGenerationInput, draftInput: { label: string; content: string }) {
+  return [
+    "入力メタデータ:",
+    `- 生徒: ${formatStudentLabel(input.studentName)}`,
+    `- 講師: ${formatTeacherLabel(input.teacherName)}`,
+    `- 面談日: ${formatSessionDateLabel(input.sessionDate) || "不明"}`,
+    `- 面談時間: ${formatDurationLabel(input.durationMinutes)}`,
+    `- 最低文字数目安: ${input.minSummaryChars}`,
+    "",
+    "出力上の必須条件:",
+    "- `■ 基本情報` から `■ 5. 次回のお勧め話題` まで、見出しをこの順番で固定する。",
+    "- `■ 1. サマリー` は 2 段落まで。",
+    "- `■ 2` から `■ 5` は箇条書き中心で、1行を短く具体的にする。",
+    "- `■ 5. 次回のお勧め話題` は、次回面談で確認したいことや声かけ材料にする。",
+    "- `根拠:` 行は出さない。",
+    "- 同じ内容を複数 section に繰り返さない。",
+    "",
+    "入力:",
+    `${draftInput.label}:`,
+    draftInput.content,
+  ].join("\n");
+}
+
+function buildInterviewMarkdownRepairPrompt(errors: string[], previousRaw?: string | null) {
+  return [
+    "markdown を作り直してください。",
+    "- 面談ログ本文だけを返し、JSON は返さない。",
+    "- 逐語転写や質問文の連打が残っている場合は要点だけに圧縮する。",
+    "- `■ 5. 次回のお勧め話題` は次回確認事項として独立させる。",
+    ...(errors.length > 0 ? ["", "前回失敗した点:", ...errors.map((error) => `- ${error}`)] : []),
+    ...(previousRaw ? ["", "前回の出力:", previousRaw.slice(0, 4000)] : []),
+  ].join("\n");
+}
+
 function buildMarkdownRecoveryUserPrompt(sessionType: SessionMode, errors: string[]) {
   const headings =
     sessionType === "LESSON_REPORT"
@@ -622,19 +663,162 @@ function isFatalGenerationErrorMessage(message: string) {
   );
 }
 
+function buildMarkdownDraftResult(params: {
+  sessionType: SessionMode;
+  input: DraftGenerationInput;
+  model: string;
+  apiCalls: number;
+  evidenceChars: number;
+  promptInputTokensEstimate: number;
+  tokenUsage: LlmTokenUsage;
+  markdown: string;
+}) {
+  const normalizedMarkdown = repairSummaryMarkdownFormatting(params.markdown);
+  if (
+    isWeakDraftMarkdown(
+      normalizedMarkdown,
+      params.sessionType,
+      params.input.minSummaryChars,
+      params.input.transcript
+    )
+  ) {
+    return null;
+  }
+
+  const artifact = buildConversationArtifactFromMarkdown({
+    sessionType: params.sessionType,
+    summaryMarkdown: normalizedMarkdown,
+    generatedAt: new Date(),
+  });
+  const rendered = renderConversationArtifactMarkdown(artifact);
+  if (isWeakDraftMarkdown(rendered, params.sessionType, params.input.minSummaryChars, params.input.transcript)) {
+    return null;
+  }
+
+  return {
+    summaryMarkdown: rendered,
+    artifact,
+    model: params.model,
+    apiCalls: params.apiCalls,
+    evidenceChars: params.evidenceChars,
+    usedFallback: false,
+    inputTokensEstimate: params.promptInputTokensEstimate,
+    tokenUsage: params.tokenUsage,
+    llmCostUsd: calculateOpenAiTextCostUsd(params.model, params.tokenUsage),
+  } satisfies DraftGenerationResult;
+}
+
 export async function generateConversationDraftFast(input: DraftGenerationInput): Promise<DraftGenerationResult> {
   const sessionType = input.sessionType ?? "INTERVIEW";
   const draftInput = buildDraftInputBlock(sessionType, input.transcript);
   const model = getFastModel();
-  const system = buildDraftSystemPrompt(sessionType);
-  const user = buildStructuredUserPrompt(input, draftInput);
-  const jsonSchema = buildStructuredArtifactJsonSchema(sessionType);
-  const promptInputTokensEstimate = estimateTokens(system) + estimateTokens(user);
   const { promptCacheKey, promptCacheRetention } = resolvePromptCacheSettings(model, input, sessionType);
 
   let apiCalls = 0;
   let tokenUsage = emptyTokenUsage();
   const validationErrors: string[] = [];
+
+  if (sessionType === "INTERVIEW") {
+    const system = buildInterviewMarkdownSystemPrompt();
+    const user = buildInterviewMarkdownUserPrompt(input, draftInput);
+    const promptInputTokensEstimate = estimateTokens(system) + estimateTokens(user);
+
+    try {
+      apiCalls += 1;
+      const result = await callTextGeneration({
+        model,
+        messages: [
+          { role: "system", content: system },
+          { role: "user", content: user },
+        ],
+        timeoutMs: Number(process.env.LLM_CALL_TIMEOUT_MS ?? 90000),
+        max_output_tokens: 2200,
+        prompt_cache_key: promptCacheKey,
+        prompt_cache_retention: promptCacheRetention ?? undefined,
+        verbosity: "low",
+      });
+      tokenUsage = mergeTokenUsage(tokenUsage, result.usage);
+      const markdown = String(result.contentText ?? result.raw ?? "").trim();
+      if (markdown) {
+        const built = buildMarkdownDraftResult({
+          sessionType,
+          input,
+          model,
+          apiCalls,
+          evidenceChars: draftInput.content.length,
+          promptInputTokensEstimate,
+          tokenUsage,
+          markdown,
+        });
+        if (built) return built;
+        validationErrors.push("interview markdown が弱く、逐語転写や重複が残った。");
+      } else {
+        validationErrors.push("interview markdown が空だった。");
+      }
+    } catch (error) {
+      validationErrors.push(error instanceof Error ? error.message : "interview markdown generation failed");
+    }
+
+    try {
+      apiCalls += 1;
+      const retryResult = await callTextGeneration({
+        model,
+        messages: [
+          { role: "system", content: buildInterviewMarkdownRetrySystemPrompt() },
+          { role: "user", content: user },
+          { role: "user", content: buildInterviewMarkdownRepairPrompt(validationErrors) },
+        ],
+        timeoutMs: Number(process.env.LLM_CALL_TIMEOUT_MS ?? 90000),
+        max_output_tokens: 2600,
+        prompt_cache_key: promptCacheKey,
+        prompt_cache_retention: promptCacheRetention ?? undefined,
+        verbosity: "medium",
+      });
+      tokenUsage = mergeTokenUsage(tokenUsage, retryResult.usage);
+      const markdown = String(retryResult.contentText ?? retryResult.raw ?? "").trim();
+      if (markdown) {
+        const built = buildMarkdownDraftResult({
+          sessionType,
+          input,
+          model,
+          apiCalls,
+          evidenceChars: draftInput.content.length,
+          promptInputTokensEstimate,
+          tokenUsage,
+          markdown,
+        });
+        if (built) return built;
+        validationErrors.push("retry 後の interview markdown でも重複や逐語転写が残った。");
+      } else {
+        validationErrors.push("retry 後の interview markdown が空だった。");
+      }
+    } catch (error) {
+      validationErrors.push(error instanceof Error ? error.message : "interview markdown retry failed");
+    }
+
+    const fatalError = validationErrors.find((message) => isFatalGenerationErrorMessage(message));
+    if (fatalError) {
+      throw new Error(`LLM generation failed: ${fatalError}`);
+    }
+
+    const recovered = buildDeterministicRecovery(input);
+    return {
+      summaryMarkdown: recovered.summaryMarkdown,
+      artifact: recovered.artifact,
+      model,
+      apiCalls: Math.max(apiCalls, 1),
+      evidenceChars: draftInput.content.length,
+      usedFallback: true,
+      inputTokensEstimate: promptInputTokensEstimate,
+      tokenUsage,
+      llmCostUsd: calculateOpenAiTextCostUsd(model, tokenUsage),
+    };
+  }
+
+  const system = buildDraftSystemPrompt(sessionType);
+  const user = buildStructuredUserPrompt(input, draftInput);
+  const jsonSchema = buildStructuredArtifactJsonSchema(sessionType);
+  const promptInputTokensEstimate = estimateTokens(system) + estimateTokens(user);
 
   try {
     apiCalls += 1;

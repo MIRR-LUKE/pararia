@@ -357,6 +357,17 @@ function collectSectionEntries(
   return dedupeEntries(sectionsByKey(sections, key).flatMap((section) => parseSectionEntries(section.lines, key)));
 }
 
+function collectInterviewNextCheckEntries(sections: ConversationArtifactSection[]) {
+  return dedupeEntries(
+    sectionsByKey(sections, "unknown").flatMap((section) =>
+      parseSectionEntries(section.lines, "actions").map((entry) => ({
+        ...entry,
+        actionType: "nextCheck" as const,
+      }))
+    )
+  );
+}
+
 function collectEntryTexts(entries: ConversationArtifactEntry[], limit = 8) {
   return dedupeLines(entries.map((entry) => entry.text)).slice(0, limit);
 }
@@ -537,7 +548,10 @@ export function buildConversationArtifactFromMarkdown(input: {
 
   const summaryEntries = collectSectionEntries(sections, "summary");
   const claimEntries = collectSectionEntries(sections, "details");
-  const actionEntries = collectSectionEntries(sections, "actions");
+  const actionEntries = dedupeEntries([
+    ...collectSectionEntries(sections, "actions"),
+    ...(input.sessionType === "INTERVIEW" ? collectInterviewNextCheckEntries(sections) : []),
+  ]);
   const shareEntries = collectSectionEntries(sections, "share");
   const splitActions = splitActionEntries(actionEntries);
 
