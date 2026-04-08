@@ -6,14 +6,17 @@ const normalized = new URL(normalizePrismaDatabaseUrl(pooled)!);
 
 assert.equal(shouldConstrainPrismaPool(pooled), true);
 assert.equal(normalized.hostname, "aws-1-ap-south-1.pooler.supabase.com");
+assert.equal(normalized.port, "6543");
+assert.equal(normalized.searchParams.get("pgbouncer"), "true");
 assert.equal(normalized.searchParams.get("sslmode"), "require");
 assert.equal(normalized.searchParams.get("connection_limit"), "1");
 assert.equal(normalized.searchParams.get("pool_timeout"), "20");
 
 const alreadyPinned =
-  "postgresql://user:pass@aws-1-ap-south-1.pooler.supabase.com:5432/postgres?sslmode=require&connection_limit=3";
+  "postgresql://user:pass@aws-1-ap-south-1.pooler.supabase.com:5432/postgres?sslmode=require&connection_limit=3&pgbouncer=false";
 const preserved = new URL(normalizePrismaDatabaseUrl(alreadyPinned)!);
 assert.equal(preserved.searchParams.get("connection_limit"), "3");
+assert.equal(preserved.searchParams.get("pgbouncer"), "false");
 
 const local = "postgresql://user:pass@localhost:5432/pararia";
 assert.equal(shouldConstrainPrismaPool(local), false);

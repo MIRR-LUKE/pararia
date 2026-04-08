@@ -1,4 +1,5 @@
 const POOLED_DB_HOST_PATTERNS = [/pooler\.supabase\.com$/i, /\.pooler\./i];
+const SUPABASE_POOLED_HOST_PATTERN = /pooler\.supabase\.com$/i;
 
 function isLocalDatabaseHost(hostname: string) {
   const normalized = hostname.trim().toLowerCase();
@@ -21,6 +22,14 @@ export function normalizePrismaDatabaseUrl(rawUrl?: string | null) {
     const url = new URL(rawUrl);
     if (!shouldConstrainPrismaPool(rawUrl)) {
       return url.toString();
+    }
+
+    if (SUPABASE_POOLED_HOST_PATTERN.test(url.hostname) && url.port === "5432") {
+      url.port = "6543";
+    }
+
+    if (!url.searchParams.has("pgbouncer")) {
+      url.searchParams.set("pgbouncer", "true");
     }
 
     if (!url.searchParams.has("connection_limit")) {
