@@ -1,7 +1,19 @@
 import { randomUUID } from "node:crypto";
 import { prisma } from "@/lib/db";
-import { ConversationJobType, ConversationStatus, JobStatus, Prisma, SessionStatus, SessionType } from "@prisma/client";
+import {
+  ConversationJobType,
+  ConversationStatus,
+  JobStatus,
+  NextMeetingMemoStatus,
+  Prisma,
+  SessionStatus,
+  SessionType,
+} from "@prisma/client";
 import { estimateTokens, generateConversationDraftFast, getPromptVersion } from "@/lib/ai/conversationPipeline";
+import {
+  generateNextMeetingMemo,
+  getNextMeetingMemoPromptVersion,
+} from "@/lib/ai/next-meeting-memo";
 import { formatTranscriptFromSegments, formatTranscriptFromText } from "@/lib/ai/llm";
 import { renderConversationArtifactMarkdown } from "@/lib/conversation-artifact";
 import { DEFAULT_TEACHER_FULL_NAME } from "@/lib/constants";
@@ -14,10 +26,15 @@ import { ensureConversationReviewedTranscript } from "@/lib/transcript/review";
 import { readSessionPartMeta } from "@/lib/session-part-meta";
 
 const DEFAULT_JOB_TYPES: ConversationJobType[] = [ConversationJobType.FINALIZE];
-const ACTIVE_JOB_TYPES: ConversationJobType[] = [ConversationJobType.FINALIZE, ConversationJobType.FORMAT];
+const ACTIVE_JOB_TYPES: ConversationJobType[] = [
+  ConversationJobType.FINALIZE,
+  ConversationJobType.GENERATE_NEXT_MEETING_MEMO,
+  ConversationJobType.FORMAT,
+];
 const JOB_PRIORITY: Partial<Record<ConversationJobType, number>> = {
   [ConversationJobType.FINALIZE]: 0,
-  [ConversationJobType.FORMAT]: 1,
+  [ConversationJobType.GENERATE_NEXT_MEETING_MEMO]: 1,
+  [ConversationJobType.FORMAT]: 2,
 };
 
 function readClampedEnvInt(name: string, fallback: number, min: number, max: number) {
@@ -49,6 +66,7 @@ type ProcessJobsOptions = {
 
 type ConversationPayload = {
   id: string;
+  organizationId: string;
   studentId: string;
   sessionId?: string | null;
   sessionType?: SessionType | null;
@@ -58,6 +76,8 @@ type ConversationPayload = {
   reviewedText?: string | null;
   rawSegments?: any[] | null;
   formattedTranscript?: string | null;
+  summaryMarkdown?: string | null;
+  artifactJson?: Prisma.JsonValue | null;
   studentName?: string | null;
   teacherName?: string | null;
   durationMinutes?: number | null;
@@ -133,6 +153,9 @@ function dependencySatisfied(
   statusByType: Map<ConversationJobType, JobStatus>
 ) {
   if (type === ConversationJobType.FINALIZE) return true;
+  if (type === ConversationJobType.GENERATE_NEXT_MEETING_MEMO) {
+    return statusByType.get(ConversationJobType.FINALIZE) === JobStatus.DONE;
+  }
   if (type === ConversationJobType.FORMAT) {
     const finalizeStatus = statusByType.get(ConversationJobType.FINALIZE);
     return typeof finalizeStatus === "undefined" || finalizeStatus === JobStatus.DONE;
@@ -151,6 +174,10 @@ function buildJobContext(job: JobPayload, convo?: ConversationPayload) {
     studentId: convo?.studentId ?? null,
     sessionId: convo?.sessionId ?? null,
   };
+}
+
+function shouldGenerateNextMeetingMemo(convo: ConversationPayload) {
+  return convo.sessionType === SessionType.INTERVIEW && Boolean(convo.sessionId);
 }
 
 function logJobInfo(message: string, context: Record<string, unknown>) {
@@ -236,7 +263,24 @@ async function recoverExpiredRunningJobs(opts?: ProcessJobsOptions) {
     });
     if (updated.count !== 1) continue;
 
-    if (stale.type === ConversationJobType.FINALIZE) {
+    if (stale.type === ConversationJobType.GENERATE_NEXT_MEETING_MEMO) {
+      const updateData = exhausted
+        ? {
+            status: NextMeetingMemoStatus.FAILED,
+            errorMessage: "lease expired and max attempts reached",
+            completedAt: now,
+          }
+        : {
+            status: NextMeetingMemoStatus.QUEUED,
+            errorMessage: null,
+            completedAt: null,
+          };
+      await prisma.nextMeetingMemo.updateMany({
+        where: { conversationId: stale.conversationId },
+        data: updateData,
+      });
+      await updateConversationStatus(stale.conversationId);
+    } else if (stale.type === ConversationJobType.FINALIZE) {
       await updateConversationStatus(
         stale.conversationId,
         exhausted ? ConversationStatus.ERROR : ConversationStatus.PROCESSING
@@ -433,6 +477,10 @@ async function executeFinalizeJob(job: JobPayload, convo: ConversationPayload) {
     },
   });
 
+  if (shouldGenerateNextMeetingMemo(convo)) {
+    await enqueueNextMeetingMemoJob(convo.id);
+  }
+
   await prisma.conversationJob.update({
     where: { id: job.id },
     data: {
@@ -484,6 +532,106 @@ async function executeFinalizeJob(job: JobPayload, convo: ConversationPayload) {
     summaryMarkdown: renderedSummary,
     duration,
   };
+}
+
+function upsertNextMeetingMemoRecord(input: {
+  conversationId: string;
+  sessionId: string;
+  organizationId: string;
+  studentId: string;
+  status: NextMeetingMemoStatus;
+  clearContent?: boolean;
+}) {
+  return prisma.nextMeetingMemo.upsert({
+    where: { sessionId: input.sessionId },
+    update: {
+      conversationId: input.conversationId,
+      status: input.status,
+      errorMessage: null,
+      model: null,
+      startedAt: null,
+      completedAt: null,
+      ...(input.clearContent
+        ? {
+            previousSummary: null,
+            suggestedTopics: null,
+            rawJson: Prisma.DbNull,
+          }
+        : {}),
+    },
+    create: {
+      organizationId: input.organizationId,
+      studentId: input.studentId,
+      sessionId: input.sessionId,
+      conversationId: input.conversationId,
+      status: input.status,
+    },
+  });
+}
+
+export async function enqueueNextMeetingMemoJob(conversationId: string) {
+  const conversation = await prisma.conversationLog.findUnique({
+    where: { id: conversationId },
+    select: {
+      id: true,
+      organizationId: true,
+      studentId: true,
+      sessionId: true,
+      session: {
+        select: {
+          type: true,
+        },
+      },
+    },
+  });
+  if (!conversation?.sessionId || conversation.session?.type !== SessionType.INTERVIEW) {
+    return { queued: false, reason: "not_interview_session" as const };
+  }
+
+  await prisma.$transaction([
+    prisma.conversationJob.upsert({
+      where: {
+        conversationId_type: {
+          conversationId,
+          type: ConversationJobType.GENERATE_NEXT_MEETING_MEMO,
+        },
+      },
+      update: {
+        status: JobStatus.QUEUED,
+        executionId: null,
+        attempts: 0,
+        maxAttempts: JOB_MAX_ATTEMPTS,
+        lastError: null,
+        nextRetryAt: null,
+        leaseExpiresAt: null,
+        lastHeartbeatAt: null,
+        failedAt: null,
+        completedAt: null,
+        lastRunDurationMs: null,
+        lastQueueLagMs: null,
+        outputJson: Prisma.DbNull,
+        costMetaJson: Prisma.DbNull,
+        startedAt: null,
+        finishedAt: null,
+      },
+      create: {
+        conversationId,
+        type: ConversationJobType.GENERATE_NEXT_MEETING_MEMO,
+        status: JobStatus.QUEUED,
+        maxAttempts: JOB_MAX_ATTEMPTS,
+      },
+    }),
+    upsertNextMeetingMemoRecord({
+      conversationId,
+      sessionId: conversation.sessionId,
+      organizationId: conversation.organizationId,
+      studentId: conversation.studentId,
+      status: NextMeetingMemoStatus.QUEUED,
+      clearContent: true,
+    }),
+  ]);
+
+  return { queued: true as const };
 }
 
 async function executeFormatJob(job: JobPayload, convo: ConversationPayload) {
@@ -564,6 +712,121 @@ async function executeFormatJob(job: JobPayload, convo: ConversationPayload) {
   return { formatted: cleanedFormatted, duration };
 }
 
+async function executeNextMeetingMemoJob(job: JobPayload, convo: ConversationPayload) {
+  if (!shouldGenerateNextMeetingMemo(convo) || !convo.sessionId) {
+    const finishedAt = new Date();
+    await prisma.conversationJob.update({
+      where: { id: job.id },
+      data: {
+        status: JobStatus.DONE,
+        finishedAt,
+        completedAt: finishedAt,
+        lastHeartbeatAt: finishedAt,
+        leaseExpiresAt: null,
+        model: "skipped",
+        lastRunDurationMs: 0,
+        outputJson: toPrismaJson({
+          skipped: true,
+          reason: "not_interview_session",
+          executionId: job.executionId,
+        }),
+      },
+    });
+    return { skipped: true };
+  }
+
+  const startedAt = new Date();
+
+  await prisma.nextMeetingMemo.upsert({
+    where: { sessionId: convo.sessionId },
+    update: {
+      conversationId: convo.id,
+      status: NextMeetingMemoStatus.GENERATING,
+      errorMessage: null,
+      startedAt,
+      completedAt: null,
+    },
+    create: {
+      organizationId: convo.organizationId,
+      studentId: convo.studentId,
+      sessionId: convo.sessionId,
+      conversationId: convo.id,
+      status: NextMeetingMemoStatus.GENERATING,
+      startedAt,
+    },
+  });
+
+  await touchJobLease(job);
+
+  const start = Date.now();
+  const memo = await generateNextMeetingMemo({
+    studentName: convo.studentName,
+    sessionDate: convo.sessionDate,
+    artifactJson: convo.artifactJson,
+    summaryMarkdown: convo.summaryMarkdown ?? null,
+  });
+  const duration = Date.now() - start;
+  const finishedAt = new Date();
+
+  await prisma.nextMeetingMemo.update({
+    where: { sessionId: convo.sessionId },
+    data: {
+      status: NextMeetingMemoStatus.READY,
+      previousSummary: memo.previousSummary,
+      suggestedTopics: memo.suggestedTopics,
+      rawJson: toPrismaJson({
+        promptVersion: getNextMeetingMemoPromptVersion(),
+        apiCalls: memo.apiCalls,
+        tokenUsage: memo.tokenUsage,
+        llmCostUsd: memo.llmCostUsd,
+        sourceSections: memo.sourceSections,
+      }),
+      model: memo.model,
+      errorMessage: null,
+      completedAt: finishedAt,
+    },
+  });
+
+  await prisma.conversationJob.update({
+    where: { id: job.id },
+    data: {
+      status: JobStatus.DONE,
+      finishedAt,
+      completedAt: finishedAt,
+      lastHeartbeatAt: finishedAt,
+      leaseExpiresAt: null,
+      model: memo.model,
+      lastRunDurationMs: duration,
+      outputJson: toPrismaJson({
+        previousSummaryChars: memo.previousSummary.length,
+        suggestedTopicsChars: memo.suggestedTopics.length,
+        executionId: job.executionId,
+        attempt: job.attempt,
+        apiCalls: memo.apiCalls,
+      }),
+      costMetaJson: toPrismaJson({
+        promptVersion: getNextMeetingMemoPromptVersion(),
+        tokenUsage: memo.tokenUsage,
+        llmCostUsd: memo.llmCostUsd,
+        seconds: Math.round(duration / 1000),
+        queueLagMs: job.lastQueueLagMs,
+      }),
+    },
+  });
+
+  logJobInfo("job_completed", {
+    ...buildJobContext(job, convo),
+    model: memo.model,
+    durationMs: duration,
+  });
+
+  return {
+    previousSummary: memo.previousSummary,
+    suggestedTopics: memo.suggestedTopics,
+    duration,
+  };
+}
+
 async function executeJob(job: JobPayload) {
   const convo = await prisma.conversationLog.findUnique({
     where: { id: job.conversationId },
@@ -577,6 +840,7 @@ async function executeJob(job: JobPayload) {
 
   const payload: ConversationPayload = {
     id: convo.id,
+    organizationId: convo.organizationId,
     studentId: convo.studentId,
     sessionId: convo.sessionId,
     sessionType: convo.session?.type ?? null,
@@ -586,6 +850,8 @@ async function executeJob(job: JobPayload) {
     reviewedText: convo.reviewedText,
     rawSegments: (convo.rawSegments as any[]) ?? [],
     formattedTranscript: convo.formattedTranscript,
+    summaryMarkdown: convo.summaryMarkdown,
+    artifactJson: (convo.artifactJson as Prisma.JsonValue | null) ?? null,
     studentName: convo.student?.name ?? null,
     teacherName: convo.user?.name ?? DEFAULT_TEACHER_FULL_NAME,
     durationMinutes: deriveSessionDurationMinutes(convo.session?.parts),
@@ -595,6 +861,9 @@ async function executeJob(job: JobPayload) {
   logJobInfo("job_started", buildJobContext(job, payload));
 
   if (job.type === ConversationJobType.FINALIZE) return executeFinalizeJob(job, payload);
+  if (job.type === ConversationJobType.GENERATE_NEXT_MEETING_MEMO) {
+    return executeNextMeetingMemoJob(job, payload);
+  }
   if (job.type === ConversationJobType.FORMAT) return executeFormatJob(job, payload);
   throw new Error(`unsupported job type: ${job.type}`);
 }
@@ -713,12 +982,38 @@ async function handleJobFailure(job: JobPayload, error: unknown) {
         data: { status: canRetry ? SessionStatus.PROCESSING : SessionStatus.ERROR },
       });
     }
+  } else if (job.type === ConversationJobType.GENERATE_NEXT_MEETING_MEMO) {
+    await prisma.nextMeetingMemo.updateMany({
+      where: { conversationId: job.conversationId },
+      data: canRetry
+        ? {
+            status: NextMeetingMemoStatus.QUEUED,
+            errorMessage: null,
+            completedAt: null,
+          }
+        : {
+            status: NextMeetingMemoStatus.FAILED,
+            errorMessage: message,
+            completedAt: failedAt,
+          },
+    });
+    await updateConversationStatus(job.conversationId);
   } else {
     await updateConversationStatus(job.conversationId);
   }
 
   const logContext = {
-    ...buildJobContext(job, existing ? { id: job.conversationId, studentId: existing.studentId, sessionId: existing.sessionId } : undefined),
+    ...buildJobContext(
+      job,
+      existing
+        ? {
+            id: job.conversationId,
+            organizationId: "unknown",
+            studentId: existing.studentId,
+            sessionId: existing.sessionId,
+          }
+        : undefined
+    ),
     retryable,
     nextRetryAt: nextRetryAt?.toISOString() ?? null,
     durationMs,

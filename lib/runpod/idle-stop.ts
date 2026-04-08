@@ -49,7 +49,11 @@ export async function maybeStopRunpodWorkerWhenSessionPartQueueIdle() {
   const pendingConversationJobs = await prisma.conversationJob.count({
     where: {
       type: {
-        in: [ConversationJobType.FINALIZE, ConversationJobType.FORMAT],
+        in: [
+          ConversationJobType.FINALIZE,
+          ConversationJobType.FORMAT,
+          ConversationJobType.GENERATE_NEXT_MEETING_MEMO,
+        ],
       },
       status: {
         in: [JobStatus.QUEUED, JobStatus.RUNNING],

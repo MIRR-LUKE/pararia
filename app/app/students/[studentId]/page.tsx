@@ -9,6 +9,7 @@ import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { StructuredMarkdown } from "@/components/ui/StructuredMarkdown";
 import { UNSAVED_CONVERSATION_SUMMARY_MESSAGE } from "@/lib/conversation-editing";
 import { getLessonReportPartState, pickOngoingLessonReportSession } from "@/lib/lesson-report-flow";
+import { pickLatestInterviewMemoSession } from "@/lib/next-meeting-memo";
 import { LogView } from "../../logs/LogView";
 import { ReportStudio } from "./ReportStudio";
 import {
@@ -132,6 +133,8 @@ export default function StudentDetailPage({ params }: { params: { studentId: str
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null);
   const [isDeletingTarget, setIsDeletingTarget] = useState(false);
   const [logHasUnsavedChanges, setLogHasUnsavedChanges] = useState(false);
+  const [isRegeneratingNextMeetingMemo, setIsRegeneratingNextMeetingMemo] = useState(false);
+  const [nextMeetingMemoError, setNextMeetingMemoError] = useState<string | null>(null);
   const hasLoadedRoomRef = useRef(false);
 
   const refresh = useCallback(async (opts?: { silent?: boolean }) => {
@@ -169,7 +172,10 @@ export default function StudentDetailPage({ params }: { params: { studentId: str
     const hasActivePipeline = room.sessions.some((session) =>
       ["TRANSCRIBING", "GENERATING"].includes(session.pipeline?.stage ?? "")
     );
-    if (!hasActivePipeline) return;
+    const hasPendingNextMeetingMemo = room.sessions.some((session) =>
+      ["QUEUED", "GENERATING"].includes(session.nextMeetingMemo?.status ?? "")
+    );
+    if (!hasActivePipeline && !hasPendingNextMeetingMemo) return;
     const timer = window.setTimeout(() => {
       void refresh({ silent: true });
     }, 2500);
@@ -334,9 +340,58 @@ export default function StudentDetailPage({ params }: { params: { studentId: str
 
   const latestConversation = room?.latestConversation ?? null;
   const latestReport = room?.reports[0] ?? null;
+  const latestInterviewMemoSession = useMemo(
+    () => pickLatestInterviewMemoSession(room?.sessions ?? []),
+    [room?.sessions]
+  );
+  const latestNextMeetingMemo = latestInterviewMemoSession?.nextMeetingMemo ?? null;
   const viewerBadge = userBadge(session?.user?.name ?? null);
   const allSelectionIds = reportSelectionSessions.map((item) => item.id);
   const allSelected = allSelectionIds.length > 0 && allSelectionIds.every((id) => selectedSessionIds.includes(id));
+
+  const regenerateNextMeetingMemo = useCallback(async () => {
+    if (!latestInterviewMemoSession?.id) return;
+    setIsRegeneratingNextMeetingMemo(true);
+    setNextMeetingMemoError(null);
+    try {
+      const res = await fetch(`/api/sessions/${latestInterviewMemoSession.id}/next-meeting-memo/regenerate`, {
+        method: "POST",
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(body?.error ?? "次回の面談メモの再生成に失敗しました。");
+      }
+      await refresh({ silent: true });
+    } catch (nextError: any) {
+      setNextMeetingMemoError(nextError?.message ?? "次回の面談メモの再生成に失敗しました。");
+    } finally {
+      setIsRegeneratingNextMeetingMemo(false);
+    }
+  }, [latestInterviewMemoSession?.id, refresh]);
+
+  const nextMeetingMemoStatus =
+    isRegeneratingNextMeetingMemo ? "GENERATING" : latestNextMeetingMemo?.status ?? null;
+  const nextMeetingMemoPreviousSummary =
+    nextMeetingMemoStatus === "READY"
+      ? latestNextMeetingMemo?.previousSummary?.trim() || "生成結果をまだ保存できていません。作り直すでもう一度お試しください。"
+      : nextMeetingMemoStatus === "FAILED"
+        ? "作成できませんでした。もう一度お試しください。"
+        : nextMeetingMemoStatus === "GENERATING" || nextMeetingMemoStatus === "QUEUED"
+          ? "生成中…"
+          : "面談ログが完成するとここに表示されます。";
+  const nextMeetingMemoSuggestedTopics =
+    nextMeetingMemoStatus === "READY"
+      ? latestNextMeetingMemo?.suggestedTopics?.trim() || "生成結果をまだ保存できていません。作り直すでもう一度お試しください。"
+      : nextMeetingMemoStatus === "FAILED"
+        ? "作り直すと、最新の面談ログからもう一度作成します。"
+        : nextMeetingMemoStatus === "GENERATING" || nextMeetingMemoStatus === "QUEUED"
+          ? "面談ログをもとに作っています…"
+          : "前回の面談ログを作ると、次に何を話すかまで短くまとまります。";
+  const canRegenerateNextMeetingMemo = Boolean(
+    latestInterviewMemoSession?.id &&
+      latestInterviewMemoSession.conversation?.id &&
+      latestInterviewMemoSession.conversation?.status === "DONE"
+  );
 
   const handleSelectedSessionIdsChange = useCallback(
     (ids: string[]) => {
@@ -529,6 +584,58 @@ export default function StudentDetailPage({ params }: { params: { studentId: str
             recordingLock={room.recordingLock}
             showModePicker
           />
+        </div>
+
+        <div className={styles.memoCard}>
+          <div className={styles.memoCardHead}>
+            <div>
+              <div className={styles.cardTitle}>次回の面談メモ</div>
+              <div className={styles.cardSubtext}>
+                {latestInterviewMemoSession
+                  ? `${formatSessionLabel(latestInterviewMemoSession)}をもとに、次にすぐ見返せる内容だけを置きます。`
+                  : "面談ログが完成すると、ここに次回の面談メモが表示されます。"}
+              </div>
+            </div>
+            <div className={styles.generatedMeta}>
+              {latestNextMeetingMemo?.updatedAt ? `更新：${formatUpdated(latestNextMeetingMemo.updatedAt)}` : "未作成"}
+            </div>
+          </div>
+
+          <div className={styles.memoBody}>
+            <div className={styles.memoSection}>
+              <div className={styles.memoSectionTitle}>前回の面談まとめ</div>
+              <p
+                className={`${styles.memoParagraph} ${
+                  nextMeetingMemoStatus === "READY" ? "" : styles.memoParagraphMuted
+                }`}
+              >
+                {nextMeetingMemoPreviousSummary}
+              </p>
+            </div>
+
+            <div className={styles.memoSection}>
+              <div className={styles.memoSectionTitle}>おすすめの話題</div>
+              <p
+                className={`${styles.memoParagraph} ${
+                  nextMeetingMemoStatus === "READY" ? "" : styles.memoParagraphMuted
+                }`}
+              >
+                {nextMeetingMemoSuggestedTopics}
+              </p>
+            </div>
+          </div>
+
+          {nextMeetingMemoError ? <div className={styles.memoError}>{nextMeetingMemoError}</div> : null}
+
+          <div className={styles.memoActions}>
+            <Button
+              variant="secondary"
+              onClick={() => void regenerateNextMeetingMemo()}
+              disabled={!canRegenerateNextMeetingMemo || isRegeneratingNextMeetingMemo}
+            >
+              作り直す
+            </Button>
+          </div>
         </div>
 
         <div className={styles.reportCard}>

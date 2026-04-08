@@ -24,6 +24,7 @@ model Organization {
   invitations        OrganizationInvitation[]
   properNounGlossaryEntries ProperNounGlossaryEntry[]
   properNounSuggestions     ProperNounSuggestion[]
+  nextMeetingMemos          NextMeetingMemo[]
 }
 
 model User {
@@ -66,6 +67,7 @@ model Student {
   recordingLock StudentRecordingLock?
   properNounGlossaryEntries ProperNounGlossaryEntry[]
   properNounSuggestions     ProperNounSuggestion[]
+  nextMeetingMemos          NextMeetingMemo[]
 
   @@index([organizationId, createdAt])
 }
@@ -157,6 +159,7 @@ model ConversationLog {
   session      Session?          @relation(fields: [sessionId], references: [id])
   jobs         ConversationJob[]
   properNounSuggestions ProperNounSuggestion[]
+  nextMeetingMemo NextMeetingMemo?
 
   @@index([studentId, createdAt])
   @@index([organizationId, createdAt])
@@ -194,6 +197,33 @@ model ConversationJob {
   @@index([status, nextRetryAt, type])
   @@index([conversationId, type, status])
   @@index([conversationId, leaseExpiresAt])
+}
+
+model NextMeetingMemo {
+  id              String                @id @default(cuid())
+  organizationId  String
+  studentId       String
+  sessionId       String                @unique
+  conversationId  String                @unique
+  status          NextMeetingMemoStatus @default(QUEUED)
+  previousSummary String?
+  suggestedTopics String?
+  rawJson         Json?
+  model           String?
+  errorMessage    String?
+  startedAt       DateTime?
+  completedAt     DateTime?
+  createdAt       DateTime              @default(now())
+  updatedAt       DateTime              @updatedAt
+
+  organization Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  student      Student        @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  session      Session        @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  conversation ConversationLog @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([studentId, createdAt])
+  @@index([organizationId, createdAt])
+  @@index([status, updatedAt])
 }
 
 model SessionPartJob {
@@ -352,6 +382,7 @@ model Session {
   parts        SessionPart[]
   conversation ConversationLog?
   properNounSuggestions ProperNounSuggestion[]
+  nextMeetingMemo NextMeetingMemo?
 
   @@index([studentId, sessionDate])
   @@index([organizationId, sessionDate])
@@ -407,6 +438,7 @@ enum ConversationSourceType {
 enum ConversationJobType {
   FINALIZE
   FORMAT
+  GENERATE_NEXT_MEETING_MEMO
 }
 
 enum SessionPartJobType {
@@ -494,6 +526,13 @@ enum ReportStatus {
   DRAFT
   REVIEWED
   SENT
+}
+
+enum NextMeetingMemoStatus {
+  QUEUED
+  GENERATING
+  READY
+  FAILED
 }
 
 enum ReportDeliveryEventType {

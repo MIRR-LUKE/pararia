@@ -1,5 +1,6 @@
 import type { ReportDeliveryState } from "@/lib/report-delivery";
 import type { GenerationProgressState } from "@/lib/generation-progress";
+import type { NextMeetingMemoStatusValue } from "@/lib/next-meeting-memo";
 
 export type SessionPipelineInfo = {
   stage: string;
@@ -20,6 +21,17 @@ export type SessionPartItem = {
   qualityMetaJson?: any;
 };
 
+export type NextMeetingMemoItem = {
+  id: string;
+  status: NextMeetingMemoStatusValue;
+  previousSummary?: string | null;
+  suggestedTopics?: string | null;
+  errorMessage?: string | null;
+  updatedAt?: string | null;
+  sessionId?: string | null;
+  conversationId?: string | null;
+};
+
 export type SessionItem = {
   id: string;
   type: "INTERVIEW" | "LESSON_REPORT";
@@ -38,6 +50,7 @@ export type SessionItem = {
     summaryMarkdown?: string | null;
     createdAt: string;
   } | null;
+  nextMeetingMemo?: NextMeetingMemoItem | null;
 };
 
 export type ReportHistoryItem = {

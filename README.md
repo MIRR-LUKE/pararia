@@ -3,7 +3,7 @@
 PARARIA は、塾・個別指導・学習コーチング向けの `Teaching OS` です。  
 現在の実装は、**録音や会話メモから `面談ログ` または `指導報告ログ` を 1 本生成し、その保存済みログを選んで `保護者レポート` を作る** ことに絞っています。
 
-この README は、**2026-04-06 時点の現行コードと一致する運用仕様書** です。
+この README は、**2026-04-08 時点の現行コードと一致する運用仕様書** です。
 
 ## 1. 先に結論
 
@@ -15,6 +15,7 @@ PARARIA は、塾・個別指導・学習コーチング向けの `Teaching OS` 
 - ログ生成の主経路は `structured artifact` を 1 回で作ること
 - `summaryMarkdown` は artifact から render する派生物
 - 生成後のログ本文は講師が手で編集できるが、自動保存はしない。手動保存前に離脱しようとした場合は pop-up で止める
+- 面談ログが完成したら、その内容から `次回の面談メモ` を別 job で作る
 - retry と deterministic recovery は最後の保険で、fallback 前提の設計にはしない
 - `reviewState` が transcript review の現在状態を表す正本
 - `qualityMetaJson.transcriptReview` は review が必要な理由と件数の説明だけを持つ
@@ -79,8 +80,9 @@ PARARIA は、塾・個別指導・学習コーチング向けの `Teaching OS` 
 5. 裏側で STT と session promotion を進める
 6. session が揃ったら `FINALIZE` でログ本文を 1 本生成する
 7. 講師は `ログ本文` と `文字起こし` を確認し、必要ならログ本文だけ手で直して保存する
-8. 必要なログだけを選び、保護者レポートを作る
-9. 共有状態を更新する
+8. 面談モードなら、ログ保存後に `次回の面談メモ` を軽い background job で作る
+9. 必要なログだけを選び、保護者レポートを作る
+10. 共有状態を更新する
 
 ## 4. 画面の役割
 
@@ -106,6 +108,11 @@ PARARIA は、塾・個別指導・学習コーチング向けの `Teaching OS` 
   - `CHECK_IN / CHECK_OUT`
   - 録音開始
   - 音声ファイル取り込み（`.mp3` / `.m4a` のみ）
+- `次回の面談メモ` カード
+  - 録音カードの右隣に出す
+  - `前回の面談まとめ` と `おすすめの話題` の 2 つだけを短文で出す
+  - 面談ログ完成後に `生成中… -> READY / FAILED` で差し替える
+  - `作り直す` で再生成できる
 - `StudentSessionStream`
   - 進行中または完了済みの面談ログを追う
 - 指導報告ログ一覧
@@ -144,6 +151,7 @@ PARARIA は、塾・個別指導・学習コーチング向けの `Teaching OS` 
 
 - `artifactJson`
 - `summaryMarkdown`
+- `NextMeetingMemo`
 - `rawTextOriginal`
 - `reviewedText`
 - `rawTextCleaned`
@@ -478,12 +486,16 @@ GPU が強いときの最初の目安:
 
 - `FINALIZE`
 - `FORMAT`
+- `GENERATE_NEXT_MEETING_MEMO`
 
 責務:
 
 - `FINALIZE`
   - transcript から `artifactJson` を先に作り、そこから `summaryMarkdown` を render する
   - 完了時に `ConversationLog.status = DONE`
+- `GENERATE_NEXT_MEETING_MEMO`
+  - 面談ログの `artifactJson / summaryMarkdown` を材料に、`前回の面談まとめ` と `おすすめの話題` だけを短く作る
+  - 面談ログ本体とは別で失敗してよく、conversation 自体は `DONE` のままにする
 - `FORMAT`
   - transcript 表示を整形する
   - 本文生成の必須条件ではない
@@ -513,6 +525,7 @@ GPU が強いときの最初の目安:
 - `SessionPartJob`
 - `ConversationLog`
 - `ConversationJob`
+- `NextMeetingMemo`
 - `Report`
 - `ReportDeliveryEvent`
 - `AuditLog`
@@ -547,6 +560,20 @@ GPU が強いときの最初の目安:
 - `qualityMetaJson`
   - STT 時間、モデル、警告、生成時間、job retry 情報など
   - `transcriptReview` には review 理由、件数、更新時刻だけを入れる
+
+### 9.3 `NextMeetingMemo` の意味
+
+- 面談 1 回につき 1 件だけ持つ
+- `sessionId / conversationId` を 1 対 1 で持ち、面談ログに追従する
+- `previousSummary`
+  - `前回の面談まとめ` 用の短文
+- `suggestedTopics`
+  - `おすすめの話題` 用の短文
+- `status`
+  - `QUEUED / GENERATING / READY / FAILED`
+- `rawJson`
+  - prompt version、token usage、source sections などの生成メタ
+- これは詳細ログの代わりではなく、`次の面談で一瞬で見返すための補助メモ`
 
 ## 10. 保護者レポート
 
@@ -645,6 +672,7 @@ GPU が強いときの最初の目安:
 - `POST /api/sessions/[id]/parts`
 - `POST /api/sessions/[id]/parts/live`
 - `GET /api/sessions/[id]/progress`
+- `POST /api/sessions/[id]/next-meeting-memo/regenerate`
 
 ### 13.4 コミュニケーションログ
 
@@ -667,6 +695,9 @@ GPU が強いときの最初の目安:
   - 編集途中は自動保存しない
 - `POST /api/conversations/[id]/regenerate?format=1`
   - 再生成に加えて transcript 整形も再実行
+- `POST /api/sessions/[id]/next-meeting-memo/regenerate`
+  - 面談ログが `DONE` のときだけ `次回の面談メモ` を再生成する
+  - progress polling を増やさず、既存の Student Room refresh で差し替える
 - `GET /api/conversations/[id]/review`
   - raw / reviewed / display transcript と proper noun suggestion を返す
   - 読み取り専用で、副作用は持たない
@@ -740,6 +771,10 @@ GPU が強いときの最初の目安:
 - `lib/ai/parentReport.ts`
   - selected artifact first のレポート生成
   - 弱い初回出力の 1 回 repair と generation meta の集約
+- `lib/ai/next-meeting-memo.ts`
+  - 面談ログの 1〜5 を材料に `前回の面談まとめ / おすすめの話題` を短文で作る
+- `lib/next-meeting-memo.ts`
+  - memo 文面の sanitize / validation と、Student Room で出す対象 session の選定
 - `lib/operational-log.ts`
   - artifact / 保存済みログ本文から report bundle preview を作る
 - `app/app/students/[studentId]/ReportStudio.tsx`
@@ -754,6 +789,8 @@ GPU が強いときの最初の目安:
   - runtime file の安全な削除
 - `app/app/students/[studentId]/StudentSessionConsole.tsx`
   - 録音と file upload
+- `app/app/students/[studentId]/page.tsx`
+  - 録音カード、次回の面談メモカード、保護者レポートカードを並べる
 - `app/api/sessions/[id]/parts/route.ts`
   - file upload 入口
 - `app/api/sessions/[id]/parts/live/route.ts`

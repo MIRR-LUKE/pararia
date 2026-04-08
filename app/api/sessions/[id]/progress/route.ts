@@ -55,6 +55,15 @@ export async function GET(
             },
           },
         },
+        nextMeetingMemo: {
+          select: {
+            status: true,
+            previousSummary: true,
+            suggestedTopics: true,
+            errorMessage: true,
+            updatedAt: true,
+          },
+        },
       },
     });
 
@@ -64,11 +73,15 @@ export async function GET(
 
     const { searchParams } = new URL(request.url);
     if (searchParams.get("process") === "1") {
+      const needsConversationWork =
+        session.conversation?.status === "PROCESSING" ||
+        session.nextMeetingMemo?.status === "QUEUED" ||
+        session.nextMeetingMemo?.status === "GENERATING";
       if (shouldRunBackgroundJobsInline()) {
         void processAllSessionPartJobs(session.id).catch(() => {});
         void (async () => {
           try {
-            if (session.conversation?.id) {
+            if (session.conversation?.id && needsConversationWork) {
               await processAllConversationJobs(session.conversation.id);
             }
           } catch {}
@@ -77,7 +90,7 @@ export async function GET(
       } else {
         const needsWorkerWake =
           session.parts.some((part) => part.status === "PENDING" || part.status === "UPLOADING" || part.status === "TRANSCRIBING") ||
-          session.conversation?.status === "PROCESSING";
+          needsConversationWork;
         if (needsWorkerWake) {
           void maybeEnsureRunpodWorker().catch(() => {});
         }
@@ -98,6 +111,15 @@ export async function GET(
         status: session.status,
       },
       conversation: session.conversation,
+      nextMeetingMemo: session.nextMeetingMemo
+        ? {
+            status: session.nextMeetingMemo.status,
+            previousSummary: session.nextMeetingMemo.previousSummary,
+            suggestedTopics: session.nextMeetingMemo.suggestedTopics,
+            errorMessage: session.nextMeetingMemo.errorMessage,
+            updatedAt: session.nextMeetingMemo.updatedAt,
+          }
+        : null,
       parts: session.parts.map((part) => ({
         id: part.id,
         partType: part.partType,

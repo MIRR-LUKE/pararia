@@ -61,6 +61,18 @@ export async function GET(
                 },
               },
             },
+            nextMeetingMemo: {
+              select: {
+                id: true,
+                status: true,
+                previousSummary: true,
+                suggestedTopics: true,
+                errorMessage: true,
+                updatedAt: true,
+                conversationId: true,
+                sessionId: true,
+              },
+            },
           },
           take: 12,
         },
@@ -143,6 +155,7 @@ export async function GET(
         ...session,
         parts,
         pipeline,
+        nextMeetingMemo: session.nextMeetingMemo,
         conversation,
       };
     });
