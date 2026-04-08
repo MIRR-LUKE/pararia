@@ -3,13 +3,17 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useSession } from "next-auth/react";
 import styles from "./Sidebar.module.css";
 
 type NavItem = {
   label: string;
   href: string;
   iconClass: string;
+};
+
+type SidebarProps = {
+  viewerName?: string | null;
+  viewerRole?: string | null;
 };
 
 const navItems: NavItem[] = [
@@ -24,7 +28,7 @@ function isActive(pathname: string | null, href: string) {
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
-function roleLabel(role?: string) {
+function roleLabel(role?: string | null) {
   if (role === "ADMIN") return "管理者";
   if (role === "MANAGER") return "マネージャー";
   if (role === "TEACHER") return "講師";
@@ -32,12 +36,10 @@ function roleLabel(role?: string) {
   return "スタッフ";
 }
 
-export function Sidebar() {
+export function Sidebar({ viewerName, viewerRole }: SidebarProps) {
   const pathname = usePathname();
-  const { data: session } = useSession();
   const [menuOpen, setMenuOpen] = useState(false);
-  const userName = session?.user?.name ?? "PARARIA スタッフ";
-  const role = (session?.user as any)?.role;
+  const userName = viewerName ?? "PARARIA スタッフ";
   const avatarText = userName.replace(/\s+/g, "").slice(0, 2) || "担";
 
   useEffect(() => {
@@ -126,7 +128,7 @@ export function Sidebar() {
               <div className={styles.userAvatar}>{avatarText}</div>
               <div className={styles.userText}>
                 <div className={styles.userName}>{userName}</div>
-                <div className={styles.userMeta}>{roleLabel(role)}</div>
+                <div className={styles.userMeta}>{roleLabel(viewerRole)}</div>
               </div>
             </div>
           </div>

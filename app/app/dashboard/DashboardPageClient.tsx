@@ -12,9 +12,11 @@ import styles from "./dashboard.module.css";
 type Props = {
   initialData: DashboardSnapshot;
   canInvite: boolean;
+  viewerName?: string | null;
+  viewerRole?: string | null;
 };
 
-export default function DashboardPageClient({ initialData, canInvite }: Props) {
+export default function DashboardPageClient({ initialData, canInvite, viewerName, viewerRole }: Props) {
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteBusy, setInviteBusy] = useState(false);
   const [inviteMessage, setInviteMessage] = useState<string | null>(null);
@@ -28,6 +30,8 @@ export default function DashboardPageClient({ initialData, canInvite }: Props) {
       <AppHeader
         title="今日の優先キュー"
         subtitle="今すぐ対応が必要な生徒だけを前に出します。ここでは読むより先に、動き始めることを優先します。"
+        viewerName={viewerName}
+        viewerRole={viewerRole}
       />
 
       <section className={styles.hero}>

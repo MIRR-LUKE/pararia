@@ -1,15 +1,16 @@
-﻿"use client";
+"use client";
 
-import { useSession } from "next-auth/react";
 import styles from "./AppHeader.module.css";
 
 type Props = {
   title: string;
   subtitle?: string;
   actions?: React.ReactNode;
+  viewerName?: string | null;
+  viewerRole?: string | null;
 };
 
-function roleLabel(role?: string) {
+function roleLabel(role?: string | null) {
   if (role === "ADMIN") return "管理者";
   if (role === "MANAGER") return "マネージャー";
   if (role === "TEACHER") return "講師";
@@ -17,10 +18,8 @@ function roleLabel(role?: string) {
   return "スタッフ";
 }
 
-export function AppHeader({ title, subtitle, actions }: Props) {
-  const { data: session } = useSession();
-  const initials = (session?.user?.name ?? "担当").replace(/\s+/g, "").slice(0, 2) || "担当";
-  const role = (session?.user as any)?.role;
+export function AppHeader({ title, subtitle, actions, viewerName, viewerRole }: Props) {
+  const initials = (viewerName ?? "担当").replace(/\s+/g, "").slice(0, 2) || "担当";
 
   return (
     <header className={styles.header}>
@@ -33,8 +32,8 @@ export function AppHeader({ title, subtitle, actions }: Props) {
         <div className={styles.user}>
           <div className={styles.avatar}>{initials}</div>
           <div>
-            <div className={styles.userName}>{session?.user?.name ?? "PARARIA スタッフ"}</div>
-            <div className={styles.userMeta}>{roleLabel(role)}</div>
+            <div className={styles.userName}>{viewerName ?? "PARARIA スタッフ"}</div>
+            <div className={styles.userMeta}>{roleLabel(viewerRole)}</div>
           </div>
         </div>
       </div>
@@ -42,6 +41,6 @@ export function AppHeader({ title, subtitle, actions }: Props) {
   );
 }
 
-export function AppHeaderUserOnly({ title, subtitle }: Props) {
-  return <AppHeader title={title} subtitle={subtitle} />;
+export function AppHeaderUserOnly({ title, subtitle, viewerName, viewerRole }: Props) {
+  return <AppHeader title={title} subtitle={subtitle} viewerName={viewerName} viewerRole={viewerRole} />;
 }

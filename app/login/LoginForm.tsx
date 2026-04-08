@@ -1,7 +1,6 @@
 "use client";
 
 import { FormEvent, useState } from "react";
-import { useRouter } from "next/navigation";
 import { signIn } from "next-auth/react";
 import styles from "./login.module.css";
 import { Button } from "@/components/ui/Button";
@@ -11,7 +10,6 @@ type Props = {
 };
 
 export function LoginForm({ callbackUrl }: Props) {
-  const router = useRouter();
   const [email, setEmail] = useState("admin@demo.com");
   const [password, setPassword] = useState("demo123");
   const [error, setError] = useState<string | null>(null);
@@ -34,8 +32,7 @@ export function LoginForm({ callbackUrl }: Props) {
       return;
     }
 
-    router.push(result?.url || callbackUrl);
-    router.refresh();
+    window.location.assign(result?.url || callbackUrl);
   };
 
   return (

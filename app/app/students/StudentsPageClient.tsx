@@ -1,7 +1,7 @@
 "use client";
 
 import { useDeferredValue, useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
@@ -55,6 +55,8 @@ type ViewKey = "all" | "interview" | "report" | "review" | "share" | "sent";
 type StudentsPageClientProps = {
   initialStudents: StudentRow[];
   initialLimit: number;
+  viewerName?: string | null;
+  viewerRole?: string | null;
 };
 
 function summarize(student: StudentRow) {
@@ -125,8 +127,12 @@ function summarize(student: StudentRow) {
   };
 }
 
-export default function StudentsPageClient({ initialStudents, initialLimit }: StudentsPageClientProps) {
-  const router = useRouter();
+export default function StudentsPageClient({
+  initialStudents,
+  initialLimit,
+  viewerName,
+  viewerRole,
+}: StudentsPageClientProps) {
   const [students, setStudents] = useState<StudentRow[]>(initialStudents);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -245,6 +251,8 @@ export default function StudentsPageClient({ initialStudents, initialLimit }: St
       <AppHeader
         title="生徒一覧"
         subtitle="生徒を選んで詳細に入り、録音や確認は生徒ページの中で進めます。"
+        viewerName={viewerName}
+        viewerRole={viewerRole}
         actions={
           <Button variant="secondary" onClick={() => setShowCreate((prev) => !prev)}>
             生徒を追加
@@ -365,7 +373,9 @@ export default function StudentsPageClient({ initialStudents, initialLimit }: St
                 </div>
 
                 <div className={styles.rowAction}>
-                  <Button onClick={() => router.push(student.href)}>生徒詳細へ</Button>
+                  <Link href={student.href}>
+                    <Button>生徒詳細へ</Button>
+                  </Link>
                   <Button
                     variant="ghost"
                     size="small"
