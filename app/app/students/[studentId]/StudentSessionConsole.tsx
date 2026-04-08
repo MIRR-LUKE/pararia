@@ -360,7 +360,9 @@ export function StudentSessionConsole({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ lockToken: token }),
       }).catch(() => null);
-      return response?.ok === true;
+      if (!response?.ok) return false;
+      const body = await response.json().catch(() => ({}));
+      return body?.ok === true;
     },
     [studentId]
   );
@@ -824,7 +826,7 @@ export function StudentSessionConsole({
       setRecoverableSessionId(null);
 
       try {
-        const token = uploadSource === "direct_recording" ? await acquireLock() : await ensureLockForAudio();
+        const token = await ensureLockForAudio();
         const sessionId = await resolveTargetSessionId();
         const uploadPartType = mode === "INTERVIEW" ? "FULL" : lessonPart;
         savedSessionId = sessionId;
@@ -888,7 +890,6 @@ export function StudentSessionConsole({
       }
     },
     [
-      acquireLock,
       ensureLockForAudio,
       clearPendingDraftState,
       finalizeLock,
