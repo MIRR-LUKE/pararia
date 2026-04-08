@@ -144,7 +144,7 @@ export async function PATCH(request: Request, { params }: { params: { id: string
       plainToken: lockToken,
     });
     if (!beat.ok) {
-      return NextResponse.json({ error: "ロックが無効です。再度録音を取得してください。", code: beat.code }, { status: 409 });
+      return NextResponse.json({ ok: false, code: beat.code }, { status: 200 });
     }
     return NextResponse.json({ ok: true, expiresAt: beat.expiresAt });
   } catch (e: any) {
@@ -181,7 +181,7 @@ export async function DELETE(request: Request, { params }: { params: { id: strin
       plainToken: lockToken,
     });
     if (!released.ok) {
-      return NextResponse.json({ error: "ロックを解放できませんでした。", code: released.code }, { status: 409 });
+      return NextResponse.json({ ok: false, code: released.code }, { status: 200 });
     }
     return NextResponse.json({ ok: true });
   } catch (e: any) {

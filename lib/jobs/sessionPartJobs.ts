@@ -204,11 +204,25 @@ async function transcribeStoredFile(part: SessionPartPayload) {
   let stt;
   let normalizedRetryUsed = false;
   let measuredDurationSeconds: number | null = null;
+  const uploadedDurationSecondsRaw =
+    typeof part.qualityMetaJson?.audioDurationSeconds === "number"
+      ? part.qualityMetaJson.audioDurationSeconds
+      : Number(part.qualityMetaJson?.audioDurationSeconds ?? NaN);
+  const uploadedDurationSeconds =
+    Number.isFinite(uploadedDurationSecondsRaw) && uploadedDurationSecondsRaw > 0
+      ? uploadedDurationSecondsRaw
+      : null;
   try {
     localAudio = await materializeStorageFile(part.storageUrl, {
       fileName: part.fileName,
     });
-    measuredDurationSeconds = await getAudioDurationSeconds(localAudio.filePath).catch(() => 0);
+    const parsedDurationSeconds = await getAudioDurationSeconds(localAudio.filePath).catch(() => 0);
+    measuredDurationSeconds =
+      parsedDurationSeconds > 0 && uploadedDurationSeconds !== null
+        ? Math.max(parsedDurationSeconds, uploadedDurationSeconds)
+        : parsedDurationSeconds > 0
+          ? parsedDurationSeconds
+          : uploadedDurationSeconds;
     const maxDurationSeconds = getRecordingMaxDurationSeconds(part.sessionType);
     const durationGate = evaluateDurationGate(measuredDurationSeconds, {
       maxSeconds: maxDurationSeconds,

@@ -608,10 +608,11 @@ GPU が強いときの最初の目安:
 
 ### 11.1 client 側
 
+- 録音開始直後は `録音準備中` を出し、マイク許可と録音セッション準備が終わってから `録音中` に進める
 - `StudentSessionConsole` が録音秒数上限で停止
 - 録音中または未送信の録音がある間は、ブラウザ離脱で警告を出す
 - 録音中にアプリ内リンクを押したときも、移動前に確認する
-- 録音の `終了` は 60 秒以上たってからだけ押せる
+- 録音の `終了` は実際に取れた音声が 60 秒を超えてからだけ押せる
 - `キャンセル` はサーバーへ送らず、この端末に一時保存する
 - 録音停止後は先に端末へ一時保存してから upload する
 - upload 失敗時は、一時保存した録音を `再送 / 端末へ保存 / 破棄` できる
@@ -844,6 +845,8 @@ PARARIA_AUDIO_RETENTION_DAYS=14
 - 50 分台の面談を `STT -> 面談ログ生成` まで通して測るときは `npm run benchmark:interview-log`
 - 保護者レポートの retry / sanitization のスモークは `npm run test:parent-report-generation`
 - ログ本文の手動編集 save payload / dirty 判定のスモークは `npm run test:log-editing`
+- 直接録音 UI の本番相当確認は `npm run test:recording-ui -- --base-url http://localhost:3000 --skip-navigation-dialog`
+- 途中離脱ガードだけ確認するときは `npm run test:recording-ui -- --base-url http://localhost:3000 --leave-safety-only`
 
 現行の STT 実行は次の前提です。
 

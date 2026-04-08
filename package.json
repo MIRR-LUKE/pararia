@@ -24,6 +24,7 @@
     "test:parent-report-generation": "tsx scripts/test-parent-report-generation.ts",
     "test:log-editing": "tsx scripts/test-log-editing.ts",
     "test:recording-policy": "tsx scripts/test-recording-policy.ts",
+    "test:recording-ui": "tsx scripts/test-recording-ui.ts",
     "test:runpod-queue-ownership": "tsx scripts/test-runpod-queue-ownership.ts",
     "test:next-meeting-memo": "tsx scripts/test-next-meeting-memo.ts",
     "benchmark:interview-log": "tsx scripts/run-interview-log-benchmark.ts",
@@ -65,6 +66,7 @@
     "eslint": "^8.56.0",
     "eslint-config-next": "14.0.4",
     "ffmpeg-static": "^5.3.0",
+    "playwright-core": "^1.59.1",
     "prisma": "^5.9.0",
     "tsx": "^4.21.0",
     "typescript": "^5.3.3"

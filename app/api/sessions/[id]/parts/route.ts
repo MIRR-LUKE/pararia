@@ -70,6 +70,9 @@ export async function POST(
     const uploadedFileName = (formData.get("fileName") as string | null)?.trim() ?? "";
     const uploadedMimeType = (formData.get("blobContentType") as string | null)?.trim() ?? "";
     const uploadedByteSize = Number(formData.get("blobSize") ?? NaN);
+    const durationSecondsHintRaw = Number(formData.get("durationSecondsHint") ?? NaN);
+    const durationSecondsHint =
+      Number.isFinite(durationSecondsHintRaw) && durationSecondsHintRaw >= 0 ? durationSecondsHintRaw : null;
     const lockTokenRaw = (formData.get("lockToken") as string | null)?.trim() ?? "";
     const uploadSource = ((formData.get("uploadSource") as string | null)?.trim() || "file_upload") as
       | "file_upload"
@@ -167,10 +170,14 @@ export async function POST(
         const buffer = Buffer.from(await file.arrayBuffer());
         const maxDurationSeconds = getRecordingMaxDurationSeconds(sessionRow.type);
         const maxLabel = sessionRow.type === "LESSON_REPORT" ? "10分" : "60分";
-        durationSeconds = await getAudioDurationSecondsFromBuffer(buffer, {
+        const parsedDurationSeconds = await getAudioDurationSecondsFromBuffer(buffer, {
           fileName: audioFileName,
           mimeType: audioMimeType,
         });
+        durationSeconds =
+          parsedDurationSeconds !== null && durationSecondsHint !== null
+            ? Math.max(parsedDurationSeconds, durationSecondsHint)
+            : parsedDurationSeconds ?? durationSecondsHint;
         const durationGate = evaluateDurationGate(durationSeconds, {
           maxSeconds: maxDurationSeconds,
           rejectUnknown: true,
@@ -208,6 +215,7 @@ export async function POST(
           fileName: audioFileName,
           byteSize: Number.isFinite(uploadedByteSize) && uploadedByteSize > 0 ? uploadedByteSize : null,
         };
+        durationSeconds = durationSecondsHint;
         durationGateSkipped = "blob_client_upload_pending_worker_validation";
       }
 
@@ -221,6 +229,8 @@ export async function POST(
         uploadedMimeType: audioMimeType,
         uploadedBytes: stored.byteSize,
         audioDurationSeconds: durationSeconds,
+        audioDurationSecondsSource:
+          durationSecondsHint !== null && durationSeconds === durationSecondsHint ? "client_hint" : "metadata",
         durationGateSkipped,
         transcriptionPhase: "PREPARING_STT",
         transcriptionPhaseUpdatedAt: new Date().toISOString(),
