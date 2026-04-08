@@ -240,10 +240,12 @@ async function main() {
     await page.goto(`${baseUrl}/login`, { waitUntil: "domcontentloaded" });
     await page.locator('input[type="email"]').fill("admin@demo.com");
     await page.locator('input[type="password"]').fill("demo123");
-    await Promise.all([
-      page.waitForURL(/\/app/, { timeout: 20_000 }),
-      page.getByRole("button", { name: "ログイン" }).click(),
-    ]);
+    await page.getByRole("button", { name: "ログイン" }).click();
+    await waitForCondition(
+      20_000,
+      async () => page.url().includes("/app/"),
+      "ログイン後にアプリ画面へ遷移しませんでした。"
+    );
 
     const createStudentResponse = await context.request.post(`${baseUrl}/api/students`, {
       data: {
