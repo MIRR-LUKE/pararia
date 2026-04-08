@@ -19,14 +19,15 @@ export type NextMeetingMemoSessionLike = {
   nextMeetingMemo?: NextMeetingMemoLike | null;
 };
 
-const FORBIDDEN_EXPRESSIONS = [
-  "論点",
-  "観点",
-  "整理した",
-  "粒度",
-  "切り分け",
-  "示唆",
-  "進捗確認",
+const FORBIDDEN_PATTERNS = [
+  /論点/,
+  /観点/,
+  /粒度/,
+  /切り分け/,
+  /示唆/,
+  /進捗確認/,
+  /という整理になった/,
+  /整理になった/,
 ];
 
 export function sanitizeNextMeetingMemoText(value: unknown, maxChars = 220) {
@@ -36,16 +37,13 @@ export function sanitizeNextMeetingMemoText(value: unknown, maxChars = 220) {
     .replace(/[ \t]+/g, " ")
     .replace(/\n{2,}/g, "\n")
     .split("\n")
-    .map((line) => line.replace(/^[-*]\s*/, "").trim())
+    .map((line) => line.trim().replace(/^[-*]\s*/, "").trim())
     .filter(Boolean)
     .join(" ")
     .trim();
   if (!text) return "";
 
   let normalized = text;
-  for (const phrase of FORBIDDEN_EXPRESSIONS) {
-    normalized = normalized.replaceAll(phrase, "");
-  }
   normalized = normalized.replace(/\s+/g, " ").trim();
   if (!normalized) return "";
   return normalized.length > maxChars ? `${normalized.slice(0, maxChars).trim()}…` : normalized;
@@ -63,7 +61,7 @@ export function isValidNextMeetingMemoText(text: string) {
   if (!normalized) return false;
   if (normalized.length < 70 || normalized.length > 240) return false;
   if (/[-*]\s/.test(normalized)) return false;
-  if (FORBIDDEN_EXPRESSIONS.some((phrase) => normalized.includes(phrase))) return false;
+  if (FORBIDDEN_PATTERNS.some((pattern) => pattern.test(normalized))) return false;
   const sentenceCount = countJapaneseSentences(normalized);
   return sentenceCount >= 2 && sentenceCount <= 4;
 }
