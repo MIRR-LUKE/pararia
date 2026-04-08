@@ -129,6 +129,10 @@ type StudentDetailPageClientProps = {
   viewerName?: string | null;
 };
 
+function roomScope(room?: RoomResponse | null) {
+  return room?.meta?.scope === "summary" ? "summary" : "full";
+}
+
 export default function StudentDetailPageClient({
   params,
   initialRoom,
@@ -143,6 +147,7 @@ export default function StudentDetailPageClient({
   const [room, setRoom] = useState<RoomResponse | null>(initialRoom);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [hydratingWorkspace, setHydratingWorkspace] = useState(roomScope(initialRoom) !== "full");
   const [activeTab, setActiveTab] = useState<TabKey>(normalizeTab(queryParams.get("tab")));
   const [overlay, setOverlay] = useState<OverlayState>({ kind: "none" });
   const [selectedSessionIds, setSelectedSessionIds] = useState<string[]>([]);
@@ -162,8 +167,9 @@ export default function StudentDetailPageClient({
   );
   const hasLoadedRoomRef = useRef(true);
 
-  const refresh = useCallback(async (opts?: { silent?: boolean }) => {
+  const refresh = useCallback(async (opts?: { silent?: boolean; scope?: "summary" | "full" }) => {
     const silent = opts?.silent ?? false;
+    const scope = opts?.scope ?? "full";
     const shouldBlock = !silent && !hasLoadedRoomRef.current;
     if (shouldBlock) {
       setLoading(true);
@@ -171,8 +177,12 @@ export default function StudentDetailPageClient({
     } else if (!silent) {
       setError(null);
     }
+    if (scope === "full") {
+      setHydratingWorkspace(true);
+    }
     try {
-      const res = await fetch(`/api/students/${params.studentId}/room`, { cache: "no-store" });
+      const query = scope === "summary" ? "?scope=summary" : "";
+      const res = await fetch(`/api/students/${params.studentId}/room${query}`, { cache: "no-store" });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(body?.error ?? "生徒ルームの取得に失敗しました。");
       setRoom(body);
@@ -182,6 +192,9 @@ export default function StudentDetailPageClient({
         setError(nextError?.message ?? "生徒ルームの取得に失敗しました。");
       }
     } finally {
+      if (scope === "full") {
+        setHydratingWorkspace(false);
+      }
       if (shouldBlock) {
         setLoading(false);
       }
@@ -192,8 +205,17 @@ export default function StudentDetailPageClient({
     setRoom(initialRoom);
     setLoading(false);
     setError(null);
+    setHydratingWorkspace(roomScope(initialRoom) !== "full");
     hasLoadedRoomRef.current = true;
   }, [initialRoom]);
+
+  useEffect(() => {
+    if (!pageVisible || roomScope(room) === "full" || hydratingWorkspace) return;
+    const timer = window.setTimeout(() => {
+      void refresh({ silent: true, scope: "full" });
+    }, 150);
+    return () => window.clearTimeout(timer);
+  }, [hydratingWorkspace, pageVisible, refresh, room]);
 
   useEffect(() => {
     if (typeof document === "undefined") return undefined;
@@ -212,10 +234,10 @@ export default function StudentDetailPageClient({
     );
     if ((!hasActivePipeline && !hasPendingNextMeetingMemo) || !pageVisible) return;
     const timer = window.setTimeout(() => {
-      void refresh({ silent: true });
+      void refresh({ silent: true, scope: roomScope(room) });
     }, 3000);
     return () => window.clearTimeout(timer);
-  }, [pageVisible, refresh, room?.sessions]);
+  }, [pageVisible, refresh, room, room?.sessions]);
 
   useEffect(() => {
     if (!pageVisible || !room?.sessions?.length) return;
@@ -224,8 +246,8 @@ export default function StudentDetailPageClient({
       ["QUEUED", "GENERATING"].includes(session.nextMeetingMemo?.status ?? "")
     );
     if (!hasLiveWork) return;
-    void refresh({ silent: true });
-  }, [pageVisible, refresh, room?.sessions]);
+    void refresh({ silent: true, scope: roomScope(room) });
+  }, [pageVisible, refresh, room, room?.sessions]);
 
   const syncUrl = useCallback(
     (changes: {
@@ -382,6 +404,11 @@ export default function StudentDetailPageClient({
     [syncUrl]
   );
 
+  const ensureFullRoom = useCallback(async () => {
+    if (roomScope(room) === "full") return;
+    await refresh({ silent: true, scope: "full" });
+  }, [refresh, room]);
+
   const toggleReportSelection = useCallback(
     (sessionId: string) => {
       if (selectedSessionIds.includes(sessionId)) {
@@ -406,19 +433,21 @@ export default function StudentDetailPageClient({
   );
 
   const openReportStudio = useCallback(
-    (view: ReportStudioView) => {
+    async (view: ReportStudioView) => {
+      await ensureFullRoom();
       setOverlay({ kind: "report", view });
       syncUrl({ panel: "report", logId: null, reportId: null, lessonSessionId: null });
     },
-    [syncUrl]
+    [ensureFullRoom, syncUrl]
   );
 
   const openParentReport = useCallback(
-    (reportId: string) => {
+    async (reportId: string) => {
+      await ensureFullRoom();
       setOverlay({ kind: "parentReport", reportId });
       syncUrl({ panel: "parentReport", reportId, logId: null, lessonSessionId: null, tab: "parentReports" });
     },
-    [syncUrl]
+    [ensureFullRoom, syncUrl]
   );
 
   const closeOverlay = useCallback(() => {
@@ -647,7 +676,7 @@ export default function StudentDetailPageClient({
           </div>
 
           <div className={styles.reportActions}>
-            <Button variant="secondary" onClick={() => openReportStudio("selection")} disabled={selectedSessionIds.length === 0}>
+            <Button variant="secondary" onClick={() => void openReportStudio("selection")} disabled={selectedSessionIds.length === 0}>
               保護者レポートを生成
             </Button>
             <span className={styles.selectionCount}>{selectedSessionIds.length}件選択中</span>
@@ -656,95 +685,101 @@ export default function StudentDetailPageClient({
       </section>
 
       <section className={styles.workspaceSection}>
-        <div className={styles.tabBar}>
-          {[
-            { key: "communications", label: "面談ログ" },
-            { key: "parentReports", label: "保護者レポートログ" },
-          ].map((tab) => (
-            <button
-              key={tab.key}
-              type="button"
-              className={`${styles.tabButton} ${activeTab === tab.key ? styles.tabButtonActive : ""}`}
-              onClick={() => {
-                setActiveTab(tab.key as TabKey);
-                syncUrl({ tab: tab.key as TabKey });
-              }}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </div>
-
-        <div className={styles.filterRow}>
-          <div className={styles.filterGroup}>
-            <button
-              type="button"
-              className={`${styles.filterButton} ${periodFilter === "all" ? styles.filterButtonActive : ""}`}
-              onClick={() => setPeriodFilter("all")}
-            >
-              すべて
-            </button>
-            <button
-              type="button"
-              className={`${styles.filterButton} ${periodFilter === "month" ? styles.filterButtonActive : ""}`}
-              onClick={() => setPeriodFilter("month")}
-            >
-              今月
-            </button>
-          </div>
-          <div className={styles.filterGroup}>
-            <button
-              type="button"
-              className={`${styles.filterButton} ${sortOrder === "desc" ? styles.filterButtonActive : ""}`}
-              onClick={() => setSortOrder("desc")}
-            >
-              新しい順
-            </button>
-            <button
-              type="button"
-              className={`${styles.filterButton} ${sortOrder === "asc" ? styles.filterButtonActive : ""}`}
-              onClick={() => setSortOrder("asc")}
-            >
-              古い順
-            </button>
-          </div>
-        </div>
-
-        {activeTab === "communications" ? (
-                  <LazyStudentSessionStream
-            sessions={communicationSessions}
-            assigneeName={viewerName ?? undefined}
-            onOpenLog={openLog}
-          />
-        ) : null}
-
-        {activeTab === "parentReports" ? (
-          <div className={styles.historyList}>
-            {parentReports.length === 0 ? (
-              <div className={styles.emptyState}>まだ保護者レポートはありません。上段のカードから対象ログを選んで生成してください。</div>
-            ) : (
-              parentReports.map((report) => (
+        {roomScope(room) !== "full" || hydratingWorkspace ? (
+          <div className={styles.sectionLoading}>ログと保護者レポート履歴を読み込んでいます...</div>
+        ) : (
+          <>
+            <div className={styles.tabBar}>
+              {[
+                { key: "communications", label: "面談ログ" },
+                { key: "parentReports", label: "保護者レポートログ" },
+              ].map((tab) => (
                 <button
-                  key={report.id}
+                  key={tab.key}
                   type="button"
-                  className={styles.historyRow}
-                  onClick={() => openParentReport(report.id)}
+                  className={`${styles.tabButton} ${activeTab === tab.key ? styles.tabButtonActive : ""}`}
+                  onClick={() => {
+                    setActiveTab(tab.key as TabKey);
+                    syncUrl({ tab: tab.key as TabKey });
+                  }}
                 >
-                  <div className={styles.historyRowLeft}>
-                    <div className={styles.historyIcon} aria-hidden>
-                      <span />
-                    </div>
-                    <div>
-                      <div className={styles.historyRowTitle}>{formatReportDate(report.createdAt)} の保護者レポート</div>
-                      <div className={styles.historyRowMeta}>{report.deliveryStateLabel ?? report.workflowStatusLabel ?? "状態確認中"}</div>
-                    </div>
-                  </div>
-                  <div className={styles.assigneePill}>{viewerBadge}</div>
+                  {tab.label}
                 </button>
-              ))
-            )}
-          </div>
-        ) : null}
+              ))}
+            </div>
+
+            <div className={styles.filterRow}>
+              <div className={styles.filterGroup}>
+                <button
+                  type="button"
+                  className={`${styles.filterButton} ${periodFilter === "all" ? styles.filterButtonActive : ""}`}
+                  onClick={() => setPeriodFilter("all")}
+                >
+                  すべて
+                </button>
+                <button
+                  type="button"
+                  className={`${styles.filterButton} ${periodFilter === "month" ? styles.filterButtonActive : ""}`}
+                  onClick={() => setPeriodFilter("month")}
+                >
+                  今月
+                </button>
+              </div>
+              <div className={styles.filterGroup}>
+                <button
+                  type="button"
+                  className={`${styles.filterButton} ${sortOrder === "desc" ? styles.filterButtonActive : ""}`}
+                  onClick={() => setSortOrder("desc")}
+                >
+                  新しい順
+                </button>
+                <button
+                  type="button"
+                  className={`${styles.filterButton} ${sortOrder === "asc" ? styles.filterButtonActive : ""}`}
+                  onClick={() => setSortOrder("asc")}
+                >
+                  古い順
+                </button>
+              </div>
+            </div>
+
+            {activeTab === "communications" ? (
+              <LazyStudentSessionStream
+                sessions={communicationSessions}
+                assigneeName={viewerName ?? undefined}
+                onOpenLog={openLog}
+              />
+            ) : null}
+
+            {activeTab === "parentReports" ? (
+              <div className={styles.historyList}>
+                {parentReports.length === 0 ? (
+                  <div className={styles.emptyState}>まだ保護者レポートはありません。上段のカードから対象ログを選んで生成してください。</div>
+                ) : (
+                  parentReports.map((report) => (
+                    <button
+                      key={report.id}
+                      type="button"
+                      className={styles.historyRow}
+                      onClick={() => void openParentReport(report.id)}
+                    >
+                      <div className={styles.historyRowLeft}>
+                        <div className={styles.historyIcon} aria-hidden>
+                          <span />
+                        </div>
+                        <div>
+                          <div className={styles.historyRowTitle}>{formatReportDate(report.createdAt)} の保護者レポート</div>
+                          <div className={styles.historyRowMeta}>{report.deliveryStateLabel ?? report.workflowStatusLabel ?? "状態確認中"}</div>
+                        </div>
+                      </div>
+                      <div className={styles.assigneePill}>{viewerBadge}</div>
+                    </button>
+                  ))
+                )}
+              </div>
+            ) : null}
+          </>
+        )}
       </section>
 
       {overlay.kind !== "none" ? (

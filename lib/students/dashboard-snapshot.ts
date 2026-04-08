@@ -1,3 +1,4 @@
+import { unstable_cache } from "next/cache";
 import { prisma } from "@/lib/db";
 import {
   buildReportDeliverySummary,
@@ -39,11 +40,11 @@ export type DashboardStats = {
 };
 
 export type DashboardSnapshot = {
-  students: DashboardStudentRow[];
   queue: DashboardStudentRow[];
   stats: DashboardStats;
   totalStudents: number;
   candidateCount: number;
+  averageProfileCompleteness: number;
 };
 
 type DashboardReportSummary = NonNullable<StudentListRow["reports"]>[number];
@@ -52,6 +53,14 @@ type DashboardSnapshotOptions = {
   organizationId: string;
   candidateLimit?: number;
   queueLimit?: number;
+};
+
+type DashboardSnapshotBase = {
+  queue: DashboardStudentRow[];
+  stats: DashboardStats;
+  totalStudents: number;
+  candidateCount: number;
+  averageProfileCompleteness: number;
 };
 
 function toDate(value?: string | null) {
@@ -266,15 +275,14 @@ function buildDashboardStats(students: DashboardStudentRow[]): DashboardStats {
   };
 }
 
-export async function getDashboardSnapshot(
+async function buildDashboardSnapshotBase(
   options: DashboardSnapshotOptions
-): Promise<DashboardSnapshot> {
+): Promise<DashboardSnapshotBase> {
   const { organizationId, candidateLimit = 50, queueLimit = 8 } = options;
   const [students, totalStudents] = await Promise.all([
     listStudentRows({
       organizationId,
       limit: candidateLimit,
-      includeRecordingLock: true,
     }),
     prisma.student.count({ where: { organizationId } }),
   ]);
@@ -291,12 +299,74 @@ export async function getDashboardSnapshot(
   });
 
   const queue = [...enriched].sort((a, b) => b.queue.score - a.queue.score).slice(0, queueLimit);
+  const averageProfileCompleteness =
+    enriched.length > 0
+      ? Math.round(enriched.reduce((sum, item) => sum + item.completeness, 0) / Math.max(1, enriched.length))
+      : 0;
 
   return {
-    students: enriched,
     queue,
     stats: buildDashboardStats(enriched),
     totalStudents,
     candidateCount: enriched.length,
+    averageProfileCompleteness,
+  };
+}
+
+function getCachedDashboardSnapshotBase(options: DashboardSnapshotOptions) {
+  const { organizationId, candidateLimit = 50, queueLimit = 8 } = options;
+  return unstable_cache(
+    () =>
+      buildDashboardSnapshotBase({
+        organizationId,
+        candidateLimit,
+        queueLimit,
+      }),
+    ["dashboard-snapshot", organizationId, String(candidateLimit), String(queueLimit)],
+    {
+      revalidate: 10,
+      tags: [`dashboard-snapshot:${organizationId}`],
+    }
+  )();
+}
+
+async function getActiveRecordingLocks(studentIds: string[]) {
+  if (studentIds.length === 0) return new Map<string, { mode: string; lockedByName: string }>();
+
+  const activeLocks = await prisma.studentRecordingLock.findMany({
+    where: {
+      studentId: { in: studentIds },
+      expiresAt: { gt: new Date() },
+    },
+    select: {
+      studentId: true,
+      mode: true,
+      lockedBy: { select: { name: true } },
+    },
+  });
+
+  return new Map(
+    activeLocks.map((lock) => [
+      lock.studentId,
+      {
+        mode: lock.mode,
+        lockedByName: lock.lockedBy.name,
+      },
+    ])
+  );
+}
+
+export async function getDashboardSnapshot(
+  options: DashboardSnapshotOptions
+): Promise<DashboardSnapshot> {
+  const base = await getCachedDashboardSnapshotBase(options);
+  const lockMap = await getActiveRecordingLocks(base.queue.map((item) => item.id));
+
+  return {
+    ...base,
+    queue: base.queue.map((item) => ({
+      ...item,
+      recordingLock: lockMap.get(item.id) ?? null,
+    })),
   };
 }

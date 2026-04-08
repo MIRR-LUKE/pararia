@@ -1,12 +1,10 @@
-"use client";
-
-import { useState } from "react";
 import Link from "next/link";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import type { DashboardSnapshot } from "@/lib/students/dashboard-snapshot";
+import InviteLinkCard from "./InviteLinkCard";
 import styles from "./dashboard.module.css";
 
 type Props = {
@@ -17,11 +15,7 @@ type Props = {
 };
 
 export default function DashboardPageClient({ initialData, canInvite, viewerName, viewerRole }: Props) {
-  const [inviteEmail, setInviteEmail] = useState("");
-  const [inviteBusy, setInviteBusy] = useState(false);
-  const [inviteMessage, setInviteMessage] = useState<string | null>(null);
-
-  const { students, queue, stats, totalStudents, candidateCount } = initialData;
+  const { queue, stats, totalStudents, candidateCount, averageProfileCompleteness } = initialData;
   const interviewHref = queue.find((item) => item.queue.kind === "interview")?.queue.href ?? "/app/students";
   const isSampled = candidateCount < totalStudents;
 
@@ -84,50 +78,7 @@ export default function DashboardPageClient({ initialData, canInvite, viewerName
         </div>
       </section>
 
-      {canInvite ? (
-        <Card
-          title="ユーザーを招待"
-          subtitle="公開サインアップはありません。管理者・室長が招待リンクを発行し、相手に初回パスワードを設定してもらいます。"
-        >
-          <div className={styles.inviteRow}>
-            <input
-              className={styles.inviteInput}
-              type="email"
-              placeholder="招待するメールアドレス"
-              value={inviteEmail}
-              onChange={(e) => setInviteEmail(e.target.value)}
-            />
-            <Button
-              onClick={async () => {
-                setInviteBusy(true);
-                setInviteMessage(null);
-                try {
-                  const res = await fetch("/api/invitations", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ email: inviteEmail, role: "TEACHER" }),
-                  });
-                  const body = await res.json();
-                  if (!res.ok) {
-                    setInviteMessage(body?.error ?? "招待の作成に失敗しました。");
-                    return;
-                  }
-                  setInviteMessage(`招待 URL を発行しました。相手にそのまま共有してください。\n${body.inviteUrl ?? ""}`);
-                  setInviteEmail("");
-                } catch {
-                  setInviteMessage("通信に失敗しました。");
-                } finally {
-                  setInviteBusy(false);
-                }
-              }}
-              disabled={inviteBusy || !inviteEmail.trim()}
-            >
-              {inviteBusy ? "作成中..." : "招待リンクを作成"}
-            </Button>
-          </div>
-          {inviteMessage ? <p className={styles.inviteMessage}>{inviteMessage}</p> : null}
-        </Card>
-      ) : null}
+      {canInvite ? <InviteLinkCard /> : null}
 
       <Card
         title="今日の優先キュー"
@@ -150,9 +101,7 @@ export default function DashboardPageClient({ initialData, canInvite, viewerName
                     <strong className={styles.queueName}>{item.name}</strong>
                     {item.grade ? <span className={styles.queueMeta}>{item.grade}</span> : null}
                     <Badge label={item.state} tone={item.queue.kind === "share" ? "high" : "medium"} />
-                    {item.recordingLock ? (
-                      <Badge label={`${item.recordingLock.lockedByName} 録音中`} tone="high" />
-                    ) : null}
+                    {item.recordingLock ? <Badge label={`${item.recordingLock.lockedByName} 録音中`} tone="high" /> : null}
                   </div>
                   <p className={styles.queueOneLiner}>{item.oneLiner}</p>
                 </div>
@@ -203,9 +152,7 @@ export default function DashboardPageClient({ initialData, canInvite, viewerName
             </div>
             <div className={styles.miniItem}>
               <strong>平均共有時間</strong>
-              <span>
-                {stats.averageTimeToShareHours !== null ? `${stats.averageTimeToShareHours} 時間` : "まだ算出なし"}
-              </span>
+              <span>{stats.averageTimeToShareHours !== null ? `${stats.averageTimeToShareHours} 時間` : "まだ算出なし"}</span>
             </div>
           </div>
         </Card>
@@ -221,15 +168,7 @@ export default function DashboardPageClient({ initialData, canInvite, viewerName
             </div>
             <div>
               <div className={styles.summaryLabel}>平均プロフィール充足</div>
-              <div className={styles.summaryValue}>
-                {students.length > 0
-                  ? Math.round(
-                      students.reduce((acc, item) => acc + item.completeness, 0) /
-                        Math.max(1, students.length)
-                    )
-                  : 0}
-                %
-              </div>
+              <div className={styles.summaryValue}>{averageProfileCompleteness}%</div>
             </div>
             <div>
               <div className={styles.summaryLabel}>平均 time-to-share</div>

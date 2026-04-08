@@ -3,7 +3,7 @@ import { requireAuthorizedSession } from "@/lib/server/request-auth";
 import { getStudentRoomData } from "@/lib/students/get-student-room";
 
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: { id: string } }
 ) {
   try {
@@ -11,10 +11,12 @@ export async function GET(
     if (authResult.response) return authResult.response;
     const authSession = authResult.session;
 
+    const scope = new URL(request.url).searchParams.get("scope") === "summary" ? "summary" : "full";
     const studentRoom = await getStudentRoomData({
       studentId: params.id,
       organizationId: authSession.user.organizationId,
       viewerUserId: authSession.user.id,
+      scope,
     });
 
     if (!studentRoom) {

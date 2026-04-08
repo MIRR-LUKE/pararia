@@ -18,6 +18,7 @@ export default async function StudentDetailPage({
     studentId: params.studentId,
     organizationId,
     viewerUserId: session.user.id,
+    scope: "summary",
   });
 
   if (!initialRoom) {

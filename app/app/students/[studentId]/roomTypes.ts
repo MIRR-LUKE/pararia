@@ -120,6 +120,9 @@ export type RecordingLockInfo = {
 };
 
 export type RoomResponse = {
+  meta?: {
+    scope?: "summary" | "full";
+  };
   student: {
     id: string;
     name: string;

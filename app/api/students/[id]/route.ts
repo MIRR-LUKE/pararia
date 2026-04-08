@@ -1,3 +1,4 @@
+import { revalidateTag } from "next/cache";
 import { NextResponse } from "next/server";
 import { writeAuditLog } from "@/lib/audit";
 import { prisma } from "@/lib/db";
@@ -87,6 +88,9 @@ export async function PUT(
       where: { id: existing.id },
       data,
     });
+
+    revalidateTag(`student-directory:${authResult.session.user.organizationId}`);
+    revalidateTag(`dashboard-snapshot:${authResult.session.user.organizationId}`);
 
     return NextResponse.json({ student });
   } catch (e: any) {
@@ -184,6 +188,9 @@ export async function DELETE(
         deletedRuntimeEntryCount: runtimeDeletion.deletedCount,
       },
     });
+
+    revalidateTag(`student-directory:${authResult.session.user.organizationId}`);
+    revalidateTag(`dashboard-snapshot:${authResult.session.user.organizationId}`);
 
     return NextResponse.json({
       success: true,

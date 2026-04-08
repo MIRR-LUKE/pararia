@@ -1,3 +1,4 @@
+import { revalidateTag } from "next/cache";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { requireAuthorizedSession } from "@/lib/server/request-auth";
@@ -86,6 +87,9 @@ export async function POST(request: Request) {
         guardianNames: normalizeGuardianNames(guardianNames),
       },
     });
+
+    revalidateTag(`student-directory:${authResult.session.user.organizationId}`);
+    revalidateTag(`dashboard-snapshot:${authResult.session.user.organizationId}`);
 
     return NextResponse.json({ student }, { status: 201 });
   } catch (e: any) {
