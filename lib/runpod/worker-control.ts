@@ -126,10 +126,6 @@ function readBoolEnv(name: string, fallback: boolean) {
 }
 
 function getDefaultWorkerImage() {
-  const commitSha = readStringEnv("VERCEL_GIT_COMMIT_SHA");
-  if (commitSha) {
-    return `ghcr.io/mirr-luke/pararia-runpod-worker:sha-${commitSha}`;
-  }
   return DEFAULT_WORKER_IMAGE;
 }
 
@@ -393,7 +389,7 @@ export function buildRunpodWorkerEnv(autoStopIdleMs: number) {
     RUNPOD_WORKER_ONLY_CONVERSATION_ID: readStringEnv("RUNPOD_WORKER_ONLY_CONVERSATION_ID", ""),
     RUNPOD_WORKER_RUNTIME_REVISION: readStringEnv(
       "RUNPOD_WORKER_RUNTIME_REVISION",
-      process.env.VERCEL_GIT_COMMIT_SHA ?? ""
+      ""
     ),
   } satisfies Record<string, string>;
 

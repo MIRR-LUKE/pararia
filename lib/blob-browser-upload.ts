@@ -1,3 +1,5 @@
+import { normalizeAudioMimeType } from "@/lib/audio-upload-support";
+
 const DEFAULT_BLOB_API_URL = "https://vercel.com/api/blob";
 const BLOB_API_VERSION = "12";
 
@@ -21,6 +23,7 @@ export async function uploadFileToBlobFromBrowser(input: {
   access?: "public" | "private";
   handleUploadUrl: string;
 }) {
+  const normalizedContentType = normalizeAudioMimeType(input.file.type) || "application/octet-stream";
   const tokenResponse = await fetch(input.handleUploadUrl, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -48,7 +51,7 @@ export async function uploadFileToBlobFromBrowser(input: {
       authorization: `Bearer ${tokenBody.clientToken}`,
       "x-api-version": BLOB_API_VERSION,
       "x-content-length": String(input.file.size),
-      "x-content-type": input.file.type || "application/octet-stream",
+      "x-content-type": normalizedContentType,
       "x-vercel-blob-access": input.access ?? "private",
     },
   });

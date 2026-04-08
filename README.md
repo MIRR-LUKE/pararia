@@ -328,7 +328,8 @@ GitHub Actions の `Publish Runpod Worker Image` が通ると、GHCR に worker 
 
 - `ghcr.io/<GitHub owner>/pararia-runpod-worker:latest`
 - `ghcr.io/<GitHub owner>/pararia-runpod-worker:sha-...`
-- Vercel 上で `RUNPOD_WORKER_IMAGE` を未設定にすると、`VERCEL_GIT_COMMIT_SHA` から `:sha-...` を自動採用する
+- `RUNPOD_WORKER_IMAGE` を未設定にすると `ghcr.io/mirr-luke/pararia-runpod-worker:latest` を使う
+- sha 固定で厳密に運用したい場合は、`RUNPOD_WORKER_IMAGE` を明示的に `:sha-...` で設定する
 
 Runpod REST API で Pod を作る / 起こす / 止めるスクリプトも入れています。
 

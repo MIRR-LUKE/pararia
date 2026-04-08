@@ -23,6 +23,12 @@ export { SUPPORTED_AUDIO_UPLOAD_EXTENSIONS };
 export const AUDIO_UPLOAD_ACCEPT_ATTR = SUPPORTED_AUDIO_UPLOAD_EXTENSIONS.map((ext) => `.${ext}`).join(",");
 export const AUDIO_UPLOAD_EXTENSIONS_LABEL = SUPPORTED_AUDIO_UPLOAD_EXTENSIONS.map((ext) => `.${ext}`).join(", ");
 
+export function normalizeAudioMimeType(mimeType?: string | null) {
+  const raw = String(mimeType || "").trim().toLowerCase();
+  if (!raw) return "";
+  return raw.split(";")[0]?.trim() || raw;
+}
+
 function normalizeFileExtension(fileName?: string | null) {
   const name = String(fileName || "").trim().toLowerCase();
   const dotIndex = name.lastIndexOf(".");
@@ -42,13 +48,13 @@ export function isSupportedAudioUpload(input: { fileName?: string | null; mimeTy
   const ext = getAudioUploadExtension(input.fileName);
   if (!ext) return false;
 
-  const mimeType = String(input.mimeType || "").trim().toLowerCase();
+  const mimeType = normalizeAudioMimeType(input.mimeType);
   if (!mimeType) return true;
   return SUPPORTED_AUDIO_UPLOAD_MIME_PATTERNS.some((pattern) => pattern.test(mimeType));
 }
 
 export function isSupportedRecordedAudio(input: { fileName?: string | null; mimeType?: string | null }) {
-  const mimeType = String(input.mimeType || "").trim().toLowerCase();
+  const mimeType = normalizeAudioMimeType(input.mimeType);
   if (mimeType) {
     return SUPPORTED_RECORDED_AUDIO_MIME_PATTERNS.some((pattern) => pattern.test(mimeType));
   }
