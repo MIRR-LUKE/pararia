@@ -3,15 +3,15 @@ import { writeAuditLog } from "@/lib/audit";
 import { processAllConversationJobs } from "@/lib/jobs/conversationJobs";
 import { prisma } from "@/lib/db";
 import {
-  buildConversationArtifactFromMarkdown,
   parseConversationArtifact,
   renderConversationArtifactMarkdown,
   renderConversationArtifactOrFallback,
 } from "@/lib/conversation-artifact";
+import { buildConversationSummaryEditPayload } from "@/lib/conversation-editing";
 import { requireAuthorizedSession } from "@/lib/server/request-auth";
 import { toPrismaJson } from "@/lib/prisma-json";
 import { syncSessionAfterConversation } from "@/lib/session-service";
-import { sanitizeFormattedTranscript, sanitizeSummaryMarkdown, sanitizeTranscriptText } from "@/lib/user-facing-japanese";
+import { sanitizeFormattedTranscript, sanitizeSummaryMarkdown } from "@/lib/user-facing-japanese";
 import { normalizeRawTranscriptText, pickDisplayTranscriptText } from "@/lib/transcript/source";
 import { maybeStopRunpodWorkerWhenSessionPartQueueIdle } from "@/lib/runpod/idle-stop";
 
@@ -294,16 +294,12 @@ export async function PATCH(
     const sessionType = conversation.session?.type === "LESSON_REPORT" ? "LESSON_REPORT" : "INTERVIEW";
 
     if (summaryMarkdown !== undefined) {
-      const sanitizedSummary = sanitizeSummaryMarkdown(summaryMarkdown);
-      updateData.summaryMarkdown = sanitizedSummary;
-      updateData.artifactJson = sanitizedSummary
-        ? toPrismaJson(
-            buildConversationArtifactFromMarkdown({
-              sessionType,
-              summaryMarkdown: sanitizedSummary,
-            })
-          )
-        : toPrismaJson(null);
+      const nextSummary = buildConversationSummaryEditPayload({
+        sessionType,
+        summaryMarkdown,
+      });
+      updateData.summaryMarkdown = nextSummary.summaryMarkdown;
+      updateData.artifactJson = toPrismaJson(nextSummary.artifactJson);
     }
 
     if (artifactJson !== undefined) {

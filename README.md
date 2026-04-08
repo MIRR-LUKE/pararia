@@ -14,6 +14,7 @@ PARARIA は、塾・個別指導・学習コーチング向けの `Teaching OS` 
 - ログ生成は `reviewedText` があればそれを優先し、なければ raw transcript を使う
 - ログ生成の主経路は `structured artifact` を 1 回で作ること
 - `summaryMarkdown` は artifact から render する派生物
+- 生成後のログ本文は講師が手で編集できるが、自動保存はしない。手動保存前に離脱しようとした場合は pop-up で止める
 - retry と deterministic recovery は最後の保険で、fallback 前提の設計にはしない
 - `reviewState` が transcript review の現在状態を表す正本
 - `qualityMetaJson.transcriptReview` は review が必要な理由と件数の説明だけを持つ
@@ -77,7 +78,7 @@ PARARIA は、塾・個別指導・学習コーチング向けの `Teaching OS` 
 4. 保存 API は **受付だけ即時返す**
 5. 裏側で STT と session promotion を進める
 6. session が揃ったら `FINALIZE` でログ本文を 1 本生成する
-7. 講師は `ログ本文` と `文字起こし` を確認する
+7. 講師は `ログ本文` と `文字起こし` を確認し、必要ならログ本文だけ手で直して保存する
 8. 必要なログだけを選び、保護者レポートを作る
 9. 共有状態を更新する
 
@@ -655,6 +656,10 @@ GPU が強いときの最初の目安:
   - transcript 直入力を受けて background worker を起動する
 - `GET /api/conversations/[id]?brief=1&process=1`
   - 軽量取得 + worker 再キック
+- `PATCH /api/conversations/[id]`
+  - ログ本文の手動編集保存に使う
+  - `summaryMarkdown` を保存すると `artifactJson` も同時に更新する
+  - 編集途中は自動保存しない
 - `POST /api/conversations/[id]/regenerate?format=1`
   - 再生成に加えて transcript 整形も再実行
 - `GET /api/conversations/[id]/review`
@@ -695,6 +700,8 @@ GPU が強いときの最初の目安:
   - `generate.ts` は artifact 先行、`transport.ts` は JSON 生成経路を持つ
 - `lib/conversation-artifact.ts`
   - 正本 artifact の schema / render / parse
+- `lib/conversation-editing.ts`
+  - ログ本文編集の normalize / dirty 判定 / save payload
 - `lib/jobs/conversationJobs.ts`
   - `FINALIZE / FORMAT` と retry / observability
 - `lib/jobs/sessionPartJobs.ts`
@@ -732,6 +739,8 @@ GPU が強いときの最初の目安:
   - artifact / 保存済みログ本文から report bundle preview を作る
 - `app/app/students/[studentId]/ReportStudio.tsx`
   - 保護者レポート生成 UI と phase 表示
+- `app/app/logs/LogView.tsx`
+  - ログ本文の手動編集、手動保存、未保存離脱ガード
 - `lib/generation-progress.ts`
   - 保護者レポートの `選択確認 / ログ整理 / 本文生成 / 保存反映` を定義する
 - `lib/runtime-paths.ts`
@@ -792,6 +801,7 @@ PARARIA_AUDIO_RETENTION_DAYS=14
 - worker コマンドを変えたいときだけ `FASTER_WHISPER_PYTHON` または `FASTER_WHISPER_WORKER_ARGS_JSON`
 - 50 分台の面談を `STT -> 面談ログ生成` まで通して測るときは `npm run benchmark:interview-log`
 - 保護者レポートの retry / sanitization のスモークは `npm run test:parent-report-generation`
+- ログ本文の手動編集 save payload / dirty 判定のスモークは `npm run test:log-editing`
 
 現行の STT 実行は次の前提です。
 

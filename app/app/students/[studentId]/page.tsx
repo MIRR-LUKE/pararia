@@ -7,6 +7,7 @@ import { useSession } from "next-auth/react";
 import { Button } from "@/components/ui/Button";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { StructuredMarkdown } from "@/components/ui/StructuredMarkdown";
+import { UNSAVED_CONVERSATION_SUMMARY_MESSAGE } from "@/lib/conversation-editing";
 import { getLessonReportPartState, pickOngoingLessonReportSession } from "@/lib/lesson-report-flow";
 import { LogView } from "../../logs/LogView";
 import { ReportStudio } from "./ReportStudio";
@@ -130,6 +131,7 @@ export default function StudentDetailPage({ params }: { params: { studentId: str
   const [sortOrder, setSortOrder] = useState<SortOrder>("desc");
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null);
   const [isDeletingTarget, setIsDeletingTarget] = useState(false);
+  const [logHasUnsavedChanges, setLogHasUnsavedChanges] = useState(false);
   const hasLoadedRoomRef = useRef(false);
 
   const refresh = useCallback(async (opts?: { silent?: boolean }) => {
@@ -249,6 +251,11 @@ export default function StudentDetailPage({ params }: { params: { studentId: str
     }
     setOverlay({ kind: "none" });
   }, [queryParams, room]);
+
+  useEffect(() => {
+    if (overlay.kind === "log") return;
+    setLogHasUnsavedChanges(false);
+  }, [overlay.kind]);
 
   const ongoingLessonSession = useMemo(
     () => pickOngoingLessonReportSession(room?.sessions ?? []),
@@ -383,6 +390,13 @@ export default function StudentDetailPage({ params }: { params: { studentId: str
     syncUrl({ panel: null, logId: null, reportId: null, lessonSessionId: null });
   }, [syncUrl]);
 
+  const requestOverlayClose = useCallback(() => {
+    if (overlay.kind === "log" && logHasUnsavedChanges && !window.confirm(UNSAVED_CONVERSATION_SUMMARY_MESSAGE)) {
+      return;
+    }
+    closeOverlay();
+  }, [closeOverlay, logHasUnsavedChanges, overlay.kind]);
+
   const activeLogSession =
     overlay.kind === "log"
       ? (room?.sessions ?? []).find((sessionItem) => sessionItem.conversation?.id === overlay.logId) ?? null
@@ -396,6 +410,7 @@ export default function StudentDetailPage({ params }: { params: { studentId: str
 
   const openDeleteDialogForLog = useCallback(() => {
     if (overlay.kind !== "log") return;
+    if (logHasUnsavedChanges && !window.confirm(UNSAVED_CONVERSATION_SUMMARY_MESSAGE)) return;
 
     const label = activeLogSession ? formatSessionLabel(activeLogSession) : "このログ";
     const usageDetail =
@@ -409,7 +424,7 @@ export default function StudentDetailPage({ params }: { params: { studentId: str
       label,
       detail: `${label}の本文と文字起こしを削除します。${usageDetail}`,
     });
-  }, [activeLogReportUsageCount, activeLogSession, overlay]);
+  }, [activeLogReportUsageCount, activeLogSession, logHasUnsavedChanges, overlay]);
 
   const openDeleteDialogForReport = useCallback(() => {
     if (!activeParentReport) return;
@@ -688,7 +703,7 @@ export default function StudentDetailPage({ params }: { params: { studentId: str
           className={styles.overlayBackdrop}
           role="presentation"
           onClick={(event) => {
-            if (event.target === event.currentTarget) closeOverlay();
+            if (event.target === event.currentTarget) requestOverlayClose();
           }}
         >
           <div className={styles.overlayPanel} role="dialog" aria-modal="true">
@@ -728,14 +743,22 @@ export default function StudentDetailPage({ params }: { params: { studentId: str
                       このレポートを削除
                     </Button>
                   ) : null}
-                  <Button variant="secondary" onClick={closeOverlay}>
+                  <Button variant="secondary" onClick={requestOverlayClose}>
                     閉じる
                   </Button>
                 </div>
               </div>
 
             <div className={styles.overlayContent}>
-              {overlay.kind === "log" ? <LogView logId={overlay.logId} showHeader={false} onBack={closeOverlay} /> : null}
+              {overlay.kind === "log" ? (
+                <LogView
+                  logId={overlay.logId}
+                  showHeader={false}
+                  onBack={requestOverlayClose}
+                  onSaved={refresh}
+                  onDirtyChange={setLogHasUnsavedChanges}
+                />
+              ) : null}
 
               {overlay.kind === "report" ? (
                 <ReportStudio

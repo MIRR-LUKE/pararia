@@ -15,7 +15,8 @@
 .profilePointHeader,
 .timelineHead,
 .generatedFooter,
-.stateTop {
+.stateTop,
+.editorToolbar {
   display: flex;
   gap: 12px;
 }
@@ -23,7 +24,8 @@
 .headerRow,
 .listHead,
 .entityFooter,
-.stateTop {
+.stateTop,
+.editorToolbar {
   justify-content: space-between;
   align-items: flex-start;
 }
@@ -36,6 +38,7 @@
 .profileGrid,
 .contentPanel,
 .structuredContent,
+.editorGrid,
 .markdownBody,
 .noteList,
 .profileCard,
@@ -57,6 +60,7 @@
 .eyebrow,
 .subtitle,
 .subtext,
+.sectionLabel,
 .metaLine,
 .metaLabel,
 .confidence,
@@ -67,7 +71,8 @@
 }
 
 .eyebrow,
-.fieldLabel {
+.fieldLabel,
+.sectionLabel {
   font-size: 12px;
   font-weight: 800;
   letter-spacing: 0.06em;
@@ -100,7 +105,8 @@
 
 .stepPill,
 .quoteChip,
-.profileTag {
+.profileTag,
+.editStatePill {
   min-height: 28px;
   display: inline-flex;
   align-items: center;
@@ -205,9 +211,19 @@
   align-content: start;
 }
 
+.editorGrid,
 .twoCol,
 .profileGrid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.editorMetaBlock {
+  display: grid;
+  gap: 6px;
+}
+
+.editStatePill {
+  background: color-mix(in srgb, var(--surface) 82%, #d3c08f 18%);
 }
 
 .stateCard,
@@ -255,6 +271,7 @@
 }
 
 @media (max-width: 960px) {
+  .editorGrid,
   .twoCol,
   .profileGrid {
     grid-template-columns: 1fr;
