@@ -70,16 +70,6 @@ function summarize(student: StudentRow) {
     };
   }
 
-  if (latestSession.type === "LESSON_REPORT" && latestSession.status === "COLLECTING") {
-    return {
-      state: latestSession.heroStateLabel ?? "授業途中",
-      oneLiner:
-        latestSession.heroOneLiner ?? "授業前の記録だけ保存されています。授業後の記録で 1 セッションが完了します。",
-      nextAction: "授業後の記録を入れる",
-      view: "report" as const,
-    };
-  }
-
   if (latestSession.conversation?.id && !latestReport) {
     return {
       state: latestSession.heroStateLabel ?? "レポート作成待ち",

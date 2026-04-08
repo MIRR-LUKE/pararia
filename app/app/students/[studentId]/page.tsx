@@ -8,7 +8,6 @@ import { Button } from "@/components/ui/Button";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { StructuredMarkdown } from "@/components/ui/StructuredMarkdown";
 import { UNSAVED_CONVERSATION_SUMMARY_MESSAGE } from "@/lib/conversation-editing";
-import { getLessonReportPartState, pickOngoingLessonReportSession } from "@/lib/lesson-report-flow";
 import { pickLatestInterviewMemoSession } from "@/lib/next-meeting-memo";
 import { LogView } from "../../logs/LogView";
 import { ReportStudio } from "./ReportStudio";
@@ -38,13 +37,11 @@ type DeleteTarget =
 const EMPTY_SEARCH_PARAMS = new URLSearchParams();
 
 function normalizeTab(value: string | null): TabKey {
-  if (value === "lessonReports") return "lessonReports";
   if (value === "parentReports") return "parentReports";
   return "communications";
 }
 
 function normalizeRecordingMode(value: string | null): SessionConsoleMode | null {
-  if (value === "LESSON_REPORT") return "LESSON_REPORT";
   if (value === "INTERVIEW") return "INTERVIEW";
   return null;
 }
@@ -261,63 +258,23 @@ export default function StudentDetailPage({ params }: { params: { studentId: str
     setLogHasUnsavedChanges(false);
   }, [overlay.kind]);
 
-  const ongoingLessonSession = useMemo(
-    () => pickOngoingLessonReportSession(room?.sessions ?? []),
-    [room?.sessions]
-  );
-
   useEffect(() => {
     const requestedMode = normalizeRecordingMode(queryParams.get("mode"));
     if (!requestedMode) return;
     setRecordingMode((current) => (current === requestedMode ? current : requestedMode));
   }, [queryParams]);
 
-  useEffect(() => {
-    const requestedPart = normalizeLessonPart(queryParams.get("part"));
-    if (requestedPart) {
-      setLessonPart((current) => (current === requestedPart ? current : requestedPart));
-      return;
-    }
-
-    const recommendedPart = getLessonReportPartState(ongoingLessonSession?.parts ?? []).nextRecommendedPart;
-    if (recordingMode !== "LESSON_REPORT") return;
-    setLessonPart((current) => (current === recommendedPart ? current : recommendedPart));
-  }, [ongoingLessonSession?.id, ongoingLessonSession?.parts, queryParams, recordingMode]);
-
-  useEffect(() => {
-    if (!ongoingLessonSession) return;
-    const state = getLessonReportPartState(ongoingLessonSession.parts ?? []);
-    if (state.isComplete) return;
-    if (state.hasCheckIn || state.hasCheckOut) {
-      setRecordingMode("LESSON_REPORT");
-      setLessonPart(state.nextRecommendedPart);
-      syncUrl({ mode: "LESSON_REPORT", part: state.nextRecommendedPart });
-    }
-  }, [ongoingLessonSession, syncUrl]);
-
   const candidateReportSessions = useMemo(
-    () => (room?.sessions ?? []).filter((session) => Boolean(session.conversation?.summaryMarkdown?.trim())),
+    () =>
+      (room?.sessions ?? []).filter(
+        (session) => session.type === "INTERVIEW" && Boolean(session.conversation?.summaryMarkdown?.trim())
+      ),
     [room?.sessions]
   );
 
   const reportSelectionSessions = useMemo(() => candidateReportSessions.slice(0, 4), [candidateReportSessions]);
   const communicationSessions = useMemo(() => {
     const base = (room?.sessions ?? []).filter((session) => session.type === "INTERVIEW" && session.conversation?.id);
-    const filtered = periodFilter === "month" ? base.filter((session) => withinCurrentMonth(session.sessionDate)) : base;
-    return [...filtered].sort((left, right) =>
-      sortOrder === "desc"
-        ? new Date(right.sessionDate).getTime() - new Date(left.sessionDate).getTime()
-        : new Date(left.sessionDate).getTime() - new Date(right.sessionDate).getTime()
-    );
-  }, [periodFilter, room?.sessions, sortOrder]);
-
-  const lessonSessions = useMemo(() => {
-    const base = (room?.sessions ?? []).filter(
-      (session) =>
-        session.type === "LESSON_REPORT" &&
-        (session.conversation?.id ||
-          ["TRANSCRIBING", "WAITING_COUNTERPART", "GENERATING"].includes(session.pipeline?.stage ?? ""))
-    );
     const filtered = periodFilter === "month" ? base.filter((session) => withinCurrentMonth(session.sessionDate)) : base;
     return [...filtered].sort((left, right) =>
       sortOrder === "desc"
@@ -544,7 +501,7 @@ export default function StudentDetailPage({ params }: { params: { studentId: str
             studentName={room.student.name}
             mode={recordingMode}
             lessonPart={lessonPart}
-            ongoingLessonSession={ongoingLessonSession}
+            ongoingLessonSession={null}
             onModeChange={(nextMode) => {
               setRecordingMode(nextMode);
               syncUrl({ mode: nextMode });
@@ -556,7 +513,7 @@ export default function StudentDetailPage({ params }: { params: { studentId: str
             onRefresh={refresh}
             onOpenLog={openLog}
             recordingLock={room.recordingLock}
-            showModePicker
+            showModePicker={false}
           />
         </div>
 
@@ -620,7 +577,7 @@ export default function StudentDetailPage({ params }: { params: { studentId: str
 
           <div className={styles.reportSelectionList}>
             {reportSelectionSessions.length === 0 ? (
-              <div className={styles.emptyCompact}>まだ選べるログがありません。面談や指導報告を録音するとここに並びます。</div>
+              <div className={styles.emptyCompact}>まだ選べる面談ログがありません。面談を録音するとここに並びます。</div>
             ) : (
               reportSelectionSessions.map((sessionItem) => {
                 const checked = selectedSessionIds.includes(sessionItem.id);
@@ -652,7 +609,6 @@ export default function StudentDetailPage({ params }: { params: { studentId: str
         <div className={styles.tabBar}>
           {[
             { key: "communications", label: "面談ログ" },
-            { key: "lessonReports", label: "指導報告ログ" },
             { key: "parentReports", label: "保護者レポートログ" },
           ].map((tab) => (
             <button
@@ -706,38 +662,6 @@ export default function StudentDetailPage({ params }: { params: { studentId: str
 
         {activeTab === "communications" ? (
           <StudentSessionStream sessions={communicationSessions} assigneeName={session?.user?.name ?? undefined} onOpenLog={openLog} />
-        ) : null}
-
-        {activeTab === "lessonReports" ? (
-          <div className={styles.historyList}>
-            {lessonSessions.length === 0 ? (
-              <div className={styles.emptyState}>まだ指導報告ログはありません。チェックインとチェックアウトがそろうとここに並びます。</div>
-            ) : (
-              lessonSessions.map((sessionItem) => (
-                <button
-                  key={sessionItem.id}
-                  type="button"
-                  className={styles.historyRow}
-                  onClick={() => {
-                    const logId = sessionItem.pipeline?.openLogId ?? sessionItem.conversation?.id;
-                    if (logId) openLog(logId);
-                  }}
-                  disabled={!sessionItem.pipeline?.openLogId && !sessionItem.conversation?.id}
-                >
-                  <div className={styles.historyRowLeft}>
-                    <div className={styles.historyIcon} aria-hidden>
-                      <span />
-                    </div>
-                    <div>
-                      <div className={styles.historyRowTitle}>{formatSessionLabel(sessionItem)}</div>
-                      <div className={styles.historyRowMeta}>{lessonSummaryLabel(sessionItem)}</div>
-                    </div>
-                  </div>
-                  <div className={styles.assigneePill}>{viewerBadge}</div>
-                </button>
-              ))
-            )}
-          </div>
         ) : null}
 
         {activeTab === "parentReports" ? (

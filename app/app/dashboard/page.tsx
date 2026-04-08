@@ -53,7 +53,7 @@ type StudentRow = {
   recordingLock?: { mode: string; lockedByName: string } | null;
 };
 
-type QueueKind = "interview" | "lesson" | "report" | "review" | "share" | "room";
+type QueueKind = "interview" | "report" | "review" | "share" | "room";
 
 type QueueItem = {
   student: StudentRow;
@@ -109,22 +109,6 @@ function summarize(student: StudentRow) {
         cta: "面談を始める",
         href: `/app/students/${student.id}?panel=recording&mode=INTERVIEW`,
         score: 100,
-      },
-    };
-  }
-
-  if (latestSession.type === "LESSON_REPORT" && latestSession.status === "COLLECTING") {
-    return {
-      state: latestSession.heroStateLabel ?? "授業途中",
-      oneLiner:
-        latestSession.heroOneLiner ?? "授業前の記録だけ保存されています。授業後の記録で完了します。",
-      queue: {
-        kind: "lesson" as const,
-        title: "チェックアウト待ち",
-        reason: "授業前チェックインは完了しています。授業後の録音で指導報告を完成できます。",
-        cta: "チェックアウトを録る",
-        href: `/app/students/${student.id}?panel=recording&mode=LESSON_REPORT&part=CHECK_OUT`,
-        score: 95,
       },
     };
   }
@@ -318,7 +302,6 @@ export default function DashboardPage() {
   }, [enriched]);
 
   const interviewHref = queue.find((item) => item.queue.kind === "interview")?.queue.href ?? "/app/students";
-  const lessonHref = queue.find((item) => item.queue.kind === "lesson")?.queue.href ?? "/app/students";
 
   return (
     <div className={styles.page}>
@@ -332,15 +315,12 @@ export default function DashboardPage() {
           <p className={styles.eyebrow}>今日やること</p>
           <h2 className={styles.heroTitle}>押すのは1回。あとは成果物が順に増える。</h2>
           <p className={styles.heroText}>
-            面談、授業、保護者レポートのうち、いま最優先の仕事だけをここに並べます。
+            面談と保護者レポートのうち、いま最優先の仕事だけをここに並べます。
           </p>
         </div>
         <div className={styles.heroActions}>
           <Link href={interviewHref}>
             <Button className={styles.heroButton}>面談を始める</Button>
-          </Link>
-          <Link href={lessonHref}>
-            <Button variant="secondary" className={styles.heroButtonSecondary}>授業を始める</Button>
           </Link>
         </div>
       </section>
@@ -435,7 +415,7 @@ export default function DashboardPage() {
         ) : queue.length === 0 ? (
           <div className={styles.emptyState}>
             <strong>今日の優先対応はありません</strong>
-            <p>新しい面談や授業を始めるなら、全生徒一覧から対象の生徒を開いてください。</p>
+            <p>新しい面談を始めるなら、全生徒一覧から対象の生徒を開いてください。</p>
             <Link href="/app/students">
               <Button>全生徒を見る</Button>
             </Link>
