@@ -203,21 +203,15 @@
 }
 
 .memoSectionTitle {
-  display: inline-flex;
+  display: inline-block;
   width: fit-content;
-  padding: 0 8px 2px 4px;
-  border-radius: 4px;
-  background: linear-gradient(
-    180deg,
-    transparent 0,
-    transparent 32%,
-    var(--accent) 32%,
-    var(--accent) 92%,
-    transparent 92%,
-    transparent 100%
-  );
+  max-width: 100%;
+  padding: 1px 8px 3px 4px;
+  border-radius: 3px;
+  background: transparent;
+  box-shadow: inset 0 -0.72em 0 var(--accent);
   font-size: 13px;
-  line-height: 1.3;
+  line-height: 1.5;
   font-weight: 700;
   color: var(--accent-contrast);
   box-decoration-break: clone;
