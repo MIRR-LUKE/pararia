@@ -133,8 +133,6 @@ export default function StudentDetailPage({ params }: { params: { studentId: str
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null);
   const [isDeletingTarget, setIsDeletingTarget] = useState(false);
   const [logHasUnsavedChanges, setLogHasUnsavedChanges] = useState(false);
-  const [isRegeneratingNextMeetingMemo, setIsRegeneratingNextMeetingMemo] = useState(false);
-  const [nextMeetingMemoError, setNextMeetingMemoError] = useState<string | null>(null);
   const hasLoadedRoomRef = useRef(false);
 
   const refresh = useCallback(async (opts?: { silent?: boolean }) => {
@@ -349,49 +347,25 @@ export default function StudentDetailPage({ params }: { params: { studentId: str
   const allSelectionIds = reportSelectionSessions.map((item) => item.id);
   const allSelected = allSelectionIds.length > 0 && allSelectionIds.every((id) => selectedSessionIds.includes(id));
 
-  const regenerateNextMeetingMemo = useCallback(async () => {
-    if (!latestInterviewMemoSession?.id) return;
-    setIsRegeneratingNextMeetingMemo(true);
-    setNextMeetingMemoError(null);
-    try {
-      const res = await fetch(`/api/sessions/${latestInterviewMemoSession.id}/next-meeting-memo/regenerate`, {
-        method: "POST",
-      });
-      const body = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        throw new Error(body?.error ?? "次回の面談メモの再生成に失敗しました。");
-      }
-      await refresh({ silent: true });
-    } catch (nextError: any) {
-      setNextMeetingMemoError(nextError?.message ?? "次回の面談メモの再生成に失敗しました。");
-    } finally {
-      setIsRegeneratingNextMeetingMemo(false);
-    }
-  }, [latestInterviewMemoSession?.id, refresh]);
-
-  const nextMeetingMemoStatus =
-    isRegeneratingNextMeetingMemo ? "GENERATING" : latestNextMeetingMemo?.status ?? null;
+  const nextMeetingMemoStatus = latestNextMeetingMemo?.status ?? null;
   const nextMeetingMemoPreviousSummary =
     nextMeetingMemoStatus === "READY"
-      ? latestNextMeetingMemo?.previousSummary?.trim() || "生成結果をまだ保存できていません。作り直すでもう一度お試しください。"
+      ? latestNextMeetingMemo?.previousSummary?.trim() || "生成結果をまだ保存できていません。"
       : nextMeetingMemoStatus === "FAILED"
-        ? "作成できませんでした。もう一度お試しください。"
+        ? "作成できませんでした。"
         : nextMeetingMemoStatus === "GENERATING" || nextMeetingMemoStatus === "QUEUED"
           ? "生成中…"
           : "面談ログが完成するとここに表示されます。";
   const nextMeetingMemoSuggestedTopics =
     nextMeetingMemoStatus === "READY"
-      ? latestNextMeetingMemo?.suggestedTopics?.trim() || "生成結果をまだ保存できていません。作り直すでもう一度お試しください。"
+      ? latestNextMeetingMemo?.suggestedTopics?.trim() || "生成結果をまだ保存できていません。"
       : nextMeetingMemoStatus === "FAILED"
-        ? "作り直すと、最新の面談ログからもう一度作成します。"
+        ? "前回の面談ログが整いしだい、ここに表示されます。"
         : nextMeetingMemoStatus === "GENERATING" || nextMeetingMemoStatus === "QUEUED"
           ? "面談ログをもとに作っています…"
           : "前回の面談ログを作ると、次に何を話すかまで短くまとまります。";
-  const canRegenerateNextMeetingMemo = Boolean(
-    latestInterviewMemoSession?.id &&
-      latestInterviewMemoSession.conversation?.id &&
-      latestInterviewMemoSession.conversation?.status === "DONE"
-  );
+  const nextMeetingMemoError =
+    nextMeetingMemoStatus === "FAILED" ? latestNextMeetingMemo?.errorMessage?.trim() || "次回の面談メモの作成に失敗しました。" : null;
 
   const handleSelectedSessionIdsChange = useCallback(
     (ids: string[]) => {
@@ -626,16 +600,6 @@ export default function StudentDetailPage({ params }: { params: { studentId: str
           </div>
 
           {nextMeetingMemoError ? <div className={styles.memoError}>{nextMeetingMemoError}</div> : null}
-
-          <div className={styles.memoActions}>
-            <Button
-              variant="secondary"
-              onClick={() => void regenerateNextMeetingMemo()}
-              disabled={!canRegenerateNextMeetingMemo || isRegeneratingNextMeetingMemo}
-            >
-              作り直す
-            </Button>
-          </div>
         </div>
 
         <div className={styles.reportCard}>

@@ -12,7 +12,6 @@
 .memoCardHead,
 .reportSelectionHead,
 .reportActions,
-.memoActions,
 .filterRow,
 .filterGroup,
 .overlayHeader,
@@ -127,7 +126,7 @@
 
 .topGrid {
   display: grid;
-  grid-template-columns: minmax(360px, 419px) minmax(320px, 360px) minmax(0, 523px);
+  grid-template-columns: minmax(360px, 419px) minmax(320px, 1fr);
   gap: 16px;
   align-items: start;
 }
@@ -158,6 +157,7 @@
   padding: 14px 15px 18px;
   display: grid;
   gap: 26px;
+  grid-column: 1 / -1;
 }
 
 .cardTitle,
@@ -219,11 +219,6 @@
 .memoParagraphMuted,
 .memoError {
   color: var(--muted);
-}
-
-.memoActions {
-  justify-content: flex-end;
-  align-items: center;
 }
 
 .memoError {
@@ -555,16 +550,6 @@
   border: 1px solid var(--border);
   background: var(--surface-2);
   padding: 16px;
-}
-
-@media (max-width: 1480px) {
-  .topGrid {
-    grid-template-columns: minmax(360px, 419px) minmax(320px, 1fr);
-  }
-
-  .reportCard {
-    grid-column: 1 / -1;
-  }
 }
 
 @media (max-width: 1200px) {
