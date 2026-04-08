@@ -1,3 +1,5 @@
+import { prisma } from "@/lib/db";
+
 const RUNPOD_API_BASE = "https://rest.runpod.io/v1";
 const DEFAULT_WORKER_NAME = "pararia-gpu-worker";
 const DEFAULT_WORKER_IMAGE = "ghcr.io/mirr-luke/pararia-runpod-worker:latest";
@@ -5,6 +7,8 @@ const DEFAULT_WORKER_GPU = "NVIDIA GeForce RTX 5090";
 const DEFAULT_WORKER_GPU_FALLBACK = "NVIDIA GeForce RTX 4090";
 const DEFAULT_AUTO_STOP_IDLE_MS = 5 * 60 * 1000;
 const DEFAULT_API_TIMEOUT_MS = 15_000;
+const DEFAULT_WORKER_CONVERSATION_LIMIT = "6";
+const RUNPOD_WAKE_LOCK_NAMESPACE = "pararia-runpod-worker-wake";
 
 type RunpodFetchOptions = RequestInit & {
   config?: RunpodWorkerConfig;
@@ -71,6 +75,9 @@ export type RunpodWorkerStopResult = {
   error?: string;
 };
 
+const pendingManagedWorkerWakeByName = new Map<string, Promise<RunpodWorkerWakeResult>>();
+let hasWarnedLatestWorkerImage = false;
+
 export type RunpodWorkerTerminateResult = {
   ok: boolean;
   terminatedPodIds: string[];
@@ -116,6 +123,14 @@ function readBoolEnv(name: string, fallback: boolean) {
   const raw = readStringEnv(name);
   if (!raw) return fallback;
   return raw === "1" || raw.toLowerCase() === "true" || raw.toLowerCase() === "yes";
+}
+
+function getDefaultWorkerImage() {
+  const commitSha = readStringEnv("VERCEL_GIT_COMMIT_SHA");
+  if (commitSha) {
+    return `ghcr.io/mirr-luke/pararia-runpod-worker:sha-${commitSha}`;
+  }
+  return DEFAULT_WORKER_IMAGE;
 }
 
 function sleep(ms: number) {
@@ -222,6 +237,18 @@ function normalizePodList(payload: unknown) {
   return [] as RunpodPod[];
 }
 
+function isFloatingWorkerImageTag(image: string) {
+  return image.trim().toLowerCase().endsWith(":latest");
+}
+
+function warnIfWorkerImageLooksMutable(config: RunpodWorkerConfig) {
+  if (hasWarnedLatestWorkerImage || !isFloatingWorkerImageTag(config.image)) return;
+  hasWarnedLatestWorkerImage = true;
+  console.warn(
+    `[runpod-worker] RUNPOD_WORKER_IMAGE=${config.image} is using a mutable tag. 本番や切り分けでは sha 固定 image を推奨します。`
+  );
+}
+
 function matchesManagedPod(pod: RunpodPod, config: RunpodWorkerConfig) {
   if (!pod.id) return false;
   const sameName = (pod.name || "") === config.name;
@@ -238,10 +265,10 @@ export function getRunpodWorkerConfig(): RunpodWorkerConfig | null {
     DEFAULT_WORKER_GPU,
     legacyGpu || DEFAULT_WORKER_GPU_FALLBACK,
   ]);
-  return {
+  const config = {
     apiKey,
     name: readStringEnv("RUNPOD_WORKER_NAME", DEFAULT_WORKER_NAME),
-    image: readStringEnv("RUNPOD_WORKER_IMAGE", DEFAULT_WORKER_IMAGE),
+    image: readStringEnv("RUNPOD_WORKER_IMAGE", getDefaultWorkerImage()),
     containerRegistryAuthId: readStringEnv("RUNPOD_WORKER_CONTAINER_REGISTRY_AUTH_ID", "") || null,
     gpu: gpuCandidates[0] || DEFAULT_WORKER_GPU,
     gpuCandidates,
@@ -257,6 +284,22 @@ export function getRunpodWorkerConfig(): RunpodWorkerConfig | null {
     ),
     apiTimeoutMs: readIntEnv("RUNPOD_API_TIMEOUT_MS", DEFAULT_API_TIMEOUT_MS, 1_000),
   };
+  warnIfWorkerImageLooksMutable(config);
+  return config;
+}
+
+async function withRunpodWakeLock<T>(config: RunpodWorkerConfig, callback: () => Promise<T>) {
+  const lockKey = `${RUNPOD_WAKE_LOCK_NAMESPACE}:${config.name}`;
+  return prisma.$transaction(
+    async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`;
+      return callback();
+    },
+    {
+      maxWait: config.apiTimeoutMs,
+      timeout: config.apiTimeoutMs * 2,
+    }
+  );
 }
 
 function requireRunpodWorkerConfig() {
@@ -296,7 +339,7 @@ async function runpodRequest(pathname: string, init?: RunpodFetchOptions) {
   }
 }
 
-function buildRunpodWorkerEnv(autoStopIdleMs: number) {
+export function buildRunpodWorkerEnv(autoStopIdleMs: number) {
   const env = {
     RUNPOD_API_KEY: readRequiredEnv("RUNPOD_API_KEY"),
     DATABASE_URL: readRequiredEnv("DATABASE_URL"),
@@ -333,7 +376,11 @@ function buildRunpodWorkerEnv(autoStopIdleMs: number) {
       "LOCAL_GPU_WORKER_SESSION_PART_CONCURRENCY",
       "1"
     ),
-    RUNPOD_WORKER_CONVERSATION_LIMIT: readStringEnvWithLegacy("RUNPOD_WORKER_CONVERSATION_LIMIT", "LOCAL_GPU_WORKER_CONVERSATION_LIMIT", "0"),
+    RUNPOD_WORKER_CONVERSATION_LIMIT: readStringEnvWithLegacy(
+      "RUNPOD_WORKER_CONVERSATION_LIMIT",
+      "LOCAL_GPU_WORKER_CONVERSATION_LIMIT",
+      DEFAULT_WORKER_CONVERSATION_LIMIT
+    ),
     RUNPOD_WORKER_CONVERSATION_CONCURRENCY: readStringEnvWithLegacy(
       "RUNPOD_WORKER_CONVERSATION_CONCURRENCY",
       "LOCAL_GPU_WORKER_CONVERSATION_CONCURRENCY",
@@ -597,24 +644,36 @@ export async function maybeEnsureRunpodWorker(): Promise<RunpodWorkerWakeResult>
     };
   }
 
-  try {
-    const ensured = await ensureRunpodWorker(config);
-    return {
-      attempted: true,
-      ok: true,
-      action: ensured.action,
-      podId: ensured.pod.id,
-      desiredStatus: readPodStatus(ensured.pod),
-      name: config.name,
-    };
-  } catch (error: any) {
-    return {
-      attempted: true,
-      ok: false,
-      error: error?.message ?? String(error),
-      name: config.name,
-    };
+  const existing = pendingManagedWorkerWakeByName.get(config.name);
+  if (existing) {
+    return existing;
   }
+
+  const wakePromise = (async () => {
+    try {
+      const ensured = await withRunpodWakeLock(config, () => ensureRunpodWorker(config));
+      return {
+        attempted: true,
+        ok: true,
+        action: ensured.action,
+        podId: ensured.pod.id,
+        desiredStatus: readPodStatus(ensured.pod),
+        name: config.name,
+      } satisfies RunpodWorkerWakeResult;
+    } catch (error: any) {
+      return {
+        attempted: true,
+        ok: false,
+        error: error?.message ?? String(error),
+        name: config.name,
+      } satisfies RunpodWorkerWakeResult;
+    } finally {
+      pendingManagedWorkerWakeByName.delete(config.name);
+    }
+  })();
+
+  pendingManagedWorkerWakeByName.set(config.name, wakePromise);
+  return wakePromise;
 }
 
 export async function stopManagedRunpodWorker(config?: RunpodWorkerConfig): Promise<RunpodWorkerStopResult> {

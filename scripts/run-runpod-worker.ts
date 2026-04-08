@@ -38,6 +38,10 @@ function readOptionalEnv(name: string) {
   return value ? value : undefined;
 }
 
+function getConversationWorkerMode(conversationLimit: number) {
+  return conversationLimit > 0 ? "stt+conversation" : "stt-only";
+}
+
 function getWorkerHeartbeatPath(fileName: string) {
   const podId = process.env.RUNPOD_POD_ID?.trim() || "local";
   return `runpod-worker/heartbeats/${podId}/${fileName}`;
@@ -160,10 +164,17 @@ async function processQueueOnce(
 async function stopPodWhenSessionPartQueueDrains(
   sessionPartLimit: number,
   sessionPartConcurrency: number,
+  conversationLimit: number,
   conversationConcurrency: number,
   scope: WorkerScope
 ) {
-  const confirm = await processQueueOnce(sessionPartLimit, sessionPartConcurrency, 0, conversationConcurrency, scope);
+  const confirm = await processQueueOnce(
+    sessionPartLimit,
+    sessionPartConcurrency,
+    conversationLimit,
+    conversationConcurrency,
+    scope
+  );
   if (confirm.sessionPartJobs.processed === 0 && confirm.errors.length === 0) {
     const stopResult = await stopCurrentRunpodPod();
     if (!stopResult.ok) {
@@ -208,7 +219,7 @@ async function main() {
   const conversationLimit = readNonNegativeIntEnvWithLegacy(
     "RUNPOD_WORKER_CONVERSATION_LIMIT",
     "LOCAL_GPU_WORKER_CONVERSATION_LIMIT",
-    0
+    6
   );
   const conversationConcurrency = readIntEnvWithLegacy(
     "RUNPOD_WORKER_CONVERSATION_CONCURRENCY",
@@ -244,6 +255,7 @@ async function main() {
   });
 
   console.log("[runpod-worker] started", {
+    mode: getConversationWorkerMode(conversationLimit),
     sessionPartLimit,
     sessionPartConcurrency,
     conversationLimit,
@@ -253,6 +265,10 @@ async function main() {
     scope,
     once,
   });
+
+  if (process.env.PARARIA_BACKGROUND_MODE?.trim() === "external" && conversationLimit === 0) {
+    console.warn("[runpod-worker] external mode started with conversationLimit=0; this worker is STT-only.");
+  }
 
   const warmInfo = await warmFasterWhisperWorkers()
     .then((items) => items[0] ?? null)
@@ -311,6 +327,7 @@ async function main() {
       const drained = await stopPodWhenSessionPartQueueDrains(
         sessionPartLimit,
         sessionPartConcurrency,
+        conversationLimit,
         conversationConcurrency,
         scope
       );

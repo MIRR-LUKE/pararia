@@ -3,12 +3,14 @@ import { prisma } from "@/lib/db";
 import { ConversationSourceType, ConversationStatus } from "@prisma/client";
 import { preprocessTranscript } from "@/lib/transcript/preprocess";
 import { enqueueConversationJobs, processAllConversationJobs } from "@/lib/jobs/conversationJobs";
+import { shouldRunBackgroundJobsInline } from "@/lib/jobs/execution-mode";
 import { requireAuthorizedSession } from "@/lib/server/request-auth";
 import { renderConversationArtifactOrFallback } from "@/lib/conversation-artifact";
 import { getTranscriptExpiryDate } from "@/lib/system-config";
 import { ensureConversationReviewedTranscript } from "@/lib/transcript/review";
 import { sanitizeSummaryMarkdown } from "@/lib/user-facing-japanese";
 import { maybeStopRunpodWorkerWhenSessionPartQueueIdle } from "@/lib/runpod/idle-stop";
+import { maybeEnsureRunpodWorker } from "@/lib/runpod/worker-control";
 
 export async function GET(request: Request) {
   try {
@@ -171,15 +173,21 @@ export async function POST(request: Request) {
     await ensureConversationReviewedTranscript(conversation.id);
 
     await enqueueConversationJobs(conversation.id);
-    void (async () => {
-      try {
-        await processAllConversationJobs(conversation.id);
-      } catch (error) {
-        console.error("[POST /api/conversations] Background process failed:", error);
-      } finally {
-        await maybeStopRunpodWorkerWhenSessionPartQueueIdle().catch(() => {});
-      }
-    })();
+    if (shouldRunBackgroundJobsInline()) {
+      void (async () => {
+        try {
+          await processAllConversationJobs(conversation.id);
+        } catch (error) {
+          console.error("[POST /api/conversations] Background process failed:", error);
+        } finally {
+          await maybeStopRunpodWorkerWhenSessionPartQueueIdle().catch(() => {});
+        }
+      })();
+    } else {
+      void maybeEnsureRunpodWorker().catch((error) => {
+        console.error("[POST /api/conversations] Runpod wake failed:", error);
+      });
+    }
 
     return NextResponse.json({ conversation }, { status: 201 });
   } catch (error: any) {

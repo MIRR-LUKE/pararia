@@ -6,9 +6,11 @@ import {
   isConversationJobRunActive,
   processAllConversationJobs,
 } from "@/lib/jobs/conversationJobs";
+import { shouldRunBackgroundJobsInline } from "@/lib/jobs/execution-mode";
 import { ensureConversationReviewedTranscript } from "@/lib/transcript/review";
 import { requireAuthorizedSession } from "@/lib/server/request-auth";
 import { maybeStopRunpodWorkerWhenSessionPartQueueIdle } from "@/lib/runpod/idle-stop";
+import { maybeEnsureRunpodWorker } from "@/lib/runpod/worker-control";
 
 export async function POST(
   request: Request,
@@ -85,15 +87,21 @@ export async function POST(
     await ensureConversationReviewedTranscript(params.id);
 
     await enqueueConversationJobs(params.id, { includeFormat });
-    void (async () => {
-      try {
-        await processAllConversationJobs(params.id);
-      } catch (error) {
-        console.error("[POST /api/conversations/[id]/regenerate] Background process failed:", error);
-      } finally {
-        await maybeStopRunpodWorkerWhenSessionPartQueueIdle().catch(() => {});
-      }
-    })();
+    if (shouldRunBackgroundJobsInline()) {
+      void (async () => {
+        try {
+          await processAllConversationJobs(params.id);
+        } catch (error) {
+          console.error("[POST /api/conversations/[id]/regenerate] Background process failed:", error);
+        } finally {
+          await maybeStopRunpodWorkerWhenSessionPartQueueIdle().catch(() => {});
+        }
+      })();
+    } else {
+      void maybeEnsureRunpodWorker().catch((error) => {
+        console.error("[POST /api/conversations/[id]/regenerate] Runpod wake failed:", error);
+      });
+    }
 
     if (conversation.sessionId) {
       await prisma.session.update({

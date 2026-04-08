@@ -8,12 +8,14 @@ import {
   renderConversationArtifactOrFallback,
 } from "@/lib/conversation-artifact";
 import { buildConversationSummaryEditPayload } from "@/lib/conversation-editing";
+import { shouldRunBackgroundJobsInline } from "@/lib/jobs/execution-mode";
 import { requireAuthorizedSession } from "@/lib/server/request-auth";
 import { toPrismaJson } from "@/lib/prisma-json";
 import { syncSessionAfterConversation } from "@/lib/session-service";
 import { sanitizeFormattedTranscript, sanitizeSummaryMarkdown } from "@/lib/user-facing-japanese";
 import { normalizeRawTranscriptText, pickDisplayTranscriptText } from "@/lib/transcript/source";
 import { maybeStopRunpodWorkerWhenSessionPartQueueIdle } from "@/lib/runpod/idle-stop";
+import { maybeEnsureRunpodWorker } from "@/lib/runpod/worker-control";
 
 function toStringArray(value: unknown) {
   if (!Array.isArray(value)) return [];
@@ -67,7 +69,11 @@ export async function GET(
         return NextResponse.json({ error: "not found" }, { status: 404 });
       }
       if (process === "1") {
-        void processAllConversationJobs(params.id).catch(() => {});
+        if (shouldRunBackgroundJobsInline()) {
+          void processAllConversationJobs(params.id).catch(() => {});
+        } else if (briefConversation.status === "PROCESSING") {
+          void maybeEnsureRunpodWorker().catch(() => {});
+        }
       }
       return NextResponse.json({ conversation: briefConversation });
     }
@@ -125,13 +131,17 @@ export async function GET(
       return NextResponse.json({ error: "not found" }, { status: 404 });
     }
     if (process === "1") {
-      void (async () => {
-        try {
-          await processAllConversationJobs(params.id);
-        } finally {
-          await maybeStopRunpodWorkerWhenSessionPartQueueIdle().catch(() => {});
-        }
-      })();
+      if (shouldRunBackgroundJobsInline()) {
+        void (async () => {
+          try {
+            await processAllConversationJobs(params.id);
+          } finally {
+            await maybeStopRunpodWorkerWhenSessionPartQueueIdle().catch(() => {});
+          }
+        })();
+      } else if (conversation.status === "PROCESSING") {
+        void maybeEnsureRunpodWorker().catch(() => {});
+      }
     }
 
     const renderedSummary = renderConversationArtifactOrFallback(

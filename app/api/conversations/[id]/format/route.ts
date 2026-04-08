@@ -2,8 +2,10 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { ConversationJobType, JobStatus } from "@prisma/client";
 import { processAllConversationJobs } from "@/lib/jobs/conversationJobs";
+import { shouldRunBackgroundJobsInline } from "@/lib/jobs/execution-mode";
 import { requireAuthorizedSession } from "@/lib/server/request-auth";
 import { maybeStopRunpodWorkerWhenSessionPartQueueIdle } from "@/lib/runpod/idle-stop";
+import { maybeEnsureRunpodWorker } from "@/lib/runpod/worker-control";
 
 export async function POST(
   _request: Request,
@@ -48,15 +50,21 @@ export async function POST(
       skipDuplicates: true,
     });
 
-    void (async () => {
-      try {
-        await processAllConversationJobs(params.id);
-      } catch (error) {
-        console.error("[POST /api/conversations/[id]/format] Background process failed:", error);
-      } finally {
-        await maybeStopRunpodWorkerWhenSessionPartQueueIdle().catch(() => {});
-      }
-    })();
+    if (shouldRunBackgroundJobsInline()) {
+      void (async () => {
+        try {
+          await processAllConversationJobs(params.id);
+        } catch (error) {
+          console.error("[POST /api/conversations/[id]/format] Background process failed:", error);
+        } finally {
+          await maybeStopRunpodWorkerWhenSessionPartQueueIdle().catch(() => {});
+        }
+      })();
+    } else {
+      void maybeEnsureRunpodWorker().catch((error) => {
+        console.error("[POST /api/conversations/[id]/format] Runpod wake failed:", error);
+      });
+    }
 
     return NextResponse.json({ ok: true, message: "format job queued" });
   } catch (error: any) {

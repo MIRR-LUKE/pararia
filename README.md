@@ -305,6 +305,7 @@ Pararia は、いまの作りだと Runpod の **Serverless endpoint** より **
 - Vercel 側は upload と job 登録だけを行う
 - 音声は Blob に置く
 - Runpod Pod は `npm run worker:runpod` で queue を処理し、STT 後そのまま LLM `FINALIZE` まで進める
+- `external` mode では web 側は queue へ enqueue するだけで、conversation job を inline 実行しない
 
 repo には Runpod 用の worker イメージ定義を入れています。
 
@@ -319,6 +320,7 @@ GitHub Actions の `Publish Runpod Worker Image` が通ると、GHCR に worker 
 
 - `ghcr.io/<GitHub owner>/pararia-runpod-worker:latest`
 - `ghcr.io/<GitHub owner>/pararia-runpod-worker:sha-...`
+- Vercel 上で `RUNPOD_WORKER_IMAGE` を未設定にすると、`VERCEL_GIT_COMMIT_SHA` から `:sha-...` を自動採用する
 
 Runpod REST API で Pod を作る / 起こす / 止めるスクリプトも入れています。
 
@@ -348,6 +350,7 @@ Runpod 側では、Pod 作成時に次を入れれば動きます。
 - `PARARIA_AUDIO_STORAGE_MODE=blob`
 - `PARARIA_AUDIO_BLOB_ACCESS=private`
 - `NEXT_PUBLIC_AUDIO_STORAGE_MODE=blob`
+- `RUNPOD_WORKER_IMAGE` はできれば `:sha-...` 固定、未設定でも Vercel 上では現在の commit sha を優先
 
 private GHCR image を使うときは、Runpod 側の container registry auth を作って
 `RUNPOD_WORKER_CONTAINER_REGISTRY_AUTH_ID` も渡す。
@@ -366,6 +369,7 @@ on-demand 運用のときは、worker は queue が空のまま `RUNPOD_WORKER_A
 
 本番 web の upload / regenerate から自動で Pod を wake したい場合は、Vercel 側の server env にも `RUNPOD_API_KEY` を入れて deploy してください。
 それが未設定でも、ローカル端末から `npm run runpod:start -- --wait` で手動 wake はできます。
+同時 upload が重なったときも、web 側は短い DB lock で wake を直列化して二重 Pod 作成を避けます。
 
 `npm run runpod:start -- --wait` は、Pod が `RUNNING` になるだけでなく、worker の `db-ok` heartbeat が出るまで待ちます。
 
@@ -405,6 +409,7 @@ GPU が強いときの最初の目安:
 - `RTX 5090` など Blackwell では `cuBLAS` の制約を避けるため `float16` 系を優先する
 - production queue から特定の session だけ処理したいときは `RUNPOD_WORKER_ONLY_SESSION_ID` を使う
 - STT だけ測りたいときは `RUNPOD_WORKER_CONVERSATION_LIMIT=0` で conversation job を止められる
+- 通常運用の既定値は `RUNPOD_WORKER_CONVERSATION_LIMIT=6` で、STT と conversation queue の両方を worker が処理する
 
 まずは `chunking off / pool 1` のまま、1 本の音声をそのまま GPU に流すのが安全です。
   - 終盤 `6` 行
@@ -790,7 +795,7 @@ PARARIA_AUDIO_RETENTION_DAYS=14
 - worker image は `Dockerfile.runpod-worker` と `.github/workflows/publish-runpod-worker.yml` から GHCR へ publish する
 - `RUNPOD_API_KEY` を web 側にも入れると、upload / regenerate 時に Pod を自動 wake できる
 - `RUNPOD_WORKER_AUTO_STOP_IDLE_MS` を入れておくと、queue が空のまま一定時間たった Pod を自動 stop できる
-- STT queue が空になった時点で、worker 側と web 側の両方から stop を掛ける
+- stop 判定は `SessionPartJob` と `ConversationJob` の `QUEUED / RUNNING` が両方ゼロの時だけ掛ける
 
 開発機で worker を直接検証したいときだけ、次を使う:
 

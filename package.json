@@ -24,6 +24,7 @@
     "test:parent-report-generation": "tsx scripts/test-parent-report-generation.ts",
     "test:log-editing": "tsx scripts/test-log-editing.ts",
     "test:recording-policy": "tsx scripts/test-recording-policy.ts",
+    "test:runpod-queue-ownership": "tsx scripts/test-runpod-queue-ownership.ts",
     "benchmark:interview-log": "tsx scripts/run-interview-log-benchmark.ts",
     "worker:runpod": "tsx scripts/run-runpod-worker.ts",
     "worker:runpod:once": "tsx scripts/run-runpod-worker.ts --once",

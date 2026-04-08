@@ -8,6 +8,7 @@ import { requireAuthorizedSession } from "@/lib/server/request-auth";
 import { pickDisplayTranscriptText } from "@/lib/transcript/source";
 import { shouldRunBackgroundJobsInline } from "@/lib/jobs/execution-mode";
 import { maybeStopRunpodWorkerWhenSessionPartQueueIdle } from "@/lib/runpod/idle-stop";
+import { maybeEnsureRunpodWorker } from "@/lib/runpod/worker-control";
 
 export async function GET(
   request: Request,
@@ -65,14 +66,21 @@ export async function GET(
     if (searchParams.get("process") === "1") {
       if (shouldRunBackgroundJobsInline()) {
         void processAllSessionPartJobs(session.id).catch(() => {});
-      }
-      if (session.conversation?.id) {
         void (async () => {
           try {
-            await processAllConversationJobs(session.conversation!.id);
+            if (session.conversation?.id) {
+              await processAllConversationJobs(session.conversation.id);
+            }
           } catch {}
         })();
         await maybeStopRunpodWorkerWhenSessionPartQueueIdle().catch(() => {});
+      } else {
+        const needsWorkerWake =
+          session.parts.some((part) => part.status === "PENDING" || part.status === "UPLOADING" || part.status === "TRANSCRIBING") ||
+          session.conversation?.status === "PROCESSING";
+        if (needsWorkerWake) {
+          void maybeEnsureRunpodWorker().catch(() => {});
+        }
       }
     }
 
