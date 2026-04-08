@@ -31,7 +31,6 @@ export async function getRecordingLockView(opts: {
   studentId: string;
   viewerUserId?: string | null;
 }) {
-  await pruneExpiredRecordingLock(opts.studentId);
   const row = await prisma.studentRecordingLock.findUnique({
     where: { studentId: opts.studentId },
     include: {

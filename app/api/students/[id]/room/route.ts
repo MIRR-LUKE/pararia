@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
+import { runWithDatabaseRetry } from "@/lib/db-retry";
 import { buildReportDeliverySummary } from "@/lib/report-delivery";
 import { getRecordingLockView } from "@/lib/recording/lockService";
 import { buildSessionProgressState } from "@/lib/session-progress";
@@ -17,104 +18,122 @@ export async function GET(
     if (authResult.response) return authResult.response;
     const authSession = authResult.session;
 
-    const student = await prisma.student.findFirst({
-      where: { id: params.id, organizationId: authSession.user.organizationId },
-      include: {
-        profiles: {
-          orderBy: { createdAt: "desc" },
-          take: 1,
-        },
-        sessions: {
-          orderBy: [{ sessionDate: "desc" }, { createdAt: "desc" }],
-          include: {
-            parts: {
-              select: {
-                id: true,
-                partType: true,
-                status: true,
-                sourceType: true,
-                fileName: true,
-                rawTextOriginal: true,
-                rawTextCleaned: true,
-                reviewedText: true,
-                reviewState: true,
-                qualityMetaJson: true,
-                createdAt: true,
-              },
-              orderBy: { createdAt: "asc" },
+    const student = await runWithDatabaseRetry("student-room", () =>
+      prisma.student.findFirst({
+        where: { id: params.id, organizationId: authSession.user.organizationId },
+        select: {
+          id: true,
+          name: true,
+          grade: true,
+          course: true,
+          guardianNames: true,
+          profiles: {
+            orderBy: { createdAt: "desc" },
+            take: 1,
+            select: {
+              id: true,
+              profileData: true,
+              createdAt: true,
             },
-            conversation: {
-              select: {
-                id: true,
-                status: true,
-                reviewState: true,
-                artifactJson: true,
-                summaryMarkdown: true,
-                createdAt: true,
-                jobs: {
-                  select: {
-                    type: true,
-                    status: true,
-                    startedAt: true,
-                    finishedAt: true,
+          },
+          sessions: {
+            orderBy: [{ sessionDate: "desc" }, { createdAt: "desc" }],
+            take: 12,
+            select: {
+              id: true,
+              type: true,
+              status: true,
+              title: true,
+              sessionDate: true,
+              heroStateLabel: true,
+              heroOneLiner: true,
+              latestSummary: true,
+              parts: {
+                select: {
+                  id: true,
+                  partType: true,
+                  status: true,
+                  fileName: true,
+                  rawTextOriginal: true,
+                  rawTextCleaned: true,
+                  reviewedText: true,
+                  reviewState: true,
+                  qualityMetaJson: true,
+                  createdAt: true,
+                },
+                orderBy: { createdAt: "asc" },
+              },
+              conversation: {
+                select: {
+                  id: true,
+                  status: true,
+                  reviewState: true,
+                  artifactJson: true,
+                  summaryMarkdown: true,
+                  createdAt: true,
+                  jobs: {
+                    select: {
+                      type: true,
+                      status: true,
+                      startedAt: true,
+                      finishedAt: true,
+                    },
+                  },
+                },
+              },
+              nextMeetingMemo: {
+                select: {
+                  id: true,
+                  status: true,
+                  previousSummary: true,
+                  suggestedTopics: true,
+                  errorMessage: true,
+                  updatedAt: true,
+                  conversationId: true,
+                  sessionId: true,
+                },
+              },
+            },
+          },
+          reports: {
+            orderBy: { createdAt: "desc" },
+            take: 6,
+            select: {
+              id: true,
+              status: true,
+              reportMarkdown: true,
+              createdAt: true,
+              sentAt: true,
+              reviewedAt: true,
+              deliveryChannel: true,
+              qualityChecksJson: true,
+              sourceLogIds: true,
+              deliveryEvents: {
+                orderBy: { createdAt: "asc" },
+                select: {
+                  id: true,
+                  eventType: true,
+                  deliveryChannel: true,
+                  note: true,
+                  createdAt: true,
+                  actor: {
+                    select: {
+                      id: true,
+                      name: true,
+                      email: true,
+                    },
                   },
                 },
               },
             },
-            nextMeetingMemo: {
-              select: {
-                id: true,
-                status: true,
-                previousSummary: true,
-                suggestedTopics: true,
-                errorMessage: true,
-                updatedAt: true,
-                conversationId: true,
-                sessionId: true,
-              },
-            },
-          },
-          take: 12,
-        },
-        reports: {
-          orderBy: { createdAt: "desc" },
-          take: 6,
-          include: {
-            deliveryEvents: {
-              orderBy: { createdAt: "asc" },
-              include: {
-                actor: {
-                  select: {
-                    id: true,
-                    name: true,
-                    email: true,
-                  },
-                },
-              },
-            },
           },
         },
-      },
-    });
+      })
+    );
 
     if (!student) {
       return NextResponse.json({ error: "student not found" }, { status: 404 });
     }
-
-    const latestConversation = await prisma.conversationLog.findFirst({
-      where: {
-        studentId: student.id,
-        organizationId: authSession.user.organizationId,
-      },
-      orderBy: { createdAt: "desc" },
-      select: {
-        id: true,
-        status: true,
-        reviewState: true,
-        summaryMarkdown: true,
-        createdAt: true,
-      },
-    });
 
     const sessions = student.sessions.map((session) => {
       const summaryMarkdown = sanitizeSummaryMarkdown(session.conversation?.summaryMarkdown ?? "");
@@ -160,6 +179,7 @@ export async function GET(
       };
     });
 
+    const latestConversation = sessions.find((session) => Boolean(session.conversation))?.conversation ?? null;
     const latestConversationWithDerived = latestConversation
       ? {
           id: latestConversation.id,
@@ -170,13 +190,22 @@ export async function GET(
         }
       : null;
 
-    const recordingLock = await getRecordingLockView({
-      studentId: student.id,
-      viewerUserId: authSession?.user?.id ?? null,
-    });
+    const recordingLock = await runWithDatabaseRetry("recording-lock-view", () =>
+      getRecordingLockView({
+        studentId: student.id,
+        viewerUserId: authSession?.user?.id ?? null,
+      })
+    );
 
     return NextResponse.json({
-      student,
+      student: {
+        id: student.id,
+        name: student.name,
+        grade: student.grade,
+        course: student.course,
+        guardianNames: student.guardianNames,
+        profiles: student.profiles,
+      },
       latestConversation: latestConversationWithDerived,
       latestProfile: student.profiles[0] ?? null,
       sessions,

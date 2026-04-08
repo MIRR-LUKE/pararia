@@ -351,6 +351,7 @@ Runpod 側では、Pod 作成時に次を入れれば動きます。
 必須 env:
 
 - `DATABASE_URL`
+  - Supabase / Neon など pooled URL を使うときは `connection_limit=1` を付ける
 - `DIRECT_URL`
 - `BLOB_READ_WRITE_TOKEN`
 - `OPENAI_API_KEY`
