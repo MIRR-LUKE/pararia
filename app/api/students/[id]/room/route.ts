@@ -5,9 +5,7 @@ import { buildReportDeliverySummary } from "@/lib/report-delivery";
 import { getRecordingLockView } from "@/lib/recording/lockService";
 import { buildSessionProgressState } from "@/lib/session-progress";
 import { requireAuthorizedSession } from "@/lib/server/request-auth";
-import { buildSummaryPreview } from "@/lib/session-part-meta";
-import { pickDisplayTranscriptText } from "@/lib/transcript/source";
-import { sanitizeReportMarkdown, sanitizeSummaryMarkdown } from "@/lib/user-facing-japanese";
+import { sanitizeReportMarkdown } from "@/lib/user-facing-japanese";
 
 export async function GET(
   _request: Request,
@@ -54,9 +52,6 @@ export async function GET(
                   partType: true,
                   status: true,
                   fileName: true,
-                  rawTextOriginal: true,
-                  rawTextCleaned: true,
-                  reviewedText: true,
                   reviewState: true,
                   qualityMetaJson: true,
                   createdAt: true,
@@ -68,8 +63,6 @@ export async function GET(
                   id: true,
                   status: true,
                   reviewState: true,
-                  artifactJson: true,
-                  summaryMarkdown: true,
                   createdAt: true,
                   jobs: {
                     select: {
@@ -136,19 +129,11 @@ export async function GET(
     }
 
     const sessions = student.sessions.map((session) => {
-      const summaryMarkdown = sanitizeSummaryMarkdown(session.conversation?.summaryMarkdown ?? "");
       const parts = session.parts.map((part) => ({
         id: part.id,
         partType: part.partType,
         status: part.status,
         fileName: part.fileName,
-        previewText: buildSummaryPreview(
-          pickDisplayTranscriptText({
-            rawTextCleaned: part.rawTextCleaned,
-            reviewedText: part.reviewedText,
-            rawTextOriginal: part.rawTextOriginal,
-          })
-        ),
         reviewState: part.reviewState,
         qualityMetaJson: part.qualityMetaJson,
       }));
@@ -157,8 +142,6 @@ export async function GET(
             id: session.conversation.id,
             status: session.conversation.status,
             reviewState: session.conversation.reviewState,
-            artifactJson: session.conversation.artifactJson,
-            summaryMarkdown,
             createdAt: session.conversation.createdAt,
           }
         : null;
@@ -185,7 +168,6 @@ export async function GET(
           id: latestConversation.id,
           status: latestConversation.status,
           reviewState: latestConversation.reviewState,
-          summaryMarkdown: sanitizeSummaryMarkdown(latestConversation.summaryMarkdown ?? ""),
           createdAt: latestConversation.createdAt,
         }
       : null;

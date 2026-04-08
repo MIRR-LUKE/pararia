@@ -267,7 +267,7 @@ export default function StudentDetailPage({ params }: { params: { studentId: str
   const candidateReportSessions = useMemo(
     () =>
       (room?.sessions ?? []).filter(
-        (session) => session.type === "INTERVIEW" && Boolean(session.conversation?.summaryMarkdown?.trim())
+        (session) => session.type === "INTERVIEW" && session.conversation?.status === "DONE"
       ),
     [room?.sessions]
   );

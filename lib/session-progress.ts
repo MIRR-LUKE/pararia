@@ -223,7 +223,7 @@ type SessionProcessingErrorState = {
 };
 
 function partHasTranscript(part: SessionProgressPartLike, meta: ReturnType<typeof readSessionPartMeta>) {
-  return Boolean(part.rawTextCleaned?.trim() || part.rawTextOriginal?.trim() || meta.summaryPreview || meta.lastCompletedAt);
+  return Boolean(meta.summaryPreview || meta.lastCompletedAt || part.status === "READY");
 }
 
 function extractProcessingErrorState(parts: SessionProgressPartLike[]): SessionProcessingErrorState | null {
