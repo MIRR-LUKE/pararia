@@ -10,6 +10,7 @@ type RecordingUiResult = {
   label: string;
   baseUrl: string;
   studentId: string;
+  completionState: "leave-safety" | "success" | "rejected";
   startToPreparingMs: number;
   startToRecordingMs: number;
   recordToStopEnabledMs: number | null;
@@ -200,13 +201,26 @@ async function main() {
   const keepArtifacts = hasFlag("--keep-artifacts") || process.env.RECORDING_UI_KEEP_ARTIFACTS === "1";
   const skipNavigationDialog = hasFlag("--skip-navigation-dialog");
   const leaveSafetyOnly = hasFlag("--leave-safety-only");
+  const expectRejection = hasFlag("--expect-rejection");
+  const uploadFilePathArg = argValue("--upload-file-path") || process.env.RECORDING_UI_UPLOAD_FILE_PATH;
   const outputPath = path.resolve(
     process.cwd(),
     argValue("--output") || process.env.RECORDING_UI_OUTPUT || `.tmp/recording-ui-${label}.json`
   );
   const fakeMp3Path = path.resolve(process.cwd(), ".tmp/prod-e2e-65s.mp3");
-  const fakeWavPath = path.resolve(process.cwd(), ".tmp/recording-ui-125s.wav");
-  await ensureFakeAudioFile(fakeWavPath, fakeMp3Path);
+  const fakeAudioPathArg = argValue("--fake-audio-path") || process.env.RECORDING_UI_FAKE_AUDIO_PATH;
+  const fakeAudioPath = fakeAudioPathArg
+    ? path.resolve(process.cwd(), fakeAudioPathArg)
+    : path.resolve(process.cwd(), ".tmp/recording-ui-125s.wav");
+  const uploadFilePath = uploadFilePathArg ? path.resolve(process.cwd(), uploadFilePathArg) : null;
+  if (!fakeAudioPathArg) {
+    await ensureFakeAudioFile(fakeAudioPath, fakeMp3Path);
+  } else if (!(await fileExists(fakeAudioPath))) {
+    throw new Error(`指定された fake audio が見つかりません: ${fakeAudioPath}`);
+  }
+  if (uploadFilePath && !(await fileExists(uploadFilePath))) {
+    throw new Error(`指定された upload file が見つかりません: ${uploadFilePath}`);
+  }
 
   const browser = await chromium.launch({
     headless: true,
@@ -214,7 +228,7 @@ async function main() {
     args: [
       "--use-fake-ui-for-media-stream",
       "--use-fake-device-for-media-stream",
-      `--use-file-for-fake-audio-capture=${fakeWavPath}`,
+      `--use-file-for-fake-audio-capture=${fakeAudioPath}`,
     ],
   });
 
@@ -268,26 +282,42 @@ async function main() {
       "録音 UI が初期状態になりませんでした。"
     );
 
-    const startButton = page.locator('[data-testid="recording-start-button"]');
     const clickStartedAt = Date.now();
-    await startButton.click();
+    let startToPreparingMs = 0;
+    let startToRecordingMs = 0;
+    let recordToStopEnabledMs: number | null = null;
 
-    await waitForCondition(
-      5_000,
-      async () => (await page.getAttribute("[data-recording-state]", "data-recording-state")) === "preparing",
-      "録音準備状態へ遷移しませんでした。"
-    );
-    const startToPreparingMs = Date.now() - clickStartedAt;
+    if (uploadFilePath) {
+      await page.locator('input[type="file"]').setInputFiles(uploadFilePath);
+      await waitForCondition(
+        10_000,
+        async () => {
+          const state = await page.getAttribute("[data-recording-state]", "data-recording-state");
+          return state === "uploading" || state === "processing";
+        },
+        "ファイル選択後にアップロード処理へ進みませんでした。"
+      );
+    } else {
+      const startButton = page.locator('[data-testid="recording-start-button"]');
+      await startButton.click();
 
-    await waitForCondition(
-      20_000,
-      async () => (await page.getAttribute("[data-recording-state]", "data-recording-state")) === "recording",
-      "録音開始まで進みませんでした。"
-    );
-    const startToRecordingMs = Date.now() - clickStartedAt;
+      await waitForCondition(
+        5_000,
+        async () => (await page.getAttribute("[data-recording-state]", "data-recording-state")) === "preparing",
+        "録音準備状態へ遷移しませんでした。"
+      );
+      startToPreparingMs = Date.now() - clickStartedAt;
+
+      await waitForCondition(
+        20_000,
+        async () => (await page.getAttribute("[data-recording-state]", "data-recording-state")) === "recording",
+        "録音開始まで進みませんでした。"
+      );
+      startToRecordingMs = Date.now() - clickStartedAt;
+    }
 
     let navigationDialogMessage: string | null = null;
-    if (!skipNavigationDialog) {
+    if (!skipNavigationDialog && !uploadFilePath) {
       await page.waitForTimeout(2_000);
       const dialogPromise = page.waitForEvent("dialog", { timeout: 5_000 });
       await page.reload({ waitUntil: "domcontentloaded" }).catch(() => {});
@@ -308,6 +338,7 @@ async function main() {
         label,
         baseUrl,
         studentId,
+        completionState: "leave-safety",
         startToPreparingMs,
         startToRecordingMs,
         recordToStopEnabledMs: null,
@@ -324,18 +355,20 @@ async function main() {
       };
       console.log(JSON.stringify(result, null, 2));
       await writeFile(outputPath, JSON.stringify(result, null, 2), "utf8");
-      return;
+        return;
     }
 
-    const stopButton = page.locator('[data-testid="recording-stop-button"]');
-    await waitForCondition(
-      90_000,
-      async () => !(await stopButton.isDisabled()),
-      "録音終了ボタンが有効になる前にタイムアウトしました。"
-    );
-    const recordToStopEnabledMs = Date.now() - clickStartedAt;
-    await stopButton.click();
     const stopClickedAt = Date.now();
+    if (!uploadFilePath) {
+      const stopButton = page.locator('[data-testid="recording-stop-button"]');
+      await waitForCondition(
+        90_000,
+        async () => !(await stopButton.isDisabled()),
+        "録音終了ボタンが有効になる前にタイムアウトしました。"
+      );
+      recordToStopEnabledMs = Date.now() - clickStartedAt;
+      await stopButton.click();
+    }
 
     const observedStates = new Set<string>();
     await waitForCondition(
@@ -344,31 +377,48 @@ async function main() {
         const state = await page.getAttribute("[data-recording-state]", "data-recording-state");
         if (state) observedStates.add(state);
         const bodyText = (await page.textContent("body")) || "";
-        if (bodyText.includes("処理に失敗しました")) {
+        const rejectionDetected =
+          bodyText.includes("文字起こしの結果、会話として十分な内容が認められませんでした") ||
+          bodyText.includes("会話量が足りず停止しました");
+        if (!expectRejection && bodyText.includes("処理に失敗しました")) {
+          throw new Error(bodyText.slice(bodyText.indexOf("処理に失敗しました"), bodyText.indexOf("処理に失敗しました") + 240));
+        }
+        if (expectRejection && bodyText.includes("処理に失敗しました") && !rejectionDetected) {
           throw new Error(bodyText.slice(bodyText.indexOf("処理に失敗しました"), bodyText.indexOf("処理に失敗しました") + 240));
         }
         if (bodyText.includes("未送信の録音データがあります")) {
           throw new Error("処理中に未送信の録音データ警告が表示されました。");
         }
-        return bodyText.includes("保存が完了しました");
+        return expectRejection ? rejectionDetected : bodyText.includes("保存が完了しました");
       },
-      "録音後の生成完了までタイムアウトしました。"
+      expectRejection ? "録音後の reject 表示までタイムアウトしました。" : "録音後の生成完了までタイムアウトしました。"
     );
     const stopToSuccessMs = Date.now() - stopClickedAt;
     const totalMs = Date.now() - clickStartedAt;
 
-    const openLogButton = page.getByRole("button", { name: "ログを確認" });
-    await openLogButton.click();
-    await page.getByText("ログを確認する").waitFor({ timeout: 10_000 });
-    const generatedLogPreview = ((await page.textContent("body")) || "").slice(0, 400);
-
-    const artifacts = await waitForSessionArtifacts(context.request, baseUrl, studentId);
     const runpodStoppedAfterRun = await waitForRunpodStop(envFile);
+    let generatedLogPreview: string | null = null;
+    let artifacts: {
+      sessionId: string;
+      conversationId: string;
+      nextMeetingMemoStatus: string | null;
+    } | null = null;
+
+    if (!expectRejection) {
+      const openLogButton = page.getByRole("button", { name: "ログを確認" });
+      await openLogButton.click();
+      await page.getByText("ログを確認する").waitFor({ timeout: 10_000 });
+      generatedLogPreview = ((await page.textContent("body")) || "").slice(0, 400);
+      artifacts = await waitForSessionArtifacts(context.request, baseUrl, studentId);
+    } else {
+      generatedLogPreview = ((await page.textContent("body")) || "").slice(0, 400);
+    }
 
     const result: RecordingUiResult = {
       label,
       baseUrl,
       studentId,
+      completionState: expectRejection ? "rejected" : "success",
       startToPreparingMs,
       startToRecordingMs,
       recordToStopEnabledMs,
@@ -376,9 +426,9 @@ async function main() {
       totalMs,
       navigationDialogMessage,
       runpodStoppedAfterRun,
-      nextMeetingMemoStatus: artifacts.nextMeetingMemoStatus,
-      createdSessionId: artifacts.sessionId,
-      createdConversationId: artifacts.conversationId,
+      nextMeetingMemoStatus: artifacts?.nextMeetingMemoStatus ?? null,
+      createdSessionId: artifacts?.sessionId ?? null,
+      createdConversationId: artifacts?.conversationId ?? null,
       generatedLogPreview,
       observedStates: Array.from(observedStates),
       consoleErrors,
