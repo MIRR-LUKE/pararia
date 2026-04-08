@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from "crypto";
-import { RecordingLockMode } from "@prisma/client";
+import { Prisma, RecordingLockMode } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { RECORDING_LOCK_TTL_MS } from "@/lib/recording/lockConstants";
 
@@ -76,69 +76,107 @@ export async function acquireRecordingLock(opts: {
   organizationId: string;
   mode: RecordingLockMode;
 }): Promise<AcquireRecordingLockResult> {
-  const student = await prisma.student.findUnique({
-    where: { id: opts.studentId },
-    select: { id: true, organizationId: true },
-  });
-  if (!student || student.organizationId !== opts.organizationId) {
-    throw new Error("student not found or organization mismatch");
-  }
-
   const now = new Date();
   const plainToken = generateRecordingLockToken();
   const tokenHash = hashRecordingLockToken(plainToken);
   const expiresAt = computeExpiresAt(now);
+  const buildSuccess = () => ({
+    ok: true as const,
+    lockToken: plainToken,
+    expiresAt: expiresAt.toISOString(),
+    mode: opts.mode,
+  });
+  const buildConflict = (existing: {
+    lockedByUserId: string;
+    lockedBy: { name: string };
+    mode: RecordingLockMode;
+    expiresAt: Date;
+  }) => ({
+    ok: false as const,
+    code: "conflict" as const,
+    messageJa: `${existing.lockedBy.name} さんが録音中です。しばらくお待ちになるか、管理者にロック解除を依頼してください。`,
+    lockedByUserId: existing.lockedByUserId,
+    lockedByName: existing.lockedBy.name,
+    mode: existing.mode,
+    expiresAt: existing.expiresAt.toISOString(),
+  });
+  const isUniqueConstraintError = (error: unknown) =>
+    error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002";
 
-  const result = await prisma.$transaction(async (tx) => {
-    const existing = await tx.studentRecordingLock.findUnique({
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const existing = await prisma.studentRecordingLock.findUnique({
       where: { studentId: opts.studentId },
       include: { lockedBy: { select: { name: true } } },
     });
 
-    if (existing && existing.expiresAt > now) {
-      if (existing.lockedByUserId !== opts.userId) {
-        return {
-          ok: false as const,
-          code: "conflict" as const,
-          messageJa: `${existing.lockedBy.name} さんが録音中です。しばらくお待ちになるか、管理者にロック解除を依頼してください。`,
-          lockedByUserId: existing.lockedByUserId,
-          lockedByName: existing.lockedBy.name,
-          mode: existing.mode,
-          expiresAt: existing.expiresAt.toISOString(),
-        };
+    if (existing) {
+      if (existing.expiresAt > now && existing.lockedByUserId !== opts.userId) {
+        return buildConflict(existing);
       }
+
+      if (existing.expiresAt <= now) {
+        await prisma.studentRecordingLock.deleteMany({
+          where: {
+            studentId: opts.studentId,
+            expiresAt: { lte: now },
+          },
+        });
+        continue;
+      }
+
+      const updated = await prisma.studentRecordingLock.updateMany({
+        where: {
+          studentId: opts.studentId,
+          lockedByUserId: opts.userId,
+        },
+        data: {
+          organizationId: opts.organizationId,
+          lockedByUserId: opts.userId,
+          lockTokenHash: tokenHash,
+          mode: opts.mode,
+          lastHeartbeatAt: now,
+          expiresAt,
+        },
+      });
+
+      if (updated.count > 0) {
+        return buildSuccess();
+      }
+
+      continue;
     }
 
-    await tx.studentRecordingLock.upsert({
-      where: { studentId: opts.studentId },
-      create: {
-        studentId: opts.studentId,
-        organizationId: student.organizationId,
-        lockedByUserId: opts.userId,
-        lockTokenHash: tokenHash,
-        mode: opts.mode,
-        lastHeartbeatAt: now,
-        expiresAt,
-      },
-      update: {
-        lockedByUserId: opts.userId,
-        lockTokenHash: tokenHash,
-        organizationId: student.organizationId,
-        mode: opts.mode,
-        lastHeartbeatAt: now,
-        expiresAt,
-      },
-    });
+    try {
+      await prisma.studentRecordingLock.create({
+        data: {
+          studentId: opts.studentId,
+          organizationId: opts.organizationId,
+          lockedByUserId: opts.userId,
+          lockTokenHash: tokenHash,
+          mode: opts.mode,
+          lastHeartbeatAt: now,
+          expiresAt,
+        },
+      });
+      return buildSuccess();
+    } catch (error) {
+      if (isUniqueConstraintError(error)) {
+        continue;
+      }
+      throw error;
+    }
+  }
 
-    return {
-      ok: true as const,
-      lockToken: plainToken,
-      expiresAt: expiresAt.toISOString(),
-      mode: opts.mode,
-    };
+  const finalExisting = await prisma.studentRecordingLock.findUnique({
+    where: { studentId: opts.studentId },
+    include: { lockedBy: { select: { name: true } } },
   });
 
-  return result;
+  if (finalExisting && finalExisting.expiresAt > now && finalExisting.lockedByUserId !== opts.userId) {
+    return buildConflict(finalExisting);
+  }
+
+  throw new Error("録音ロックの取得に失敗しました。少し待ってからもう一度お試しください。");
 }
 
 export async function heartbeatRecordingLock(opts: {

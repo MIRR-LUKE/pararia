@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { RecordingLockMode, UserRole } from "@prisma/client";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/db";
+import { runWithDatabaseRetry } from "@/lib/db-retry";
+import { shouldRunBackgroundJobsInline } from "@/lib/jobs/execution-mode";
 import {
   acquireRecordingLock,
   forceReleaseRecordingLock,
@@ -9,6 +11,7 @@ import {
   heartbeatRecordingLock,
   releaseRecordingLock,
 } from "@/lib/recording/lockService";
+import { maybeEnsureRunpodWorker } from "@/lib/runpod/worker-control";
 
 export const dynamic = "force-dynamic";
 
@@ -25,10 +28,12 @@ function canForceReleaseRole(role: string | undefined) {
 }
 
 async function assertStudentAccess(studentId: string, organizationId: string) {
-  const student = await prisma.student.findUnique({
-    where: { id: studentId },
-    select: { id: true, organizationId: true },
-  });
+  const student = await runWithDatabaseRetry("recording-lock-student-access", () =>
+    prisma.student.findUnique({
+      where: { id: studentId },
+      select: { id: true, organizationId: true },
+    })
+  );
   if (!student || student.organizationId !== organizationId) {
     return null;
   }
@@ -46,10 +51,12 @@ export async function GET(_request: Request, { params }: { params: { id: string 
       return NextResponse.json({ error: "生徒が見つかりません。" }, { status: 404 });
     }
 
-    const view = await getRecordingLockView({
-      studentId: params.id,
-      viewerUserId: session.user.id,
-    });
+    const view = await runWithDatabaseRetry("recording-lock-view", () =>
+      getRecordingLockView({
+        studentId: params.id,
+        viewerUserId: session.user.id,
+      })
+    );
     return NextResponse.json(view);
   } catch (e: any) {
     console.error("[GET recording-lock]", e);
@@ -73,12 +80,16 @@ export async function POST(request: Request, { params }: { params: { id: string 
       if (!canForceReleaseRole(session.user.role)) {
         return NextResponse.json({ error: "ロックの強制解除は管理者のみ実行できます。" }, { status: 403 });
       }
-      await forceReleaseRecordingLock({
-        studentId: params.id,
-        actorUserId: session.user.id,
-        reason: typeof body?.reason === "string" ? body.reason : undefined,
-      });
-      const view = await getRecordingLockView({ studentId: params.id, viewerUserId: session.user.id });
+      await runWithDatabaseRetry("recording-lock-force-release", () =>
+        forceReleaseRecordingLock({
+          studentId: params.id,
+          actorUserId: session.user.id,
+          reason: typeof body?.reason === "string" ? body.reason : undefined,
+        })
+      );
+      const view = await runWithDatabaseRetry("recording-lock-view", () =>
+        getRecordingLockView({ studentId: params.id, viewerUserId: session.user.id })
+      );
       return NextResponse.json({ released: true, ...view });
     }
 
@@ -87,12 +98,14 @@ export async function POST(request: Request, { params }: { params: { id: string 
       return NextResponse.json({ error: "mode は INTERVIEW または LESSON_REPORT を指定してください。" }, { status: 400 });
     }
 
-    const result = await acquireRecordingLock({
-      studentId: params.id,
-      userId: session.user.id,
-      organizationId: session.user.organizationId,
-      mode,
-    });
+    const result = await runWithDatabaseRetry("recording-lock-acquire", () =>
+      acquireRecordingLock({
+        studentId: params.id,
+        userId: session.user.id,
+        organizationId: session.user.organizationId,
+        mode,
+      })
+    );
 
     if (!result.ok) {
       return NextResponse.json(
@@ -108,6 +121,12 @@ export async function POST(request: Request, { params }: { params: { id: string 
         },
         { status: 409 }
       );
+    }
+
+    if (!shouldRunBackgroundJobsInline() && mode === RecordingLockMode.INTERVIEW) {
+      void maybeEnsureRunpodWorker().catch((error) => {
+        console.error("[POST recording-lock] Runpod worker wake failed:", error);
+      });
     }
 
     return NextResponse.json({
@@ -127,22 +146,19 @@ export async function PATCH(request: Request, { params }: { params: { id: string
     if (!session?.user?.id || !session.user.organizationId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    const student = await assertStudentAccess(params.id, session.user.organizationId);
-    if (!student) {
-      return NextResponse.json({ error: "生徒が見つかりません。" }, { status: 404 });
-    }
-
     const body = await request.json().catch(() => ({}));
     const lockToken = typeof body?.lockToken === "string" ? body.lockToken.trim() : "";
     if (!lockToken) {
       return NextResponse.json({ error: "lockToken が必要です。" }, { status: 400 });
     }
 
-    const beat = await heartbeatRecordingLock({
-      studentId: params.id,
-      userId: session.user.id,
-      plainToken: lockToken,
-    });
+    const beat = await runWithDatabaseRetry("recording-lock-heartbeat", () =>
+      heartbeatRecordingLock({
+        studentId: params.id,
+        userId: session.user.id,
+        plainToken: lockToken,
+      })
+    );
     if (!beat.ok) {
       return NextResponse.json({ ok: false, code: beat.code }, { status: 200 });
     }
@@ -159,11 +175,6 @@ export async function DELETE(request: Request, { params }: { params: { id: strin
     if (!session?.user?.id || !session.user.organizationId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    const student = await assertStudentAccess(params.id, session.user.organizationId);
-    if (!student) {
-      return NextResponse.json({ error: "生徒が見つかりません。" }, { status: 404 });
-    }
-
     let lockToken = "";
     try {
       const body = await request.json();
@@ -175,11 +186,13 @@ export async function DELETE(request: Request, { params }: { params: { id: strin
       return NextResponse.json({ error: "lockToken が必要です。" }, { status: 400 });
     }
 
-    const released = await releaseRecordingLock({
-      studentId: params.id,
-      userId: session.user.id,
-      plainToken: lockToken,
-    });
+    const released = await runWithDatabaseRetry("recording-lock-release", () =>
+      releaseRecordingLock({
+        studentId: params.id,
+        userId: session.user.id,
+        plainToken: lockToken,
+      })
+    );
     if (!released.ok) {
       return NextResponse.json({ ok: false, code: released.code }, { status: 200 });
     }
