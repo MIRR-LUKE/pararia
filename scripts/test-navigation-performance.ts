@@ -47,6 +47,21 @@ async function waitForCondition(timeoutMs: number, condition: () => Promise<bool
   throw new Error(errorMessage);
 }
 
+async function gotoWithRetry(page: import("playwright-core").Page, url: string, timeoutMs = 30_000) {
+  const startedAt = Date.now();
+  let lastError: unknown = null;
+  while (Date.now() - startedAt < timeoutMs) {
+    try {
+      await page.goto(url, { waitUntil: "domcontentloaded" });
+      return;
+    } catch (error) {
+      lastError = error;
+      await new Promise((resolve) => setTimeout(resolve, 750));
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error(`goto retry failed: ${url}`);
+}
+
 async function main() {
   const label = argValue("--label") || "local";
   const baseUrl = argValue("--base-url") || "http://localhost:3000";
@@ -79,7 +94,7 @@ async function main() {
 
   try {
     const loginPageStartedAt = Date.now();
-    await page.goto(`${baseUrl}/login`, { waitUntil: "domcontentloaded" });
+    await gotoWithRetry(page, `${baseUrl}/login`);
     await waitForCondition(
       20_000,
       async () => (await page.locator("h1").textContent())?.includes("PARARIA") ?? false,
@@ -105,7 +120,7 @@ async function main() {
     const authApiMs = Date.now() - authApiStartedAt;
 
     const dashboardStartedAt = Date.now();
-    await page.goto(`${baseUrl}/app/dashboard`, { waitUntil: "domcontentloaded" });
+    await gotoWithRetry(page, `${baseUrl}/app/dashboard`);
     await waitForCondition(
       20_000,
       async () => (await page.locator("h1").textContent())?.includes("今日の優先キュー") ?? false,
