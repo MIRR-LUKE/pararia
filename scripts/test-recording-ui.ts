@@ -347,6 +347,9 @@ async function main() {
         if (bodyText.includes("処理に失敗しました")) {
           throw new Error(bodyText.slice(bodyText.indexOf("処理に失敗しました"), bodyText.indexOf("処理に失敗しました") + 240));
         }
+        if (bodyText.includes("未送信の録音データがあります")) {
+          throw new Error("処理中に未送信の録音データ警告が表示されました。");
+        }
         return bodyText.includes("保存が完了しました");
       },
       "録音後の生成完了までタイムアウトしました。"

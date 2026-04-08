@@ -1248,6 +1248,10 @@ export function StudentSessionConsole({
   const pendingDraftCanUpload = pendingDraft
     ? pendingDraft.durationSeconds === null || !getDurationValidationMessage(mode, pendingDraft.durationSeconds)
     : false;
+  const showPendingDraftWarning =
+    Boolean(pendingDraft) &&
+    (state === "idle" || state === "error");
+  const visiblePendingDraft = showPendingDraftWarning ? pendingDraft : null;
   const remainingSecondsUntilSavable = Math.max(0, MIN_SECONDS_BEFORE_SAVE_ENABLED - seconds);
   const isPreparingOrRecording = state === "preparing" || state === "recording";
   const generationProgress =
@@ -1493,16 +1497,16 @@ export function StudentSessionConsole({
             </div>
           ) : null}
 
-          {pendingDraft ? (
+          {visiblePendingDraft ? (
             <div className={styles.warningBox}>
               <strong>未送信の録音データがあります</strong>
               <p>
-                {new Date(pendingDraft.createdAt).toLocaleString("ja-JP")} に保存した録音です。
-                {pendingDraft.durationSeconds
-                  ? ` 長さは約${Math.round(pendingDraft.durationSeconds)}秒、サイズは ${formatBytes(
-                      pendingDraft.sizeBytes
+                {new Date(visiblePendingDraft.createdAt).toLocaleString("ja-JP")} に保存した録音です。
+                {visiblePendingDraft.durationSeconds
+                  ? ` 長さは約${Math.round(visiblePendingDraft.durationSeconds)}秒、サイズは ${formatBytes(
+                      visiblePendingDraft.sizeBytes
                     )} です。`
-                  : ` サイズは ${formatBytes(pendingDraft.sizeBytes)} です。`}
+                  : ` サイズは ${formatBytes(visiblePendingDraft.sizeBytes)} です。`}
                 {pendingDraftPersistence === "memory"
                   ? " このタブ上には残っていますが、ページを閉じると消える可能性があります。先に再送するか、端末へ保存してください。"
                   : ""}

@@ -495,6 +495,9 @@ async function executeTranscribeFileJob(job: SessionPartJobPayload, part: Sessio
           }),
         },
       });
+      await maybeStopRunpodWorkerWhenSessionPartQueueIdle().catch((stopError) => {
+        console.warn("[sessionPartJobs] failed to stop Runpod worker after duration rejection", stopError);
+      });
       return;
     }
     throw error;
@@ -524,6 +527,9 @@ async function executeTranscribeFileJob(job: SessionPartJobPayload, part: Sessio
           code: substance.code,
         }),
       },
+    });
+    await maybeStopRunpodWorkerWhenSessionPartQueueIdle().catch((stopError) => {
+      console.warn("[sessionPartJobs] failed to stop Runpod worker after transcript rejection", stopError);
     });
     return;
   }
@@ -581,6 +587,9 @@ async function executeFinalizeLivePartJob(job: SessionPartJobPayload, part: Sess
           code: substance.code,
         }),
       },
+    });
+    await maybeStopRunpodWorkerWhenSessionPartQueueIdle().catch((stopError) => {
+      console.warn("[sessionPartJobs] failed to stop Runpod worker after live transcript rejection", stopError);
     });
     return;
   }
