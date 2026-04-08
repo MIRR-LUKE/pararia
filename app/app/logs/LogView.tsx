@@ -65,6 +65,9 @@ export function LogView({ logId, showHeader = true, onBack, onSaved, onDirtyChan
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveNotice, setSaveNotice] = useState<string | null>(null);
   const [isSavingSummary, setIsSavingSummary] = useState(false);
+  const [pageVisible, setPageVisible] = useState(
+    typeof document === "undefined" ? true : document.visibilityState === "visible"
+  );
   const latestLocationRef = useRef("");
 
   const fetchLog = useCallback(async (opts?: { silent?: boolean }) => {
@@ -96,12 +99,24 @@ export function LogView({ logId, showHeader = true, onBack, onSaved, onDirtyChan
   }, [fetchLog]);
 
   useEffect(() => {
-    if (!log || log.status !== "PROCESSING") return;
+    if (typeof document === "undefined") return undefined;
+    const updateVisibility = () => setPageVisible(document.visibilityState === "visible");
+    document.addEventListener("visibilitychange", updateVisibility);
+    return () => document.removeEventListener("visibilitychange", updateVisibility);
+  }, []);
+
+  useEffect(() => {
+    if (!log || log.status !== "PROCESSING" || !pageVisible) return;
     const timer = window.setTimeout(() => {
       void fetchLog({ silent: true });
-    }, 2500);
+    }, 3000);
     return () => window.clearTimeout(timer);
-  }, [fetchLog, log]);
+  }, [fetchLog, log, pageVisible]);
+
+  useEffect(() => {
+    if (!pageVisible || log?.status !== "PROCESSING") return;
+    void fetchLog({ silent: true });
+  }, [fetchLog, log?.status, pageVisible]);
 
   const summaryMarkdown = useMemo(
     () => normalizeEditableConversationSummary(log?.summaryMarkdown),

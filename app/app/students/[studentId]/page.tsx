@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { Button } from "@/components/ui/Button";
@@ -9,14 +10,10 @@ import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { StructuredMarkdown } from "@/components/ui/StructuredMarkdown";
 import { UNSAVED_CONVERSATION_SUMMARY_MESSAGE } from "@/lib/conversation-editing";
 import { pickLatestInterviewMemoSession } from "@/lib/next-meeting-memo";
-import { LogView } from "../../logs/LogView";
-import { ReportStudio } from "./ReportStudio";
 import {
-  StudentSessionConsole,
   type SessionConsoleLessonPart,
   type SessionConsoleMode,
 } from "./StudentSessionConsole";
-import { StudentSessionStream } from "./StudentSessionStream";
 import type { ReportStudioView, RoomResponse, SessionItem } from "./roomTypes";
 import styles from "./studentDetail.module.css";
 
@@ -35,6 +32,28 @@ type DeleteTarget =
   | { kind: "report"; id: string; label: string; detail: string };
 
 const EMPTY_SEARCH_PARAMS = new URLSearchParams();
+
+const LazyLogView = dynamic(() => import("../../logs/LogView").then((mod) => mod.LogView), {
+  loading: () => <div className={styles.overlayLoading}>ログを開いています...</div>,
+});
+
+const LazyReportStudio = dynamic(() => import("./ReportStudio").then((mod) => mod.ReportStudio), {
+  loading: () => <div className={styles.overlayLoading}>保護者レポート画面を準備しています...</div>,
+});
+
+const LazyStudentSessionStream = dynamic(
+  () => import("./StudentSessionStream").then((mod) => mod.StudentSessionStream),
+  {
+    loading: () => <div className={styles.sectionLoading}>ログ一覧を読み込んでいます...</div>,
+  }
+);
+
+const LazyStudentSessionConsole = dynamic(
+  () => import("./StudentSessionConsole").then((mod) => mod.StudentSessionConsole),
+  {
+    loading: () => <div className={styles.recordCardLoading}>録音カードを準備しています...</div>,
+  }
+);
 
 function normalizeTab(value: string | null): TabKey {
   if (value === "parentReports") return "parentReports";
@@ -130,6 +149,9 @@ export default function StudentDetailPage({ params }: { params: { studentId: str
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null);
   const [isDeletingTarget, setIsDeletingTarget] = useState(false);
   const [logHasUnsavedChanges, setLogHasUnsavedChanges] = useState(false);
+  const [pageVisible, setPageVisible] = useState(
+    typeof document === "undefined" ? true : document.visibilityState === "visible"
+  );
   const hasLoadedRoomRef = useRef(false);
 
   const refresh = useCallback(async (opts?: { silent?: boolean }) => {
@@ -163,6 +185,13 @@ export default function StudentDetailPage({ params }: { params: { studentId: str
   }, [refresh]);
 
   useEffect(() => {
+    if (typeof document === "undefined") return undefined;
+    const updateVisibility = () => setPageVisible(document.visibilityState === "visible");
+    document.addEventListener("visibilitychange", updateVisibility);
+    return () => document.removeEventListener("visibilitychange", updateVisibility);
+  }, []);
+
+  useEffect(() => {
     if (!room?.sessions?.length) return;
     const hasActivePipeline = room.sessions.some((session) =>
       ["TRANSCRIBING", "GENERATING"].includes(session.pipeline?.stage ?? "")
@@ -170,12 +199,22 @@ export default function StudentDetailPage({ params }: { params: { studentId: str
     const hasPendingNextMeetingMemo = room.sessions.some((session) =>
       ["QUEUED", "GENERATING"].includes(session.nextMeetingMemo?.status ?? "")
     );
-    if (!hasActivePipeline && !hasPendingNextMeetingMemo) return;
+    if ((!hasActivePipeline && !hasPendingNextMeetingMemo) || !pageVisible) return;
     const timer = window.setTimeout(() => {
       void refresh({ silent: true });
-    }, 2500);
+    }, 3000);
     return () => window.clearTimeout(timer);
-  }, [refresh, room?.sessions]);
+  }, [pageVisible, refresh, room?.sessions]);
+
+  useEffect(() => {
+    if (!pageVisible || !room?.sessions?.length) return;
+    const hasLiveWork = room.sessions.some((session) =>
+      ["TRANSCRIBING", "GENERATING"].includes(session.pipeline?.stage ?? "") ||
+      ["QUEUED", "GENERATING"].includes(session.nextMeetingMemo?.status ?? "")
+    );
+    if (!hasLiveWork) return;
+    void refresh({ silent: true });
+  }, [pageVisible, refresh, room?.sessions]);
 
   const syncUrl = useCallback(
     (changes: {
@@ -496,7 +535,7 @@ export default function StudentDetailPage({ params }: { params: { studentId: str
 
       <section className={styles.topGrid}>
         <div className={styles.recordCard}>
-          <StudentSessionConsole
+          <LazyStudentSessionConsole
             studentId={room.student.id}
             studentName={room.student.name}
             mode={recordingMode}
@@ -661,7 +700,11 @@ export default function StudentDetailPage({ params }: { params: { studentId: str
         </div>
 
         {activeTab === "communications" ? (
-          <StudentSessionStream sessions={communicationSessions} assigneeName={session?.user?.name ?? undefined} onOpenLog={openLog} />
+          <LazyStudentSessionStream
+            sessions={communicationSessions}
+            assigneeName={session?.user?.name ?? undefined}
+            onOpenLog={openLog}
+          />
         ) : null}
 
         {activeTab === "parentReports" ? (
@@ -746,7 +789,7 @@ export default function StudentDetailPage({ params }: { params: { studentId: str
 
             <div className={styles.overlayContent}>
               {overlay.kind === "log" ? (
-                <LogView
+                <LazyLogView
                   logId={overlay.logId}
                   showHeader={false}
                   onBack={requestOverlayClose}
@@ -756,7 +799,7 @@ export default function StudentDetailPage({ params }: { params: { studentId: str
               ) : null}
 
               {overlay.kind === "report" ? (
-                <ReportStudio
+                <LazyReportStudio
                   view={overlay.view}
                   studentId={room.student.id}
                   studentName={room.student.name}

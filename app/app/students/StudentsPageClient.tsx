@@ -54,6 +54,7 @@ type ViewKey = "all" | "interview" | "report" | "review" | "share" | "sent";
 
 type StudentsPageClientProps = {
   initialStudents: StudentRow[];
+  initialLimit: number;
 };
 
 function summarize(student: StudentRow) {
@@ -124,7 +125,7 @@ function summarize(student: StudentRow) {
   };
 }
 
-export default function StudentsPageClient({ initialStudents }: StudentsPageClientProps) {
+export default function StudentsPageClient({ initialStudents, initialLimit }: StudentsPageClientProps) {
   const router = useRouter();
   const [students, setStudents] = useState<StudentRow[]>(initialStudents);
   const [loading, setLoading] = useState(false);
@@ -152,7 +153,7 @@ export default function StudentsPageClient({ initialStudents }: StudentsPageClie
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch("/api/students", { cache: "no-store" });
+      const res = await fetch(`/api/students?limit=${initialLimit}`, { cache: "no-store" });
       const body = await res.json();
       if (!res.ok) throw new Error(body?.error ?? "生徒一覧の取得に失敗しました。");
       setStudents(body.students ?? []);

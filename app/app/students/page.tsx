@@ -6,6 +6,8 @@ import StudentsPageClient from "./StudentsPageClient";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
+const INITIAL_STUDENT_LIMIT = 50;
+
 export default async function StudentsPage() {
   const session = await auth();
   const organizationId = session?.user?.organizationId;
@@ -13,6 +15,6 @@ export default async function StudentsPage() {
     redirect("/login");
   }
 
-  const initialStudents = await listStudentRows({ organizationId });
-  return <StudentsPageClient initialStudents={initialStudents} />;
+  const initialStudents = await listStudentRows({ organizationId, limit: INITIAL_STUDENT_LIMIT });
+  return <StudentsPageClient initialStudents={initialStudents} initialLimit={INITIAL_STUDENT_LIMIT} />;
 }

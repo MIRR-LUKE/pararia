@@ -601,7 +601,9 @@ export function StudentSessionConsole({
 
       while (Date.now() - startedAt < 300000) {
         const now = Date.now();
-        const shouldKickWorker = now - lastWorkerKickAt >= 2500;
+        const pollingIntervalMs =
+          typeof document !== "undefined" && document.visibilityState !== "visible" ? 4000 : 2200;
+        const shouldKickWorker = now - lastWorkerKickAt >= 3000;
         if (shouldKickWorker) {
           lastWorkerKickAt = now;
         }
@@ -610,7 +612,7 @@ export function StudentSessionConsole({
         });
         const body = (await res.json().catch(() => ({}))) as SessionProgressResponse & { error?: string };
         if (!res.ok || !body?.progress) {
-          await sleep(800);
+          await sleep(Math.min(1000, pollingIntervalMs));
           continue;
         }
 
@@ -648,7 +650,7 @@ export function StudentSessionConsole({
           return null;
         }
 
-        await sleep(900);
+        await sleep(pollingIntervalMs);
       }
 
       setState("success");
