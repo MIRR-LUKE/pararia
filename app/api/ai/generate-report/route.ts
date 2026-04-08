@@ -88,7 +88,7 @@ export async function POST(request: Request) {
       Boolean(renderConversationArtifactOrFallback(log.artifactJson, log.summaryMarkdown).trim())
     );
 
-    const { markdown, reportJson, bundleQualityEval } = await generateParentReport({
+    const { markdown, reportJson, bundleQualityEval, generationMeta } = await generateParentReport({
       studentName: student.name,
       organizationName: undefined,
       periodFrom: from?.toISOString().slice(0, 10),
@@ -120,6 +120,7 @@ export async function POST(request: Request) {
               log.session?.type === "LESSON_REPORT" ? "LESSON_REPORT" : "INTERVIEW"
             ),
             bundleQualityEval,
+            generationMeta,
           } as any,
         },
       });

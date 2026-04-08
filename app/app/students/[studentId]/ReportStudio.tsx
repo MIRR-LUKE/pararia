@@ -33,6 +33,7 @@ function toBundleLogs(sessions: SessionItem[]): ReportBundleLog[] {
         date: session.sessionDate,
         mode: session.type,
         sessionType: session.type,
+        artifactJson: session.conversation?.artifactJson,
         summaryMarkdown: session.conversation!.summaryMarkdown!,
       })
     );
@@ -97,22 +98,6 @@ export function ReportStudio({
     }
   }, [draftMarkdown, latestReport?.reportMarkdown]);
 
-  useEffect(() => {
-    if (!isGenerating) return;
-
-    const timers = [
-      window.setTimeout(() => setGenerationStage("gathering"), 350),
-      window.setTimeout(() => setGenerationStage("drafting"), 1400),
-      window.setTimeout(() => setGenerationStage("saving"), 2600),
-    ];
-
-    return () => {
-      for (const timer of timers) {
-        window.clearTimeout(timer);
-      }
-    };
-  }, [isGenerating]);
-
   const bundleLogs = useMemo(() => toBundleLogs(selectedSessions), [selectedSessions]);
   const allBundleLogs = useMemo(() => toBundleLogs(candidateSessions), [candidateSessions]);
   const quality = useMemo(() => buildBundleQualityEval(bundleLogs, allBundleLogs), [allBundleLogs, bundleLogs]);
@@ -138,21 +123,26 @@ export function ReportStudio({
     setError(null);
     setGenerationStage("validating");
     try {
+      const payload = {
+        studentId,
+        sessionIds: selectedSessionIds,
+      };
+      setGenerationStage("gathering");
+      await Promise.resolve();
+      setGenerationStage("drafting");
       const res = await fetch("/api/ai/generate-report", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          studentId,
-          sessionIds: selectedSessionIds,
-        }),
+        body: JSON.stringify(payload),
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
         throw new Error(body?.error ?? "保護者レポートの生成に失敗しました。");
       }
+      setGenerationStage("saving");
       setDraftMarkdown(body?.report?.reportMarkdown ?? "");
-      setGenerationStage("done");
       await onRefresh();
+      setGenerationStage("done");
       onViewChange("generated");
     } catch (nextError: any) {
       setGenerationStage("error");
@@ -327,6 +317,9 @@ export function ReportStudio({
             <Button onClick={generateReport} disabled={isGenerating || selectedSessionIds.length === 0}>
               {isGenerating ? "保護者レポートを生成中..." : "保護者レポートを生成"}
             </Button>
+            <div className={styles.progressNote}>
+              選択確認 → ログ整理 → 本文生成 → 保存反映 の順で進みます。進捗は実際の処理段階に合わせて更新します。
+            </div>
           </div>
         </>
       ) : null}

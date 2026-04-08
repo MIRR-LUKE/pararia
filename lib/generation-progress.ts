@@ -28,7 +28,7 @@ const CONVERSATION_STEP_LABELS: Record<GenerationMode, string[]> = {
   LESSON_REPORT: ["保存", "文字起こし", "報告生成", "完了"],
 };
 
-const PARENT_REPORT_STEP_LABELS = ["確認", "整理", "生成", "保存"];
+const PARENT_REPORT_STEP_LABELS = ["選択確認", "ログ整理", "本文生成", "保存反映"];
 
 function buildSteps(
   labels: string[],
@@ -175,7 +175,7 @@ export function buildParentReportGenerationProgress(input: {
   if (input.stage === "done") {
     const steps = buildCompletedSteps(PARENT_REPORT_STEP_LABELS);
     return {
-      title: "保護者レポートを生成しました",
+      title: "保護者レポートを保存しました",
       description: `${Math.max(input.selectedCount, 1)}件のログから下書きを保存しました。`,
       value: 100,
       steps,
@@ -196,16 +196,16 @@ export function buildParentReportGenerationProgress(input: {
     input.stage === "validating" ? 0 : input.stage === "gathering" ? 1 : input.stage === "drafting" ? 2 : 3;
   const steps = buildSteps(PARENT_REPORT_STEP_LABELS, currentIndex);
   const descriptionByStage: Record<ParentReportStage, string> = {
-    validating: `${input.selectedCount}件のログを確認中…`,
-    gathering: "要点と共有材料を整理中…",
-    drafting: "レポート本文を生成中…",
-    saving: "下書きを保存中…",
+    validating: `${input.selectedCount}件のログが生成対象として使えるか確認しています。`,
+    gathering: "選択したログの要点と共有材料を整理しています。",
+    drafting: "gpt-5.4 で保護者レポート本文を生成しています。",
+    saving: "生成した下書きを保存して一覧へ反映しています。",
     done: `${Math.max(input.selectedCount, 1)}件のログから下書きを保存しました。`,
     error: input.lastError?.trim() || "もう一度お試しください。",
   };
 
   return {
-    title: "保護者レポートを生成中…",
+    title: "保護者レポートを作成中…",
     description: descriptionByStage[input.stage],
     value: estimateValue(steps),
     steps,

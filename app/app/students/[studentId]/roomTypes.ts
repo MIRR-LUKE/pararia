@@ -34,6 +34,7 @@ export type SessionItem = {
   conversation?: {
     id: string;
     status: string;
+    artifactJson?: unknown;
     summaryMarkdown?: string | null;
     createdAt: string;
   } | null;
@@ -68,6 +69,18 @@ export type ReportItem = {
       parentPoints?: string[];
       warnings?: string[];
       suggestedLogIds?: string[];
+    };
+    generationMeta?: {
+      model?: string;
+      apiCalls?: number;
+      retried?: boolean;
+      tokenUsage?: {
+        inputTokens?: number;
+        cachedInputTokens?: number;
+        outputTokens?: number;
+        totalTokens?: number;
+        reasoningTokens?: number;
+      };
     };
   } | null;
   sourceLogIds?: string[] | null;

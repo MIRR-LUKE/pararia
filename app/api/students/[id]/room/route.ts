@@ -48,6 +48,7 @@ export async function GET(
                 id: true,
                 status: true,
                 reviewState: true,
+                artifactJson: true,
                 summaryMarkdown: true,
                 createdAt: true,
                 jobs: {
@@ -125,6 +126,7 @@ export async function GET(
             id: session.conversation.id,
             status: session.conversation.status,
             reviewState: session.conversation.reviewState,
+            artifactJson: session.conversation.artifactJson,
             summaryMarkdown,
             createdAt: session.conversation.createdAt,
           }

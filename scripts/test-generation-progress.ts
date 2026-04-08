@@ -38,8 +38,10 @@ const parentDrafting = buildParentReportGenerationProgress({
   selectedCount: 3,
 });
 
-assert.match(parentDrafting.title, /保護者レポートを生成中/);
+assert.match(parentDrafting.title, /保護者レポートを作成中/);
 assert.equal(parentDrafting.steps[2]?.status, "active");
+assert.equal(parentDrafting.steps[0]?.label, "選択確認");
+assert.match(parentDrafting.description, /gpt-5\.4/);
 
 const parentError = buildParentReportGenerationProgress({
   stage: "error",

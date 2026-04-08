@@ -41,6 +41,22 @@ export type ParentReportResult = {
   markdown: string;
   reportJson: ParentReportJson;
   bundleQualityEval: BundleQualityEval;
+  generationMeta: ParentReportGenerationMeta;
+};
+
+export type ParentReportTokenUsage = {
+  inputTokens: number;
+  cachedInputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  reasoningTokens: number;
+};
+
+export type ParentReportGenerationMeta = {
+  model: string;
+  apiCalls: number;
+  retried: boolean;
+  tokenUsage: ParentReportTokenUsage;
 };
 
 const DEFAULT_REPORT_SECTIONS = [
@@ -114,6 +130,109 @@ function sanitizeReportText(text: unknown, maxLength: number) {
   return sliced;
 }
 
+function emptyTokenUsage(): ParentReportTokenUsage {
+  return {
+    inputTokens: 0,
+    cachedInputTokens: 0,
+    outputTokens: 0,
+    totalTokens: 0,
+    reasoningTokens: 0,
+  };
+}
+
+function parseTokenUsage(payload: any): ParentReportTokenUsage {
+  const usage = payload?.usage ?? {};
+  return {
+    inputTokens: Number(usage?.prompt_tokens ?? usage?.input_tokens ?? 0) || 0,
+    cachedInputTokens:
+      Number(usage?.prompt_tokens_details?.cached_tokens ?? usage?.input_tokens_details?.cached_tokens ?? 0) || 0,
+    outputTokens: Number(usage?.completion_tokens ?? usage?.output_tokens ?? 0) || 0,
+    totalTokens: Number(usage?.total_tokens ?? 0) || 0,
+    reasoningTokens:
+      Number(usage?.completion_tokens_details?.reasoning_tokens ?? usage?.output_tokens_details?.reasoning_tokens ?? 0) ||
+      0,
+  };
+}
+
+function addTokenUsage(left: ParentReportTokenUsage, right: ParentReportTokenUsage): ParentReportTokenUsage {
+  return {
+    inputTokens: left.inputTokens + right.inputTokens,
+    cachedInputTokens: left.cachedInputTokens + right.cachedInputTokens,
+    outputTokens: left.outputTokens + right.outputTokens,
+    totalTokens: left.totalTokens + right.totalTokens,
+    reasoningTokens: left.reasoningTokens + right.reasoningTokens,
+  };
+}
+
+function countReportBodyChars(report: ParentReportJson) {
+  return report.sections.reduce((sum, section) => sum + section.body.length, 0) + report.summary.length;
+}
+
+function evaluateParentReportQuality(report: ParentReportJson, fallback: ParentReportJson) {
+  const issues: string[] = [];
+  const defaultSectionCount = report.sections.filter((section, index) => section.body === fallback.sections[index]?.body).length;
+  const distinctSectionBodies = new Set(report.sections.map((section) => section.body)).size;
+  const totalBodyChars = countReportBodyChars(report);
+
+  if (report.summary === fallback.summary) {
+    issues.push("summary_is_generic");
+  }
+  if (defaultSectionCount >= 2) {
+    issues.push("too_many_default_sections");
+  }
+  if (distinctSectionBodies < 4) {
+    issues.push("sections_are_not_distinct_enough");
+  }
+  if (totalBodyChars < 650) {
+    issues.push("report_is_too_short");
+  }
+
+  return issues;
+}
+
+function buildParentReportRepairPrompt(input: {
+  studentName: string;
+  periodFrom: string;
+  periodTo: string;
+  createdAt: string;
+  bundlePreview: string;
+  logPayload: string;
+  previousReport: ParentReportJson;
+  issues: string[];
+}) {
+  const labels = input.issues.map((issue) => {
+    if (issue === "summary_is_generic") return "- 要約が汎用的で、今回の状況が弱い";
+    if (issue === "too_many_default_sections") return "- 定型文のまま残っている段落が多い";
+    if (issue === "sections_are_not_distinct_enough") return "- 各段落の役割が分かれず、内容が重複している";
+    if (issue === "report_is_too_short") return "- 全体が短く、判断理由や具体策が足りない";
+    return `- ${issue}`;
+  });
+  return `前回の保護者レポート案は具体性が足りません。選択ログだけを根拠に、弱い点を修正して JSON object のみで出力し直してください。
+
+生徒名: ${input.studentName}
+対象期間: ${input.periodFrom}〜${input.periodTo}
+作成日: ${input.createdAt}
+
+前回案:
+${JSON.stringify(input.previousReport, null, 2)}
+
+修正理由:
+${labels.join("\n")}
+
+選択中ログの束ね品質:
+${input.bundlePreview}
+
+選択ログ詳細:
+${input.logPayload}
+
+必須ルール:
+- 前回案の generic な段落を、選択ログに出てくる事実で具体化する
+- ない情報を足さない
+- 7 セクションは維持する
+- 同じことを言い換えて繰り返さない
+- 保護者が次に何を見ればよいかが伝わるようにする`;
+}
+
 async function callReportModel(systemPrompt: string, userPrompt: string) {
   const body = {
     model: REPORT_MODEL,
@@ -163,7 +282,10 @@ async function callReportModel(systemPrompt: string, userPrompt: string) {
       }
       const retryParsed = tryParseJson<any>(retryText);
       const retryContent = retryParsed?.choices?.[0]?.message?.content;
-      return typeof retryContent === "string" ? retryContent : JSON.stringify(retryContent ?? "");
+      return {
+        contentText: typeof retryContent === "string" ? retryContent : JSON.stringify(retryContent ?? ""),
+        tokenUsage: parseTokenUsage(retryParsed),
+      };
     }
 
     throw new Error(`Parent report generation failed (${res.status}): ${JSON.stringify(detail)}`);
@@ -171,14 +293,26 @@ async function callReportModel(systemPrompt: string, userPrompt: string) {
 
   const parsed = tryParseJson<any>(text);
   const content = parsed?.choices?.[0]?.message?.content;
-  if (typeof content === "string") return content;
-  if (Array.isArray(content)) {
-    return content
-      .map((part) => (typeof part?.text === "string" ? part.text : typeof part === "string" ? part : ""))
-      .join("")
-      .trim();
+  const tokenUsage = parseTokenUsage(parsed);
+  if (typeof content === "string") {
+    return {
+      contentText: content,
+      tokenUsage,
+    };
   }
-  return text;
+  if (Array.isArray(content)) {
+    return {
+      contentText: content
+        .map((part) => (typeof part?.text === "string" ? part.text : typeof part === "string" ? part : ""))
+        .join("")
+        .trim(),
+      tokenUsage,
+    };
+  }
+  return {
+    contentText: text,
+    tokenUsage,
+  };
 }
 
 function renderParentReportMarkdown(
@@ -338,16 +472,51 @@ ${logPayload}
 - 「ご家庭で見てほしいこと」では、家庭で確認しやすい一言や見守りポイントにする
 - structuredArtifact / derivedMarkdown のどちらにもない内容は足さない`;
 
-  const contentText = await callReportModel(systemPrompt, userPrompt);
-  const jsonText = extractJsonCandidate(contentText) ?? contentText;
+  const firstCall = await callReportModel(systemPrompt, userPrompt);
+  const jsonText = extractJsonCandidate(firstCall.contentText) ?? firstCall.contentText;
   const parsed = tryParseJson<ParentReportJson>(jsonText);
   const fallbackReport = defaultReportJson(input, createdAt);
-  const reportJson = sanitizeParentReportJson(parsed, fallbackReport);
+  let reportJson = sanitizeParentReportJson(parsed, fallbackReport);
+  let apiCalls = 1;
+  let tokenUsage = firstCall.tokenUsage ?? emptyTokenUsage();
+  const qualityIssues = evaluateParentReportQuality(reportJson, fallbackReport);
+
+  if (qualityIssues.length > 0) {
+    const retryCall = await callReportModel(
+      systemPrompt,
+      buildParentReportRepairPrompt({
+        studentName: input.studentName,
+        periodFrom,
+        periodTo,
+        createdAt,
+        bundlePreview: buildBundlePreview(bundleQualityEval),
+        logPayload,
+        previousReport: reportJson,
+        issues: qualityIssues,
+      })
+    );
+    const retryJsonText = extractJsonCandidate(retryCall.contentText) ?? retryCall.contentText;
+    const retryParsed = tryParseJson<ParentReportJson>(retryJsonText);
+    const retryReportJson = sanitizeParentReportJson(retryParsed, fallbackReport);
+    const retryIssues = evaluateParentReportQuality(retryReportJson, fallbackReport);
+
+    if (retryIssues.length <= qualityIssues.length) {
+      reportJson = retryReportJson;
+    }
+    apiCalls += 1;
+    tokenUsage = addTokenUsage(tokenUsage, retryCall.tokenUsage ?? emptyTokenUsage());
+  }
 
   const markdown = renderParentReportMarkdown(reportJson, organizationName, periodFrom, periodTo);
   return {
     markdown,
     reportJson,
     bundleQualityEval,
+    generationMeta: {
+      model: REPORT_MODEL,
+      apiCalls,
+      retried: apiCalls > 1,
+      tokenUsage,
+    },
   };
 }

@@ -549,16 +549,21 @@ GPU が強いときの最初の目安:
 - 選択したログだけを使う
 - 本文生成では各ログの `artifactJson` を優先して使う
 - `summaryMarkdown` は必要時だけ補助材料として使う
+- 保護者レポート preview の quality 判定も、`summaryMarkdown` だけではなく各ログの `artifactJson` を優先して見る
 - bundle preview では `今回の判断・補足` と `次回確認` を分けて扱う
 - 未選択ログは入れない
 - 前回レポートは入れない
 - profile snapshot は入れない
+- 初回生成が弱すぎるときだけ、同じ `gpt-5.4` で 1 回だけ再生成する
+- 生成時の `model / apiCalls / tokenUsage / retried` は `Report.qualityChecksJson.generationMeta` に残す
 
 ### 10.2 UI ルール
 
 - 追加候補は提案だけ
 - 自動追加しない
 - `Report.sourceLogIds` に利用ログを残す
+- 生成 progress は `選択確認 -> ログ整理 -> 本文生成 -> 保存反映` を実 phase ベースで表示する
+- 擬似タイマーで先に `保存` まで進めない
 
 ### 10.3 状態
 
@@ -665,6 +670,14 @@ GPU が強いときの最初の目安:
 - `POST /api/ai/generate-report`
 - `POST /api/reports/[id]/send`
 
+補足:
+
+- `POST /api/ai/generate-report`
+  - 選択した `sessionIds` または `logIds` だけを使う
+  - `artifactJson` first で bundle を組む
+  - 弱い draft は同モデルで 1 回だけ repair する
+  - `qualityChecksJson.bundleQualityEval` と `qualityChecksJson.generationMeta` を保存する
+
 ### 13.6 ジョブ / メンテナンス
 
 - `GET/POST /api/jobs/run`
@@ -714,8 +727,13 @@ GPU が強いときの最初の目安:
   - duration gate
 - `lib/ai/parentReport.ts`
   - selected artifact first のレポート生成
+  - 弱い初回出力の 1 回 repair と generation meta の集約
 - `lib/operational-log.ts`
   - artifact / 保存済みログ本文から report bundle preview を作る
+- `app/app/students/[studentId]/ReportStudio.tsx`
+  - 保護者レポート生成 UI と phase 表示
+- `lib/generation-progress.ts`
+  - 保護者レポートの `選択確認 / ログ整理 / 本文生成 / 保存反映` を定義する
 - `lib/runtime-paths.ts`
   - runtime 保存先の共通化
 - `lib/runtime-cleanup.ts`
@@ -763,6 +781,7 @@ PARARIA_AUDIO_RETENTION_DAYS=14
 - worker image は `Dockerfile.runpod-worker` と `.github/workflows/publish-runpod-worker.yml` から GHCR へ publish する
 - `RUNPOD_API_KEY` を web 側にも入れると、upload / regenerate 時に Pod を自動 wake できる
 - `RUNPOD_WORKER_AUTO_STOP_IDLE_MS` を入れておくと、queue が空のまま一定時間たった Pod を自動 stop できる
+- STT queue が空になった時点で、worker 側と web 側の両方から stop を掛ける
 
 開発機で worker を直接検証したいときだけ、次を使う:
 
@@ -772,6 +791,7 @@ PARARIA_AUDIO_RETENTION_DAYS=14
 - Windows で CUDA DLL を別ディレクトリに置く場合は `FASTER_WHISPER_LIBRARY_PATH`
 - worker コマンドを変えたいときだけ `FASTER_WHISPER_PYTHON` または `FASTER_WHISPER_WORKER_ARGS_JSON`
 - 50 分台の面談を `STT -> 面談ログ生成` まで通して測るときは `npm run benchmark:interview-log`
+- 保護者レポートの retry / sanitization のスモークは `npm run test:parent-report-generation`
 
 現行の STT 実行は次の前提です。
 

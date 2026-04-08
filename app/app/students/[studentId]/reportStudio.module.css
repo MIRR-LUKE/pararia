@@ -114,6 +114,12 @@
   flex-wrap: wrap;
 }
 
+.progressNote {
+  color: var(--muted);
+  line-height: 1.65;
+  font-size: 13px;
+}
+
 .reportBlocks {
   display: grid;
   gap: 14px;

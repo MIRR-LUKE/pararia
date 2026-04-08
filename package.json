@@ -21,6 +21,7 @@
     "test:transcript-review": "tsx scripts/test-transcript-review.ts",
     "test:transcript-preprocess": "tsx scripts/test-transcript-preprocess.ts",
     "test:conversation-draft-quality": "tsx scripts/test-conversation-draft-quality.ts",
+    "test:parent-report-generation": "tsx scripts/test-parent-report-generation.ts",
     "test:recording-policy": "tsx scripts/test-recording-policy.ts",
     "benchmark:interview-log": "tsx scripts/run-interview-log-benchmark.ts",
     "worker:runpod": "tsx scripts/run-runpod-worker.ts",
