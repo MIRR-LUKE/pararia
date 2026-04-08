@@ -24,6 +24,7 @@ import { toPrismaJson } from "@/lib/prisma-json";
 import { normalizeRawTranscriptText, pickEvidenceTranscriptText } from "@/lib/transcript/source";
 import { ensureConversationReviewedTranscript } from "@/lib/transcript/review";
 import { readSessionPartMeta } from "@/lib/session-part-meta";
+import { maybeStopRunpodWorkerWhenSessionPartQueueIdle } from "@/lib/runpod/idle-stop";
 
 const DEFAULT_JOB_TYPES: ConversationJobType[] = [ConversationJobType.FINALIZE];
 const ACTIVE_JOB_TYPES: ConversationJobType[] = [
@@ -528,6 +529,10 @@ async function executeFinalizeJob(job: JobPayload, convo: ConversationPayload) {
     usedFallback,
   });
 
+  await maybeStopRunpodWorkerWhenSessionPartQueueIdle().catch((error) => {
+    console.warn("[conversation-jobs] failed to stop Runpod worker after finalize", error);
+  });
+
   return {
     summaryMarkdown: renderedSummary,
     duration,
@@ -709,6 +714,10 @@ async function executeFormatJob(job: JobPayload, convo: ConversationPayload) {
     durationMs: duration,
   });
 
+  await maybeStopRunpodWorkerWhenSessionPartQueueIdle().catch((error) => {
+    console.warn("[conversation-jobs] failed to stop Runpod worker after format", error);
+  });
+
   return { formatted: cleanedFormatted, duration };
 }
 
@@ -818,6 +827,10 @@ async function executeNextMeetingMemoJob(job: JobPayload, convo: ConversationPay
     ...buildJobContext(job, convo),
     model: memo.model,
     durationMs: duration,
+  });
+
+  await maybeStopRunpodWorkerWhenSessionPartQueueIdle().catch((error) => {
+    console.warn("[conversation-jobs] failed to stop Runpod worker after next meeting memo", error);
   });
 
   return {
@@ -1024,6 +1037,10 @@ async function handleJobFailure(job: JobPayload, error: unknown) {
   } else {
     logJobError("job_failed", logContext);
   }
+
+  await maybeStopRunpodWorkerWhenSessionPartQueueIdle().catch((error) => {
+    console.warn("[conversation-jobs] failed to stop Runpod worker after job failure", error);
+  });
 
   return {
     message,
