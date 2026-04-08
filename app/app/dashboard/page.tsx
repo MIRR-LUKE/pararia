@@ -46,7 +46,7 @@ type StudentRow = {
   name: string;
   grade?: string | null;
   course?: string | null;
-  profiles?: Array<{ profileData?: any }>;
+  profileCompleteness?: number | null;
   sessions?: SessionSummary[];
   reports?: ReportSummary[];
   _count?: { sessions: number; reports: number };
@@ -64,12 +64,6 @@ type QueueItem = {
   href: string;
   score: number;
 };
-
-function completeness(profileData?: any) {
-  const basic = Array.isArray(profileData?.basic) ? profileData.basic.length : 0;
-  const personal = Array.isArray(profileData?.personal) ? profileData.personal.length : 0;
-  return Math.min(100, (basic + personal) * 6);
-}
 
 function toDate(value?: string | null) {
   if (!value) return null;
@@ -243,7 +237,8 @@ export default function DashboardPage() {
       setLoading(true);
       setError(null);
       try {
-        const res = await fetch("/api/students", { cache: "no-store" });
+        const url = "/api/students?includeRecordingLock=1";
+        const res = await fetch(url, { cache: "no-store" });
         const body = await res.json();
         if (!res.ok) throw new Error(body?.error ?? "生徒情報の取得に失敗しました。");
         setStudents(body.students ?? []);
@@ -262,7 +257,7 @@ export default function DashboardPage() {
       const summary = summarize(student);
       return {
         ...student,
-        completeness: completeness(student.profiles?.[0]?.profileData),
+        completeness: student.profileCompleteness ?? 0,
         state: summary.state,
         oneLiner: summary.oneLiner,
         queue: summary.queue,

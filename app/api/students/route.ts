@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { requireAuthorizedSession } from "@/lib/server/request-auth";
+import { listStudentRows } from "@/lib/students/list-student-rows";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -32,113 +33,12 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     const limitRaw = searchParams.get("limit");
     const limit = limitRaw ? Math.max(1, Math.min(200, Number(limitRaw))) : undefined;
-
-    const now = new Date();
-    const students = await prisma.student.findMany({
-      where: {
-        organizationId,
-      },
-      ...(limit && Number.isFinite(limit) ? { take: Math.floor(limit) } : {}),
-      select: {
-        id: true,
-        organizationId: true,
-        name: true,
-        nameKana: true,
-        grade: true,
-        course: true,
-        enrollmentDate: true,
-        birthdate: true,
-        guardianNames: true,
-        createdAt: true,
-        updatedAt: true,
-        profiles: {
-          select: {
-            profileData: true,
-            createdAt: true,
-          },
-          orderBy: { createdAt: "desc" },
-          take: 1,
-        },
-        conversations: {
-          select: {
-            createdAt: true,
-          },
-          orderBy: { createdAt: "desc" },
-          take: 1,
-        },
-        sessions: {
-          select: {
-            id: true,
-            status: true,
-            type: true,
-            sessionDate: true,
-            heroStateLabel: true,
-            heroOneLiner: true,
-            latestSummary: true,
-            conversation: {
-              select: {
-                id: true,
-              },
-            },
-          },
-          orderBy: { sessionDate: "desc" },
-          take: 1,
-        },
-        reports: {
-          select: {
-            id: true,
-            status: true,
-            reviewedAt: true,
-            createdAt: true,
-            sentAt: true,
-            deliveryChannel: true,
-            sourceLogIds: true,
-            deliveryEvents: {
-              select: {
-                eventType: true,
-                createdAt: true,
-                deliveryChannel: true,
-              },
-              orderBy: { createdAt: "desc" },
-              take: 1,
-            },
-          },
-          orderBy: { createdAt: "desc" },
-          take: 1,
-        },
-        _count: {
-          select: { conversations: true, sessions: true, reports: true },
-        },
-      },
-      orderBy: { createdAt: "desc" },
+    const includeRecordingLock = /^(1|true|yes)$/i.test(searchParams.get("includeRecordingLock") ?? "");
+    const studentsOut = await listStudentRows({
+      organizationId,
+      limit: limit && Number.isFinite(limit) ? Math.floor(limit) : undefined,
+      includeRecordingLock,
     });
-
-    const studentIds = students.map((s) => s.id);
-    const activeLocks =
-      studentIds.length === 0
-        ? []
-        : await prisma.studentRecordingLock.findMany({
-            where: {
-              studentId: { in: studentIds },
-              expiresAt: { gt: now },
-            },
-            select: {
-              studentId: true,
-              mode: true,
-              lockedBy: { select: { name: true } },
-            },
-          });
-    const lockByStudent = new Map(activeLocks.map((l) => [l.studentId, l]));
-
-    const studentsOut = students.map((s) => ({
-      ...s,
-      recordingLock: lockByStudent.has(s.id)
-        ? {
-            mode: lockByStudent.get(s.id)!.mode,
-            lockedByName: lockByStudent.get(s.id)!.lockedBy.name,
-          }
-        : null,
-    }));
 
     return NextResponse.json(
       { students: studentsOut },
