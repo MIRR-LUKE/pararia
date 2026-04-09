@@ -1,4 +1,4 @@
-import { revalidateTag } from "next/cache";
+import { revalidatePath, revalidateTag } from "next/cache";
 import { NextResponse } from "next/server";
 import { writeAuditLog } from "@/lib/audit";
 import { prisma } from "@/lib/db";
@@ -91,6 +91,9 @@ export async function PUT(
 
     revalidateTag(`student-directory:${authResult.session.user.organizationId}`);
     revalidateTag(`dashboard-snapshot:${authResult.session.user.organizationId}`);
+    revalidatePath("/app/students");
+    revalidatePath("/app/dashboard");
+    revalidatePath(`/app/students/${student.id}`);
 
     return NextResponse.json({ student });
   } catch (e: any) {
@@ -191,6 +194,9 @@ export async function DELETE(
 
     revalidateTag(`student-directory:${authResult.session.user.organizationId}`);
     revalidateTag(`dashboard-snapshot:${authResult.session.user.organizationId}`);
+    revalidatePath("/app/students");
+    revalidatePath("/app/dashboard");
+    revalidatePath(`/app/students/${student.id}`);
 
     return NextResponse.json({
       success: true,

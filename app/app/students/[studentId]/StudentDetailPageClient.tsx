@@ -13,7 +13,7 @@ import {
   type SessionConsoleLessonPart,
   type SessionConsoleMode,
 } from "./StudentSessionConsole";
-import type { ReportStudioView, RoomResponse, SessionItem } from "./roomTypes";
+import type { ReportItem, ReportStudioView, RoomResponse, SessionItem } from "./roomTypes";
 import styles from "./studentDetail.module.css";
 
 type TabKey = "communications" | "lessonReports" | "parentReports";
@@ -50,7 +50,11 @@ const LazyStudentSessionStream = dynamic(
 const LazyStudentSessionConsole = dynamic(
   () => import("./StudentSessionConsole").then((mod) => mod.StudentSessionConsole),
   {
-    loading: () => <div className={styles.recordCardLoading}>録音カードを準備しています...</div>,
+    loading: () => (
+      <div className={styles.recordCardLoading} data-recording-state="loading">
+        録音カードを準備しています...
+      </div>
+    ),
   }
 );
 
@@ -147,9 +151,12 @@ export default function StudentDetailPageClient({
   const [room, setRoom] = useState<RoomResponse | null>(initialRoom);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [hydratingWorkspace, setHydratingWorkspace] = useState(roomScope(initialRoom) !== "full");
+  const [hydratingWorkspace, setHydratingWorkspace] = useState(false);
   const [activeTab, setActiveTab] = useState<TabKey>(normalizeTab(queryParams.get("tab")));
   const [overlay, setOverlay] = useState<OverlayState>({ kind: "none" });
+  const [parentReportDetails, setParentReportDetails] = useState<Record<string, ReportItem>>({});
+  const [parentReportLoadingId, setParentReportLoadingId] = useState<string | null>(null);
+  const [parentReportError, setParentReportError] = useState<string | null>(null);
   const [selectedSessionIds, setSelectedSessionIds] = useState<string[]>([]);
   const [recordingMode, setRecordingMode] = useState<SessionConsoleMode>(
     normalizeRecordingMode(queryParams.get("mode")) ?? "INTERVIEW"
@@ -205,7 +212,10 @@ export default function StudentDetailPageClient({
     setRoom(initialRoom);
     setLoading(false);
     setError(null);
-    setHydratingWorkspace(roomScope(initialRoom) !== "full");
+    setHydratingWorkspace(false);
+    setParentReportDetails({});
+    setParentReportLoadingId(null);
+    setParentReportError(null);
     hasLoadedRoomRef.current = true;
   }, [initialRoom]);
 
@@ -404,6 +414,34 @@ export default function StudentDetailPageClient({
     [syncUrl]
   );
 
+  const fetchParentReportDetail = useCallback(
+    async (reportId: string) => {
+      if (parentReportDetails[reportId]) return parentReportDetails[reportId];
+
+      setParentReportLoadingId(reportId);
+      setParentReportError(null);
+      try {
+        const res = await fetch(`/api/reports/${reportId}`, { cache: "no-store" });
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(body?.error ?? "保護者レポートの取得に失敗しました。");
+        }
+        const nextReport = body?.report as ReportItem | undefined;
+        if (!nextReport) {
+          throw new Error("保護者レポートの取得に失敗しました。");
+        }
+        setParentReportDetails((current) => ({ ...current, [reportId]: nextReport }));
+        return nextReport;
+      } catch (nextError: any) {
+        setParentReportError(nextError?.message ?? "保護者レポートの取得に失敗しました。");
+        return null;
+      } finally {
+        setParentReportLoadingId((current) => (current === reportId ? null : current));
+      }
+    },
+    [parentReportDetails]
+  );
+
   const ensureFullRoom = useCallback(async () => {
     if (roomScope(room) === "full") return;
     await refresh({ silent: true, scope: "full" });
@@ -444,6 +482,7 @@ export default function StudentDetailPageClient({
   const openParentReport = useCallback(
     async (reportId: string) => {
       await ensureFullRoom();
+      setParentReportError(null);
       setOverlay({ kind: "parentReport", reportId });
       syncUrl({ panel: "parentReport", reportId, logId: null, lessonSessionId: null, tab: "parentReports" });
     },
@@ -466,12 +505,29 @@ export default function StudentDetailPageClient({
     overlay.kind === "log"
       ? (room?.sessions ?? []).find((sessionItem) => sessionItem.conversation?.id === overlay.logId) ?? null
       : null;
-  const activeParentReport =
+  const activeParentReportBase =
     overlay.kind === "parentReport" ? parentReports.find((report) => report.id === overlay.reportId) ?? null : null;
+  const activeParentReport = useMemo(
+    () =>
+      activeParentReportBase
+        ? {
+            ...activeParentReportBase,
+            ...(parentReportDetails[activeParentReportBase.id] ?? {}),
+          }
+        : null,
+    [activeParentReportBase, parentReportDetails]
+  );
   const activeLogReportUsageCount =
     overlay.kind === "log"
       ? (room?.reports ?? []).filter((report) => report.sourceLogIds?.includes(overlay.logId)).length
       : 0;
+
+  useEffect(() => {
+    if (overlay.kind !== "parentReport" || !activeParentReportBase) return;
+    if (activeParentReportBase.reportMarkdown) return;
+    if (parentReportDetails[activeParentReportBase.id]) return;
+    void fetchParentReportDetail(activeParentReportBase.id);
+  }, [activeParentReportBase, fetchParentReportDetail, overlay.kind, parentReportDetails]);
 
   const openDeleteDialogForLog = useCallback(() => {
     if (overlay.kind !== "log") return;
@@ -860,35 +916,53 @@ export default function StudentDetailPageClient({
               ) : null}
 
               {overlay.kind === "parentReport" && activeParentReport ? (
-                <div className={styles.reportDetailStack}>
-                  <div className={styles.detailMetaRow}>
-                    <div>
-                      <span>作成日</span>
-                      <strong>{formatReportDate(activeParentReport.createdAt)}</strong>
-                    </div>
-                    <div>
-                      <span>状態</span>
-                      <strong>{activeParentReport.deliveryStateLabel ?? activeParentReport.workflowStatusLabel ?? "状態確認中"}</strong>
-                    </div>
-                    <div>
-                      <span>参照ログ</span>
-                      <strong>{activeParentReport.sourceLogIds?.length ?? 0}件</strong>
-                    </div>
-                  </div>
-
-                  <div className={styles.reportParagraph}>
-                    <StructuredMarkdown
-                      markdown={activeParentReport.reportMarkdown}
-                      emptyMessage="まだ保護者レポートは生成されていません。"
-                    />
-                  </div>
-
-                  {activeParentReport.needsReview || activeParentReport.needsShare ? (
+                parentReportLoadingId === activeParentReport.id && !activeParentReport.reportMarkdown ? (
+                  <div className={styles.overlayLoading}>保護者レポートを読み込んでいます...</div>
+                ) : parentReportError && !activeParentReport.reportMarkdown ? (
+                  <div className={styles.reportDetailStack}>
+                    <div className={styles.memoError}>{parentReportError}</div>
                     <div className={styles.detailActions}>
-                      <Button onClick={() => openReportStudio("send")}>送付前確認へ進む</Button>
+                      <Button
+                        variant="secondary"
+                        onClick={() => {
+                          void fetchParentReportDetail(activeParentReport.id);
+                        }}
+                      >
+                        もう一度読み込む
+                      </Button>
                     </div>
-                  ) : null}
-                </div>
+                  </div>
+                ) : (
+                  <div className={styles.reportDetailStack}>
+                    <div className={styles.detailMetaRow}>
+                      <div>
+                        <span>作成日</span>
+                        <strong>{formatReportDate(activeParentReport.createdAt)}</strong>
+                      </div>
+                      <div>
+                        <span>状態</span>
+                        <strong>{activeParentReport.deliveryStateLabel ?? activeParentReport.workflowStatusLabel ?? "状態確認中"}</strong>
+                      </div>
+                      <div>
+                        <span>参照ログ</span>
+                        <strong>{activeParentReport.sourceLogIds?.length ?? 0}件</strong>
+                      </div>
+                    </div>
+
+                    <div className={styles.reportParagraph}>
+                      <StructuredMarkdown
+                        markdown={activeParentReport.reportMarkdown}
+                        emptyMessage="まだ保護者レポートは生成されていません。"
+                      />
+                    </div>
+
+                    {activeParentReport.needsReview || activeParentReport.needsShare ? (
+                      <div className={styles.detailActions}>
+                        <Button onClick={() => openReportStudio("send")}>送付前確認へ進む</Button>
+                      </div>
+                    ) : null}
+                  </div>
+                )
               ) : null}
             </div>
           </div>

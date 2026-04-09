@@ -1,12 +1,12 @@
 "use client";
 
 import { useDeferredValue, useEffect, useMemo, useState } from "react";
-import Link from "next/link";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { IntentLink } from "@/components/ui/IntentLink";
 import { buildReportDeliverySummary } from "@/lib/report-delivery";
 import styles from "./students.module.css";
 
@@ -337,7 +337,7 @@ export default function StudentsPageClient({
           </div>
         ) : (
           <div className={styles.list}>
-            {filtered.map((student) => (
+            {filtered.map((student, index) => (
               <article key={student.id} className={styles.row}>
                 <div className={styles.rowContent}>
                   <div className={styles.rowIdentity}>
@@ -373,9 +373,9 @@ export default function StudentsPageClient({
                 </div>
 
                 <div className={styles.rowAction}>
-                  <Link href={student.href}>
+                  <IntentLink href={student.href} prefetchMode={index < 4 ? "mount" : "intent"}>
                     <Button>生徒詳細へ</Button>
-                  </Link>
+                  </IntentLink>
                   <Button
                     variant="ghost"
                     size="small"

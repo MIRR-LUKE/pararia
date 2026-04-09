@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { IntentLink } from "@/components/ui/IntentLink";
 import styles from "./Sidebar.module.css";
 
 type NavItem = {
@@ -110,15 +110,16 @@ export function Sidebar({ viewerName, viewerRole }: SidebarProps) {
                 {navItems.map((item) => {
                   const active = isActive(pathname, item.href);
                   return (
-                    <Link
+                    <IntentLink
                       key={item.href}
                       href={item.href}
+                      prefetchMode="mount"
                       className={`${styles.item} ${active ? styles.active : ""}`}
                       onClick={() => setMenuOpen(false)}
                     >
                       <span className={`${styles.itemIcon} ${styles[item.iconClass]}`} aria-hidden />
                       <span>{item.label}</span>
-                    </Link>
+                    </IntentLink>
                   );
                 })}
               </nav>

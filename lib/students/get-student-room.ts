@@ -14,6 +14,28 @@ type GetStudentRoomOptions = {
   scope?: StudentRoomScope;
 };
 
+type DetailedReportRecord = {
+  id: string;
+  reportMarkdown: string | null;
+  deliveryEvents: Array<{
+    id: string;
+    eventType: string;
+    deliveryChannel: string | null;
+    note: string | null;
+    createdAt: Date;
+    actor: {
+      id: string;
+      name: string | null;
+      email: string | null;
+    } | null;
+  }>;
+};
+
+type StudioConversationDetail = {
+  artifactJson: unknown;
+  summaryMarkdown: string | null;
+};
+
 function normalizeSourceLogIds(sourceLogIds: unknown): string[] | null {
   if (!Array.isArray(sourceLogIds)) return null;
   const normalized = sourceLogIds.filter((value): value is string => typeof value === "string" && value.length > 0);
@@ -27,21 +49,6 @@ function buildStudentRoomSelect(scope: StudentRoomScope) {
     id: true,
     name: true,
     grade: true,
-    course: true,
-    guardianNames: true,
-    ...(isFullRoom
-      ? {
-          profiles: {
-            orderBy: { createdAt: "desc" as const },
-            take: 1,
-            select: {
-              id: true,
-              profileData: true,
-              createdAt: true,
-            },
-          },
-        }
-      : {}),
     sessions: {
       orderBy: [{ sessionDate: "desc" as const }, { createdAt: "desc" as const }],
       take: isFullRoom ? 12 : 8,
@@ -49,7 +56,6 @@ function buildStudentRoomSelect(scope: StudentRoomScope) {
         id: true,
         type: true,
         status: true,
-        title: true,
         sessionDate: true,
         heroStateLabel: true,
         heroOneLiner: true,
@@ -59,10 +65,7 @@ function buildStudentRoomSelect(scope: StudentRoomScope) {
             id: true,
             partType: true,
             status: true,
-            fileName: true,
-            reviewState: true,
             qualityMetaJson: true,
-            createdAt: true,
           },
           orderBy: { createdAt: "asc" as const },
         },
@@ -70,14 +73,7 @@ function buildStudentRoomSelect(scope: StudentRoomScope) {
           select: {
             id: true,
             status: true,
-            reviewState: true,
             createdAt: true,
-            ...(isFullRoom
-              ? {
-                  artifactJson: true,
-                  summaryMarkdown: true,
-                }
-              : {}),
             jobs: {
               select: {
                 type: true,
@@ -113,51 +109,86 @@ function buildStudentRoomSelect(scope: StudentRoomScope) {
         reviewedAt: true,
         deliveryChannel: true,
         sourceLogIds: true,
-        ...(isFullRoom
-          ? {
-              reportMarkdown: true,
-              qualityChecksJson: true,
-              deliveryEvents: {
-                orderBy: { createdAt: "asc" as const },
-                select: {
-                  id: true,
-                  eventType: true,
-                  deliveryChannel: true,
-                  note: true,
-                  createdAt: true,
-                  actor: {
-                    select: {
-                      id: true,
-                      name: true,
-                      email: true,
-                    },
-                  },
-                },
+        deliveryEvents: {
+          orderBy: { createdAt: "desc" as const },
+          take: 1,
+          select: {
+            id: true,
+            eventType: true,
+            deliveryChannel: true,
+            note: true,
+            createdAt: true,
+            actor: {
+              select: {
+                id: true,
+                name: true,
+                email: true,
               },
-            }
-          : {
-              deliveryEvents: {
-                orderBy: { createdAt: "desc" as const },
-                take: 1,
-                select: {
-                  id: true,
-                  eventType: true,
-                  deliveryChannel: true,
-                  note: true,
-                  createdAt: true,
-                  actor: {
-                    select: {
-                      id: true,
-                      name: true,
-                      email: true,
-                    },
-                  },
-                },
-              },
-            }),
+            },
+          },
+        },
       },
     },
   };
+}
+
+async function getLatestDetailedReport(reportId: string, organizationId: string) {
+  return (await runWithDatabaseRetry("student-room-latest-report", () =>
+    prisma.report.findFirst({
+      where: { id: reportId, organizationId },
+      select: {
+        id: true,
+        reportMarkdown: true,
+        deliveryEvents: {
+          orderBy: { createdAt: "asc" as const },
+          select: {
+            id: true,
+            eventType: true,
+            deliveryChannel: true,
+            note: true,
+            createdAt: true,
+            actor: {
+              select: {
+                id: true,
+                name: true,
+                email: true,
+              },
+            },
+          },
+        },
+      },
+    })
+  )) as DetailedReportRecord | null;
+}
+
+async function getStudioConversationDetails(sessionIds: string[], organizationId: string) {
+  if (sessionIds.length === 0) {
+    return new Map<string, StudioConversationDetail>();
+  }
+
+  const sessions = (await runWithDatabaseRetry("student-room-studio-sessions", () =>
+    prisma.session.findMany({
+      where: {
+        id: { in: sessionIds },
+        organizationId,
+      },
+      select: {
+        id: true,
+        conversation: {
+          select: {
+            artifactJson: true,
+            summaryMarkdown: true,
+          },
+        },
+      },
+    })
+  )) as Array<{ id: string; conversation: StudioConversationDetail | null }>;
+
+  return new Map(
+    sessions
+      .filter((session) => Boolean(session.conversation))
+      .map((session) => [session.id, session.conversation as StudioConversationDetail])
+  );
 }
 
 export async function getStudentRoomData({
@@ -180,27 +211,39 @@ export async function getStudentRoomData({
     return null;
   }
 
+  const detailedSessionIds = isFullRoom
+    ? (student.sessions ?? [])
+        .filter((session: any) => session.type === "INTERVIEW" && session.conversation?.status === "DONE")
+        .slice(0, 4)
+        .map((session: any) => session.id)
+    : [];
+
+  const [latestDetailedReport, studioConversationDetails] = isFullRoom
+    ? await Promise.all([
+        student.reports?.[0]?.id ? getLatestDetailedReport(student.reports[0].id, organizationId) : Promise.resolve(null),
+        getStudioConversationDetails(detailedSessionIds, organizationId),
+      ])
+    : [null, new Map<string, StudioConversationDetail>()];
+
   const sessions = (student.sessions ?? []).map((session: any) => {
     const parts = (session.parts ?? []).map((part: any) => ({
       id: part.id,
       partType: part.partType,
       status: part.status,
-      fileName: part.fileName,
-      reviewState: part.reviewState,
       qualityMetaJson: part.qualityMetaJson,
-      createdAt: part.createdAt.toISOString(),
     }));
+
+    const studioConversation = studioConversationDetails.get(session.id) ?? null;
 
     const conversation = session.conversation
       ? {
           id: session.conversation.id,
           status: session.conversation.status,
-          reviewState: session.conversation.reviewState,
           createdAt: session.conversation.createdAt.toISOString(),
           ...(isFullRoom
             ? {
-                artifactJson: session.conversation.artifactJson ?? null,
-                summaryMarkdown: session.conversation.summaryMarkdown ?? null,
+                artifactJson: studioConversation?.artifactJson ?? null,
+                summaryMarkdown: studioConversation?.summaryMarkdown ?? null,
               }
             : {}),
           jobs: session.conversation.jobs ?? [],
@@ -218,7 +261,6 @@ export async function getStudentRoomData({
       id: session.id,
       type: session.type,
       status: session.status,
-      title: session.title,
       sessionDate: session.sessionDate.toISOString(),
       heroStateLabel: session.heroStateLabel,
       heroOneLiner: session.heroOneLiner,
@@ -244,7 +286,28 @@ export async function getStudentRoomData({
     })
   );
 
-  const latestProfileRecord = student.profiles?.[0] ?? null;
+  const reports = (student.reports ?? []).map((report: any, index: number) => {
+    const detailedReport =
+      isFullRoom && index === 0 && latestDetailedReport?.id === report.id ? latestDetailedReport : null;
+    const deliveryEvents = detailedReport?.deliveryEvents ?? report.deliveryEvents ?? [];
+    const mappedReport = {
+      ...report,
+      reportMarkdown: detailedReport ? sanitizeReportMarkdown(detailedReport.reportMarkdown ?? "") : "",
+      createdAt: report.createdAt.toISOString(),
+      sentAt: report.sentAt?.toISOString() ?? null,
+      reviewedAt: report.reviewedAt?.toISOString() ?? null,
+      sourceLogIds: normalizeSourceLogIds(report.sourceLogIds),
+      deliveryEvents: deliveryEvents.map((event: any) => ({
+        ...event,
+        createdAt: event.createdAt.toISOString(),
+      })),
+    };
+
+    return {
+      ...mappedReport,
+      ...buildReportDeliverySummary(mappedReport),
+    };
+  });
 
   return {
     meta: { scope: roomScope },
@@ -252,48 +315,18 @@ export async function getStudentRoomData({
       id: student.id,
       name: student.name,
       grade: student.grade,
-      course: student.course,
-      guardianNames: student.guardianNames,
-      profiles: isFullRoom
-        ? (student.profiles ?? []).map((profile: any) => ({
-            ...profile,
-            createdAt: profile.createdAt.toISOString(),
-          }))
-        : [],
+      profiles: [],
     },
     latestConversation: latestConversation
       ? {
           id: latestConversation.id,
           status: latestConversation.status,
-          reviewState: latestConversation.reviewState,
           createdAt: latestConversation.createdAt,
         }
       : null,
-    latestProfile:
-      isFullRoom && latestProfileRecord
-        ? {
-            ...latestProfileRecord,
-            createdAt: latestProfileRecord.createdAt.toISOString(),
-          }
-        : null,
+    latestProfile: null,
     sessions,
-    reports: (student.reports ?? []).map((report: any) => ({
-      ...report,
-      reportMarkdown: isFullRoom ? sanitizeReportMarkdown(report.reportMarkdown ?? "") : "",
-      createdAt: report.createdAt.toISOString(),
-      sentAt: report.sentAt?.toISOString() ?? null,
-      reviewedAt: report.reviewedAt?.toISOString() ?? null,
-      qualityChecksJson:
-        isFullRoom && report.qualityChecksJson && typeof report.qualityChecksJson === "object"
-          ? (report.qualityChecksJson as any)
-          : null,
-      sourceLogIds: normalizeSourceLogIds(report.sourceLogIds),
-      deliveryEvents: (report.deliveryEvents ?? []).map((event: any) => ({
-        ...event,
-        createdAt: event.createdAt.toISOString(),
-      })),
-      ...buildReportDeliverySummary(report),
-    })),
+    reports,
     recordingLock,
   };
 }

@@ -1,3 +1,4 @@
+import { revalidatePath, revalidateTag } from "next/cache";
 import { NextResponse } from "next/server";
 import { ReportDeliveryEventType, ReportStatus } from "@prisma/client";
 import { auth } from "@/auth";
@@ -126,6 +127,15 @@ export async function POST(
         deliveryChannel: result.event.deliveryChannel ?? null,
       },
     });
+
+    if (current.organizationId) {
+      revalidateTag(`student-directory:${current.organizationId}`);
+      revalidateTag(`dashboard-snapshot:${current.organizationId}`);
+      revalidatePath("/app/dashboard");
+      revalidatePath("/app/students");
+      revalidatePath("/app/reports");
+      revalidatePath(`/app/students/${current.studentId}`);
+    }
 
     return NextResponse.json(result);
   } catch (error: any) {

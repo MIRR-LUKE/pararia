@@ -1,8 +1,8 @@
-import Link from "next/link";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
+import { IntentLink } from "@/components/ui/IntentLink";
 import type { DashboardSnapshot } from "@/lib/students/dashboard-snapshot";
 import InviteLinkCard from "./InviteLinkCard";
 import styles from "./dashboard.module.css";
@@ -37,9 +37,9 @@ export default function DashboardPageClient({ initialData, canInvite, viewerName
           </p>
         </div>
         <div className={styles.heroActions}>
-          <Link href={interviewHref}>
+          <IntentLink href={interviewHref}>
             <Button className={styles.heroButton}>面談を始める</Button>
-          </Link>
+          </IntentLink>
         </div>
       </section>
 
@@ -88,9 +88,9 @@ export default function DashboardPageClient({ initialData, canInvite, viewerName
           <div className={styles.emptyState}>
             <strong>今日の優先対応はありません</strong>
             <p>新しい面談を始めるなら、全生徒一覧から対象の生徒を開いてください。</p>
-            <Link href="/app/students">
+            <IntentLink href="/app/students">
               <Button>全生徒を見る</Button>
-            </Link>
+            </IntentLink>
           </div>
         ) : (
           <div className={styles.queueList}>
@@ -110,9 +110,9 @@ export default function DashboardPageClient({ initialData, canInvite, viewerName
                   <p className={styles.queueReason}>{item.queue.reason}</p>
                 </div>
                 <div className={styles.queueActionBlock}>
-                  <Link href={item.queue.href}>
+                  <IntentLink href={item.queue.href}>
                     <Button>{item.queue.cta}</Button>
-                  </Link>
+                  </IntentLink>
                 </div>
               </div>
             ))}
