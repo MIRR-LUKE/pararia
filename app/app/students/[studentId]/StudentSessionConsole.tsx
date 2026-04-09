@@ -18,14 +18,8 @@ import {
   buildRecordingTooLongMessage,
   buildRecordingTooShortMessage,
 } from "@/lib/recording/policy";
-import {
-  clearPendingRecordingDraft,
-  loadPendingRecordingDraft,
-  savePendingRecordingDraft,
-  type PendingRecordingDraftRecord,
-} from "@/lib/recording/pendingRecordingStore";
+import type { PendingRecordingDraftRecord } from "@/lib/recording/pendingRecordingStore";
 import { isLiveChunkUploadEnabled } from "@/lib/recording/live-chunk-upload";
-import { uploadFileToBlobFromBrowser } from "@/lib/blob-browser-upload";
 import { buildSessionPartUploadPathname } from "@/lib/audio-storage-paths";
 import type { RecordingLockInfo, SessionItem, SessionPipelineInfo } from "./roomTypes";
 import styles from "./studentSessionConsole.module.css";
@@ -82,6 +76,14 @@ const LIVE_STT_WINDOW_MS: Record<SessionConsoleMode, number> = {
 const CLIENT_AUDIO_STORAGE_MODE =
   process.env.NEXT_PUBLIC_AUDIO_STORAGE_MODE?.trim().toLowerCase() === "blob" ? "blob" : "local";
 const LIVE_CHUNK_UPLOAD_ENABLED = isLiveChunkUploadEnabled();
+
+async function loadPendingRecordingStoreModule() {
+  return import("@/lib/recording/pendingRecordingStore");
+}
+
+async function loadBlobUploadModule() {
+  return import("@/lib/blob-browser-upload");
+}
 
 function stopTracks(stream: MediaStream | null) {
   stream?.getTracks().forEach((track) => track.stop());
@@ -400,6 +402,7 @@ export function StudentSessionConsole({
   );
 
   const clearPendingDraftState = useCallback(async () => {
+    const { clearPendingRecordingDraft } = await loadPendingRecordingStoreModule();
     await clearPendingRecordingDraft({ studentId, mode, lessonPart }).catch(() => {});
     setPendingDraft(null);
     setPendingDraftPersistence(null);
@@ -408,6 +411,7 @@ export function StudentSessionConsole({
   const savePendingDraftState = useCallback(
     async (file: File, durationSeconds: number | null) => {
       try {
+        const { savePendingRecordingDraft } = await loadPendingRecordingStoreModule();
         const record = await savePendingRecordingDraft({
           studentId,
           mode,
@@ -444,6 +448,7 @@ export function StudentSessionConsole({
   }, [pendingDraft]);
 
   const loadPendingDraftState = useCallback(async () => {
+    const { loadPendingRecordingDraft } = await loadPendingRecordingStoreModule();
     const record = await loadPendingRecordingDraft({ studentId, mode, lessonPart }).catch(() => null);
     setPendingDraft(record ? toPendingDraft(record) : null);
     setPendingDraftPersistence(record ? "durable" : null);
@@ -842,6 +847,7 @@ export function StudentSessionConsole({
 
         if (CLIENT_AUDIO_STORAGE_MODE === "blob") {
           setMessage("音声を共有保存へ送っています。");
+          const { uploadFileToBlobFromBrowser } = await loadBlobUploadModule();
           const blob = await uploadFileToBlobFromBrowser({
             pathname: buildSessionPartUploadPathname(sessionId, uploadPartType, file.name),
             file,

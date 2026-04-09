@@ -1,3 +1,4 @@
+import { revalidatePath, revalidateTag } from "next/cache";
 import { NextResponse } from "next/server";
 import { writeAuditLog } from "@/lib/audit";
 import { processAllConversationJobs } from "@/lib/jobs/conversationJobs";
@@ -260,6 +261,14 @@ export async function DELETE(
       },
     });
 
+    revalidateTag(`student-directory:${organizationId}`);
+    revalidateTag(`dashboard-snapshot:${organizationId}`);
+    revalidatePath("/app/dashboard");
+    revalidatePath("/app/students");
+    revalidatePath("/app/logs");
+    revalidatePath("/app/reports");
+    revalidatePath(`/app/students/${conversation.studentId}`);
+
     return NextResponse.json({
       success: true,
       message: "conversation deleted",
@@ -330,6 +339,13 @@ export async function PATCH(
       data: updateData,
     });
     await syncSessionAfterConversation(updated.id);
+
+    revalidateTag(`student-directory:${organizationId}`);
+    revalidateTag(`dashboard-snapshot:${organizationId}`);
+    revalidatePath("/app/dashboard");
+    revalidatePath("/app/students");
+    revalidatePath("/app/logs");
+    revalidatePath(`/app/students/${updated.studentId}`);
 
     return NextResponse.json({
       conversation: {

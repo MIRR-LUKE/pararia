@@ -133,6 +133,7 @@ export async function POST(
       revalidateTag(`dashboard-snapshot:${current.organizationId}`);
       revalidatePath("/app/dashboard");
       revalidatePath("/app/students");
+      revalidatePath("/app/logs");
       revalidatePath("/app/reports");
       revalidatePath(`/app/students/${current.studentId}`);
     }

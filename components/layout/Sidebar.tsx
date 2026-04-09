@@ -113,7 +113,7 @@ export function Sidebar({ viewerName, viewerRole }: SidebarProps) {
                     <IntentLink
                       key={item.href}
                       href={item.href}
-                      prefetchMode="mount"
+                      prefetchMode={item.href === "/app/dashboard" ? "mount" : "intent"}
                       className={`${styles.item} ${active ? styles.active : ""}`}
                       onClick={() => setMenuOpen(false)}
                     >

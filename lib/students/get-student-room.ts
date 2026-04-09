@@ -45,6 +45,61 @@ function normalizeSourceLogIds(sourceLogIds: unknown): string[] | null {
 function buildStudentRoomSelect(scope: StudentRoomScope) {
   const isFullRoom = scope === "full";
 
+  if (!isFullRoom) {
+    return {
+      id: true,
+      name: true,
+      grade: true,
+      sessions: {
+        orderBy: [{ sessionDate: "desc" as const }, { createdAt: "desc" as const }],
+        take: 1,
+        select: {
+          id: true,
+          type: true,
+          status: true,
+          sessionDate: true,
+          conversation: {
+            select: {
+              id: true,
+              status: true,
+              createdAt: true,
+            },
+          },
+        },
+      },
+      reports: {
+        orderBy: { createdAt: "desc" as const },
+        take: 1,
+        select: {
+          id: true,
+          status: true,
+          createdAt: true,
+          sentAt: true,
+          reviewedAt: true,
+          deliveryChannel: true,
+          deliveryEvents: {
+            orderBy: { createdAt: "desc" as const },
+            take: 1,
+            select: {
+              id: true,
+              eventType: true,
+              deliveryChannel: true,
+              note: true,
+              createdAt: true,
+              actor: {
+                select: {
+                  id: true,
+                  name: true,
+                  email: true,
+                },
+              },
+            },
+          },
+        },
+      },
+    };
+  }
+
   return {
     id: true,
     name: true,
@@ -253,7 +308,7 @@ export async function getStudentRoomData({
     const pipeline = buildSessionProgressState({
       sessionId: session.id,
       type: session.type,
-      parts: session.parts,
+      parts: session.parts ?? [],
       conversation: session.conversation,
     });
 

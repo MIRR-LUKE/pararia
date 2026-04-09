@@ -93,6 +93,8 @@ export async function PUT(
     revalidateTag(`dashboard-snapshot:${authResult.session.user.organizationId}`);
     revalidatePath("/app/students");
     revalidatePath("/app/dashboard");
+    revalidatePath("/app/reports");
+    revalidatePath("/app/settings");
     revalidatePath(`/app/students/${student.id}`);
 
     return NextResponse.json({ student });
@@ -196,6 +198,9 @@ export async function DELETE(
     revalidateTag(`dashboard-snapshot:${authResult.session.user.organizationId}`);
     revalidatePath("/app/students");
     revalidatePath("/app/dashboard");
+    revalidatePath("/app/reports");
+    revalidatePath("/app/settings");
+    revalidatePath("/app/logs");
     revalidatePath(`/app/students/${student.id}`);
 
     return NextResponse.json({

@@ -1,3 +1,4 @@
+import { revalidatePath, revalidateTag } from "next/cache";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { ConversationSourceType, ConversationStatus } from "@prisma/client";
@@ -188,6 +189,13 @@ export async function POST(request: Request) {
         console.error("[POST /api/conversations] Runpod wake failed:", error);
       });
     }
+
+    revalidateTag(`student-directory:${organizationId}`);
+    revalidateTag(`dashboard-snapshot:${organizationId}`);
+    revalidatePath("/app/dashboard");
+    revalidatePath("/app/students");
+    revalidatePath("/app/logs");
+    revalidatePath(`/app/students/${studentId}`);
 
     return NextResponse.json({ conversation }, { status: 201 });
   } catch (error: any) {

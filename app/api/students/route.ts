@@ -92,6 +92,8 @@ export async function POST(request: Request) {
     revalidateTag(`dashboard-snapshot:${authResult.session.user.organizationId}`);
     revalidatePath("/app/students");
     revalidatePath("/app/dashboard");
+    revalidatePath("/app/reports");
+    revalidatePath("/app/settings");
 
     return NextResponse.json({ student }, { status: 201 });
   } catch (e: any) {

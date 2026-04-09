@@ -6,7 +6,6 @@ import dynamic from "next/dynamic";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/Button";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
-import { StructuredMarkdown } from "@/components/ui/StructuredMarkdown";
 import { UNSAVED_CONVERSATION_SUMMARY_MESSAGE } from "@/lib/conversation-editing";
 import { pickLatestInterviewMemoSession } from "@/lib/next-meeting-memo";
 import {
@@ -32,18 +31,17 @@ type DeleteTarget =
 
 const EMPTY_SEARCH_PARAMS = new URLSearchParams();
 
-const LazyLogView = dynamic(() => import("../../logs/LogView").then((mod) => mod.LogView), {
-  loading: () => <div className={styles.overlayLoading}>ログを開いています...</div>,
-});
-
-const LazyReportStudio = dynamic(() => import("./ReportStudio").then((mod) => mod.ReportStudio), {
-  loading: () => <div className={styles.overlayLoading}>保護者レポート画面を準備しています...</div>,
-});
-
-const LazyStudentSessionStream = dynamic(
-  () => import("./StudentSessionStream").then((mod) => mod.StudentSessionStream),
+const LazyStudentDetailWorkspace = dynamic(
+  () => import("./StudentDetailWorkspace").then((mod) => mod.StudentDetailWorkspace),
   {
     loading: () => <div className={styles.sectionLoading}>ログ一覧を読み込んでいます...</div>,
+  }
+);
+
+const LazyStudentDetailOverlay = dynamic(
+  () => import("./StudentDetailOverlay").then((mod) => mod.StudentDetailOverlay),
+  {
+    loading: () => <div className={styles.overlayLoading}>詳細画面を準備しています...</div>,
   }
 );
 
@@ -98,12 +96,6 @@ function formatSessionLabel(session: SessionItem) {
   const date = new Date(session.sessionDate);
   const base = `${date.getMonth() + 1}月${date.getDate()}日`;
   return session.type === "INTERVIEW" ? `${base}の面談` : `${base}の指導報告`;
-}
-
-function withinCurrentMonth(value: string) {
-  const date = new Date(value);
-  const now = new Date();
-  return date.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth();
 }
 
 function lessonSummaryLabel(session: SessionItem) {
@@ -355,28 +347,9 @@ export default function StudentDetailPageClient({
   );
 
   const reportSelectionSessions = useMemo(() => candidateReportSessions.slice(0, 4), [candidateReportSessions]);
-  const communicationSessions = useMemo(() => {
-    const base = (room?.sessions ?? []).filter((session) => session.type === "INTERVIEW" && session.conversation?.id);
-    const filtered = periodFilter === "month" ? base.filter((session) => withinCurrentMonth(session.sessionDate)) : base;
-    return [...filtered].sort((left, right) =>
-      sortOrder === "desc"
-        ? new Date(right.sessionDate).getTime() - new Date(left.sessionDate).getTime()
-        : new Date(left.sessionDate).getTime() - new Date(right.sessionDate).getTime()
-    );
-  }, [periodFilter, room?.sessions, sortOrder]);
-
-  const parentReports = useMemo(() => {
-    const base = room?.reports ?? [];
-    const filtered = periodFilter === "month" ? base.filter((report) => withinCurrentMonth(report.createdAt)) : base;
-    return [...filtered].sort((left, right) =>
-      sortOrder === "desc"
-        ? new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime()
-        : new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime()
-    );
-  }, [periodFilter, room?.reports, sortOrder]);
-
   const latestConversation = room?.latestConversation ?? null;
   const latestReport = room?.reports[0] ?? null;
+  const isSummaryRoom = roomScope(room) !== "full";
   const latestInterviewMemoSession = useMemo(
     () => pickLatestInterviewMemoSession(room?.sessions ?? []),
     [room?.sessions]
@@ -506,7 +479,7 @@ export default function StudentDetailPageClient({
       ? (room?.sessions ?? []).find((sessionItem) => sessionItem.conversation?.id === overlay.logId) ?? null
       : null;
   const activeParentReportBase =
-    overlay.kind === "parentReport" ? parentReports.find((report) => report.id === overlay.reportId) ?? null : null;
+    overlay.kind === "parentReport" ? (room?.reports ?? []).find((report) => report.id === overlay.reportId) ?? null : null;
   const activeParentReport = useMemo(
     () =>
       activeParentReportBase
@@ -657,41 +630,47 @@ export default function StudentDetailPageClient({
             <div>
               <div className={styles.cardTitle}>次回の面談メモ</div>
               <div className={styles.cardSubtext}>
-                {latestInterviewMemoSession
+                {!isSummaryRoom && latestInterviewMemoSession
                   ? `${formatSessionLabel(latestInterviewMemoSession)}をもとに、次にすぐ見返せる内容だけを置きます。`
                   : "面談ログが完成すると、ここに次回の面談メモが表示されます。"}
               </div>
             </div>
             <div className={styles.generatedMeta}>
-              {latestNextMeetingMemo?.updatedAt ? `更新：${formatUpdated(latestNextMeetingMemo.updatedAt)}` : "未作成"}
+              {!isSummaryRoom && latestNextMeetingMemo?.updatedAt ? `更新：${formatUpdated(latestNextMeetingMemo.updatedAt)}` : "読込中"}
             </div>
           </div>
 
-          <div className={styles.memoBody}>
-            <div className={styles.memoSection}>
-              <div className={styles.memoSectionTitle}>前回の面談まとめ</div>
-              <p
-                className={`${styles.memoParagraph} ${
-                  nextMeetingMemoStatus === "READY" ? "" : styles.memoParagraphMuted
-                }`}
-              >
-                {nextMeetingMemoPreviousSummary}
-              </p>
-            </div>
+          {isSummaryRoom ? (
+            <div className={styles.sectionLoading}>次回の面談メモを読み込んでいます...</div>
+          ) : (
+            <>
+              <div className={styles.memoBody}>
+                <div className={styles.memoSection}>
+                  <div className={styles.memoSectionTitle}>前回の面談まとめ</div>
+                  <p
+                    className={`${styles.memoParagraph} ${
+                      nextMeetingMemoStatus === "READY" ? "" : styles.memoParagraphMuted
+                    }`}
+                  >
+                    {nextMeetingMemoPreviousSummary}
+                  </p>
+                </div>
 
-            <div className={styles.memoSection}>
-              <div className={styles.memoSectionTitle}>おすすめの話題</div>
-              <p
-                className={`${styles.memoParagraph} ${
-                  nextMeetingMemoStatus === "READY" ? "" : styles.memoParagraphMuted
-                }`}
-              >
-                {nextMeetingMemoSuggestedTopics}
-              </p>
-            </div>
-          </div>
+                <div className={styles.memoSection}>
+                  <div className={styles.memoSectionTitle}>おすすめの話題</div>
+                  <p
+                    className={`${styles.memoParagraph} ${
+                      nextMeetingMemoStatus === "READY" ? "" : styles.memoParagraphMuted
+                    }`}
+                  >
+                    {nextMeetingMemoSuggestedTopics}
+                  </p>
+                </div>
+              </div>
 
-          {nextMeetingMemoError ? <div className={styles.memoError}>{nextMeetingMemoError}</div> : null}
+              {nextMeetingMemoError ? <div className={styles.memoError}>{nextMeetingMemoError}</div> : null}
+            </>
+          )}
         </div>
 
         <div className={styles.reportCard}>
@@ -700,43 +679,51 @@ export default function StudentDetailPageClient({
               <div className={styles.cardTitle}>保護者レポート生成</div>
               <div className={styles.cardSubtext}>対象のログを選ぶだけで、ワンタップで保護者レポートを生成します。</div>
             </div>
-            <div className={styles.generatedMeta}>前回の生成：{formatReportDate(latestReport?.createdAt ?? null)}</div>
+            <div className={styles.generatedMeta}>
+              前回の生成：{latestReport?.createdAt ? formatReportDate(latestReport.createdAt) : isSummaryRoom ? "読込中" : "未生成"}
+            </div>
           </div>
 
-          <div className={styles.reportSelectionHead}>
-            <span>1月21日〜今日までのログから選択してください</span>
-            <button type="button" className={styles.inlineTextButton} onClick={toggleSelectAll}>
-              {allSelected ? "選択を外す" : "すべてを選択"}
-            </button>
-          </div>
+          {isSummaryRoom ? (
+            <div className={styles.sectionLoading}>保護者レポート候補を読み込んでいます...</div>
+          ) : (
+            <>
+              <div className={styles.reportSelectionHead}>
+                <span>1月21日〜今日までのログから選択してください</span>
+                <button type="button" className={styles.inlineTextButton} onClick={toggleSelectAll}>
+                  {allSelected ? "選択を外す" : "すべてを選択"}
+                </button>
+              </div>
 
-          <div className={styles.reportSelectionList}>
-            {reportSelectionSessions.length === 0 ? (
-              <div className={styles.emptyCompact}>まだ選べる面談ログがありません。面談を録音するとここに並びます。</div>
-            ) : (
-              reportSelectionSessions.map((sessionItem) => {
-                const checked = selectedSessionIds.includes(sessionItem.id);
-                return (
-                  <label key={sessionItem.id} className={styles.reportSelectionRow}>
-                    <input
-                      type="checkbox"
-                      checked={checked}
-                      onChange={() => toggleReportSelection(sessionItem.id)}
-                    />
-                    <span className={`${styles.selectionIndicator} ${checked ? styles.selectionIndicatorActive : ""}`} aria-hidden />
-                    <span className={styles.rowLabel}>{formatSessionLabel(sessionItem)}</span>
-                  </label>
-                );
-              })
-            )}
-          </div>
+              <div className={styles.reportSelectionList}>
+                {reportSelectionSessions.length === 0 ? (
+                  <div className={styles.emptyCompact}>まだ選べる面談ログがありません。面談を録音するとここに並びます。</div>
+                ) : (
+                  reportSelectionSessions.map((sessionItem) => {
+                    const checked = selectedSessionIds.includes(sessionItem.id);
+                    return (
+                      <label key={sessionItem.id} className={styles.reportSelectionRow}>
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => toggleReportSelection(sessionItem.id)}
+                        />
+                        <span className={`${styles.selectionIndicator} ${checked ? styles.selectionIndicatorActive : ""}`} aria-hidden />
+                        <span className={styles.rowLabel}>{formatSessionLabel(sessionItem)}</span>
+                      </label>
+                    );
+                  })
+                )}
+              </div>
 
-          <div className={styles.reportActions}>
-            <Button variant="secondary" onClick={() => void openReportStudio("selection")} disabled={selectedSessionIds.length === 0}>
-              保護者レポートを生成
-            </Button>
-            <span className={styles.selectionCount}>{selectedSessionIds.length}件選択中</span>
-          </div>
+              <div className={styles.reportActions}>
+                <Button variant="secondary" onClick={() => void openReportStudio("selection")} disabled={selectedSessionIds.length === 0}>
+                  保護者レポートを生成
+                </Button>
+                <span className={styles.selectionCount}>{selectedSessionIds.length}件選択中</span>
+              </div>
+            </>
+          )}
         </div>
       </section>
 
@@ -744,229 +731,49 @@ export default function StudentDetailPageClient({
         {roomScope(room) !== "full" || hydratingWorkspace ? (
           <div className={styles.sectionLoading}>ログと保護者レポート履歴を読み込んでいます...</div>
         ) : (
-          <>
-            <div className={styles.tabBar}>
-              {[
-                { key: "communications", label: "面談ログ" },
-                { key: "parentReports", label: "保護者レポートログ" },
-              ].map((tab) => (
-                <button
-                  key={tab.key}
-                  type="button"
-                  className={`${styles.tabButton} ${activeTab === tab.key ? styles.tabButtonActive : ""}`}
-                  onClick={() => {
-                    setActiveTab(tab.key as TabKey);
-                    syncUrl({ tab: tab.key as TabKey });
-                  }}
-                >
-                  {tab.label}
-                </button>
-              ))}
-            </div>
-
-            <div className={styles.filterRow}>
-              <div className={styles.filterGroup}>
-                <button
-                  type="button"
-                  className={`${styles.filterButton} ${periodFilter === "all" ? styles.filterButtonActive : ""}`}
-                  onClick={() => setPeriodFilter("all")}
-                >
-                  すべて
-                </button>
-                <button
-                  type="button"
-                  className={`${styles.filterButton} ${periodFilter === "month" ? styles.filterButtonActive : ""}`}
-                  onClick={() => setPeriodFilter("month")}
-                >
-                  今月
-                </button>
-              </div>
-              <div className={styles.filterGroup}>
-                <button
-                  type="button"
-                  className={`${styles.filterButton} ${sortOrder === "desc" ? styles.filterButtonActive : ""}`}
-                  onClick={() => setSortOrder("desc")}
-                >
-                  新しい順
-                </button>
-                <button
-                  type="button"
-                  className={`${styles.filterButton} ${sortOrder === "asc" ? styles.filterButtonActive : ""}`}
-                  onClick={() => setSortOrder("asc")}
-                >
-                  古い順
-                </button>
-              </div>
-            </div>
-
-            {activeTab === "communications" ? (
-              <LazyStudentSessionStream
-                sessions={communicationSessions}
-                assigneeName={viewerName ?? undefined}
-                onOpenLog={openLog}
-              />
-            ) : null}
-
-            {activeTab === "parentReports" ? (
-              <div className={styles.historyList}>
-                {parentReports.length === 0 ? (
-                  <div className={styles.emptyState}>まだ保護者レポートはありません。上段のカードから対象ログを選んで生成してください。</div>
-                ) : (
-                  parentReports.map((report) => (
-                    <button
-                      key={report.id}
-                      type="button"
-                      className={styles.historyRow}
-                      onClick={() => void openParentReport(report.id)}
-                    >
-                      <div className={styles.historyRowLeft}>
-                        <div className={styles.historyIcon} aria-hidden>
-                          <span />
-                        </div>
-                        <div>
-                          <div className={styles.historyRowTitle}>{formatReportDate(report.createdAt)} の保護者レポート</div>
-                          <div className={styles.historyRowMeta}>{report.deliveryStateLabel ?? report.workflowStatusLabel ?? "状態確認中"}</div>
-                        </div>
-                      </div>
-                      <div className={styles.assigneePill}>{viewerBadge}</div>
-                    </button>
-                  ))
-                )}
-              </div>
-            ) : null}
-          </>
+          <LazyStudentDetailWorkspace
+            sessions={room.sessions}
+            reports={room.reports}
+            activeTab={activeTab}
+            periodFilter={periodFilter}
+            sortOrder={sortOrder}
+            viewerBadge={viewerBadge}
+            viewerName={viewerName ?? null}
+            onActiveTabChange={(tab) => {
+              setActiveTab(tab);
+              syncUrl({ tab });
+            }}
+            onPeriodFilterChange={setPeriodFilter}
+            onSortOrderChange={setSortOrder}
+            onOpenLog={openLog}
+            onOpenParentReport={openParentReport}
+          />
         )}
       </section>
 
       {overlay.kind !== "none" ? (
-        <div
-          className={styles.overlayBackdrop}
-          role="presentation"
-          onClick={(event) => {
-            if (event.target === event.currentTarget) requestOverlayClose();
+        <LazyStudentDetailOverlay
+          overlay={overlay}
+          room={room}
+          activeParentReport={activeParentReport}
+          parentReportLoadingId={parentReportLoadingId}
+          parentReportError={parentReportError}
+          selectedSessionIds={selectedSessionIds}
+          onSelectedSessionIdsChange={handleSelectedSessionIdsChange}
+          onRequestClose={requestOverlayClose}
+          onRefresh={refresh}
+          onDirtyChange={setLogHasUnsavedChanges}
+          onOpenLog={openLog}
+          onReportViewChange={(view) => setOverlay({ kind: "report", view })}
+          onRetryParentReport={(reportId) => {
+            void fetchParentReportDetail(reportId);
           }}
-        >
-          <div className={styles.overlayPanel} role="dialog" aria-modal="true">
-              <div className={styles.overlayHeader}>
-                <div className={styles.overlayTitleBlock}>
-                  <div className={styles.overlayEyebrow}>
-                    {overlay.kind === "log"
-                      ? "ログ"
-                    : overlay.kind === "report"
-                      ? "保護者レポート"
-                      : "保護者レポートログ"}
-                </div>
-                <h3 className={styles.overlayTitle}>
-                  {overlay.kind === "log"
-                    ? "ログを確認する"
-                    : overlay.kind === "report"
-                      ? "保護者レポートを確認する"
-                      : "保護者レポートを確認する"}
-                  </h3>
-                </div>
-                <div className={styles.overlayActions}>
-                  {overlay.kind === "log" ? (
-                    <Button
-                      variant="ghost"
-                      className={styles.deleteButton}
-                      onClick={openDeleteDialogForLog}
-                    >
-                      このログを削除
-                    </Button>
-                  ) : null}
-                  {overlay.kind === "parentReport" ? (
-                    <Button
-                      variant="ghost"
-                      className={styles.deleteButton}
-                      onClick={openDeleteDialogForReport}
-                    >
-                      このレポートを削除
-                    </Button>
-                  ) : null}
-                  <Button variant="secondary" onClick={requestOverlayClose}>
-                    閉じる
-                  </Button>
-                </div>
-              </div>
-
-            <div className={styles.overlayContent}>
-              {overlay.kind === "log" ? (
-                <LazyLogView
-                  logId={overlay.logId}
-                  showHeader={false}
-                  onBack={requestOverlayClose}
-                  onSaved={refresh}
-                  onDirtyChange={setLogHasUnsavedChanges}
-                />
-              ) : null}
-
-              {overlay.kind === "report" ? (
-                <LazyReportStudio
-                  view={overlay.view}
-                  studentId={room.student.id}
-                  studentName={room.student.name}
-                  sessions={room.sessions}
-                  reports={room.reports}
-                  selectedSessionIds={selectedSessionIds}
-                  onSelectedSessionIdsChange={handleSelectedSessionIdsChange}
-                  onRefresh={refresh}
-                  onOpenLog={openLog}
-                  onViewChange={(view) => setOverlay({ kind: "report", view })}
-                />
-              ) : null}
-
-              {overlay.kind === "parentReport" && activeParentReport ? (
-                parentReportLoadingId === activeParentReport.id && !activeParentReport.reportMarkdown ? (
-                  <div className={styles.overlayLoading}>保護者レポートを読み込んでいます...</div>
-                ) : parentReportError && !activeParentReport.reportMarkdown ? (
-                  <div className={styles.reportDetailStack}>
-                    <div className={styles.memoError}>{parentReportError}</div>
-                    <div className={styles.detailActions}>
-                      <Button
-                        variant="secondary"
-                        onClick={() => {
-                          void fetchParentReportDetail(activeParentReport.id);
-                        }}
-                      >
-                        もう一度読み込む
-                      </Button>
-                    </div>
-                  </div>
-                ) : (
-                  <div className={styles.reportDetailStack}>
-                    <div className={styles.detailMetaRow}>
-                      <div>
-                        <span>作成日</span>
-                        <strong>{formatReportDate(activeParentReport.createdAt)}</strong>
-                      </div>
-                      <div>
-                        <span>状態</span>
-                        <strong>{activeParentReport.deliveryStateLabel ?? activeParentReport.workflowStatusLabel ?? "状態確認中"}</strong>
-                      </div>
-                      <div>
-                        <span>参照ログ</span>
-                        <strong>{activeParentReport.sourceLogIds?.length ?? 0}件</strong>
-                      </div>
-                    </div>
-
-                    <div className={styles.reportParagraph}>
-                      <StructuredMarkdown
-                        markdown={activeParentReport.reportMarkdown}
-                        emptyMessage="まだ保護者レポートは生成されていません。"
-                      />
-                    </div>
-
-                    {activeParentReport.needsReview || activeParentReport.needsShare ? (
-                      <div className={styles.detailActions}>
-                        <Button onClick={() => openReportStudio("send")}>送付前確認へ進む</Button>
-                      </div>
-                    ) : null}
-                  </div>
-                )
-              ) : null}
-            </div>
-          </div>
-        </div>
+          onOpenDeleteDialogForLog={openDeleteDialogForLog}
+          onOpenDeleteDialogForReport={openDeleteDialogForReport}
+          onOpenReportStudioSend={() => {
+            void openReportStudio("send");
+          }}
+        />
       ) : null}
 
       <ConfirmDialog
