@@ -1,6 +1,6 @@
 # 直近で切る Issue 一覧
 
-更新日: 2026-03-27
+更新日: 2026-04-13
 
 今回の前提:
 
@@ -103,7 +103,7 @@
 - `#18` と `#22` と `#29` は、artifact 先行生成に合わせて本文も更新した
 - `#32` は `test:conversation-draft-quality` と CI 実行内容まで最新化した
 
-次に切る UI Issue:
+次に切る UI / UX / 品質 Issue:
 
 1. [21-transcript-review-screen.md](./21-transcript-review-screen.md)
 2. [22-log-review-screen.md](./22-log-review-screen.md)
@@ -114,6 +114,8 @@
 7. [27-delivery-operations-screen.md](./27-delivery-operations-screen.md)
 8. [28-log-and-report-list-clarity.md](./28-log-and-report-list-clarity.md)
 9. [29-unify-empty-loading-error-states.md](./29-unify-empty-loading-error-states.md)
+10. [30-student-detail-performance.md](./30-student-detail-performance.md)
+11. [31-code-shape-and-splitting-rules.md](./31-code-shape-and-splitting-rules.md)
 
 対応する GitHub Issue:
 
@@ -121,11 +123,13 @@
 - `#35` UI: ログ確認画面を、信頼できるか判断できる画面に作り直す
 - `#36` UI: 生徒詳細に「要確認」の導線を足す
 - `#37` UI: ダッシュボードに「文字起こし確認待ち」を入れる
-- `#38` UI: 保護者レポート生成画面に、ログの信頼性が見える表示を足す
+- `#38` UI: 保護者レポート生成画面に、ログの信頼性が見える表示を足す: 実装済み
 - `#39` UI: 辞書管理画面を作る
-- `#40` UI: 共有・送付まわりの運用画面を作る
-- `#41` UI: ログ一覧とレポート一覧を、もっと見やすく整理する
-- `#42` UI: エラー・空状態・生成中状態の表示を全部そろえる
+- `#40` UI: 共有・送付まわりの運用画面を作る: 実装済み
+- `#41` UI: ログ一覧とレポート一覧を、もっと見やすく整理する: 一部できている
+- `#42` UI: エラー・空状態・生成中状態の表示を全部そろえる: 一部できている
+- `#44` Student Detail を server-first / no double fetch で速くする
+- `#45` コード形状ガードと分割ルールを repo に定着させる
 
 UI の優先順:
 
@@ -133,9 +137,9 @@ UI の優先順:
 2. ログ確認画面の強化
 3. 生徒詳細の要確認導線
 4. ダッシュボードの要確認キュー
-5. 保護者レポート生成画面の信頼性表示
+5. Student Detail の体感速度改善
 6. 辞書管理画面
-7. 共有・送付の運用画面
+7. コード形状ガードと分割ルールの定着
 8. 一覧画面の見やすさ改善
 9. 空状態・エラー状態の統一
 
@@ -145,5 +149,7 @@ UI の優先順:
 - 今回の 5 本は「まず backend を固める」ための issue で、完成 UI はスコープ外
 - glossary 管理画面や Student Room の最終 UI は今回の issue には含めない
 - 今回の 9 本で transcript / review / grounded generation / CI のズレをまとめて埋めた
+- `#38` と `#40` は `2026-04-13` 時点で main に反映済み
+- `#13` の backlog 整理 issue は今回の README 更新で役割を終える
 
 このディレクトリの Markdown は、GitHub Issue の本文更新にも使えるように、実装状況と確認内容まで含めて整理しています。

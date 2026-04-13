@@ -8,7 +8,9 @@ import { Button } from "@/components/ui/Button";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { UNSAVED_CONVERSATION_SUMMARY_MESSAGE } from "@/lib/conversation-editing";
 import { pickLatestInterviewMemoSession } from "@/lib/next-meeting-memo";
+import { StudentDetailWorkspace } from "./StudentDetailWorkspace";
 import {
+  StudentSessionConsole,
   type SessionConsoleLessonPart,
   type SessionConsoleMode,
 } from "./StudentSessionConsole";
@@ -31,28 +33,10 @@ type DeleteTarget =
 
 const EMPTY_SEARCH_PARAMS = new URLSearchParams();
 
-const LazyStudentDetailWorkspace = dynamic(
-  () => import("./StudentDetailWorkspace").then((mod) => mod.StudentDetailWorkspace),
-  {
-    loading: () => <div className={styles.sectionLoading}>ログ一覧を読み込んでいます...</div>,
-  }
-);
-
 const LazyStudentDetailOverlay = dynamic(
   () => import("./StudentDetailOverlay").then((mod) => mod.StudentDetailOverlay),
   {
     loading: () => <div className={styles.overlayLoading}>詳細画面を準備しています...</div>,
-  }
-);
-
-const LazyStudentSessionConsole = dynamic(
-  () => import("./StudentSessionConsole").then((mod) => mod.StudentSessionConsole),
-  {
-    loading: () => (
-      <div className={styles.recordCardLoading} data-recording-state="loading">
-        録音カードを準備しています...
-      </div>
-    ),
   }
 );
 
@@ -125,10 +109,6 @@ type StudentDetailPageClientProps = {
   viewerName?: string | null;
 };
 
-function roomScope(room?: RoomResponse | null) {
-  return room?.meta?.scope === "summary" ? "summary" : "full";
-}
-
 export default function StudentDetailPageClient({
   params,
   initialRoom,
@@ -143,7 +123,6 @@ export default function StudentDetailPageClient({
   const [room, setRoom] = useState<RoomResponse | null>(initialRoom);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [hydratingWorkspace, setHydratingWorkspace] = useState(false);
   const [activeTab, setActiveTab] = useState<TabKey>(normalizeTab(queryParams.get("tab")));
   const [overlay, setOverlay] = useState<OverlayState>({ kind: "none" });
   const [parentReportDetails, setParentReportDetails] = useState<Record<string, ReportItem>>({});
@@ -166,9 +145,8 @@ export default function StudentDetailPageClient({
   );
   const hasLoadedRoomRef = useRef(true);
 
-  const refresh = useCallback(async (opts?: { silent?: boolean; scope?: "summary" | "full" }) => {
+  const refresh = useCallback(async (opts?: { silent?: boolean }) => {
     const silent = opts?.silent ?? false;
-    const scope = opts?.scope ?? "full";
     const shouldBlock = !silent && !hasLoadedRoomRef.current;
     if (shouldBlock) {
       setLoading(true);
@@ -176,12 +154,8 @@ export default function StudentDetailPageClient({
     } else if (!silent) {
       setError(null);
     }
-    if (scope === "full") {
-      setHydratingWorkspace(true);
-    }
     try {
-      const query = scope === "summary" ? "?scope=summary" : "";
-      const res = await fetch(`/api/students/${params.studentId}/room${query}`, { cache: "no-store" });
+      const res = await fetch(`/api/students/${params.studentId}/room`, { cache: "no-store" });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(body?.error ?? "生徒ルームの取得に失敗しました。");
       setRoom(body);
@@ -191,9 +165,6 @@ export default function StudentDetailPageClient({
         setError(nextError?.message ?? "生徒ルームの取得に失敗しました。");
       }
     } finally {
-      if (scope === "full") {
-        setHydratingWorkspace(false);
-      }
       if (shouldBlock) {
         setLoading(false);
       }
@@ -204,20 +175,11 @@ export default function StudentDetailPageClient({
     setRoom(initialRoom);
     setLoading(false);
     setError(null);
-    setHydratingWorkspace(false);
     setParentReportDetails({});
     setParentReportLoadingId(null);
     setParentReportError(null);
     hasLoadedRoomRef.current = true;
   }, [initialRoom]);
-
-  useEffect(() => {
-    if (!pageVisible || roomScope(room) === "full" || hydratingWorkspace) return;
-    const timer = window.setTimeout(() => {
-      void refresh({ silent: true, scope: "full" });
-    }, 150);
-    return () => window.clearTimeout(timer);
-  }, [hydratingWorkspace, pageVisible, refresh, room]);
 
   useEffect(() => {
     if (typeof document === "undefined") return undefined;
@@ -236,7 +198,7 @@ export default function StudentDetailPageClient({
     );
     if ((!hasActivePipeline && !hasPendingNextMeetingMemo) || !pageVisible) return;
     const timer = window.setTimeout(() => {
-      void refresh({ silent: true, scope: roomScope(room) });
+      void refresh({ silent: true });
     }, 3000);
     return () => window.clearTimeout(timer);
   }, [pageVisible, refresh, room, room?.sessions]);
@@ -248,7 +210,7 @@ export default function StudentDetailPageClient({
       ["QUEUED", "GENERATING"].includes(session.nextMeetingMemo?.status ?? "")
     );
     if (!hasLiveWork) return;
-    void refresh({ silent: true, scope: roomScope(room) });
+    void refresh({ silent: true });
   }, [pageVisible, refresh, room, room?.sessions]);
 
   const syncUrl = useCallback(
@@ -349,7 +311,6 @@ export default function StudentDetailPageClient({
   const reportSelectionSessions = useMemo(() => candidateReportSessions.slice(0, 4), [candidateReportSessions]);
   const latestConversation = room?.latestConversation ?? null;
   const latestReport = room?.reports[0] ?? null;
-  const isSummaryRoom = roomScope(room) !== "full";
   const latestInterviewMemoSession = useMemo(
     () => pickLatestInterviewMemoSession(room?.sessions ?? []),
     [room?.sessions]
@@ -415,11 +376,6 @@ export default function StudentDetailPageClient({
     [parentReportDetails]
   );
 
-  const ensureFullRoom = useCallback(async () => {
-    if (roomScope(room) === "full") return;
-    await refresh({ silent: true, scope: "full" });
-  }, [refresh, room]);
-
   const toggleReportSelection = useCallback(
     (sessionId: string) => {
       if (selectedSessionIds.includes(sessionId)) {
@@ -445,21 +401,43 @@ export default function StudentDetailPageClient({
 
   const openReportStudio = useCallback(
     async (view: ReportStudioView) => {
-      await ensureFullRoom();
       setOverlay({ kind: "report", view });
       syncUrl({ panel: "report", logId: null, reportId: null, lessonSessionId: null });
     },
-    [ensureFullRoom, syncUrl]
+    [syncUrl]
   );
 
   const openParentReport = useCallback(
     async (reportId: string) => {
-      await ensureFullRoom();
       setParentReportError(null);
       setOverlay({ kind: "parentReport", reportId });
       syncUrl({ panel: "parentReport", reportId, logId: null, lessonSessionId: null, tab: "parentReports" });
     },
-    [ensureFullRoom, syncUrl]
+    [syncUrl]
+  );
+
+  const handleRecordingModeChange = useCallback(
+    (nextMode: SessionConsoleMode) => {
+      setRecordingMode(nextMode);
+      syncUrl({ mode: nextMode });
+    },
+    [syncUrl]
+  );
+
+  const handleLessonPartChange = useCallback(
+    (nextPart: SessionConsoleLessonPart) => {
+      setLessonPart(nextPart);
+      syncUrl({ part: nextPart });
+    },
+    [syncUrl]
+  );
+
+  const handleActiveTabChange = useCallback(
+    (tab: TabKey) => {
+      setActiveTab(tab);
+      syncUrl({ tab });
+    },
+    [syncUrl]
   );
 
   const closeOverlay = useCallback(() => {
@@ -604,20 +582,14 @@ export default function StudentDetailPageClient({
 
       <section className={styles.topGrid}>
         <div className={styles.recordCard}>
-          <LazyStudentSessionConsole
+          <StudentSessionConsole
             studentId={room.student.id}
             studentName={room.student.name}
             mode={recordingMode}
             lessonPart={lessonPart}
             ongoingLessonSession={null}
-            onModeChange={(nextMode) => {
-              setRecordingMode(nextMode);
-              syncUrl({ mode: nextMode });
-            }}
-            onLessonPartChange={(nextPart) => {
-              setLessonPart(nextPart);
-              syncUrl({ part: nextPart });
-            }}
+            onModeChange={handleRecordingModeChange}
+            onLessonPartChange={handleLessonPartChange}
             onRefresh={refresh}
             onOpenLog={openLog}
             recordingLock={room.recordingLock}
@@ -630,47 +602,43 @@ export default function StudentDetailPageClient({
             <div>
               <div className={styles.cardTitle}>次回の面談メモ</div>
               <div className={styles.cardSubtext}>
-                {!isSummaryRoom && latestInterviewMemoSession
+                {latestInterviewMemoSession
                   ? `${formatSessionLabel(latestInterviewMemoSession)}をもとに、次にすぐ見返せる内容だけを置きます。`
                   : "面談ログが完成すると、ここに次回の面談メモが表示されます。"}
               </div>
             </div>
             <div className={styles.generatedMeta}>
-              {!isSummaryRoom && latestNextMeetingMemo?.updatedAt ? `更新：${formatUpdated(latestNextMeetingMemo.updatedAt)}` : "読込中"}
+              {latestNextMeetingMemo?.updatedAt ? `更新：${formatUpdated(latestNextMeetingMemo.updatedAt)}` : "未生成"}
             </div>
           </div>
 
-          {isSummaryRoom ? (
-            <div className={styles.sectionLoading}>次回の面談メモを読み込んでいます...</div>
-          ) : (
-            <>
-              <div className={styles.memoBody}>
-                <div className={styles.memoSection}>
-                  <div className={styles.memoSectionTitle}>前回の面談まとめ</div>
-                  <p
-                    className={`${styles.memoParagraph} ${
-                      nextMeetingMemoStatus === "READY" ? "" : styles.memoParagraphMuted
-                    }`}
-                  >
-                    {nextMeetingMemoPreviousSummary}
-                  </p>
-                </div>
-
-                <div className={styles.memoSection}>
-                  <div className={styles.memoSectionTitle}>おすすめの話題</div>
-                  <p
-                    className={`${styles.memoParagraph} ${
-                      nextMeetingMemoStatus === "READY" ? "" : styles.memoParagraphMuted
-                    }`}
-                  >
-                    {nextMeetingMemoSuggestedTopics}
-                  </p>
-                </div>
+          <>
+            <div className={styles.memoBody}>
+              <div className={styles.memoSection}>
+                <div className={styles.memoSectionTitle}>前回の面談まとめ</div>
+                <p
+                  className={`${styles.memoParagraph} ${
+                    nextMeetingMemoStatus === "READY" ? "" : styles.memoParagraphMuted
+                  }`}
+                >
+                  {nextMeetingMemoPreviousSummary}
+                </p>
               </div>
 
-              {nextMeetingMemoError ? <div className={styles.memoError}>{nextMeetingMemoError}</div> : null}
-            </>
-          )}
+              <div className={styles.memoSection}>
+                <div className={styles.memoSectionTitle}>おすすめの話題</div>
+                <p
+                  className={`${styles.memoParagraph} ${
+                    nextMeetingMemoStatus === "READY" ? "" : styles.memoParagraphMuted
+                  }`}
+                >
+                  {nextMeetingMemoSuggestedTopics}
+                </p>
+              </div>
+            </div>
+
+            {nextMeetingMemoError ? <div className={styles.memoError}>{nextMeetingMemoError}</div> : null}
+          </>
         </div>
 
         <div className={styles.reportCard}>
@@ -680,75 +648,64 @@ export default function StudentDetailPageClient({
               <div className={styles.cardSubtext}>対象のログを選ぶだけで、ワンタップで保護者レポートを生成します。</div>
             </div>
             <div className={styles.generatedMeta}>
-              前回の生成：{latestReport?.createdAt ? formatReportDate(latestReport.createdAt) : isSummaryRoom ? "読込中" : "未生成"}
+              前回の生成：{latestReport?.createdAt ? formatReportDate(latestReport.createdAt) : "未生成"}
             </div>
           </div>
 
-          {isSummaryRoom ? (
-            <div className={styles.sectionLoading}>保護者レポート候補を読み込んでいます...</div>
-          ) : (
-            <>
-              <div className={styles.reportSelectionHead}>
-                <span>1月21日〜今日までのログから選択してください</span>
-                <button type="button" className={styles.inlineTextButton} onClick={toggleSelectAll}>
-                  {allSelected ? "選択を外す" : "すべてを選択"}
-                </button>
-              </div>
+          <>
+            <div className={styles.reportSelectionHead}>
+              <span>1月21日〜今日までのログから選択してください</span>
+              <button type="button" className={styles.inlineTextButton} onClick={toggleSelectAll}>
+                {allSelected ? "選択を外す" : "すべてを選択"}
+              </button>
+            </div>
 
-              <div className={styles.reportSelectionList}>
-                {reportSelectionSessions.length === 0 ? (
-                  <div className={styles.emptyCompact}>まだ選べる面談ログがありません。面談を録音するとここに並びます。</div>
-                ) : (
-                  reportSelectionSessions.map((sessionItem) => {
-                    const checked = selectedSessionIds.includes(sessionItem.id);
-                    return (
-                      <label key={sessionItem.id} className={styles.reportSelectionRow}>
-                        <input
-                          type="checkbox"
-                          checked={checked}
-                          onChange={() => toggleReportSelection(sessionItem.id)}
-                        />
-                        <span className={`${styles.selectionIndicator} ${checked ? styles.selectionIndicatorActive : ""}`} aria-hidden />
-                        <span className={styles.rowLabel}>{formatSessionLabel(sessionItem)}</span>
-                      </label>
-                    );
-                  })
-                )}
-              </div>
+            <div className={styles.reportSelectionList}>
+              {reportSelectionSessions.length === 0 ? (
+                <div className={styles.emptyCompact}>まだ選べる面談ログがありません。面談を録音するとここに並びます。</div>
+              ) : (
+                reportSelectionSessions.map((sessionItem) => {
+                  const checked = selectedSessionIds.includes(sessionItem.id);
+                  return (
+                    <label key={sessionItem.id} className={styles.reportSelectionRow}>
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => toggleReportSelection(sessionItem.id)}
+                      />
+                      <span className={`${styles.selectionIndicator} ${checked ? styles.selectionIndicatorActive : ""}`} aria-hidden />
+                      <span className={styles.rowLabel}>{formatSessionLabel(sessionItem)}</span>
+                    </label>
+                  );
+                })
+              )}
+            </div>
 
-              <div className={styles.reportActions}>
-                <Button variant="secondary" onClick={() => void openReportStudio("selection")} disabled={selectedSessionIds.length === 0}>
-                  保護者レポートを生成
-                </Button>
-                <span className={styles.selectionCount}>{selectedSessionIds.length}件選択中</span>
-              </div>
-            </>
-          )}
+            <div className={styles.reportActions}>
+              <Button variant="secondary" onClick={() => void openReportStudio("selection")} disabled={selectedSessionIds.length === 0}>
+                保護者レポートを生成
+              </Button>
+              <span className={styles.selectionCount}>{selectedSessionIds.length}件選択中</span>
+            </div>
+          </>
         </div>
       </section>
 
       <section className={styles.workspaceSection}>
-        {roomScope(room) !== "full" || hydratingWorkspace ? (
-          <div className={styles.sectionLoading}>ログと保護者レポート履歴を読み込んでいます...</div>
-        ) : (
-          <LazyStudentDetailWorkspace
-            sessions={room.sessions}
-            reports={room.reports}
-            activeTab={activeTab}
-            periodFilter={periodFilter}
-            sortOrder={sortOrder}
-            viewerBadge={viewerBadge}
-            viewerName={viewerName ?? null}
-            onActiveTabChange={(tab) => {
-              setActiveTab(tab);
-              syncUrl({ tab });
-            }}
-            onPeriodFilterChange={setPeriodFilter}
-            onSortOrderChange={setSortOrder}
-            onOpenLog={openLog}
-            onOpenParentReport={openParentReport}
-          />
-        )}
+        <StudentDetailWorkspace
+          sessions={room.sessions}
+          reports={room.reports}
+          activeTab={activeTab}
+          periodFilter={periodFilter}
+          sortOrder={sortOrder}
+          viewerBadge={viewerBadge}
+          viewerName={viewerName ?? null}
+          onActiveTabChange={handleActiveTabChange}
+          onPeriodFilterChange={setPeriodFilter}
+          onSortOrderChange={setSortOrder}
+          onOpenLog={openLog}
+          onOpenParentReport={openParentReport}
+        />
       </section>
 
       {overlay.kind !== "none" ? (

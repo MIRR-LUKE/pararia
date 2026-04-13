@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { GenerationProgress } from "@/components/ui/GenerationProgress";
@@ -205,7 +205,7 @@ function toPendingDraft(record: PendingRecordingDraftRecord) {
   } satisfies PendingRecordingDraft;
 }
 
-export function StudentSessionConsole({
+function StudentSessionConsoleInner({
   studentId,
   studentName,
   mode,
@@ -1589,3 +1589,7 @@ export function StudentSessionConsole({
     </div>
   );
 }
+
+StudentSessionConsoleInner.displayName = "StudentSessionConsole";
+
+export const StudentSessionConsole = memo(StudentSessionConsoleInner);

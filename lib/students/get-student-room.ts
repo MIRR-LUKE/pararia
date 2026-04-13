@@ -273,12 +273,22 @@ export async function getStudentRoomData({
         .map((session: any) => session.id)
     : [];
 
-  const [latestDetailedReport, studioConversationDetails] = isFullRoom
-    ? await Promise.all([
-        student.reports?.[0]?.id ? getLatestDetailedReport(student.reports[0].id, organizationId) : Promise.resolve(null),
-        getStudioConversationDetails(detailedSessionIds, organizationId),
-      ])
-    : [null, new Map<string, StudioConversationDetail>()];
+  const roomDependenciesPromise = Promise.all([
+    isFullRoom
+      ? student.reports?.[0]?.id
+        ? getLatestDetailedReport(student.reports[0].id, organizationId)
+        : Promise.resolve(null)
+      : Promise.resolve(null),
+    isFullRoom ? getStudioConversationDetails(detailedSessionIds, organizationId) : Promise.resolve(new Map<string, StudioConversationDetail>()),
+    runWithDatabaseRetry("recording-lock-view", () =>
+      getRecordingLockView({
+        studentId: student.id,
+        viewerUserId: viewerUserId ?? null,
+      })
+    ),
+  ]);
+
+  const [latestDetailedReport, studioConversationDetails, recordingLock] = await roomDependenciesPromise;
 
   const sessions = (student.sessions ?? []).map((session: any) => {
     const parts = (session.parts ?? []).map((part: any) => ({
@@ -333,13 +343,6 @@ export async function getStudentRoomData({
   });
 
   const latestConversation = sessions.find((session: any) => Boolean(session.conversation))?.conversation ?? null;
-
-  const recordingLock = await runWithDatabaseRetry("recording-lock-view", () =>
-    getRecordingLockView({
-      studentId: student.id,
-      viewerUserId: viewerUserId ?? null,
-    })
-  );
 
   const reports = (student.reports ?? []).map((report: any, index: number) => {
     const detailedReport =

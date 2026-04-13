@@ -1,5 +1,6 @@
 "use client";
 
+import { memo } from "react";
 import { StudentSessionStream } from "./StudentSessionStream";
 import type { ReportItem, SessionItem } from "./roomTypes";
 import styles from "./studentDetail.module.css";
@@ -35,7 +36,7 @@ function formatReportDate(value?: string | null) {
   return `${date.getFullYear()}.${date.getMonth() + 1}.${date.getDate()}`;
 }
 
-export function StudentDetailWorkspace({
+function StudentDetailWorkspaceInner({
   sessions,
   reports,
   activeTab,
@@ -163,3 +164,7 @@ export function StudentDetailWorkspace({
     </>
   );
 }
+
+StudentDetailWorkspaceInner.displayName = "StudentDetailWorkspace";
+
+export const StudentDetailWorkspace = memo(StudentDetailWorkspaceInner);

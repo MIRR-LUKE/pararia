@@ -9,6 +9,7 @@
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
+    "check:code-shape": "tsx scripts/check-code-shape.ts",
     "test:audio-upload-support": "tsx scripts/test-audio-upload-support.ts",
     "test:external-worker-config": "tsx scripts/test-external-worker-config.ts",
     "test:generation-progress": "tsx scripts/test-generation-progress.ts",

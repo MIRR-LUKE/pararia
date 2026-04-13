@@ -5,6 +5,12 @@ PARARIA は、塾・個別指導・学習コーチング向けの `Teaching OS` 
 
 この README は、**2026-04-08 時点の現行コードと一致する運用仕様書** です。
 
+## Engineering
+
+- コード品質と性能の基準は [docs/engineering-rules.md](./docs/engineering-rules.md)
+- shape guard は `npm run check:code-shape`
+- 最低限の確認は `npm run typecheck && npm run build && npm run check:code-shape`
+
 ## 1. 先に結論
 
 - 主導線は `Student Room`
