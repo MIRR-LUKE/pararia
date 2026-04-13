@@ -149,12 +149,12 @@ async function LogsListContent({
           />
         ) : (
           <div className={styles.list}>
-            {filtered.map((log, index) => {
+            {filtered.map((log) => {
               const traces = traceByLogId[log.id] ?? [];
               const trustSummary = transcriptReviewSummary(log.transcriptReview);
               return (
                 <article key={log.id} className={styles.row}>
-                  <Link href={`/app/logs/${log.id}`} className={styles.rowLink} prefetch={index < 4}>
+                  <Link href={`/app/logs/${log.id}`} className={styles.rowLink} prefetch={false}>
                     <div className={styles.rowMain}>
                       <div className={styles.rowTop}>
                         <div>

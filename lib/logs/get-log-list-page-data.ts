@@ -1,6 +1,5 @@
 import { unstable_cache } from "next/cache";
 import { prisma } from "@/lib/db";
-import { renderConversationArtifactOrFallback } from "@/lib/conversation-artifact";
 import { deriveReportDeliveryState, reportDeliveryStateLabel } from "@/lib/report-delivery";
 import { normalizeTranscriptReviewMeta, type TranscriptReviewMeta } from "@/lib/logs/transcript-review-display";
 import { sanitizeSummaryMarkdown } from "@/lib/user-facing-japanese";
@@ -58,7 +57,6 @@ export async function getLogListPageData({
       organizationId,
       ...(studentId ? { studentId } : {}),
     },
-    relationLoadStrategy: "join",
     orderBy: { createdAt: "desc" },
     take: studentId ? 100 : 80,
     select: {
@@ -67,7 +65,6 @@ export async function getLogListPageData({
       sessionId: true,
       status: true,
       reviewState: true,
-      artifactJson: true,
       summaryMarkdown: true,
       qualityMetaJson: true,
       createdAt: true,
@@ -76,21 +73,21 @@ export async function getLogListPageData({
     },
   });
 
-  const mappedConversations = conversations.map((conversation) => ({
-    id: conversation.id,
-    studentId: conversation.studentId,
-    sessionId: conversation.sessionId,
-    status: conversation.status,
-    reviewState: conversation.reviewState,
-    summaryMarkdown: sanitizeSummaryMarkdown(
-      renderConversationArtifactOrFallback(conversation.artifactJson, conversation.summaryMarkdown)
-    ),
-    createdAt: conversation.createdAt.toISOString(),
-    date: conversation.createdAt.toLocaleDateString("ja-JP"),
-    student: conversation.student,
-    sessionType: conversation.session?.type ?? null,
-    transcriptReview: normalizeTranscriptReviewMeta(conversation.qualityMetaJson),
-  }));
+  const mappedConversations = conversations.map((conversation) => {
+    return {
+      id: conversation.id,
+      studentId: conversation.studentId,
+      sessionId: conversation.sessionId,
+      status: conversation.status,
+      reviewState: conversation.reviewState,
+      summaryMarkdown: sanitizeSummaryMarkdown(conversation.summaryMarkdown),
+      createdAt: conversation.createdAt.toISOString(),
+      date: conversation.createdAt.toLocaleDateString("ja-JP"),
+      student: conversation.student,
+      sessionType: conversation.session?.type ?? null,
+      transcriptReview: normalizeTranscriptReviewMeta(conversation.qualityMetaJson),
+    };
+  });
 
   const visibleLogIds = new Set(mappedConversations.map((conversation) => conversation.id));
   const visibleStudentIds = [...new Set(mappedConversations.map((conversation) => conversation.studentId))];
@@ -104,7 +101,6 @@ export async function getLogListPageData({
         studentId: { in: visibleStudentIds },
         ...(oldestConversationDate ? { createdAt: { gte: oldestConversationDate } } : {}),
       },
-      relationLoadStrategy: "join",
       select: {
         id: true,
         status: true,

@@ -15,9 +15,16 @@ type Props = {
   canInvite: boolean;
   viewerName?: string | null;
   viewerRole?: string | null;
+  showHeader?: boolean;
 };
 
-export default function DashboardPageClient({ initialData, canInvite, viewerName, viewerRole }: Props) {
+export default function DashboardPageClient({
+  initialData,
+  canInvite,
+  viewerName,
+  viewerRole,
+  showHeader = true,
+}: Props) {
   const { queue, stats, totalStudents, candidateCount, averageProfileCompleteness } = initialData;
   const interviewHref = queue.find((item) => item.queue.kind === "interview")?.queue.href ?? "/app/students";
   const isSampled = candidateCount < totalStudents;
@@ -32,15 +39,16 @@ export default function DashboardPageClient({ initialData, canInvite, viewerName
     { label: "送信失敗", value: stats.failedBounced },
   ];
 
-  return (
-    <div className={styles.page}>
-      <AppHeader
-        title="今日の優先キュー"
-        subtitle="今すぐ対応が必要な生徒だけを前に出します。ここでは読むより先に、動き始めることを優先します。"
-        viewerName={viewerName}
-        viewerRole={viewerRole}
-      />
-
+  const content = (
+    <>
+      {showHeader ? (
+        <AppHeader
+          title="今日の優先キュー"
+          subtitle="今すぐ対応が必要な生徒だけを前に出します。ここでは読むより先に、動き始めることを優先します。"
+          viewerName={viewerName}
+          viewerRole={viewerRole}
+        />
+      ) : null}
       <section className={styles.hero}>
         <div className={styles.heroCopy}>
           <p className={styles.eyebrow}>今日やること</p>
@@ -151,6 +159,12 @@ export default function DashboardPageClient({ initialData, canInvite, viewerName
           </p>
         </Card>
       </div>
-    </div>
+    </>
   );
+
+  if (showHeader) {
+    return <div className={styles.page}>{content}</div>;
+  }
+
+  return content;
 }
