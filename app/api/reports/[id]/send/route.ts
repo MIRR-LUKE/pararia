@@ -130,9 +130,9 @@ export async function POST(
     });
 
     if (current.organizationId) {
-      revalidateTag(`student-directory:${current.organizationId}`);
-      revalidateTag(`dashboard-snapshot:${current.organizationId}`);
-      revalidateTag(getLogListCacheTag(current.organizationId));
+      revalidateTag(`student-directory:${current.organizationId}`, "max");
+      revalidateTag(`dashboard-snapshot:${current.organizationId}`, "max");
+      revalidateTag(getLogListCacheTag(current.organizationId), "max");
       revalidatePath("/app/dashboard");
       revalidatePath("/app/students");
       revalidatePath("/app/logs");

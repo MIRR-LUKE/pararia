@@ -53,13 +53,13 @@ export type RoutePerformanceComparison = {
 };
 
 export const ROUTE_PERFORMANCE_BUDGETS: Record<string, RoutePerformanceBudget> = {
-  dashboard: { targetMs: 2500, hardMs: 5000 },
-  students: { targetMs: 3000, hardMs: 6000 },
-  studentsEmptySearch: { targetMs: 900, hardMs: 1800 },
-  logs: { targetMs: 3200, hardMs: 6500 },
-  logsEmpty: { targetMs: 2400, hardMs: 5000 },
-  reports: { targetMs: 3400, hardMs: 7000 },
-  reportsEmpty: { targetMs: 2200, hardMs: 5000 },
+  dashboard: { targetMs: 700, hardMs: 1000 },
+  students: { targetMs: 450, hardMs: 700 },
+  studentsEmptySearch: { targetMs: 400, hardMs: 650 },
+  logs: { targetMs: 450, hardMs: 700 },
+  logsEmpty: { targetMs: 450, hardMs: 800 },
+  reports: { targetMs: 650, hardMs: 900 },
+  reportsEmpty: { targetMs: 500, hardMs: 850 },
 };
 
 export function formatMs(value: number | null | undefined) {

@@ -52,24 +52,41 @@ function buildStudentRoomSelect(scope: StudentRoomScope) {
       grade: true,
       sessions: {
         orderBy: [{ sessionDate: "desc" as const }, { createdAt: "desc" as const }],
-        take: 1,
+        take: 6,
         select: {
           id: true,
           type: true,
           status: true,
           sessionDate: true,
+          heroStateLabel: true,
+          heroOneLiner: true,
+          latestSummary: true,
           conversation: {
             select: {
               id: true,
               status: true,
               createdAt: true,
+              reviewState: true,
+              summaryMarkdown: true,
+            },
+          },
+          nextMeetingMemo: {
+            select: {
+              id: true,
+              status: true,
+              previousSummary: true,
+              suggestedTopics: true,
+              errorMessage: true,
+              updatedAt: true,
+              conversationId: true,
+              sessionId: true,
             },
           },
         },
       },
       reports: {
         orderBy: { createdAt: "desc" as const },
-        take: 1,
+        take: 4,
         select: {
           id: true,
           status: true,
@@ -77,6 +94,7 @@ function buildStudentRoomSelect(scope: StudentRoomScope) {
           sentAt: true,
           reviewedAt: true,
           deliveryChannel: true,
+          sourceLogIds: true,
           deliveryEvents: {
             orderBy: { createdAt: "desc" as const },
             take: 1,
@@ -106,7 +124,7 @@ function buildStudentRoomSelect(scope: StudentRoomScope) {
     grade: true,
     sessions: {
       orderBy: [{ sessionDate: "desc" as const }, { createdAt: "desc" as const }],
-      take: isFullRoom ? 12 : 8,
+      take: 12,
       select: {
         id: true,
         type: true,
@@ -157,7 +175,7 @@ function buildStudentRoomSelect(scope: StudentRoomScope) {
     },
     reports: {
       orderBy: { createdAt: "desc" as const },
-      take: isFullRoom ? 6 : 4,
+      take: 6,
       select: {
         id: true,
         status: true,
@@ -275,31 +293,22 @@ export async function getStudentRoomData({
         .map((session: any) => session.id)
     : [];
 
-  const roomDependenciesPromise = Promise.all([
-    isFullRoom
-      ? student.reports?.[0]?.id
-        ? getLatestDetailedReport(student.reports[0].id, organizationId)
-        : Promise.resolve(null)
-      : Promise.resolve(null),
-    isFullRoom ? getStudioConversationDetails(detailedSessionIds, organizationId) : Promise.resolve(new Map<string, StudioConversationDetail>()),
-    runWithDatabaseRetry("recording-lock-view", () =>
-      getRecordingLockView({
-        studentId: student.id,
-        viewerUserId: viewerUserId ?? null,
-      })
-    ),
-  ]);
-
-  const [latestDetailedReport, studioConversationDetails, recordingLock] = await roomDependenciesPromise;
+  const [latestDetailedReport, studioConversationDetails, recordingLock] = isFullRoom
+    ? await Promise.all([
+        student.reports?.[0]?.id
+          ? getLatestDetailedReport(student.reports[0].id, organizationId)
+          : Promise.resolve(null),
+        getStudioConversationDetails(detailedSessionIds, organizationId),
+        runWithDatabaseRetry("recording-lock-view", () =>
+          getRecordingLockView({
+            studentId: student.id,
+            viewerUserId: viewerUserId ?? null,
+          })
+        ),
+      ])
+    : [null, new Map<string, StudioConversationDetail>(), null];
 
   const sessions = (student.sessions ?? []).map((session: any) => {
-    const parts = (session.parts ?? []).map((part: any) => ({
-      id: part.id,
-      partType: part.partType,
-      status: part.status,
-      qualityMetaJson: part.qualityMetaJson,
-    }));
-
     const studioConversation = studioConversationDetails.get(session.id) ?? null;
 
     const conversation = session.conversation
@@ -309,22 +318,20 @@ export async function getStudentRoomData({
           createdAt: session.conversation.createdAt.toISOString(),
           reviewState: session.conversation.reviewState ?? null,
           qualityMetaJson: session.conversation.qualityMetaJson ?? null,
-          ...(isFullRoom
-            ? {
-                artifactJson: studioConversation?.artifactJson ?? null,
-                summaryMarkdown: studioConversation?.summaryMarkdown ?? null,
-              }
-            : {}),
+          summaryMarkdown: session.conversation.summaryMarkdown ?? studioConversation?.summaryMarkdown ?? null,
+          ...(isFullRoom ? { artifactJson: studioConversation?.artifactJson ?? null } : {}),
           jobs: session.conversation.jobs ?? [],
         }
       : null;
 
-    const pipeline = buildSessionProgressState({
-      sessionId: session.id,
-      type: session.type,
-      parts: session.parts ?? [],
-      conversation: session.conversation,
-    });
+    const pipeline = isFullRoom
+      ? buildSessionProgressState({
+          sessionId: session.id,
+          type: session.type,
+          parts: session.parts ?? [],
+          conversation: session.conversation,
+        })
+      : undefined;
 
     return {
       id: session.id,
@@ -334,7 +341,7 @@ export async function getStudentRoomData({
       heroStateLabel: session.heroStateLabel,
       heroOneLiner: session.heroOneLiner,
       latestSummary: session.latestSummary,
-      parts,
+      parts: [],
       pipeline,
       nextMeetingMemo: session.nextMeetingMemo
         ? {
@@ -389,6 +396,6 @@ export async function getStudentRoomData({
     latestProfile: null,
     sessions,
     reports,
-    recordingLock,
+    ...(recordingLock ? { recordingLock } : {}),
   };
 }

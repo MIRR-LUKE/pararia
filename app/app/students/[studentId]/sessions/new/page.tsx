@@ -1,9 +1,10 @@
 import { redirect } from "next/navigation";
 
-export default function NewSessionPage({
+export default async function NewSessionPage({
   params,
 }: {
-  params: { studentId: string };
+  params: Promise<{ studentId: string }>;
 }) {
-  redirect(`/app/students/${params.studentId}?panel=recording&mode=INTERVIEW`);
+  const { studentId } = await params;
+  redirect(`/app/students/${studentId}?panel=recording&mode=INTERVIEW`);
 }

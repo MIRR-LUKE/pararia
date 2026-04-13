@@ -46,6 +46,84 @@
   flex-wrap: wrap;
 }
 
+.listSummary {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  padding: 14px 16px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface-3);
+}
+
+.listSummaryLabel,
+.listSummaryMeta {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.listSummary strong {
+  font-size: 16px;
+}
+
+.pager {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.pagerMeta {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.pagerActions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.pagerPage {
+  min-height: 36px;
+  padding: 0 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  display: inline-flex;
+  align-items: center;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 800;
+  background: var(--surface-3);
+}
+
+.pagerLink,
+.pagerLinkDisabled {
+  min-height: 36px;
+  padding: 0 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  display: inline-flex;
+  align-items: center;
+  font-weight: 700;
+}
+
+.pagerLink {
+  text-decoration: none;
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.pagerLinkDisabled {
+  color: var(--muted);
+  background: var(--surface-3);
+}
+
 .filterChip,
 .filterChipActive,
 .stateLink {
@@ -172,41 +250,6 @@
   overflow-wrap: anywhere;
 }
 
-.traceBox {
-  padding: 12px;
-  border-radius: 8px;
-  border: 1px solid var(--border);
-  background: linear-gradient(180deg, rgba(22, 22, 22, 0.92), rgba(20, 20, 20, 0.82));
-  display: grid;
-  gap: 8px;
-}
-
-.traceSummary {
-  margin: 0;
-  font-weight: 800;
-  overflow-wrap: anywhere;
-}
-
-.traceChips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.traceChip {
-  display: inline-flex;
-  align-items: center;
-  min-height: 28px;
-  padding: 4px 10px;
-  border-radius: 8px;
-  border: 1px solid var(--border);
-  background: rgba(255, 255, 255, 0.03);
-  color: var(--text);
-  font-size: 12px;
-  font-weight: 700;
-  overflow-wrap: anywhere;
-}
-
 .footer {
   display: flex;
   justify-content: flex-end;
@@ -236,6 +279,7 @@
 @media (max-width: 720px) {
   .filterRow,
   .cardHeader,
+  .pager,
   .footer {
     flex-direction: column;
     align-items: flex-start;
@@ -254,5 +298,14 @@
   .footer :global(a),
   .footer :global(button) {
     width: 100%;
+  }
+
+  .pagerActions {
+    width: 100%;
+  }
+
+  .pagerActions > * {
+    flex: 1 1 0;
+    justify-content: center;
   }
 }

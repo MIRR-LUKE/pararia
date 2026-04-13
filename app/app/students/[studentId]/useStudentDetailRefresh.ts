@@ -23,6 +23,7 @@ export function useStudentDetailRefresh({ initialRoom, studentId }: Params): Res
     typeof document === "undefined" ? true : document.visibilityState === "visible"
   );
   const hasLoadedRoomRef = useRef(true);
+  const hasQueuedFullHydrationRef = useRef(false);
 
   const refresh = useCallback(
     async (opts?: { silent?: boolean }) => {
@@ -58,6 +59,7 @@ export function useStudentDetailRefresh({ initialRoom, studentId }: Params): Res
     setLoading(false);
     setError(null);
     hasLoadedRoomRef.current = true;
+    hasQueuedFullHydrationRef.current = false;
   }, [initialRoom]);
 
   useEffect(() => {
@@ -66,6 +68,19 @@ export function useStudentDetailRefresh({ initialRoom, studentId }: Params): Res
     document.addEventListener("visibilitychange", updateVisibility);
     return () => document.removeEventListener("visibilitychange", updateVisibility);
   }, []);
+
+  useEffect(() => {
+    if (room?.meta?.scope === "full") return;
+    if (hasQueuedFullHydrationRef.current) return;
+    if (!pageVisible) return;
+
+    hasQueuedFullHydrationRef.current = true;
+    const timer = window.setTimeout(() => {
+      void refresh({ silent: true });
+    }, 350);
+
+    return () => window.clearTimeout(timer);
+  }, [pageVisible, refresh, room?.meta?.scope]);
 
   useEffect(() => {
     if (!room?.sessions?.length) return;

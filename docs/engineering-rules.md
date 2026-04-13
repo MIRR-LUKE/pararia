@@ -100,6 +100,8 @@
 - `navigation / loading / empty / populated` は同じ harness で継続計測する
 - 比較は `npm run test:route-performance -- --label local` を基本にする
 - baseline を残すときは `--baseline` と `--write-baseline` を明示して使う
+- field の監視は `/api/rum` に送る Web Vitals と route timing で補完する
+- budget の目安は `dashboard 700/1000ms`, `students 450/700ms`, `logs 450/700ms`, `reports 650/900ms`
 
 ## 5. PR / commit 前の確認
 
@@ -116,6 +118,8 @@ npm run check:code-shape
 ```bash
 tsx scripts/test-navigation-performance.ts --label local
 ```
+
+field 監視の読み方は [performance-observability.md](./performance-observability.md) にまとめる。
 
 ## 6. 今回入れた実例
 

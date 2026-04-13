@@ -24,7 +24,7 @@ type QueueCard = {
 };
 
 function firstConversationId(session?: SessionItem | null) {
-  return session?.pipeline?.openLogId ?? session?.conversation?.id ?? null;
+  return session?.conversation?.id ?? null;
 }
 
 export function StudentDetailActionQueue({
@@ -48,7 +48,7 @@ export function StudentDetailActionQueue({
   const shareReports = reports.filter((report) => report.needsReview || report.needsShare);
   const activeGenerationSessions = sessions.filter(
     (session) =>
-      ["TRANSCRIBING", "GENERATING"].includes(session.pipeline?.stage ?? "") ||
+      ["TRANSCRIBING", "GENERATING"].includes(session.status) ||
       ["QUEUED", "GENERATING"].includes(session.nextMeetingMemo?.status ?? "")
   );
 

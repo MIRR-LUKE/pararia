@@ -90,8 +90,8 @@ export async function POST(request: Request) {
       },
     });
 
-    revalidateTag(`student-directory:${authResult.session.user.organizationId}`);
-    revalidateTag(`dashboard-snapshot:${authResult.session.user.organizationId}`);
+    revalidateTag(`student-directory:${authResult.session.user.organizationId}`, "max");
+    revalidateTag(`dashboard-snapshot:${authResult.session.user.organizationId}`, "max");
     revalidatePath("/app/students");
     revalidatePath("/app/dashboard");
     revalidatePath("/app/reports");

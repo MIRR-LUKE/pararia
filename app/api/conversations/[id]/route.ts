@@ -264,9 +264,9 @@ export async function DELETE(
       },
     });
 
-    revalidateTag(`student-directory:${organizationId}`);
-    revalidateTag(`dashboard-snapshot:${organizationId}`);
-    revalidateTag(getLogListCacheTag(organizationId));
+    revalidateTag(`student-directory:${organizationId}`, "max");
+    revalidateTag(`dashboard-snapshot:${organizationId}`, "max");
+    revalidateTag(getLogListCacheTag(organizationId), "max");
     revalidatePath("/app/dashboard");
     revalidatePath("/app/students");
     revalidatePath("/app/logs");
@@ -344,9 +344,9 @@ export async function PATCH(
     });
     await syncSessionAfterConversation(updated.id);
 
-    revalidateTag(`student-directory:${organizationId}`);
-    revalidateTag(`dashboard-snapshot:${organizationId}`);
-    revalidateTag(getLogListCacheTag(organizationId));
+    revalidateTag(`student-directory:${organizationId}`, "max");
+    revalidateTag(`dashboard-snapshot:${organizationId}`, "max");
+    revalidateTag(getLogListCacheTag(organizationId), "max");
     revalidatePath("/app/dashboard");
     revalidatePath("/app/students");
     revalidatePath("/app/logs");

@@ -27,13 +27,13 @@ projection query と UI 共通化で初速は改善したが、一覧導線の p
 
 | scenario | target | hard |
 | --- | --- | --- |
-| dashboard populated | 2500ms | 5000ms |
-| students populated | 3000ms | 6000ms |
-| students empty search | 900ms | 1800ms |
-| logs populated | 3200ms | 6500ms |
-| logs empty student | 2400ms | 5000ms |
-| reports populated | 3400ms | 7000ms |
-| reports empty filter | 2200ms | 5000ms |
+| dashboard populated | 700ms | 1000ms |
+| students populated | 450ms | 700ms |
+| students empty search | 400ms | 650ms |
+| logs populated | 450ms | 700ms |
+| logs empty student | 450ms | 800ms |
+| reports populated | 650ms | 900ms |
+| reports empty filter | 500ms | 850ms |
 
 ## harness の出力
 
@@ -42,6 +42,7 @@ projection query と UI 共通化で初速は改善したが、一覧導線の p
 - current / baseline / delta / budget status を Markdown の表で並べる
 - `--baseline` を渡すと比較できる
 - `--write-baseline` で確認済みの結果を baseline JSON として保存できる
+- field では [performance-observability.md](../performance-observability.md) の `route-timing` / `web-vital` と合わせて見る
 
 ## 完了条件
 

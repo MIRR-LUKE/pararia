@@ -205,6 +205,51 @@
   min-height: 387px;
 }
 
+.sectionGate {
+  min-height: 387px;
+  display: grid;
+  gap: 18px;
+  align-content: start;
+}
+
+.sectionGateHead {
+  display: grid;
+  gap: 8px;
+}
+
+.sectionGateBody {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.sectionGateStat {
+  display: grid;
+  gap: 6px;
+  padding: 14px 15px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+}
+
+.sectionGateStat strong {
+  font-size: 18px;
+  line-height: 1;
+  color: var(--text);
+}
+
+.sectionGateStat span {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.sectionGateActions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
 .recordCardLoading,
 .overlayLoading,
 .sectionLoading {
@@ -698,6 +743,10 @@
     grid-column: auto;
   }
 
+  .sectionGateBody {
+    grid-template-columns: 1fr;
+  }
+
   .topicColumns {
     grid-template-columns: 1fr;
     gap: 20px;
@@ -844,6 +893,10 @@
 
   .filterRow {
     grid-template-columns: 1fr;
+  }
+
+  .sectionGate {
+    min-height: 0;
   }
 
   .reportCardHead {

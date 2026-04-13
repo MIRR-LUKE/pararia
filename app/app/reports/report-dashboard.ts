@@ -22,9 +22,6 @@ export type ReportCardRow = {
   tone: BadgeTone;
   secondaryTone: BadgeTone;
   oneLiner: string;
-  reportSourceCount: number;
-  sourceTraceLabel: string;
-  sourceTraceDetail: string;
   updatedLabel: string;
   sessionLabel: string;
   isUncreated: boolean;
@@ -44,9 +41,6 @@ export type QueueItem = {
   href: string;
   cta: string;
   tone: BadgeTone;
-  reportSourceCount: number;
-  sourceTraceLabel: string;
-  sourceTraceDetail: string;
   latestDeliveryLabel: string;
   updatedLabel: string;
   priority: number;
@@ -83,6 +77,18 @@ export function normalizeFilter(value?: string): FilterKey {
 
 export function buildFilterHref(filter: FilterKey) {
   return filter === "all" ? "/app/reports" : `/app/reports?filter=${filter}`;
+}
+
+export function buildPageHref(filter: FilterKey, page: number) {
+  const normalizedPage = Math.max(1, Math.floor(page));
+  const filterHref = buildFilterHref(filter);
+  return normalizedPage === 1 ? filterHref : `${filterHref}${filterHref.includes("?") ? "&" : "?"}page=${normalizedPage}`;
+}
+
+export function normalizePage(value?: string) {
+  const parsed = Number.parseInt(value ?? "1", 10);
+  if (!Number.isFinite(parsed) || parsed < 1) return 1;
+  return Math.floor(parsed);
 }
 
 function hoursSince(value?: string | null) {
@@ -143,18 +149,6 @@ function deliveryLabel(report?: ReportSummary | null) {
   return reportStatusLabel(report.status);
 }
 
-function traceLabel(sourceLogIds?: string[] | null) {
-  if (!sourceLogIds || sourceLogIds.length === 0) return "まだ source trace はありません。";
-  return `${sourceLogIds.length} 件のログを選択`;
-}
-
-function traceDetailLabel(sourceLogIds?: string[] | null) {
-  if (!sourceLogIds || sourceLogIds.length === 0) return "選択済みのログがありません。";
-  const head = sourceLogIds.slice(0, 3).join(" / ");
-  const remainder = sourceLogIds.length - 3;
-  return remainder > 0 ? `${head} +${remainder}` : head;
-}
-
 function sessionLabel(session?: SessionSummary | null) {
   if (!session) return "会話ログなし";
   return session.type === "LESSON_REPORT" ? "授業報告" : "面談";
@@ -183,7 +177,6 @@ function buildReportRow(student: StudentListRow): ReportCardRow {
   const latestSession = student.sessions?.[0] ?? null;
   const hasConversation = Boolean(latestSession?.conversation?.id);
   const state = latestReportState(latestReport);
-  const sourceLogIds = latestReport?.sourceLogIds ?? [];
   const workflow = workflowLabel(latestReport);
   const delivery = deliveryLabel(latestReport);
 
@@ -205,9 +198,6 @@ function buildReportRow(student: StudentListRow): ReportCardRow {
     tone: toneForState(state),
     secondaryTone: toneForState(state),
     oneLiner: sourceText(student),
-    reportSourceCount: sourceLogIds.length,
-    sourceTraceLabel: traceLabel(sourceLogIds),
-    sourceTraceDetail: traceDetailLabel(sourceLogIds),
     updatedLabel: formatRelativeLabel(sourceAnchor),
     sessionLabel: sessionLabel(latestSession),
     isUncreated,
@@ -233,7 +223,6 @@ function buildQueueItem(student: StudentListRow): QueueItem | null {
     return null;
   }
 
-  const sourceLogIds = latestReport?.sourceLogIds ?? [];
   const updatedSource = latestReport?.reviewedAt ?? latestReport?.createdAt ?? latestSession.sessionDate ?? null;
 
   return {
@@ -253,19 +242,41 @@ function buildQueueItem(student: StudentListRow): QueueItem | null {
         ? "会話ログがあるので、この生徒はまずレポート生成が必要です。"
         : needsReview
           ? "レポート本文を確認して、共有前の最終チェックに進めます。"
-          : "共有待ちのレポートがあります。送信前の確認だけで進められます。",
+    : "共有待ちのレポートがあります。送信前の確認だけで進められます。",
     href: needsCheckout
       ? `/app/students/${student.id}?panel=recording&mode=LESSON_REPORT&part=CHECK_OUT`
       : `/app/students/${student.id}?panel=report`,
     cta: needsCheckout ? "チェックアウトする" : needsReport ? "ログを生成する" : "共有を確認する",
     tone: isDelayedShare ? "high" : needsReport ? "high" : needsReview ? "medium" : "low",
-    reportSourceCount: sourceLogIds.length,
-    sourceTraceLabel: traceLabel(sourceLogIds),
-    sourceTraceDetail: traceDetailLabel(sourceLogIds),
     latestDeliveryLabel: deliveryLabel(latestReport),
     updatedLabel: formatRelativeLabel(updatedSource),
     priority: isDelayedShare ? 0 : needsCheckout ? 1 : needsReport ? 2 : needsReview ? 3 : 4,
     isDelayedShare,
+  };
+}
+
+export type PaginationWindow = {
+  page: number;
+  pageSize: number;
+  totalPages: number;
+  startIndex: number;
+  endIndex: number;
+  visibleCount: number;
+};
+
+export function buildPaginationWindow(totalItems: number, page: number, pageSize: number): PaginationWindow {
+  const safePageSize = Math.max(1, Math.floor(pageSize));
+  const totalPages = Math.max(1, Math.ceil(Math.max(0, totalItems) / safePageSize));
+  const normalizedPage = Math.min(Math.max(1, Math.floor(page)), totalPages);
+  const startIndex = (normalizedPage - 1) * safePageSize;
+  const endIndex = Math.min(totalItems, startIndex + safePageSize);
+  return {
+    page: normalizedPage,
+    pageSize: safePageSize,
+    totalPages,
+    startIndex,
+    endIndex,
+    visibleCount: Math.max(0, endIndex - startIndex),
   };
 }
 

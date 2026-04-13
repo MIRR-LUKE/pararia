@@ -109,7 +109,7 @@ export async function PATCH(request: Request) {
       },
     });
 
-    revalidateTag(`student-directory:${session.user.organizationId}`);
+    revalidateTag(`student-directory:${session.user.organizationId}`, "max");
     revalidatePath("/app/settings");
     revalidatePath("/app/students");
     revalidatePath(`/app/students/${updated.id}`);

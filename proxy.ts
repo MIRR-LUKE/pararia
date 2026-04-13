@@ -5,7 +5,7 @@ const USER = process.env.BASIC_AUTH_USER;
 const PASS = process.env.BASIC_AUTH_PASS;
 const CRON_SECRET = process.env.CRON_SECRET;
 
-export function middleware(request: NextRequest) {
+export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
   if (pathname.startsWith("/_next") || pathname.startsWith("/favicon") || pathname.startsWith("/robots.txt")) {
     return NextResponse.next();
@@ -31,7 +31,7 @@ export function middleware(request: NextRequest) {
     return new NextResponse("Authorization required", {
       status: 401,
       headers: {
-        "WWW-Authenticate": "Basic realm=\"PARARIA\"",
+        "WWW-Authenticate": 'Basic realm="PARARIA"',
       },
     });
   }
@@ -44,7 +44,7 @@ export function middleware(request: NextRequest) {
     return new NextResponse("Unauthorized", {
       status: 401,
       headers: {
-        "WWW-Authenticate": "Basic realm=\"PARARIA\"",
+        "WWW-Authenticate": 'Basic realm="PARARIA"',
       },
     });
   }

@@ -108,8 +108,9 @@ export async function listStudentRows(options: ListStudentRowsOptions): Promise<
     grade: student.grade,
     course: student.course,
     guardianNames: student.guardianNames,
-    profileCompleteness: computeProfileCompleteness(student.profiles?.[0]?.profileData),
-    profiles: student.profiles,
+    profileCompleteness:
+      projection === "report" ? 0 : computeProfileCompleteness(student.profiles?.[0]?.profileData),
+    profiles: projection === "report" ? undefined : student.profiles,
     sessions: student.sessions.map((session) => ({
       ...session,
       sessionDate: session.sessionDate.toISOString(),

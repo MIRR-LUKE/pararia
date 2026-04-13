@@ -2,20 +2,10 @@ import type { Prisma } from "@prisma/client";
 
 export type StudentRowProjection = "report" | "directory" | "dashboard";
 
-const studentBaseSelect = {
+const studentCoreSelect = {
   id: true,
   name: true,
-  nameKana: true,
   grade: true,
-  course: true,
-  guardianNames: true,
-  profiles: {
-    select: {
-      profileData: true,
-    },
-    orderBy: { createdAt: "desc" as const },
-    take: 1,
-  },
   sessions: {
     select: {
       id: true,
@@ -34,6 +24,35 @@ const studentBaseSelect = {
     orderBy: [{ sessionDate: "desc" as const }, { createdAt: "desc" as const }],
     take: 1,
   },
+} satisfies Prisma.StudentSelect;
+
+const directoryStudentBaseSelect = {
+  ...studentCoreSelect,
+  nameKana: true,
+  course: true,
+  guardianNames: true,
+  profiles: {
+    select: {
+      profileData: true,
+    },
+    orderBy: { createdAt: "desc" as const },
+    take: 1,
+  },
+} satisfies Prisma.StudentSelect;
+
+const dashboardStudentBaseSelect = {
+  ...studentCoreSelect,
+  profiles: {
+    select: {
+      profileData: true,
+    },
+    orderBy: { createdAt: "desc" as const },
+    take: 1,
+  },
+} satisfies Prisma.StudentSelect;
+
+const reportStudentBaseSelect = {
+  ...studentCoreSelect,
 } satisfies Prisma.StudentSelect;
 
 const directoryReportSelect = {
@@ -103,6 +122,12 @@ export function buildStudentRowSelect(projection: StudentRowProjection): Prisma.
       : projection === "dashboard"
         ? dashboardReportSelect
         : directoryReportSelect;
+  const studentBaseSelect =
+    projection === "directory"
+      ? directoryStudentBaseSelect
+      : projection === "dashboard"
+        ? dashboardStudentBaseSelect
+        : reportStudentBaseSelect;
 
   return {
     ...studentBaseSelect,

@@ -90,9 +90,9 @@ export async function PUT(
       data,
     });
 
-    revalidateTag(`student-directory:${authResult.session.user.organizationId}`);
-    revalidateTag(`dashboard-snapshot:${authResult.session.user.organizationId}`);
-    revalidateTag(getLogListCacheTag(authResult.session.user.organizationId));
+    revalidateTag(`student-directory:${authResult.session.user.organizationId}`, "max");
+    revalidateTag(`dashboard-snapshot:${authResult.session.user.organizationId}`, "max");
+    revalidateTag(getLogListCacheTag(authResult.session.user.organizationId), "max");
     revalidatePath("/app/students");
     revalidatePath("/app/dashboard");
     revalidatePath("/app/reports");
@@ -196,9 +196,9 @@ export async function DELETE(
       },
     });
 
-    revalidateTag(`student-directory:${authResult.session.user.organizationId}`);
-    revalidateTag(`dashboard-snapshot:${authResult.session.user.organizationId}`);
-    revalidateTag(getLogListCacheTag(authResult.session.user.organizationId));
+    revalidateTag(`student-directory:${authResult.session.user.organizationId}`, "max");
+    revalidateTag(`dashboard-snapshot:${authResult.session.user.organizationId}`, "max");
+    revalidateTag(getLogListCacheTag(authResult.session.user.organizationId), "max");
     revalidatePath("/app/students");
     revalidatePath("/app/dashboard");
     revalidatePath("/app/reports");

@@ -9,7 +9,7 @@ export function getRuntimeRootDir() {
   }
 
   // Backward-compatible default for current local development.
-  return path.join(process.cwd(), ".data");
+  return path.join(/* turbopackIgnore: true */ process.cwd(), ".data");
 }
 
 export function getRuntimePath(...segments: string[]) {

@@ -6,8 +6,9 @@ import StudentDetailPageClient from "./StudentDetailPageClient";
 export default async function StudentDetailPage({
   params,
 }: {
-  params: { studentId: string };
+  params: { studentId: string } | Promise<{ studentId: string }>;
 }) {
+  const { studentId } = await Promise.resolve(params);
   const session = await getAppSession();
   const organizationId = session?.user?.organizationId;
   if (!session?.user?.id || !organizationId) {
@@ -15,10 +16,10 @@ export default async function StudentDetailPage({
   }
 
   const initialRoom = await getStudentRoomData({
-    studentId: params.studentId,
+    studentId,
     organizationId,
     viewerUserId: session.user.id,
-    scope: "full",
+    scope: "summary",
   });
 
   if (!initialRoom) {
@@ -27,7 +28,7 @@ export default async function StudentDetailPage({
 
   return (
     <StudentDetailPageClient
-      params={params}
+      params={{ studentId }}
       initialRoom={initialRoom}
       viewerName={session.user.name ?? null}
     />

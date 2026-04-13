@@ -1,9 +1,10 @@
 import { redirect } from "next/navigation";
 
-export default function StudentLogRedirect({
+export default async function StudentLogRedirect({
   params,
 }: {
-  params: { studentId: string; logId: string };
+  params: Promise<{ studentId: string; logId: string }>;
 }) {
-  redirect(`/app/students/${params.studentId}?panel=log&logId=${params.logId}`);
+  const { studentId, logId } = await params;
+  redirect(`/app/students/${studentId}?panel=log&logId=${logId}`);
 }

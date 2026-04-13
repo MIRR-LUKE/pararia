@@ -47,7 +47,7 @@ function LogsTabFilters({ studentId, tab }: { studentId: string | null; tab: Tab
 export default async function LogsListPage({
   searchParams,
 }: {
-  searchParams?: { studentId?: string | string[]; type?: string | string[] };
+  searchParams?: Promise<{ studentId?: string | string[]; type?: string | string[] }>;
 }) {
   const session = await getAppSession();
   const organizationId = session?.user?.organizationId;
@@ -55,8 +55,9 @@ export default async function LogsListPage({
     redirect("/login");
   }
 
-  const studentId = readQueryParam(searchParams?.studentId) ?? null;
-  const tab = normalizeTab(readQueryParam(searchParams?.type));
+  const resolvedSearchParams = (await searchParams) ?? {};
+  const studentId = readQueryParam(resolvedSearchParams.studentId) ?? null;
+  const tab = normalizeTab(readQueryParam(resolvedSearchParams.type));
 
   return (
     <div className={styles.page}>

@@ -118,6 +118,13 @@
 
 - なし
 
+今回追加した issue docs:
+
+1. [37-student-detail-summary-first-lazy-sections.md](./37-student-detail-summary-first-lazy-sections.md)
+2. [38-reports-summary-first-pagination-trace-defer.md](./38-reports-summary-first-pagination-trace-defer.md)
+3. [39-upgrade-next-to-active-lts.md](./39-upgrade-next-to-active-lts.md)
+4. [40-rum-and-tighter-budgets.md](./40-rum-and-tighter-budgets.md)
+
 今回完了した追加 issue:
 
 1. `#46` Dashboard / Students 一覧の projection query を分けて初回表示を軽くする
@@ -135,6 +142,10 @@
 13. `#57` StudentSessionConsole を recording / upload / lock / progress sections に再分割する
 14. `#58` conversation-artifact を schema / render / trace helpers に分割する
 15. `#60` parent report / next meeting memo 生成基盤を shared helper に寄せて重複を減らす
+16. `#64` RUM と tighter budget を入れて世界水準の UX を field で監視する: 実装済み
+17. `#61` Student Detail を summary-first + lazy sections にして重い client 導線を分離する: 実装済み
+18. `#62` Reports 一覧を summary-first / pagination / source trace defer で軽くする: 実装済み
+19. `#63` Next.js を Active LTS に上げて App Router の最新 perf 基盤に乗せる: 実装済み
 
 active に残す基準:
 

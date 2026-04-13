@@ -4,16 +4,17 @@ import { getStudentRoomData } from "@/lib/students/get-student-room";
 
 export async function GET(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: { id: string } | Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await Promise.resolve(params);
     const authResult = await requireAuthorizedSession();
     if (authResult.response) return authResult.response;
     const authSession = authResult.session;
 
     const scope = new URL(request.url).searchParams.get("scope") === "summary" ? "summary" : "full";
     const studentRoom = await getStudentRoomData({
-      studentId: params.id,
+      studentId: id,
       organizationId: authSession.user.organizationId,
       viewerUserId: authSession.user.id,
       scope,

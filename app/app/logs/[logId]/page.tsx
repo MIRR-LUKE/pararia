@@ -9,7 +9,8 @@ import TranscriptReviewPage from "./TranscriptReviewPage";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-export default async function LogReviewPage({ params }: { params: { logId: string } }) {
+export default async function LogReviewPage({ params }: { params: Promise<{ logId: string }> }) {
+  const { logId } = await params;
   const session = await getAppSession();
   const organizationId = session?.user?.organizationId;
   if (!session?.user?.id || !organizationId) {
@@ -18,7 +19,7 @@ export default async function LogReviewPage({ params }: { params: { logId: strin
 
   const conversation = await prisma.conversationLog.findFirst({
     where: {
-      id: params.logId,
+      id: logId,
       organizationId,
     },
     select: {
@@ -53,7 +54,7 @@ export default async function LogReviewPage({ params }: { params: { logId: strin
   }
 
   const transcriptReview = normalizeTranscriptReviewMeta(conversation.qualityMetaJson);
-  const review = await listConversationProperNounSuggestions(params.logId);
+  const review = await listConversationProperNounSuggestions(logId);
 
   return (
     <div>
@@ -64,7 +65,7 @@ export default async function LogReviewPage({ params }: { params: { logId: strin
         viewerRole={(session.user as { role?: string | null }).role ?? null}
       />
       <TranscriptReviewPage
-        logId={params.logId}
+        logId={logId}
         initialConversation={{
           ...conversation,
           session: conversation.session
