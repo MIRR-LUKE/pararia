@@ -94,6 +94,13 @@
 - page 非表示時は頻度を落とす
 - READY / ERROR / WAITING_COUNTERPART に入ったらすぐ止める
 
+### 4.3 Route Performance Budget
+
+- `Dashboard / Students / Logs / Reports` は route ごとに budget を持つ
+- `navigation / loading / empty / populated` は同じ harness で継続計測する
+- 比較は `npm run test:route-performance -- --label local` を基本にする
+- baseline を残すときは `--baseline` と `--write-baseline` を明示して使う
+
 ## 5. PR / commit 前の確認
 
 最低限これを通す:

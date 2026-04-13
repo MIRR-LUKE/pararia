@@ -116,11 +116,7 @@
 
 次の active open issue:
 
-1. `#56` route performance budget と計測 harness を Dashboard / Students / Logs / Reports に広げる
-2. `#57` StudentSessionConsole を recording / upload / lock / progress sections に再分割する
-3. `#58` conversation-artifact を schema / render / trace helpers に分割する
-4. `#59` LogView / ReportStudio を section + action hook に分割する
-5. `#60` parent report / next meeting memo 生成基盤を shared helper に寄せて重複を減らす
+- なし
 
 今回完了した追加 issue:
 
@@ -134,6 +130,11 @@
 8. `#53` STT runtime を worker pool / chunking policy / IO で分割する
 9. `#54` app/api/sessions/[id]/parts を ingest / validation / job dispatch に分割する
 10. `#55` Students / Dashboard / Logs / Reports の一覧・状態 UI を共通 primitive 化する
+11. `#56` route performance budget と計測 harness を Dashboard / Students / Logs / Reports に広げる
+12. `#59` LogView / ReportStudio を section + action hook に分割する
+13. `#57` StudentSessionConsole を recording / upload / lock / progress sections に再分割する
+14. `#58` conversation-artifact を schema / render / trace helpers に分割する
+15. `#60` parent report / next meeting memo 生成基盤を shared helper に寄せて重複を減らす
 
 active に残す基準:
 

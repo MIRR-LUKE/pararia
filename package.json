@@ -27,6 +27,8 @@
     "test:recording-policy": "tsx scripts/test-recording-policy.ts",
     "test:recording-ui": "tsx scripts/test-recording-ui.ts",
     "test:runpod-queue-ownership": "tsx scripts/test-runpod-queue-ownership.ts",
+    "test:navigation-performance": "tsx scripts/test-navigation-performance.ts",
+    "test:route-performance": "tsx scripts/test-navigation-performance.ts",
     "test:next-meeting-memo": "tsx scripts/test-next-meeting-memo.ts",
     "test:db-pooling": "tsx scripts/test-db-pooling.ts",
     "benchmark:interview-log": "tsx scripts/run-interview-log-benchmark.ts",

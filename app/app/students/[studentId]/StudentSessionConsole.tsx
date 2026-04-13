@@ -1,16 +1,9 @@
 "use client";
 
-import Image from "next/image";
-import { memo, useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
-import { GenerationProgress } from "@/components/ui/GenerationProgress";
-import {
-  AUDIO_UPLOAD_ACCEPT_ATTR,
-  AUDIO_UPLOAD_EXTENSIONS_LABEL,
-  buildUnsupportedAudioUploadErrorMessage,
-  isSupportedAudioUpload,
-} from "@/lib/audio-upload-support";
+import { buildUnsupportedAudioUploadErrorMessage, isSupportedAudioUpload } from "@/lib/audio-upload-support";
 import { buildLessonReportFlowMessage, getLessonReportPartState } from "@/lib/lesson-report-flow";
 import { buildSessionPartUploadPathname } from "@/lib/audio-storage-paths";
 import type { RecordingLockInfo, SessionItem } from "./roomTypes";
@@ -24,7 +17,6 @@ import {
   buildChunkUploadFileName,
   buildUploadFileName,
   formatBytes,
-  formatTime,
   getDurationValidationMessage,
   loadBlobUploadModule,
   modeLabel,
@@ -39,10 +31,18 @@ import type {
   StopIntent,
   UploadSource,
 } from "./studentSessionConsoleTypes";
+import { StudentSessionConsoleLockSection } from "./StudentSessionConsoleLockSection";
+import { StudentSessionConsoleProgressSection } from "./StudentSessionConsoleProgressSection";
+import { StudentSessionConsoleRecordingSection } from "./StudentSessionConsoleRecordingSection";
+import { StudentSessionConsoleUploadSection } from "./StudentSessionConsoleUploadSection";
 import { usePendingRecordingDraft } from "./usePendingRecordingDraft";
 import { useRecordingLock } from "./useRecordingLock";
 import { useRecordingNavigationGuards } from "./useRecordingNavigationGuards";
 import { useStudentSessionProgress } from "./useStudentSessionProgress";
+import {
+  buildStudentSessionConsoleProgress,
+  buildStudentSessionConsoleStatusCopy,
+} from "./studentSessionConsoleView";
 import styles from "./studentSessionConsole.module.css";
 
 export type { SessionConsoleLessonPart, SessionConsoleMode } from "./studentSessionConsoleTypes";
@@ -86,7 +86,6 @@ function StudentSessionConsoleInner({
   const [showCancelDialog, setShowCancelDialog] = useState(false);
   const [showDiscardDraftDialog, setShowDiscardDraftDialog] = useState(false);
 
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const chunksRef = useRef<BlobPart[]>([]);
@@ -133,7 +132,6 @@ function StudentSessionConsoleInner({
   const {
     clearPendingDraftState,
     downloadPendingDraft,
-    loadPendingDraftState,
     pendingDraft,
     pendingDraftPersistence,
     savePendingDraftState,
@@ -783,45 +781,30 @@ function StudentSessionConsoleInner({
   const visiblePendingDraft = showPendingDraftWarning ? pendingDraft : null;
   const remainingSecondsUntilSavable = Math.max(0, MIN_SECONDS_BEFORE_SAVE_ENABLED - seconds);
   const isPreparingOrRecording = state === "preparing" || state === "recording";
-  const generationProgress =
-    state === "uploading" || state === "processing"
-      ? sessionProgress?.progress ?? {
-          title: "文字起こし準備中です",
-          description: "STT worker を起動しています。このまま閉じても大丈夫です。",
-          value: 18,
-          steps:
-            mode === "LESSON_REPORT"
-              ? [
-                  { id: "0-checkin", label: "チェックイン", status: "active" as const },
-                  { id: "1-checkout", label: "チェックアウト", status: "pending" as const },
-                  { id: "2-generate", label: "ログ生成", status: "pending" as const },
-                  { id: "3-done", label: "完了", status: "pending" as const },
-                ]
-              : [
-                  { id: "0-save", label: "保存受付", status: "complete" as const },
-                  { id: "1-stt", label: "文字起こし", status: "active" as const },
-                  { id: "2-generate", label: "ログ生成", status: "pending" as const },
-                  { id: "3-done", label: "完了", status: "pending" as const },
-                ],
-        }
-      : null;
+  const generationProgress = useMemo(
+    () =>
+      buildStudentSessionConsoleProgress({
+        mode,
+        state,
+        sessionProgress,
+      }),
+    [mode, sessionProgress, state]
+  );
   const showGenerationProgress =
     Boolean(generationProgress) &&
     !(mode === "LESSON_REPORT" && lessonPart === "CHECK_IN");
-
-  const idleHeadline =
-    mode === "INTERVIEW"
-      ? "面談を始めましょう"
-      : lessonPart === "CHECK_OUT"
-        ? "チェックアウト録音"
-        : "チェックイン録音";
-
-  const idleDescription =
-    mode === "INTERVIEW"
-      ? "録音が終わると、自動でログを整理して次回の話題まで更新します。"
-      : lessonPart === "CHECK_OUT"
-        ? "録音を保存すると、チェックインと合算して指導報告を自動生成します。"
-        : "授業前の状態を短く録音して保存します（この段階では生成しません）。";
+  const statusCopy = useMemo(
+    () =>
+      buildStudentSessionConsoleStatusCopy({
+        mode,
+        lessonPart,
+        state,
+        studentName,
+        message,
+        generationProgress,
+      }),
+    [generationProgress, lessonPart, mode, message, state, studentName]
+  );
 
   return (
     <div className={styles.console} data-recording-state={state}>
@@ -902,183 +885,59 @@ function StudentSessionConsoleInner({
       ) : null}
 
       <div className={styles.surface}>
-        <div className={styles.recorderArea}>
-          <button
-            type="button"
-            className={`${styles.microphoneCircle} ${canStartFromCircle ? styles.microphoneButton : styles.microphoneButtonDisabled}`}
-            onClick={() => void startRecording()}
-            disabled={!canStartFromCircle}
-            aria-label="録音を開始する"
-            data-testid="recording-start-button"
-          >
-            <Image
-              src="/icons/mic-icon.svg"
-              alt=""
-              aria-hidden
-              width={14}
-              height={19}
-              className={styles.microphoneGlyph}
-            />
-          </button>
+        <StudentSessionConsoleRecordingSection
+          state={state}
+          currentModeLabel={isPreparingOrRecording ? modeLabel(mode, lessonPart) : null}
+          currentStudentLabel={statusCopy.currentStudentLabel}
+          statusLine={statusCopy.statusLine}
+          lessonMetaLine={
+            ongoingLessonSession?.id && mode === "LESSON_REPORT"
+              ? lessonFlowState.hasCheckIn && !lessonFlowState.hasCheckOut
+                ? lessonFlowState.hasReadyCheckIn
+                  ? "チェックイン保存済み → チェックアウト待ち"
+                  : "チェックイン受付済み → 裏で文字起こし中"
+                : "同じ授業セッションに追記されます"
+              : null
+          }
+          lessonGuide={mode === "LESSON_REPORT" ? lessonFlowMessage : null}
+          canStartFromCircle={canStartFromCircle}
+          isPaused={isPaused}
+          levels={levels}
+          seconds={seconds}
+          estimatedSize={estimatedSize}
+          canFinishRecording={canFinishRecording}
+          remainingSecondsUntilSavable={remainingSecondsUntilSavable}
+          onStartRecording={() => void startRecording()}
+          onTogglePause={togglePause}
+          onRequestCancelRecording={requestCancelRecording}
+          onStopRecording={stopRecording}
+        />
 
-          <div className={styles.recorderMeta}>
-            {isPreparingOrRecording ? <div className={styles.currentMode}>{modeLabel(mode, lessonPart)}</div> : null}
-            <div className={styles.currentStudent}>
-              {state === "recording"
-                ? `${studentName} を録音中`
-                : state === "preparing"
-                  ? `${studentName} の録音準備中`
-                : state === "uploading" || state === "processing"
-                  ? generationProgress?.title ?? "文字起こし準備中です"
-                  : idleHeadline}
-            </div>
-            <div className={styles.statusLine}>
-              {state === "recording"
-                ? mode === "LESSON_REPORT" && lessonPart === "CHECK_IN"
-                  ? "話し終えたら終了してください。音声を保存します。"
-                  : "話し終えたら終了してください。自動で保存して生成に入ります。"
-                : state === "preparing"
-                  ? message || "マイクと録音セッションを準備しています。"
-                : state === "uploading" || state === "processing"
-                  ? generationProgress?.description ?? message
-                  : message || idleDescription}
-            </div>
-            {ongoingLessonSession?.id && mode === "LESSON_REPORT" ? (
-              <div className={styles.lessonMeta}>
-                {lessonFlowState.hasCheckIn && !lessonFlowState.hasCheckOut
-                  ? lessonFlowState.hasReadyCheckIn
-                    ? "チェックイン保存済み → チェックアウト待ち"
-                    : "チェックイン受付済み → 裏で文字起こし中"
-                  : "同じ授業セッションに追記されます"}
-              </div>
-            ) : null}
-          </div>
+        <StudentSessionConsoleProgressSection
+          showGenerationProgress={showGenerationProgress}
+          progress={generationProgress}
+        />
 
-          {mode === "LESSON_REPORT" ? (
-            <div className={styles.lessonGuide}>
-              <p>{lessonFlowMessage}</p>
-            </div>
-          ) : null}
+        <StudentSessionConsoleLockSection lockConflict={Boolean(lockConflict)} lockConflictName={lockConflictName} />
 
-          {state === "recording" ? (
-            <>
-              <div className={styles.timer}>{formatTime(seconds)}</div>
-              <div className={styles.wave}>
-                {levels.map((height, index) => (
-                  <span key={`${index}-${height}`} className={styles.waveBar} style={{ height: `${height}px` }} />
-                ))}
-              </div>
-              <div className={styles.inlineActions}>
-                <Button variant="secondary" onClick={togglePause}>
-                  {isPaused ? "再開" : "一時停止"}
-                </Button>
-                <Button variant="secondary" onClick={requestCancelRecording}>
-                  キャンセル
-                </Button>
-                <Button onClick={stopRecording} disabled={!canFinishRecording} data-testid="recording-stop-button">
-                  終了
-                </Button>
-              </div>
-              <div className={styles.supportLine}>
-                現在のサイズ: {estimatedSize}
-                {!canFinishRecording ? ` / 保存できるまであと${remainingSecondsUntilSavable}秒` : ""}
-              </div>
-            </>
-          ) : state === "preparing" ? (
-            <div className={styles.processingBox}>
-              <strong>録音準備中</strong>
-              <p>{message || "マイクと録音セッションを準備しています。"}</p>
-            </div>
-          ) : (
-            <>
-              <div className={styles.inlineActions}>
-                <Button variant="secondary" onClick={() => fileInputRef.current?.click()} disabled={!canUpload}>
-                  音声ファイルを選ぶ
-                </Button>
-              </div>
-              <input
-                ref={fileInputRef}
-                hidden
-                type="file"
-                accept={AUDIO_UPLOAD_ACCEPT_ATTR}
-                onChange={(event) => {
-                  const file = event.target.files?.[0] ?? null;
-                  event.currentTarget.value = "";
-                  void handleFileSelection(file);
-                }}
-              />
-              <div className={`${styles.supportLine} ${styles.uploadFormats}`}>
-                対応拡張子: {AUDIO_UPLOAD_EXTENSIONS_LABEL}
-              </div>
-            </>
-          )}
-
-          {showGenerationProgress ? (
-            generationProgress ? <GenerationProgress progress={generationProgress} /> : null
-          ) : null}
-
-          {lockConflict ? (
-            <div className={styles.warningBox}>
-              <strong>他の担当者が録音中です</strong>
-              <p>
-                {lockConflictName} がこの生徒で録音中です。終了後に開始してください。
-              </p>
-            </div>
-          ) : null}
-
-          {visiblePendingDraft ? (
-            <div className={styles.warningBox}>
-              <strong>未送信の録音データがあります</strong>
-              <p>
-                {new Date(visiblePendingDraft.createdAt).toLocaleString("ja-JP")} に保存した録音です。
-                {visiblePendingDraft.durationSeconds
-                  ? ` 長さは約${Math.round(visiblePendingDraft.durationSeconds)}秒、サイズは ${formatBytes(
-                      visiblePendingDraft.sizeBytes
-                    )} です。`
-                  : ` サイズは ${formatBytes(visiblePendingDraft.sizeBytes)} です。`}
-                {pendingDraftPersistence === "memory"
-                  ? " このタブ上には残っていますが、ページを閉じると消える可能性があります。先に再送するか、端末へ保存してください。"
-                  : ""}
-              </p>
-              <div className={styles.inlineActions}>
-                {pendingDraftCanUpload ? (
-                  <Button onClick={() => void retryPendingDraftUpload()}>一時保存した録音を再送</Button>
-                ) : null}
-                <Button variant="secondary" onClick={downloadPendingDraft}>
-                  端末へ保存
-                </Button>
-                <Button variant="secondary" onClick={() => setShowDiscardDraftDialog(true)}>
-                  破棄する
-                </Button>
-              </div>
-            </div>
-          ) : null}
-
-          {error ? (
-            <div className={styles.errorBox}>
-              <strong>処理に失敗しました</strong>
-              <p>{error}</p>
-              {recoverableSessionId ? (
-                <div className={styles.inlineActions}>
-                  <Button onClick={() => void retryGeneration()}>生成を再開する</Button>
-                </div>
-              ) : null}
-            </div>
-          ) : null}
-
-          {state === "success" ? (
-            <div className={styles.successBox}>
-              <strong>保存が完了しました</strong>
-              <p>{message}</p>
-              <div className={styles.inlineActions}>
-                {createdConversationId ? <Button onClick={() => onOpenLog(createdConversationId)}>ログを確認</Button> : null}
-                <Button variant="secondary" onClick={reset}>
-                  もう一度録る
-                </Button>
-              </div>
-            </div>
-          ) : null}
-        </div>
+        <StudentSessionConsoleUploadSection
+          canUpload={canUpload}
+          pendingDraft={visiblePendingDraft}
+          pendingDraftPersistence={pendingDraftPersistence}
+          pendingDraftCanUpload={pendingDraftCanUpload}
+          error={error}
+          recoverableSessionId={recoverableSessionId}
+          createdConversationId={createdConversationId}
+          message={message}
+          state={state}
+          onSelectFile={(file) => void handleFileSelection(file)}
+          onRetryPendingDraft={() => void retryPendingDraftUpload()}
+          onDownloadPendingDraft={downloadPendingDraft}
+          onDiscardPendingDraft={() => setShowDiscardDraftDialog(true)}
+          onRetryGeneration={() => void retryGeneration()}
+          onReset={reset}
+          onOpenLog={onOpenLog}
+        />
       </div>
 
       <ConfirmDialog
