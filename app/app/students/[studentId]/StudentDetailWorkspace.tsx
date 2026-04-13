@@ -3,6 +3,11 @@
 import { memo } from "react";
 import { StudentSessionStream } from "./StudentSessionStream";
 import type { ReportItem, SessionItem } from "./roomTypes";
+import {
+  formatReportDate,
+  formatSessionLabel,
+  lessonSummaryLabel,
+} from "./studentDetailFormatting";
 import styles from "./studentDetail.module.css";
 
 export type StudentDetailTabKey = "communications" | "lessonReports" | "parentReports";
@@ -30,10 +35,21 @@ function withinCurrentMonth(value: string) {
   return date.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth();
 }
 
-function formatReportDate(value?: string | null) {
-  if (!value) return "未生成";
-  const date = new Date(value);
-  return `${date.getFullYear()}.${date.getMonth() + 1}.${date.getDate()}`;
+function conversationReviewLabel(session: SessionItem) {
+  if (session.conversation?.reviewState === "REQUIRED") return "要確認あり";
+  if (session.conversation?.reviewState === "RESOLVED") return "確認済み";
+  return session.pipeline?.progress.title ?? "ログ確認";
+}
+
+function reportMetaLabel(report: ReportItem) {
+  const meta: string[] = [];
+  if (report.sourceLogIds?.length) {
+    meta.push(`参照ログ ${report.sourceLogIds.length}件`);
+  }
+  if (report.latestEvent?.label) {
+    meta.push(report.latestEvent.label);
+  }
+  return meta.join(" / ");
 }
 
 function StudentDetailWorkspaceInner({
@@ -69,11 +85,22 @@ function StudentDetailWorkspaceInner({
     );
   })();
 
+  const lessonReports = (() => {
+    const base = sessions.filter((session) => session.type === "LESSON_REPORT");
+    const filtered = periodFilter === "month" ? base.filter((session) => withinCurrentMonth(session.sessionDate)) : base;
+    return [...filtered].sort((left, right) =>
+      sortOrder === "desc"
+        ? new Date(right.sessionDate).getTime() - new Date(left.sessionDate).getTime()
+        : new Date(left.sessionDate).getTime() - new Date(right.sessionDate).getTime()
+    );
+  })();
+
   return (
     <>
       <div className={styles.tabBar}>
         {[
           { key: "communications", label: "面談ログ" },
+          { key: "lessonReports", label: "指導報告" },
           { key: "parentReports", label: "保護者レポートログ" },
         ].map((tab) => (
           <button
@@ -130,6 +157,44 @@ function StudentDetailWorkspaceInner({
         />
       ) : null}
 
+      {activeTab === "lessonReports" ? (
+        <div className={styles.historyList}>
+          {lessonReports.length === 0 ? (
+            <div className={styles.emptyState}>
+              まだ指導報告はありません。チェックインとチェックアウトがそろうとここに並びます。
+            </div>
+          ) : (
+            lessonReports.map((session) => {
+              const logId = session.pipeline?.openLogId ?? session.conversation?.id ?? null;
+              return (
+                <button
+                  key={session.id}
+                  type="button"
+                  className={`${styles.historyRow} ${!logId ? styles.historyRowDisabled : ""}`}
+                  disabled={!logId}
+                  onClick={() => {
+                    if (logId) onOpenLog(logId);
+                  }}
+                >
+                  <div className={styles.historyRowLeft}>
+                    <div className={styles.historyIcon} aria-hidden>
+                      <span />
+                    </div>
+                    <div>
+                      <div className={styles.historyRowTitle}>{formatSessionLabel(session)}</div>
+                      <div className={styles.historyRowMeta}>
+                        {lessonSummaryLabel(session)} / {conversationReviewLabel(session)}
+                      </div>
+                    </div>
+                  </div>
+                  <div className={styles.assigneePill}>{viewerBadge}</div>
+                </button>
+              );
+            })
+          )}
+        </div>
+      ) : null}
+
       {activeTab === "parentReports" ? (
         <div className={styles.historyList}>
           {parentReports.length === 0 ? (
@@ -137,27 +202,31 @@ function StudentDetailWorkspaceInner({
               まだ保護者レポートはありません。上段のカードから対象ログを選んで生成してください。
             </div>
           ) : (
-            parentReports.map((report) => (
-              <button
-                key={report.id}
-                type="button"
-                className={styles.historyRow}
-                onClick={() => void onOpenParentReport(report.id)}
-              >
-                <div className={styles.historyRowLeft}>
-                  <div className={styles.historyIcon} aria-hidden>
-                    <span />
-                  </div>
-                  <div>
-                    <div className={styles.historyRowTitle}>{formatReportDate(report.createdAt)} の保護者レポート</div>
-                    <div className={styles.historyRowMeta}>
-                      {report.deliveryStateLabel ?? report.workflowStatusLabel ?? "状態確認中"}
+            parentReports.map((report) => {
+              const metaLabel = reportMetaLabel(report);
+              return (
+                <button
+                  key={report.id}
+                  type="button"
+                  className={styles.historyRow}
+                  onClick={() => void onOpenParentReport(report.id)}
+                >
+                  <div className={styles.historyRowLeft}>
+                    <div className={styles.historyIcon} aria-hidden>
+                      <span />
+                    </div>
+                    <div>
+                      <div className={styles.historyRowTitle}>{formatReportDate(report.createdAt)} の保護者レポート</div>
+                      <div className={styles.historyRowMeta}>
+                        {report.deliveryStateLabel ?? report.workflowStatusLabel ?? "状態確認中"}
+                        {metaLabel ? ` / ${metaLabel}` : ""}
+                      </div>
                     </div>
                   </div>
-                </div>
-                <div className={styles.assigneePill}>{viewerBadge}</div>
-              </button>
-            ))
+                  <div className={styles.assigneePill}>{viewerBadge}</div>
+                </button>
+              );
+            })
           )}
         </div>
       ) : null}

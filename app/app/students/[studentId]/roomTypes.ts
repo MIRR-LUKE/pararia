@@ -46,6 +46,8 @@ export type SessionItem = {
   conversation?: {
     id: string;
     status: string;
+    reviewState?: string | null;
+    qualityMetaJson?: any;
     artifactJson?: unknown;
     summaryMarkdown?: string | null;
     createdAt: string;

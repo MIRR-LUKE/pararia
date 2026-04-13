@@ -4,6 +4,11 @@ import { AppHeader } from "@/components/layout/AppHeader";
 import { Badge } from "@/components/ui/Badge";
 import { Card } from "@/components/ui/Card";
 import { getLogListPageData } from "@/lib/logs/get-log-list-page-data";
+import {
+  transcriptReviewStateLabel,
+  transcriptReviewSummary,
+  transcriptReviewTone,
+} from "@/lib/logs/transcript-review-display";
 import { getAppSession } from "@/lib/server/app-session";
 import DeleteLogButton from "./DeleteLogButton";
 import styles from "./logsList.module.css";
@@ -143,6 +148,7 @@ export default async function LogsListPage({
           <div className={styles.list}>
             {filtered.map((log, index) => {
               const traces = traceByLogId[log.id] ?? [];
+              const trustSummary = transcriptReviewSummary(log.transcriptReview);
               return (
                 <article key={log.id} className={styles.row}>
                   <Link href={`/app/logs/${log.id}`} className={styles.rowLink} prefetch={index < 4}>
@@ -155,10 +161,18 @@ export default async function LogsListPage({
                         <div className={styles.badgeRow}>
                           <Badge label={sessionTypeLabel(log.sessionType)} tone="neutral" />
                           <Badge label={statusLabel(log.status)} tone={statusTone(log.status)} />
+                          <Badge
+                            label={transcriptReviewStateLabel(log.reviewState)}
+                            tone={transcriptReviewTone(log.reviewState, log.transcriptReview)}
+                          />
                         </div>
                       </div>
 
                       <p className={styles.summary}>{excerpt(log.summaryMarkdown)}</p>
+                      <div className={styles.trustRow}>
+                        <span className={styles.trustLabel}>信頼判断</span>
+                        <span className={styles.trustSummary}>{trustSummary}</span>
+                      </div>
 
                       <div className={styles.tracePanel}>
                         <div className={styles.traceLabel}>このログが使われた保護者レポート</div>

@@ -2,7 +2,7 @@
 
 ## 状態
 
-- 一部できている
+- 実装済み
 - GitHub Issue: `#45`
 - 最終更新: `2026-04-13`
 
@@ -17,13 +17,13 @@
 - file size の target / hard limit / legacy exception を可視化した
 - README からルールへ辿れるようにした
 
-## この issue で進めること
+## 今回進めたこと
 
-- debt が大きいファイルを順番に分割する
-- legacy exception を 1 つずつ消す
-- page / route / lib の責務分割を共通ルールにそろえる
+- `lib/runpod/worker-control.ts` を `core` / `ops` に分割した
+- `scripts/runpod-measure-ux.ts` を `core` / `runpod` / `worker` に分割した
+- `Student Detail` 側でも formatting / action queue を切り出して、巨大 client の責務を少しずつ減らした
 
-## 今の重点負債
+## 次の重点負債
 
 - `app/app/students/[studentId]/StudentSessionConsole.tsx`
 - `lib/jobs/conversationJobs.ts`

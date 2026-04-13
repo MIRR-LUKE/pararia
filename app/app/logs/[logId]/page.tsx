@@ -1,15 +1,82 @@
 import { notFound, redirect } from "next/navigation";
+import { AppHeader } from "@/components/layout/AppHeader";
 import { prisma } from "@/lib/db";
+import { normalizeTranscriptReviewMeta } from "@/lib/logs/transcript-review-display";
+import { getAppSession } from "@/lib/server/app-session";
+import { listConversationProperNounSuggestions } from "@/lib/transcript/review";
+import TranscriptReviewPage from "./TranscriptReviewPage";
 
-export default async function LogRedirectPage({ params }: { params: { logId: string } }) {
-  const log = await prisma.conversationLog.findUnique({
-    where: { id: params.logId },
-    select: { studentId: true },
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
+export default async function LogReviewPage({ params }: { params: { logId: string } }) {
+  const session = await getAppSession();
+  const organizationId = session?.user?.organizationId;
+  if (!session?.user?.id || !organizationId) {
+    redirect("/login");
+  }
+
+  const conversation = await prisma.conversationLog.findFirst({
+    where: {
+      id: params.logId,
+      organizationId,
+    },
+    select: {
+      id: true,
+      status: true,
+      reviewState: true,
+      summaryMarkdown: true,
+      formattedTranscript: true,
+      rawTextOriginal: true,
+      rawTextCleaned: true,
+      reviewedText: true,
+      qualityMetaJson: true,
+      student: {
+        select: {
+          id: true,
+          name: true,
+          grade: true,
+        },
+      },
+      session: {
+        select: {
+          type: true,
+          status: true,
+          sessionDate: true,
+        },
+      },
+    },
   });
 
-  if (!log) {
+  if (!conversation) {
     notFound();
   }
 
-  redirect(`/app/students/${log.studentId}?panel=log&logId=${params.logId}`);
+  const transcriptReview = normalizeTranscriptReviewMeta(conversation.qualityMetaJson);
+  const review = await listConversationProperNounSuggestions(params.logId);
+
+  return (
+    <div>
+      <AppHeader
+        title="文字起こしレビュー"
+        subtitle="固有名詞候補をここで見て、採用・却下・手修正までまとめて進められます。"
+        viewerName={session.user.name ?? null}
+        viewerRole={(session.user as { role?: string | null }).role ?? null}
+      />
+      <TranscriptReviewPage
+        logId={params.logId}
+        initialConversation={{
+          ...conversation,
+          session: conversation.session
+            ? {
+                ...conversation.session,
+                sessionDate: conversation.session.sessionDate?.toISOString() ?? null,
+              }
+            : null,
+          transcriptReview,
+        }}
+        initialReview={review}
+      />
+    </div>
+  );
 }

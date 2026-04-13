@@ -9,6 +9,12 @@ import {
   normalizeEditableConversationSummary,
   UNSAVED_CONVERSATION_SUMMARY_MESSAGE,
 } from "@/lib/conversation-editing";
+import {
+  normalizeTranscriptReviewMeta,
+  transcriptReviewStateLabel,
+  transcriptReviewSummary,
+  transcriptReviewTone,
+} from "@/lib/logs/transcript-review-display";
 import styles from "./[logId]/logView.module.css";
 
 type ConversationStatus = "PROCESSING" | "DONE" | "ERROR";
@@ -22,6 +28,9 @@ type ConversationLog = {
   rawTextOriginal?: string | null;
   rawTextCleaned?: string | null;
   reviewedText?: string | null;
+  reviewState?: string;
+  qualityMetaJson?: unknown;
+  transcriptReview?: unknown;
   student?: { name: string; grade?: string | null } | null;
   session?: { type: string; status: string } | null;
 };
@@ -121,6 +130,10 @@ export function LogView({ logId, showHeader = true, onBack, onSaved, onDirtyChan
   const summaryMarkdown = useMemo(
     () => normalizeEditableConversationSummary(log?.summaryMarkdown),
     [log?.summaryMarkdown]
+  );
+  const transcriptReview = useMemo(
+    () => normalizeTranscriptReviewMeta(log?.transcriptReview ?? log?.qualityMetaJson),
+    [log?.qualityMetaJson, log?.transcriptReview]
   );
   const transcriptText = log?.formattedTranscript || log?.reviewedText || log?.rawTextCleaned || log?.rawTextOriginal || "";
   const isDirty = isEditingSummary && hasEditableConversationSummaryChanges(summaryMarkdown, draftSummary);
@@ -262,6 +275,35 @@ export function LogView({ logId, showHeader = true, onBack, onSaved, onDirtyChan
           </div>
         </div>
       ) : null}
+
+      <div className={styles.trustPanel}>
+        <div className={styles.trustTop}>
+          <div className={styles.trustCopy}>
+            <div className={styles.sectionLabel}>信頼判断</div>
+            <p className={styles.trustSummary}>{transcriptReviewSummary(transcriptReview)}</p>
+            <p className={styles.subtext}>
+              {transcriptReview?.updatedAt
+                ? `最終更新 ${new Date(transcriptReview.updatedAt).toLocaleString("ja-JP")}`
+                : "レビュー理由はログ本文と同じく、ここで確認できます。"}
+            </p>
+          </div>
+          <Badge
+            label={transcriptReviewStateLabel(log.reviewState)}
+            tone={transcriptReviewTone(log.reviewState, transcriptReview)}
+          />
+        </div>
+        {transcriptReview?.reasons?.length ? (
+          <div className={styles.trustReasons}>
+            {transcriptReview.reasons.map((reason) => (
+              <div key={reason.code} className={styles.trustReason}>
+                <div className={styles.reasonCode}>{reason.code}</div>
+                <p className={styles.reasonMessage}>{reason.message}</p>
+                {typeof reason.count === "number" ? <span className={styles.reasonCount}>{reason.count}件</span> : null}
+              </div>
+            ))}
+          </div>
+        ) : null}
+      </div>
 
       <div className={styles.tabBar}>
         {TAB_LABELS.map((item) => (

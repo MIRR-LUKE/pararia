@@ -5,6 +5,7 @@ import { StructuredMarkdown } from "@/components/ui/StructuredMarkdown";
 import { LogView } from "../../logs/LogView";
 import { ReportStudio } from "./ReportStudio";
 import type { ReportItem, ReportStudioView, RoomResponse } from "./roomTypes";
+import { formatReportDate } from "./studentDetailFormatting";
 import styles from "./studentDetail.module.css";
 
 type OverlayState =
@@ -30,12 +31,6 @@ type Props = {
   onOpenDeleteDialogForReport: () => void;
   onOpenReportStudioSend: () => void;
 };
-
-function formatReportDate(value?: string | null) {
-  if (!value) return "未生成";
-  const date = new Date(value);
-  return `${date.getFullYear()}.${date.getMonth() + 1}.${date.getDate()}`;
-}
 
 export function StudentDetailOverlay({
   overlay,
@@ -150,6 +145,30 @@ export function StudentDetailOverlay({
                     <strong>{activeParentReport.sourceLogIds?.length ?? 0}件</strong>
                   </div>
                 </div>
+
+                {activeParentReport.history?.length ? (
+                  <div className={styles.deliveryTimeline}>
+                    {activeParentReport.history.map((event, index) => (
+                      <div key={event.id ?? `${event.eventType}-${event.createdAt}-${index}`} className={styles.deliveryTimelineItem}>
+                        <div className={styles.deliveryTimelineMeta}>
+                          <strong>{event.label}</strong>
+                          <span>{formatReportDate(event.createdAt)}</span>
+                        </div>
+                        <div className={styles.detailMetaRow}>
+                          <div>
+                            <span>手段</span>
+                            <strong>{event.deliveryChannel ?? "未設定"}</strong>
+                          </div>
+                          <div>
+                            <span>担当</span>
+                            <strong>{event.actor?.name ?? event.actor?.email ?? "記録なし"}</strong>
+                          </div>
+                        </div>
+                        {event.note ? <p className={styles.deliveryTimelineNote}>{event.note}</p> : null}
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
 
                 <div className={styles.reportParagraph}>
                   <StructuredMarkdown

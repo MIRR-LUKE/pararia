@@ -103,6 +103,68 @@
   background: var(--surface-2);
 }
 
+.trustPanel {
+  display: grid;
+  gap: 12px;
+  padding: 16px 18px;
+  border-radius: 20px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+}
+
+.trustTop {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+
+.trustCopy {
+  display: grid;
+  gap: 6px;
+}
+
+.trustSummary {
+  margin: 0;
+  font-size: 18px;
+  line-height: 1.5;
+  font-weight: 700;
+}
+
+.trustReasons {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+
+.trustReason {
+  display: grid;
+  gap: 6px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.reasonCode {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
+
+.reasonMessage {
+  margin: 0;
+  line-height: 1.7;
+}
+
+.reasonCount {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
 .stepPill,
 .quoteChip,
 .profileTag,

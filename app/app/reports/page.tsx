@@ -2,134 +2,45 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { Badge } from "@/components/ui/Badge";
-import { Card } from "@/components/ui/Card";
-import {
-  deriveReportDeliveryState,
-  reportDeliveryStateLabel,
-  reportStatusLabel,
-} from "@/lib/report-delivery";
 import { getAppSession } from "@/lib/server/app-session";
 import { getCachedStudentDirectory } from "@/lib/students/get-cached-student-directory";
-import type { StudentListRow } from "@/lib/students/list-student-rows";
+import { ReportsSectionCard } from "./ReportsSectionCard";
 import styles from "./reportDashboard.module.css";
+import {
+  buildFilterHref,
+  buildReportDashboardData,
+  normalizeFilter,
+  type FilterKey,
+} from "./report-dashboard";
+import { ReportsStatePanel } from "./ReportsStatePanel";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
-
-type FilterKey = "all" | "uncreated" | "review" | "share" | "sent" | "manual" | "delayed";
-type SessionSummary = NonNullable<StudentListRow["sessions"]>[number];
-type ReportSummary = NonNullable<StudentListRow["reports"]>[number];
-
-type ReportCardRow = {
-  id: string;
-  name: string;
-  grade?: string | null;
-  latestSession: SessionSummary | null;
-  latestReport: ReportSummary | null;
-  statusLabel: string;
-  sourceTraceLabel: string;
-  sourceLogIds: string[];
-  oneLiner: string;
-  reportSourceCount: number;
-  isUncreated: boolean;
-  isReview: boolean;
-  isShare: boolean;
-  isSent: boolean;
-  isManual: boolean;
-  isDelayedShare: boolean;
-};
-
-type QueueItem = {
-  id: string;
-  name: string;
-  grade: string | null | undefined;
-  label: string;
-  description: string;
-  href: string;
-  cta: string;
-  isDelayedShare: boolean;
-  reportSourceCount: number;
-  sourceTraceLabel: string;
-  latestDeliveryLabel: string;
-  latestReport: ReportSummary | null;
-};
 
 function readQueryParam(value: string | string[] | undefined) {
   return Array.isArray(value) ? value[0] : value;
 }
 
-function normalizeFilter(value?: string): FilterKey {
-  if (value === "uncreated") return "uncreated";
-  if (value === "review") return "review";
-  if (value === "share") return "share";
-  if (value === "sent") return "sent";
-  if (value === "manual") return "manual";
-  if (value === "delayed") return "delayed";
-  return "all";
+const filterLabels: Record<FilterKey, string> = {
+  all: "すべて",
+  uncreated: "未作成",
+  review: "レビュー待ち",
+  share: "共有待ち",
+  sent: "送信済み",
+  manual: "手動共有",
+  delayed: "遅延",
+};
+
+function sectionToneLabel(filter: FilterKey) {
+  if (filter === "all") return "全件";
+  return filterLabels[filter];
 }
 
-function buildFilterHref(filter: FilterKey) {
-  return filter === "all" ? "/app/reports" : `/app/reports?filter=${filter}`;
-}
-
-function hoursSince(value?: string | null) {
-  if (!value) return null;
-  const diff = Date.now() - new Date(value).getTime();
-  if (Number.isNaN(diff)) return null;
-  return diff / (60 * 60 * 1000);
-}
-
-function latestReportState(report?: ReportSummary | null) {
-  if (!report) return "none";
-  return deriveReportDeliveryState(report);
-}
-
-function isDelayed(report?: ReportSummary | null) {
-  if (!report) return false;
-  const state = latestReportState(report);
-  if (state === "sent" || state === "manual_shared" || state === "delivered" || state === "resent") {
-    return false;
+function rowFilterText(filter: FilterKey) {
+  if (filter === "all") {
+    return "未作成、レビュー待ち、共有待ち、送信済み、手動共有、遅延をまとめて見られます。";
   }
-  const anchor = report.reviewedAt ?? report.createdAt;
-  const hours = hoursSince(anchor);
-  return typeof hours === "number" && hours >= 24;
-}
-
-function reportTone(
-  report?: ReportSummary | null
-): "neutral" | "low" | "medium" | "high" {
-  if (!report) return "medium";
-  const state = latestReportState(report);
-  if (state === "failed" || state === "bounced" || state === "manual_shared") return "high";
-  if (state === "sent" || state === "delivered" || state === "resent") return "low";
-  if (state === "reviewed") return "medium";
-  return "high";
-}
-
-function reportPresentationLabel(
-  report?: ReportSummary | null
-) {
-  if (!report) return "未作成";
-  const state = latestReportState(report);
-  if (state === "none") return "未作成";
-  if (state === "manual_shared") return "手動共有";
-  if (state === "failed" || state === "bounced") return reportDeliveryStateLabel(state);
-  if (state === "sent" || state === "delivered" || state === "resent") {
-    return report.deliveryChannel === "manual" ? "手動共有" : reportDeliveryStateLabel(state);
-  }
-  if (report.status === "DRAFT") return "レビュー待ち";
-  if (report.status === "REVIEWED") return "共有待ち";
-  return reportStatusLabel(report.status);
-}
-
-function traceLabel(sourceLogIds?: string[] | null) {
-  if (!sourceLogIds || sourceLogIds.length === 0) return "まだ source trace はありません。";
-  return `${sourceLogIds.length} 件のログを選択`;
-}
-
-function buildSourceTraceSummary(sourceLogIds?: string[] | null) {
-  if (!sourceLogIds || sourceLogIds.length === 0) return "まだ sourceLogIds はありません。";
-  return sourceLogIds.slice(0, 3).join(" / ");
+  return `${filterLabels[filter]} に絞っています。`;
 }
 
 export default async function ReportDashboardPage({
@@ -149,180 +60,82 @@ export default async function ReportDashboardPage({
     limit: 200,
   });
 
-  const rows = students
-    .map((student) => {
-      const latestReport = student.reports?.[0] ?? null;
-      const latestSession = student.sessions?.[0] ?? null;
-      const hasConversation = Boolean(latestSession?.conversation?.id);
-      const sourceLogIds = latestReport?.sourceLogIds ?? [];
-      const reportState = latestReportState(latestReport);
-      const isUncreated = hasConversation && !latestReport;
-      const isReview = latestReport?.status === "DRAFT";
-      const isShare = latestReport?.status === "REVIEWED";
-      const isSent = reportState === "sent" || reportState === "delivered" || reportState === "resent";
-      const isManual = reportState === "manual_shared" || (isSent && latestReport?.deliveryChannel === "manual");
-      const isDelayedShare = isDelayed(latestReport);
-
-      return {
-        id: student.id,
-        name: student.name,
-        grade: student.grade,
-        latestSession,
-        latestReport,
-        statusLabel: reportPresentationLabel(latestReport),
-        sourceTraceLabel: traceLabel(sourceLogIds),
-        sourceLogIds,
-        oneLiner:
-          latestSession?.heroOneLiner ??
-          latestSession?.latestSummary ??
-          "まだ会話要約はありません。ログを生成するとここに要点が出ます。",
-        reportSourceCount: sourceLogIds.length,
-        isUncreated,
-        isReview,
-        isShare,
-        isSent,
-        isManual,
-        isDelayedShare,
-      } satisfies ReportCardRow;
-    })
-    .filter((student) => {
-      if (filter === "all") return true;
-      if (filter === "uncreated") return student.isUncreated;
-      if (filter === "review") return student.isReview;
-      if (filter === "share") return student.isShare;
-      if (filter === "sent") return student.isSent && !student.isManual;
-      if (filter === "manual") return student.isManual;
-      if (filter === "delayed") return student.isDelayedShare;
-      return true;
-    });
-
-  const queue = students
-    .map((student) => {
-      const latestReport = student.reports?.[0] ?? null;
-      const latestSession = student.sessions?.[0] ?? null;
-      const hasConversation = Boolean(latestSession?.conversation?.id);
-      const needsCheckout = latestSession?.type === "LESSON_REPORT" && latestSession.status === "COLLECTING";
-      const needsReport = hasConversation && !latestReport;
-      const needsReview = latestReport?.status === "DRAFT";
-      const needsShare = latestReport?.status === "REVIEWED";
-
-      if (!latestSession || (!needsCheckout && !needsReport && !needsReview && !needsShare)) {
-        return null;
-      }
-
-      return {
-        id: student.id,
-        name: student.name,
-        grade: student.grade,
-        label: needsCheckout
-          ? "チェックアウト待ち"
-          : needsReport
-            ? "レポート未作成"
-            : needsReview
-              ? "レビュー待ち"
-              : "共有待ち",
-        description: needsCheckout
-          ? "録音を閉じてからレポート生成に進むと、次の処理に流せます。"
-          : needsReport
-            ? "会話ログがあるので、この生徒はまずレポート生成が必要です。"
-            : needsReview
-              ? "レポート本文を確認して、共有前の最終チェックに進めます。"
-              : "共有待ちのレポートがあります。送信前の確認だけで進められます。",
-        href: needsCheckout
-          ? `/app/students/${student.id}?panel=recording&mode=LESSON_REPORT&part=CHECK_OUT`
-          : `/app/students/${student.id}?panel=report`,
-        cta: needsCheckout ? "チェックアウトする" : needsReport ? "ログを生成する" : "共有を確認する",
-        isDelayedShare: isDelayed(latestReport),
-        reportSourceCount: latestReport?.sourceLogIds?.length ?? 0,
-        sourceTraceLabel: traceLabel(latestReport?.sourceLogIds ?? null),
-        latestDeliveryLabel: reportPresentationLabel(latestReport),
-        latestReport,
-      } satisfies QueueItem;
-    })
-    .filter((item): item is QueueItem => item !== null);
-
-  const delayedQueue = queue.filter((item) => item.isDelayedShare);
-
-  const counts = {
-    uncreated: students.filter((student) => Boolean(student.sessions?.[0]?.conversation?.id) && !student.reports?.[0]).length,
-    review: students.filter((student) => student.reports?.[0]?.status === "DRAFT").length,
-    share: students.filter((student) => student.reports?.[0]?.status === "REVIEWED").length,
-    sent: students.filter((student) => {
-      const report = student.reports?.[0];
-      return Boolean(report) && ["sent", "delivered", "resent"].includes(latestReportState(report));
-    }).length,
-    manual: students.filter((student) => latestReportState(student.reports?.[0]) === "manual_shared").length,
-    delayed: students.filter((student) => isDelayed(student.reports?.[0] ?? null)).length,
-    failedBounced: students.filter((student) => {
-      const report = student.reports?.[0];
-      if (!report) return false;
-      const state = latestReportState(report);
-      return state === "failed" || state === "bounced";
-    }).length,
-  };
+  const { rows, queue, delayedQueue, counts } = buildReportDashboardData(students, filter);
+  const showResetFilter = filter !== "all";
 
   return (
     <div className={styles.page}>
       <AppHeader
         title="保護者レポート"
-        subtitle="ここは配信の一覧ではなく、レビュー待ち・共有待ち・送信済み・手動共有・遅延を一望する補助面です。"
+        subtitle="未作成 / レビュー待ち / 共有待ち / 送信済み / 手動共有 / 要確認 を一目で切り分けます。"
         viewerName={session.user.name ?? null}
         viewerRole={(session.user as { role?: string | null }).role ?? null}
       />
 
       <section className={styles.summaryRow}>
         <div className={styles.summaryCard}>
-          <span className={styles.summaryLabel}>レポート未作成</span>
+          <span className={styles.summaryLabel}>未作成</span>
           <strong>{counts.uncreated}</strong>
+          <p>会話はあるがレポートがまだありません。</p>
         </div>
         <div className={styles.summaryCard}>
           <span className={styles.summaryLabel}>レビュー待ち</span>
           <strong>{counts.review}</strong>
+          <p>本文確認の順番に入っています。</p>
         </div>
         <div className={styles.summaryCard}>
           <span className={styles.summaryLabel}>共有待ち</span>
           <strong>{counts.share}</strong>
+          <p>送信前の最終チェックが必要です。</p>
         </div>
         <div className={styles.summaryCard}>
           <span className={styles.summaryLabel}>送信済み</span>
           <strong>{counts.sent}</strong>
+          <p>保護者へ配信済みです。</p>
         </div>
         <div className={styles.summaryCard}>
           <span className={styles.summaryLabel}>手動共有</span>
           <strong>{counts.manual}</strong>
+          <p>個別対応で完了したものです。</p>
         </div>
         <div className={styles.summaryCard}>
-          <span className={styles.summaryLabel}>遅延 / 失敗</span>
+          <span className={styles.summaryLabel}>要確認</span>
           <strong>{counts.delayed + counts.failedBounced}</strong>
+          <p>遅延と失敗をまとめて追います。</p>
         </div>
       </section>
 
-      <section className={styles.filterRow}>
-        {[
-          { key: "all", label: "すべて" },
-          { key: "uncreated", label: "未作成" },
-          { key: "review", label: "レビュー待ち" },
-          { key: "share", label: "共有待ち" },
-          { key: "sent", label: "送信済み" },
-          { key: "manual", label: "手動共有" },
-          { key: "delayed", label: "遅延" },
-        ].map((item) => (
+      <section className={styles.filterRow} aria-label="レポートの絞り込み">
+        {(Object.keys(filterLabels) as FilterKey[]).map((key) => (
           <Link
-            key={item.key}
-            href={buildFilterHref(item.key as FilterKey)}
-            className={filter === item.key ? styles.filterChipActive : styles.filterChip}
+            key={key}
+            href={buildFilterHref(key)}
+            className={filter === key ? styles.filterChipActive : styles.filterChip}
           >
-            {item.label}
+            {filterLabels[key]}
           </Link>
         ))}
       </section>
 
-      <Card
+      <ReportsSectionCard
         title="保護者レポート一覧"
-        subtitle="レポートの状態と source trace を並べて、Student Room へすぐ戻れるようにしています。"
+        subtitle={`${
+          filter === "all" ? "全件" : sectionToneLabel(filter)
+        }を、ワークフロー / 配信状態 / source trace で見分けます。`}
       >
         {rows.length === 0 ? (
-          <div className={styles.empty}>この条件に合うレポートはありません。</div>
+          <ReportsStatePanel
+            kind="empty"
+            title="この条件に合うレポートはありません"
+            subtitle={rowFilterText(filter)}
+            action={
+              showResetFilter ? (
+                <Link href="/app/reports" className={styles.stateLink}>
+                  すべてのレポートに戻る
+                </Link>
+              ) : null
+            }
+          />
         ) : (
           <div className={styles.grid}>
             {rows.map((student, index) => (
@@ -333,11 +146,18 @@ export default async function ReportDashboardPage({
                 prefetch={index < 4}
               >
                 <div className={styles.cardHeader}>
-                  <div>
+                  <div className={styles.identity}>
                     <div className={styles.name}>{student.name}</div>
-                    <div className={styles.meta}>{student.grade ?? "学年未設定"}</div>
+                    <div className={styles.meta}>
+                      {student.grade ?? "学年未設定"} · {student.sessionLabel}
+                    </div>
                   </div>
-                  <Badge label={student.statusLabel} tone={reportTone(student.latestReport)} />
+                  <div className={styles.badgeRow}>
+                    <Badge label={student.workflowLabel} tone={student.tone} />
+                    {student.deliveryLabel !== student.workflowLabel ? (
+                      <Badge label={student.deliveryLabel} tone={student.secondaryTone} />
+                    ) : null}
+                  </div>
                 </div>
 
                 <p className={styles.oneLiner}>{student.oneLiner}</p>
@@ -348,15 +168,29 @@ export default async function ReportDashboardPage({
                     <strong>{student.reportSourceCount} 件</strong>
                   </div>
                   <div className={styles.metricItem}>
+                    <span className={styles.metricLabel}>最終更新</span>
+                    <strong>{student.updatedLabel}</strong>
+                  </div>
+                  <div className={styles.metricItem}>
                     <span className={styles.metricLabel}>共有状態</span>
-                    <strong>{student.latestReport ? reportPresentationLabel(student.latestReport) : "未作成"}</strong>
+                    <strong>{student.deliveryLabel}</strong>
                   </div>
                 </div>
 
                 <div className={styles.traceBox}>
                   <span className={styles.metricLabel}>source trace</span>
                   <p className={styles.traceSummary}>{student.sourceTraceLabel}</p>
-                  <p className={styles.traceMeta}>{buildSourceTraceSummary(student.sourceLogIds)}</p>
+                  <div className={styles.traceChips} aria-label="選択した source trace">
+                    {student.reportSourceCount === 0 ? (
+                      <span className={styles.traceChip}>選択なし</span>
+                    ) : (
+                      student.sourceTraceDetail.split(" / ").map((part) => (
+                        <span key={part} className={styles.traceChip}>
+                          {part}
+                        </span>
+                      ))
+                    )}
+                  </div>
                 </div>
 
                 <div className={styles.footer}>
@@ -366,21 +200,28 @@ export default async function ReportDashboardPage({
             ))}
           </div>
         )}
-      </Card>
+      </ReportsSectionCard>
 
-      <Card title="共有遅延キュー" subtitle="24時間以上止まっているものだけを、最初に拾えるようにしています。">
-        {delayedQueue.length === 0 ? (
-          <div className={styles.empty}>遅延中のレポートはありません。</div>
+      <ReportsSectionCard
+        title="処理中キュー"
+        subtitle={`いま触る候補を優先順に並べています。${counts.processing} 件の処理対象があります。`}
+      >
+        {queue.length === 0 ? (
+          <ReportsStatePanel
+            kind="processing"
+            title="処理中のレポートはありません"
+            subtitle="レビュー待ちや共有待ちが出てきたら、この場所に並びます。"
+          />
         ) : (
           <div className={styles.grid}>
-            {delayedQueue.map((item, index) => (
+            {queue.map((item, index) => (
               <Link key={item.id} href={item.href} className={styles.linkCard} prefetch={index < 4}>
                 <div className={styles.cardHeader}>
-                  <div>
+                  <div className={styles.identity}>
                     <div className={styles.name}>{item.name}</div>
                     <div className={styles.meta}>{item.grade ?? "学年未設定"}</div>
                   </div>
-                  <Badge label={item.label} tone="high" />
+                  <Badge label={item.label} tone={item.tone} />
                 </div>
 
                 <p className={styles.oneLiner}>{item.description}</p>
@@ -388,7 +229,11 @@ export default async function ReportDashboardPage({
                 <div className={styles.metricGrid}>
                   <div className={styles.metricItem}>
                     <span className={styles.metricLabel}>最新状態</span>
-                    <strong>{item.latestReport ? item.latestDeliveryLabel : "未作成"}</strong>
+                    <strong>{item.latestDeliveryLabel}</strong>
+                  </div>
+                  <div className={styles.metricItem}>
+                    <span className={styles.metricLabel}>最終更新</span>
+                    <strong>{item.updatedLabel}</strong>
                   </div>
                   <div className={styles.metricItem}>
                     <span className={styles.metricLabel}>source trace</span>
@@ -399,6 +244,17 @@ export default async function ReportDashboardPage({
                 <div className={styles.traceBox}>
                   <span className={styles.metricLabel}>source trace</span>
                   <p className={styles.traceSummary}>{item.sourceTraceLabel}</p>
+                  <div className={styles.traceChips} aria-label="選択した source trace">
+                    {item.reportSourceCount === 0 ? (
+                      <span className={styles.traceChip}>選択なし</span>
+                    ) : (
+                      item.sourceTraceDetail.split(" / ").map((part) => (
+                        <span key={part} className={styles.traceChip}>
+                          {part}
+                        </span>
+                      ))
+                    )}
+                  </div>
                 </div>
 
                 <div className={styles.footer}>
@@ -408,7 +264,64 @@ export default async function ReportDashboardPage({
             ))}
           </div>
         )}
-      </Card>
+      </ReportsSectionCard>
+
+      <ReportsSectionCard title="遅延ハイライト" subtitle="24時間以上止まっているものだけを、先に拾えるようにしています。">
+        {delayedQueue.length === 0 ? (
+          <ReportsStatePanel
+            kind="empty"
+            title="遅延中のレポートはありません"
+            subtitle="いまは詰まりがないので、通常の処理キューだけ見れば大丈夫です。"
+          />
+        ) : (
+          <div className={styles.grid}>
+            {delayedQueue.map((item, index) => (
+              <Link key={item.id} href={item.href} className={styles.linkCard} prefetch={index < 4}>
+                <div className={styles.cardHeader}>
+                  <div className={styles.identity}>
+                    <div className={styles.name}>{item.name}</div>
+                    <div className={styles.meta}>{item.grade ?? "学年未設定"}</div>
+                  </div>
+                  <Badge label="遅延" tone="high" />
+                </div>
+
+                <p className={styles.oneLiner}>{item.description}</p>
+
+                <div className={styles.metricGrid}>
+                  <div className={styles.metricItem}>
+                    <span className={styles.metricLabel}>最新状態</span>
+                    <strong>{item.latestDeliveryLabel}</strong>
+                  </div>
+                  <div className={styles.metricItem}>
+                    <span className={styles.metricLabel}>最終更新</span>
+                    <strong>{item.updatedLabel}</strong>
+                  </div>
+                </div>
+
+                <div className={styles.traceBox}>
+                  <span className={styles.metricLabel}>source trace</span>
+                  <p className={styles.traceSummary}>{item.sourceTraceLabel}</p>
+                  <div className={styles.traceChips} aria-label="選択した source trace">
+                    {item.reportSourceCount === 0 ? (
+                      <span className={styles.traceChip}>選択なし</span>
+                    ) : (
+                      item.sourceTraceDetail.split(" / ").map((part) => (
+                        <span key={part} className={styles.traceChip}>
+                          {part}
+                        </span>
+                      ))
+                    )}
+                  </div>
+                </div>
+
+                <div className={styles.footer}>
+                  <span className={styles.footerLabel}>{item.cta}</span>
+                </div>
+              </Link>
+            ))}
+          </div>
+        )}
+      </ReportsSectionCard>
     </div>
   );
 }

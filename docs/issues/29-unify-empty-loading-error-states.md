@@ -2,7 +2,7 @@
 
 ## 状態
 
-- 一部できている
+- 実装済み
 - GitHub Issue: `#42`
 - 最終更新: `2026-04-13`
 
@@ -26,11 +26,11 @@
 - 録音まわりは `生成中 / 再送 / 再開` の導線が画面内にある
 - Reports / Students / Settings にも最低限の empty / loading 表示は入っている
 
-## まだ足りないもの
+## 今回そろえたもの
 
-- 主要画面で用語と見た目が完全にはそろっていない
-- `review 待ち` と `処理中` の差が画面によって分かりにくい
-- shared component に寄せ切れていないので、今後の追加画面でぶれやすい
+- Reports 画面の empty / loading / error / processing を同じ語彙と UI で出すようにした
+- `PageLoadingState` に `aria-busy` と `role=status` を付けて、読み込み状態の意味を揃えた
+- transcript review / report dashboard / Student Detail で「次に押す導線」を残す形に寄せた
 
 ## 大事なこと
 

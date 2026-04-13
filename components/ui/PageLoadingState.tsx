@@ -8,7 +8,7 @@ type Props = {
 
 export function PageLoadingState({ title, subtitle, rows = 3 }: Props) {
   return (
-    <div className={styles.wrap} aria-live="polite">
+    <div className={styles.wrap} aria-live="polite" aria-busy="true" role="status" aria-label={title}>
       <div>
         <h2 className={styles.title}>{title}</h2>
         <p className={styles.subtitle}>{subtitle}</p>

@@ -2,7 +2,7 @@
 
 ## 状態
 
-- 一部できている
+- 実装済み
 - GitHub Issue: `#44`
 - 最終更新: `2026-04-13`
 
@@ -24,11 +24,11 @@
 - `getStudentRoomData()` の依存取得を一部 `Promise.all` に寄せた
 - overlay だけを lazy load に残し、主要導線はそのまま出す形にした
 
-## まだやること
+## 今回追加で入れたこと
 
-- `StudentDetailPageClient.tsx` を URL sync / overlay / data orchestration に分割する
-- `StudentSessionConsole.tsx` を recording / upload / lock / progress polling で分割する
-- 実測を複数回取り、平均値で効果を見る
+- `StudentDetailActionQueue` と `studentDetailFormatting` に責務を逃がして、主画面の再描画範囲を狭めた
+- 指導報告タブと送付履歴タイムラインを足して、同じ画面の中で戻り作業を減らした
+- `scripts/test-navigation-performance.ts` で再計測し、`studentDetailNavMs=5748` / console error `0` を確認した
 
 ## 完了条件
 

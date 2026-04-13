@@ -115,6 +115,25 @@
   color: var(--muted);
 }
 
+.trustRow {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.trustLabel {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.trustSummary {
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 700;
+}
+
 .tracePanel {
   display: grid;
   gap: 8px;

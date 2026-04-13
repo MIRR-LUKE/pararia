@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db";
 import { renderConversationArtifactOrFallback } from "@/lib/conversation-artifact";
 import { deriveReportDeliveryState, reportDeliveryStateLabel } from "@/lib/report-delivery";
+import { normalizeTranscriptReviewMeta, type TranscriptReviewMeta } from "@/lib/logs/transcript-review-display";
 import { sanitizeSummaryMarkdown } from "@/lib/user-facing-japanese";
 
 export type LogListItem = {
@@ -8,10 +9,12 @@ export type LogListItem = {
   studentId: string;
   sessionId: string | null;
   status: string;
+  reviewState: string;
   summaryMarkdown: string | null;
   createdAt: string;
   date: string;
   sessionType?: string | null;
+  transcriptReview: TranscriptReviewMeta | null;
   student?: { id: string; name: string; grade?: string | null };
 };
 
@@ -57,8 +60,10 @@ export async function getLogListPageData({
       studentId: true,
       sessionId: true,
       status: true,
+      reviewState: true,
       artifactJson: true,
       summaryMarkdown: true,
+      qualityMetaJson: true,
       createdAt: true,
       student: { select: { id: true, name: true, grade: true } },
       session: { select: { type: true } },
@@ -70,6 +75,7 @@ export async function getLogListPageData({
     studentId: conversation.studentId,
     sessionId: conversation.sessionId,
     status: conversation.status,
+    reviewState: conversation.reviewState,
     summaryMarkdown: sanitizeSummaryMarkdown(
       renderConversationArtifactOrFallback(conversation.artifactJson, conversation.summaryMarkdown)
     ),
@@ -77,6 +83,7 @@ export async function getLogListPageData({
     date: conversation.createdAt.toLocaleDateString("ja-JP"),
     student: conversation.student,
     sessionType: conversation.session?.type ?? null,
+    transcriptReview: normalizeTranscriptReviewMeta(conversation.qualityMetaJson),
   }));
 
   const visibleLogIds = new Set(mappedConversations.map((conversation) => conversation.id));

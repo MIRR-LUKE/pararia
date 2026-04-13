@@ -129,6 +129,8 @@ function buildStudentRoomSelect(scope: StudentRoomScope) {
             id: true,
             status: true,
             createdAt: true,
+            reviewState: true,
+            qualityMetaJson: true,
             jobs: {
               select: {
                 type: true,
@@ -305,6 +307,8 @@ export async function getStudentRoomData({
           id: session.conversation.id,
           status: session.conversation.status,
           createdAt: session.conversation.createdAt.toISOString(),
+          reviewState: session.conversation.reviewState ?? null,
+          qualityMetaJson: session.conversation.qualityMetaJson ?? null,
           ...(isFullRoom
             ? {
                 artifactJson: studioConversation?.artifactJson ?? null,

@@ -17,6 +17,7 @@ import { sanitizeFormattedTranscript, sanitizeSummaryMarkdown } from "@/lib/user
 import { normalizeRawTranscriptText, pickDisplayTranscriptText } from "@/lib/transcript/source";
 import { maybeStopRunpodWorkerWhenSessionPartQueueIdle } from "@/lib/runpod/idle-stop";
 import { maybeEnsureRunpodWorker } from "@/lib/runpod/worker-control";
+import { normalizeTranscriptReviewMeta } from "@/lib/logs/transcript-review-display";
 
 function toStringArray(value: unknown) {
   if (!Array.isArray(value)) return [];
@@ -176,6 +177,7 @@ export async function GET(
         artifactJson: conversation.artifactJson,
         summaryMarkdown,
         qualityMetaJson: conversation.qualityMetaJson as any,
+        transcriptReview: normalizeTranscriptReviewMeta(conversation.qualityMetaJson),
       },
     });
   } catch (error: any) {
