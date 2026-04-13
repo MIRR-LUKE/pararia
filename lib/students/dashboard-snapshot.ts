@@ -10,7 +10,6 @@ import { listStudentRows, type StudentListRow } from "@/lib/students/list-studen
 export type DashboardQueueKind = "interview" | "report" | "review" | "share" | "room";
 
 export type DashboardQueueItem = {
-  student: StudentListRow;
   kind: DashboardQueueKind;
   title: string;
   reason: string;
@@ -19,11 +18,14 @@ export type DashboardQueueItem = {
   score: number;
 };
 
-export type DashboardStudentRow = StudentListRow & {
-  completeness: number;
+export type DashboardStudentRow = {
+  id: string;
+  name: string;
+  grade?: string | null;
   state: string;
   oneLiner: string;
   queue: DashboardQueueItem;
+  recordingLock?: { mode: string; lockedByName: string } | null;
 };
 
 export type DashboardStats = {
@@ -91,18 +93,20 @@ export function reportStateLabel(report?: DashboardReportSummary | null) {
   return reportDeliveryStateLabel(deliveryState);
 }
 
-export function summarizeDashboardStudent(student: StudentListRow) {
+export function summarizeDashboardStudent(student: StudentListRow): DashboardStudentRow {
   const latestSession = student.sessions?.[0];
   const latestReport = student.reports?.[0] ?? null;
   const latestReportSummary = latestReport ? buildReportDeliverySummary(latestReport) : null;
 
   if (!latestSession) {
     return {
+      id: student.id,
+      name: student.name,
+      grade: student.grade,
       state: "未開始",
       oneLiner: "まだ会話データがありません。最初の面談から始めます。",
       queue: {
-        student,
-        kind: "interview" as const,
+        kind: "interview",
         title: "面談を始める",
         reason: "この生徒にはまだ会話ログがありません。",
         cta: "面談を始める",
@@ -114,14 +118,16 @@ export function summarizeDashboardStudent(student: StudentListRow) {
 
   if (latestSession.conversation?.id && !latestReport) {
     return {
+      id: student.id,
+      name: student.name,
+      grade: student.grade,
       state: latestSession.heroStateLabel ?? "レポート作成待ち",
       oneLiner:
         latestSession.heroOneLiner ??
         latestSession.latestSummary ??
         "ログは生成済みです。必要なログを選んで保護者レポートを作成できます。",
       queue: {
-        student,
-        kind: "report" as const,
+        kind: "report",
         title: "レポートを作る",
         reason: "会話ログはそろっています。保護者レポートをまだ作っていません。",
         cta: "ログを選ぶ",
@@ -133,14 +139,16 @@ export function summarizeDashboardStudent(student: StudentListRow) {
 
   if (latestReportSummary?.deliveryState === "draft") {
     return {
+      id: student.id,
+      name: student.name,
+      grade: student.grade,
       state: latestReportSummary.deliveryStateLabel,
       oneLiner:
         latestSession.heroOneLiner ??
         latestSession.latestSummary ??
         "保護者レポートは下書き済みです。確認して共有まで進められます。",
       queue: {
-        student,
-        kind: "review" as const,
+        kind: "review",
         title: "レビュー待ち",
         reason: "保護者レポートは下書き済みです。確認して送付前に整えます。",
         cta: "レポートを開く",
@@ -152,12 +160,14 @@ export function summarizeDashboardStudent(student: StudentListRow) {
 
   if (latestReportSummary?.deliveryState === "reviewed") {
     return {
+      id: student.id,
+      name: student.name,
+      grade: student.grade,
       state: latestReportSummary.deliveryStateLabel,
       oneLiner:
         latestSession.heroOneLiner ?? latestSession.latestSummary ?? "保護者レポートは確認済みです。共有に進めます。",
       queue: {
-        student,
-        kind: "share" as const,
+        kind: "share",
         title: "共有待ち",
         reason: "保護者レポートは確認済みです。送信または手動共有を完了します。",
         cta: "共有を進める",
@@ -169,11 +179,13 @@ export function summarizeDashboardStudent(student: StudentListRow) {
 
   if (latestReportSummary && ["failed", "bounced"].includes(latestReportSummary.deliveryState)) {
     return {
+      id: student.id,
+      name: student.name,
+      grade: student.grade,
       state: latestReportSummary.deliveryStateLabel,
       oneLiner: "送信に失敗しています。再送または手動共有を確認してください。",
       queue: {
-        student,
-        kind: "share" as const,
+        kind: "share",
         title: "再送を確認",
         reason: "failed / bounced の履歴があります。送信方法を見直します。",
         cta: "共有を見直す",
@@ -188,14 +200,16 @@ export function summarizeDashboardStudent(student: StudentListRow) {
     ["sent", "delivered", "resent", "manual_shared"].includes(latestReportSummary.deliveryState)
   ) {
     return {
+      id: student.id,
+      name: student.name,
+      grade: student.grade,
       state: latestReportSummary.deliveryStateLabel,
       oneLiner:
         latestSession.heroOneLiner ??
         latestSession.latestSummary ??
         "保護者共有は完了しています。履歴と次の会話に進めます。",
       queue: {
-        student,
-        kind: "room" as const,
+        kind: "room",
         title: "送付済みを確認",
         reason: "送付後の履歴と次の会話を確認できます。",
         cta: "レポートを見る",
@@ -206,12 +220,14 @@ export function summarizeDashboardStudent(student: StudentListRow) {
   }
 
   return {
+    id: student.id,
+    name: student.name,
+    grade: student.grade,
     state: latestSession.heroStateLabel ?? "更新済み",
     oneLiner:
       latestSession.heroOneLiner ?? latestSession.latestSummary ?? "次の会話に向けて確認内容が整理されています。",
     queue: {
-      student,
-      kind: "room" as const,
+      kind: "room",
       title: "次の会話を見る",
       reason: "次の会話に向けた質問と行動を確認できます。",
       cta: "生徒ルームへ",
@@ -221,8 +237,8 @@ export function summarizeDashboardStudent(student: StudentListRow) {
   };
 }
 
-function buildDashboardStats(students: DashboardStudentRow[]): DashboardStats {
-  const reportUncreated = students.filter((item) => item.queue.kind === "report").length;
+function buildDashboardStats(students: StudentListRow[]): DashboardStats {
+  const reportUncreated = students.filter((item) => Boolean(item.sessions?.[0]?.conversation?.id) && !item.reports?.[0]).length;
   const reviewWait = students.filter(
     (item) => latestReportSummary(item.reports?.[0] ?? null)?.deliveryState === "draft"
   ).length;
@@ -283,30 +299,21 @@ async function buildDashboardSnapshotBase(
     listStudentRows({
       organizationId,
       limit: candidateLimit,
+      projection: "dashboard",
     }),
     prisma.student.count({ where: { organizationId } }),
   ]);
 
-  const enriched = students.map((student) => {
-    const summary = summarizeDashboardStudent(student);
-    return {
-      ...student,
-      completeness: student.profileCompleteness ?? 0,
-      state: summary.state,
-      oneLiner: summary.oneLiner,
-      queue: summary.queue,
-    } satisfies DashboardStudentRow;
-  });
-
+  const enriched = students.map((student) => summarizeDashboardStudent(student));
   const queue = [...enriched].sort((a, b) => b.queue.score - a.queue.score).slice(0, queueLimit);
   const averageProfileCompleteness =
-    enriched.length > 0
-      ? Math.round(enriched.reduce((sum, item) => sum + item.completeness, 0) / Math.max(1, enriched.length))
+    students.length > 0
+      ? Math.round(students.reduce((sum, item) => sum + item.profileCompleteness, 0) / Math.max(1, students.length))
       : 0;
 
   return {
     queue,
-    stats: buildDashboardStats(enriched),
+    stats: buildDashboardStats(students),
     totalStudents,
     candidateCount: enriched.length,
     averageProfileCompleteness,

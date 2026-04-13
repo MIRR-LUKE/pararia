@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db";
+import { buildStudentRowSelect, type StudentRowProjection } from "@/lib/students/student-row-query";
 
 type SessionSummary = {
   id: string;
@@ -20,9 +21,37 @@ type ReportSummary = {
   deliveryChannel?: string | null;
   sourceLogIds?: string[] | null;
   deliveryEvents?: Array<{
+    id?: string;
     eventType: string;
     createdAt: string;
     deliveryChannel?: string | null;
+    note?: string | null;
+    actor?: {
+      id?: string;
+      name?: string | null;
+      email?: string | null;
+    } | null;
+  }>;
+};
+
+type StudentReportRecord = {
+  id: string;
+  status: "DRAFT" | "REVIEWED" | "SENT" | string;
+  createdAt: Date;
+  reviewedAt?: Date | null;
+  sentAt?: Date | null;
+  sourceLogIds?: unknown;
+  deliveryEvents?: Array<{
+    id?: string;
+    eventType: string;
+    createdAt: Date;
+    deliveryChannel?: string | null;
+    note?: string | null;
+    actor?: {
+      id?: string;
+      name?: string | null;
+      email?: string | null;
+    } | null;
   }>;
 };
 
@@ -34,6 +63,7 @@ export type StudentListRow = {
   course?: string | null;
   guardianNames?: string | null;
   profileCompleteness: number;
+  profiles?: Array<{ profileData?: any }>;
   sessions?: SessionSummary[];
   reports?: ReportSummary[];
   _count?: { sessions: number; reports: number };
@@ -44,6 +74,7 @@ type ListStudentRowsOptions = {
   organizationId: string;
   limit?: number;
   includeRecordingLock?: boolean;
+  projection?: StudentRowProjection;
 };
 
 function computeProfileCompleteness(profileData?: any) {
@@ -59,70 +90,13 @@ function normalizeSourceLogIds(sourceLogIds: unknown): string[] | null {
 }
 
 export async function listStudentRows(options: ListStudentRowsOptions): Promise<StudentListRow[]> {
-  const { organizationId, limit, includeRecordingLock = false } = options;
+  const { organizationId, limit, includeRecordingLock = false, projection = "report" } = options;
   const now = includeRecordingLock ? new Date() : null;
 
   const students = await prisma.student.findMany({
     where: { organizationId },
     ...(typeof limit === "number" ? { take: Math.floor(limit) } : {}),
-    select: {
-      id: true,
-      name: true,
-      nameKana: true,
-      grade: true,
-      course: true,
-      guardianNames: true,
-      profiles: {
-        select: {
-          profileData: true,
-        },
-        orderBy: { createdAt: "desc" },
-        take: 1,
-      },
-      sessions: {
-        select: {
-          id: true,
-          status: true,
-          type: true,
-          sessionDate: true,
-          heroStateLabel: true,
-          heroOneLiner: true,
-          latestSummary: true,
-          conversation: {
-            select: {
-              id: true,
-            },
-          },
-        },
-        orderBy: { sessionDate: "desc" },
-        take: 1,
-      },
-      reports: {
-        select: {
-          id: true,
-          status: true,
-          reviewedAt: true,
-          createdAt: true,
-          sentAt: true,
-          deliveryChannel: true,
-          sourceLogIds: true,
-          deliveryEvents: {
-            select: {
-              eventType: true,
-              createdAt: true,
-              deliveryChannel: true,
-            },
-            orderBy: { createdAt: "desc" },
-            take: 1,
-          },
-        },
-        orderBy: { createdAt: "desc" },
-        take: 1,
-      },
-      _count: {
-        select: { sessions: true, reports: true },
-      },
-    },
+    select: buildStudentRowSelect(projection),
     orderBy: { createdAt: "desc" },
   });
 
@@ -133,23 +107,30 @@ export async function listStudentRows(options: ListStudentRowsOptions): Promise<
     grade: student.grade,
     course: student.course,
     guardianNames: student.guardianNames,
-    profileCompleteness: computeProfileCompleteness(student.profiles[0]?.profileData),
+    profileCompleteness: computeProfileCompleteness(student.profiles?.[0]?.profileData),
+    profiles: student.profiles,
     sessions: student.sessions.map((session) => ({
       ...session,
       sessionDate: session.sessionDate.toISOString(),
     })),
-    reports: student.reports.map((report) => ({
+    reports: (student.reports as StudentReportRecord[]).map((report) => ({
       ...report,
       createdAt: report.createdAt.toISOString(),
       reviewedAt: report.reviewedAt?.toISOString() ?? null,
       sentAt: report.sentAt?.toISOString() ?? null,
       sourceLogIds: normalizeSourceLogIds(report.sourceLogIds),
-      deliveryEvents: report.deliveryEvents.map((event) => ({
+      deliveryEvents: (report.deliveryEvents ?? []).map((event) => ({
         ...event,
         createdAt: event.createdAt.toISOString(),
       })),
     })),
-    _count: student._count,
+    _count:
+      "_count" in student && student._count
+        ? {
+            sessions: student._count.sessions,
+            reports: student._count.reports,
+          }
+        : undefined,
     recordingLock: null,
   }));
 

@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { getCachedStudentDirectory } from "@/lib/students/get-cached-student-directory";
+import { getCachedStudentDirectoryView } from "@/lib/students/get-cached-student-directory-view";
 import { getAppSession } from "@/lib/server/app-session";
 import StudentsPageClient from "./StudentsPageClient";
 
@@ -15,7 +15,7 @@ export default async function StudentsPage() {
     redirect("/login");
   }
 
-  const initialStudents = await getCachedStudentDirectory({
+  const initialStudents = await getCachedStudentDirectoryView({
     organizationId,
     limit: INITIAL_STUDENT_LIMIT,
   });

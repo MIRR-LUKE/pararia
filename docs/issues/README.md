@@ -114,6 +114,22 @@
 7. `#45` コード形状ガードと分割ルールを repo に定着させる
 8. `#3` 共有状態と送信履歴を Student Room で追えるようにする
 
+次の active open issue:
+
+1. `#48` StudentDetailPageClient を URL sync / overlay / selection hooks に分割する
+2. `#49` conversationJobs を orchestration / repository / side effects に分割する
+3. `#50` sessionPartJobs を stage handler ごとに分割する
+4. `#51` conversation generate pipeline を prompt / normalize / render に分割する
+5. `#52` session-progress を状態遷移表と文言レジストリに置き換える
+6. `#53` STT runtime を worker pool / chunking policy / IO で分割する
+7. `#55` Students / Dashboard / Logs / Reports の一覧・状態 UI を共通 primitive 化する
+
+今回完了した追加 issue:
+
+1. `#46` Dashboard / Students 一覧の projection query を分けて初回表示を軽くする
+2. `#47` StudentSessionConsole を recording / lock / progress hooks に分割する
+3. `#54` app/api/sessions/[id]/parts を ingest / validation / job dispatch に分割する
+
 active に残す基準:
 
 - 現行の主導線を直接よくする

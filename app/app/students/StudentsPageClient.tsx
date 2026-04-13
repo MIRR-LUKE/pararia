@@ -7,125 +7,17 @@ import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { IntentLink } from "@/components/ui/IntentLink";
-import { buildReportDeliverySummary } from "@/lib/report-delivery";
+import type { StudentDirectoryViewRow } from "@/lib/students/student-directory-view";
 import styles from "./students.module.css";
-
-type SessionSummary = {
-  id: string;
-  status: string;
-  type: "INTERVIEW" | "LESSON_REPORT";
-  sessionDate: string;
-  heroStateLabel?: string | null;
-  heroOneLiner?: string | null;
-  latestSummary?: string | null;
-  conversation?: { id: string } | null;
-};
-
-type ReportSummary = {
-  id: string;
-  status: "DRAFT" | "REVIEWED" | "SENT" | string;
-  createdAt: string;
-  reviewedAt?: string | null;
-  sentAt?: string | null;
-  deliveryChannel?: string | null;
-  sourceLogIds?: string[] | null;
-  deliveryEvents?: Array<{
-    id?: string;
-    eventType: string;
-    createdAt: string;
-    deliveryChannel?: string | null;
-  }>;
-};
-
-type StudentRow = {
-  id: string;
-  name: string;
-  nameKana?: string | null;
-  grade?: string | null;
-  course?: string | null;
-  guardianNames?: string | null;
-  profileCompleteness: number;
-  sessions?: SessionSummary[];
-  reports?: ReportSummary[];
-  _count?: { sessions: number; reports: number };
-};
 
 type ViewKey = "all" | "interview" | "report" | "review" | "share" | "sent";
 
 type StudentsPageClientProps = {
-  initialStudents: StudentRow[];
+  initialStudents: StudentDirectoryViewRow[];
   initialLimit: number;
   viewerName?: string | null;
   viewerRole?: string | null;
 };
-
-function summarize(student: StudentRow) {
-  const latestSession = student.sessions?.[0];
-  const latestReport = student.reports?.[0] ?? null;
-  const latestReportSummary = latestReport ? buildReportDeliverySummary(latestReport) : null;
-
-  if (!latestSession) {
-    return {
-      state: "未開始",
-      oneLiner: "まだ会話データがありません。最初の面談から始められる状態です。",
-      nextAction: "最初の面談を始める",
-      view: "interview" as const,
-    };
-  }
-
-  if (latestSession.conversation?.id && !latestReport) {
-    return {
-      state: latestSession.heroStateLabel ?? "レポート作成待ち",
-      oneLiner: latestSession.heroOneLiner ?? latestSession.latestSummary ?? "ログは生成済みです。必要なログを選んで保護者レポートを作れます。",
-      nextAction: "ログを選んでレポートを作る",
-      view: "report" as const,
-    };
-  }
-
-  if (latestReportSummary?.deliveryState === "draft") {
-    return {
-      state: latestReportSummary.deliveryStateLabel,
-      oneLiner: latestSession.heroOneLiner ?? latestSession.latestSummary ?? "保護者レポートの確認と共有がまだ残っています。",
-      nextAction: "レポートを開く",
-      view: "review" as const,
-    };
-  }
-
-  if (latestReportSummary?.deliveryState === "reviewed") {
-    return {
-      state: latestReportSummary.deliveryStateLabel,
-      oneLiner: latestSession.heroOneLiner ?? latestSession.latestSummary ?? "保護者レポートは共有待ちです。",
-      nextAction: "共有を完了する",
-      view: "share" as const,
-    };
-  }
-
-  if (latestReportSummary && ["failed", "bounced"].includes(latestReportSummary.deliveryState)) {
-    return {
-      state: latestReportSummary.deliveryStateLabel,
-      oneLiner: latestSession.heroOneLiner ?? latestSession.latestSummary ?? "保護者共有に失敗しています。再送が必要です。",
-      nextAction: "再送を確認",
-      view: "share" as const,
-    };
-  }
-
-  if (latestReportSummary && ["sent", "delivered", "resent", "manual_shared"].includes(latestReportSummary.deliveryState)) {
-    return {
-      state: latestReportSummary.deliveryStateLabel,
-      oneLiner: latestSession.heroOneLiner ?? latestSession.latestSummary ?? "保護者共有は完了しています。",
-      nextAction: "生徒詳細を開く",
-      view: "sent" as const,
-    };
-  }
-
-  return {
-    state: latestSession.heroStateLabel ?? "更新済み",
-    oneLiner:
-      latestSession.heroOneLiner ?? latestSession.latestSummary ?? "次の会話に向けた材料が揃っています。",
-    nextAction: "生徒詳細を開く",
-    view: "all" as const,
-  };
-}
 
 export default function StudentsPageClient({
   initialStudents,
@@ -133,7 +25,7 @@ export default function StudentsPageClient({
   viewerName,
   viewerRole,
 }: StudentsPageClientProps) {
-  const [students, setStudents] = useState<StudentRow[]>(initialStudents);
+  const [students, setStudents] = useState<StudentDirectoryViewRow[]>(initialStudents);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
@@ -147,7 +39,7 @@ export default function StudentsPageClient({
     course: "",
     guardianNames: "",
   });
-  const [studentToDelete, setStudentToDelete] = useState<StudentRow | null>(null);
+  const [studentToDelete, setStudentToDelete] = useState<StudentDirectoryViewRow | null>(null);
   const [isDeletingStudent, setIsDeletingStudent] = useState(false);
 
   useEffect(() => {
@@ -170,19 +62,7 @@ export default function StudentsPageClient({
     }
   };
 
-  const rows = useMemo(() => {
-    return students.map((student) => {
-      const summary = summarize(student);
-      return {
-        ...student,
-        state: summary.state,
-        oneLiner: summary.oneLiner,
-        nextAction: summary.nextAction,
-        href: `/app/students/${student.id}`,
-        viewKey: summary.view,
-      };
-    });
-  }, [students]);
+  const rows = useMemo(() => students, [students]);
 
   const filtered = useMemo(() => {
     const lowered = deferredQuery.trim().toLowerCase();
@@ -363,11 +243,11 @@ export default function StudentsPageClient({
                   <div className={styles.rowMetaColumn}>
                     <div>
                       <div className={styles.metaLabel}>セッション</div>
-                      <div className={styles.metaValue}>{student._count?.sessions ?? 0} 件</div>
+                      <div className={styles.metaValue}>{student.sessionCount} 件</div>
                     </div>
                     <div>
                       <div className={styles.metaLabel}>レポート</div>
-                      <div className={styles.metaValue}>{student._count?.reports ?? 0} 件</div>
+                      <div className={styles.metaValue}>{student.reportCount} 件</div>
                     </div>
                   </div>
                 </div>
