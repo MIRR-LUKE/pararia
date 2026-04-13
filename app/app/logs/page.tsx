@@ -3,6 +3,8 @@ import { redirect } from "next/navigation";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { Badge } from "@/components/ui/Badge";
 import { Card } from "@/components/ui/Card";
+import { StatePanel } from "@/components/ui/StatePanel";
+import { StatStrip } from "@/components/ui/StatStrip";
 import { getLogListPageData } from "@/lib/logs/get-log-list-page-data";
 import {
   transcriptReviewStateLabel,
@@ -93,6 +95,11 @@ export default async function LogsListPage({
         : conversations;
 
   const baseLogsPath = studentId ? `/app/logs?studentId=${encodeURIComponent(studentId)}` : "/app/logs";
+  const summaryItems = [
+    { label: "すべて", value: counts.all },
+    { label: "面談", value: counts.interview },
+    { label: "指導報告", value: counts.lesson },
+  ];
 
   return (
     <div className={styles.page}>
@@ -103,20 +110,7 @@ export default async function LogsListPage({
         viewerRole={(session.user as { role?: string | null }).role ?? null}
       />
 
-      <section className={styles.summaryRow}>
-        <div className={styles.summaryCard}>
-          <span className={styles.summaryLabel}>すべて</span>
-          <strong>{counts.all}</strong>
-        </div>
-        <div className={styles.summaryCard}>
-          <span className={styles.summaryLabel}>面談</span>
-          <strong>{counts.interview}</strong>
-        </div>
-        <div className={styles.summaryCard}>
-          <span className={styles.summaryLabel}>指導報告</span>
-          <strong>{counts.lesson}</strong>
-        </div>
-      </section>
+      <StatStrip items={summaryItems} />
 
       <section className={styles.filterRow} aria-label="ログ種別の切り替え">
         <Link href={studentId ? baseLogsPath : "/app/logs"} className={tab === "all" ? styles.filterChipActive : styles.filterChip}>
@@ -141,9 +135,11 @@ export default async function LogsListPage({
         subtitle="面談ログと指導報告ログを一覧し、どの保護者レポートに使われたかを確認できます。"
       >
         {filtered.length === 0 ? (
-          <div className={styles.empty}>
-            この条件に合うログはありません。録音後にログを生成すると、ここに表示されます。
-          </div>
+          <StatePanel
+            kind="empty"
+            title="この条件に合うログはありません"
+            subtitle="録音後にログを生成すると、ここに表示されます。"
+          />
         ) : (
           <div className={styles.list}>
             {filtered.map((log, index) => {

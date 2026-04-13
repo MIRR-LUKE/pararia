@@ -1,0 +1,35 @@
+.strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(124px, 1fr));
+  gap: 12px;
+}
+
+.item {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+  border: 1px solid #d6dce8;
+  border-radius: 8px;
+  background: #f7f9fc;
+  padding: 14px 16px;
+}
+
+.label {
+  color: #5f6c82;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+.value {
+  color: #101828;
+  font-size: 24px;
+  line-height: 1.15;
+}
+
+.detail {
+  margin: 0;
+  color: #667085;
+  font-size: 13px;
+  line-height: 1.5;
+}

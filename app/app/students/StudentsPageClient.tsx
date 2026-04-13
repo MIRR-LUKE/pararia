@@ -7,6 +7,8 @@ import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { IntentLink } from "@/components/ui/IntentLink";
+import { MetricList } from "@/components/ui/MetricList";
+import { StatePanel } from "@/components/ui/StatePanel";
 import type { StudentDirectoryViewRow } from "@/lib/students/student-directory-view";
 import styles from "./students.module.css";
 
@@ -63,6 +65,7 @@ export default function StudentsPageClient({
   };
 
   const rows = useMemo(() => students, [students]);
+  const canShowCreateAction = !showCreate;
 
   const filtered = useMemo(() => {
     const lowered = deferredQuery.trim().toLowerCase();
@@ -207,14 +210,38 @@ export default function StudentsPageClient({
       )}
 
       <Card title="生徒ディレクトリ" subtitle="一覧では状態だけを見て、操作は生徒詳細ページの中で落ち着いて進めます。">
-        {error && <div className={styles.error}>{error}</div>}
-        {loading ? (
-          <div className={styles.empty}>読み込み中です。</div>
+        {error ? (
+          <StatePanel
+            kind="error"
+            compact
+            title="生徒一覧を更新できませんでした"
+            subtitle={error}
+            action={
+              <Button variant="secondary" onClick={() => void refresh()}>
+                もう一度読む
+              </Button>
+            }
+          />
+        ) : loading ? (
+          <StatePanel
+            kind="processing"
+            compact
+            title="生徒一覧を更新しています"
+            subtitle="必要な生徒だけを先に並べ直しています。"
+          />
         ) : filtered.length === 0 ? (
-          <div className={styles.emptyState}>
-            <strong>条件に合う生徒がいません</strong>
-            <p>検索条件を変えるか、新しい生徒を追加してください。</p>
-          </div>
+          <StatePanel
+            kind="empty"
+            title="条件に合う生徒がいません"
+            subtitle="検索条件を変えるか、新しい生徒を追加してください。"
+            action={
+              canShowCreateAction ? (
+                <Button variant="secondary" onClick={() => setShowCreate(true)}>
+                  生徒を追加
+                </Button>
+              ) : null
+            }
+          />
         ) : (
           <div className={styles.list}>
             {filtered.map((student, index) => (
@@ -230,25 +257,21 @@ export default function StudentsPageClient({
                   </div>
 
                   <div className={styles.rowMetaColumn}>
-                    <div>
-                      <div className={styles.metaLabel}>次にやること</div>
-                      <div className={styles.metaValue}>{student.nextAction}</div>
-                    </div>
-                    <div>
-                      <div className={styles.metaLabel}>プロフィール</div>
-                      <div className={styles.metaValue}>{student.profileCompleteness}%</div>
-                    </div>
+                    <MetricList
+                      items={[
+                        { label: "次にやること", value: student.nextAction },
+                        { label: "プロフィール", value: `${student.profileCompleteness}%` },
+                      ]}
+                    />
                   </div>
 
                   <div className={styles.rowMetaColumn}>
-                    <div>
-                      <div className={styles.metaLabel}>セッション</div>
-                      <div className={styles.metaValue}>{student.sessionCount} 件</div>
-                    </div>
-                    <div>
-                      <div className={styles.metaLabel}>レポート</div>
-                      <div className={styles.metaValue}>{student.reportCount} 件</div>
-                    </div>
+                    <MetricList
+                      items={[
+                        { label: "セッション", value: `${student.sessionCount} 件` },
+                        { label: "レポート", value: `${student.reportCount} 件` },
+                      ]}
+                    />
                   </div>
                 </div>
 

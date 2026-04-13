@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
+import { StatePanel } from "@/components/ui/StatePanel";
 import { StructuredMarkdown } from "@/components/ui/StructuredMarkdown";
 import {
   hasEditableConversationSummaryChanges,
@@ -243,20 +244,24 @@ export function LogView({ logId, showHeader = true, onBack, onSaved, onDirtyChan
   }, [draftSummary, log, logId, normalizedDraftSummary, onSaved]);
 
   if (loading) {
-    return <div className={styles.progressBanner}>ログを読み込んでいます...</div>;
+    return <StatePanel kind="processing" compact title="ログを読み込んでいます" subtitle="要約と文字起こしを準備しています。" />;
   }
 
   if (error || !log) {
     return (
-      <div className={styles.inlineError}>
-        <p>{error ?? "ログを読み込めませんでした。"}</p>
-        <div className={styles.inlineActions}>
-          <Button variant="secondary" onClick={() => void fetchLog()}>
-            もう一度読む
-          </Button>
-          {onBack ? <Button onClick={onBack}>閉じる</Button> : null}
-        </div>
-      </div>
+      <StatePanel
+        kind="error"
+        title="ログを読み込めませんでした"
+        subtitle={error ?? "時間をおいてから、もう一度読み直してください。"}
+        action={
+          <div className={styles.inlineActions}>
+            <Button variant="secondary" onClick={() => void fetchLog()}>
+              もう一度読む
+            </Button>
+            {onBack ? <Button onClick={onBack}>閉じる</Button> : null}
+          </div>
+        }
+      />
     );
   }
 

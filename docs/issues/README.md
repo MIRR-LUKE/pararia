@@ -116,19 +116,24 @@
 
 次の active open issue:
 
-1. `#48` StudentDetailPageClient を URL sync / overlay / selection hooks に分割する
-2. `#49` conversationJobs を orchestration / repository / side effects に分割する
-3. `#50` sessionPartJobs を stage handler ごとに分割する
-4. `#51` conversation generate pipeline を prompt / normalize / render に分割する
-5. `#52` session-progress を状態遷移表と文言レジストリに置き換える
-6. `#53` STT runtime を worker pool / chunking policy / IO で分割する
-7. `#55` Students / Dashboard / Logs / Reports の一覧・状態 UI を共通 primitive 化する
+1. `#56` route performance budget と計測 harness を Dashboard / Students / Logs / Reports に広げる
+2. `#57` StudentSessionConsole を recording / upload / lock / progress sections に再分割する
+3. `#58` conversation-artifact を schema / render / trace helpers に分割する
+4. `#59` LogView / ReportStudio を section + action hook に分割する
+5. `#60` parent report / next meeting memo 生成基盤を shared helper に寄せて重複を減らす
 
 今回完了した追加 issue:
 
 1. `#46` Dashboard / Students 一覧の projection query を分けて初回表示を軽くする
 2. `#47` StudentSessionConsole を recording / lock / progress hooks に分割する
-3. `#54` app/api/sessions/[id]/parts を ingest / validation / job dispatch に分割する
+3. `#48` StudentDetailPageClient を URL sync / overlay / selection hooks に分割する
+4. `#49` conversationJobs を orchestration / repository / side effects に分割する
+5. `#50` sessionPartJobs を stage handler ごとに分割する
+6. `#51` conversation generate pipeline を prompt / normalize / render に分割する
+7. `#52` session-progress を状態遷移表と文言レジストリに置き換える
+8. `#53` STT runtime を worker pool / chunking policy / IO で分割する
+9. `#54` app/api/sessions/[id]/parts を ingest / validation / job dispatch に分割する
+10. `#55` Students / Dashboard / Logs / Reports の一覧・状態 UI を共通 primitive 化する
 
 active に残す基準:
 

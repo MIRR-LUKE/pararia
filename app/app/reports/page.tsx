@@ -2,6 +2,8 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { Badge } from "@/components/ui/Badge";
+import { StatePanel } from "@/components/ui/StatePanel";
+import { StatStrip } from "@/components/ui/StatStrip";
 import { getAppSession } from "@/lib/server/app-session";
 import { getCachedStudentDirectory } from "@/lib/students/get-cached-student-directory";
 import { ReportsSectionCard } from "./ReportsSectionCard";
@@ -12,7 +14,6 @@ import {
   normalizeFilter,
   type FilterKey,
 } from "./report-dashboard";
-import { ReportsStatePanel } from "./ReportsStatePanel";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -62,6 +63,14 @@ export default async function ReportDashboardPage({
 
   const { rows, queue, delayedQueue, counts } = buildReportDashboardData(students, filter);
   const showResetFilter = filter !== "all";
+  const summaryItems = [
+    { label: "未作成", value: counts.uncreated, detail: "会話はあるがレポートがまだありません。" },
+    { label: "レビュー待ち", value: counts.review, detail: "本文確認の順番に入っています。" },
+    { label: "共有待ち", value: counts.share, detail: "送信前の最終チェックが必要です。" },
+    { label: "送信済み", value: counts.sent, detail: "保護者へ配信済みです。" },
+    { label: "手動共有", value: counts.manual, detail: "個別対応で完了したものです。" },
+    { label: "要確認", value: counts.delayed + counts.failedBounced, detail: "遅延と失敗をまとめて追います。" },
+  ];
 
   return (
     <div className={styles.page}>
@@ -72,38 +81,7 @@ export default async function ReportDashboardPage({
         viewerRole={(session.user as { role?: string | null }).role ?? null}
       />
 
-      <section className={styles.summaryRow}>
-        <div className={styles.summaryCard}>
-          <span className={styles.summaryLabel}>未作成</span>
-          <strong>{counts.uncreated}</strong>
-          <p>会話はあるがレポートがまだありません。</p>
-        </div>
-        <div className={styles.summaryCard}>
-          <span className={styles.summaryLabel}>レビュー待ち</span>
-          <strong>{counts.review}</strong>
-          <p>本文確認の順番に入っています。</p>
-        </div>
-        <div className={styles.summaryCard}>
-          <span className={styles.summaryLabel}>共有待ち</span>
-          <strong>{counts.share}</strong>
-          <p>送信前の最終チェックが必要です。</p>
-        </div>
-        <div className={styles.summaryCard}>
-          <span className={styles.summaryLabel}>送信済み</span>
-          <strong>{counts.sent}</strong>
-          <p>保護者へ配信済みです。</p>
-        </div>
-        <div className={styles.summaryCard}>
-          <span className={styles.summaryLabel}>手動共有</span>
-          <strong>{counts.manual}</strong>
-          <p>個別対応で完了したものです。</p>
-        </div>
-        <div className={styles.summaryCard}>
-          <span className={styles.summaryLabel}>要確認</span>
-          <strong>{counts.delayed + counts.failedBounced}</strong>
-          <p>遅延と失敗をまとめて追います。</p>
-        </div>
-      </section>
+      <StatStrip items={summaryItems} />
 
       <section className={styles.filterRow} aria-label="レポートの絞り込み">
         {(Object.keys(filterLabels) as FilterKey[]).map((key) => (
@@ -124,7 +102,7 @@ export default async function ReportDashboardPage({
         }を、ワークフロー / 配信状態 / source trace で見分けます。`}
       >
         {rows.length === 0 ? (
-          <ReportsStatePanel
+          <StatePanel
             kind="empty"
             title="この条件に合うレポートはありません"
             subtitle={rowFilterText(filter)}
@@ -207,7 +185,7 @@ export default async function ReportDashboardPage({
         subtitle={`いま触る候補を優先順に並べています。${counts.processing} 件の処理対象があります。`}
       >
         {queue.length === 0 ? (
-          <ReportsStatePanel
+          <StatePanel
             kind="processing"
             title="処理中のレポートはありません"
             subtitle="レビュー待ちや共有待ちが出てきたら、この場所に並びます。"
@@ -268,7 +246,7 @@ export default async function ReportDashboardPage({
 
       <ReportsSectionCard title="遅延ハイライト" subtitle="24時間以上止まっているものだけを、先に拾えるようにしています。">
         {delayedQueue.length === 0 ? (
-          <ReportsStatePanel
+          <StatePanel
             kind="empty"
             title="遅延中のレポートはありません"
             subtitle="いまは詰まりがないので、通常の処理キューだけ見れば大丈夫です。"
