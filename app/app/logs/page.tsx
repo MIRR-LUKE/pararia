@@ -1,19 +1,8 @@
-import { Suspense } from "react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { AppHeader } from "@/components/layout/AppHeader";
-import { Badge } from "@/components/ui/Badge";
-import { Card } from "@/components/ui/Card";
-import { StatePanel } from "@/components/ui/StatePanel";
-import { StatStrip } from "@/components/ui/StatStrip";
-import { getCachedLogListPageData } from "@/lib/logs/get-log-list-page-data";
-import {
-  transcriptReviewStateLabel,
-  transcriptReviewSummary,
-  transcriptReviewTone,
-} from "@/lib/logs/transcript-review-display";
 import { getAppSession } from "@/lib/server/app-session";
-import DeleteLogButton from "./DeleteLogButton";
+import LogsListClient from "./LogsListClient";
 import styles from "./logsList.module.css";
 
 type TabType = "all" | "interview" | "lesson";
@@ -28,51 +17,15 @@ function normalizeTab(value?: string): TabType {
   return "all";
 }
 
-function sessionTypeLabel(type?: string | null) {
-  return type === "LESSON_REPORT" ? "指導報告" : "面談";
-}
-
-function statusLabel(status: string) {
-  if (status === "DONE") return "生成完了";
-  if (status === "PROCESSING") return "生成中";
-  if (status === "ERROR") return "エラー";
-  return "処理中";
-}
-
-function statusTone(status: string): "neutral" | "low" | "medium" | "high" {
-  if (status === "DONE") return "low";
-  if (status === "ERROR") return "high";
-  if (status === "PROCESSING") return "medium";
-  return "neutral";
-}
-
-function excerpt(markdown?: string | null) {
-  if (!markdown) return "まだ要約はありません。録音が終わると、ここに要点が出ます。";
-  const lines = markdown
-    .replace(/\r/g, "")
-    .split("\n")
-    .map((line) =>
-      line
-        .trim()
-        .replace(/^#{1,6}\s+/, "")
-        .replace(/^■\s+/, "")
-        .replace(/^\*\*([^*]+)\*\*:\s*/, "")
-    )
-    .filter(Boolean)
-    .filter(
-      (line) =>
-        !/^(対象生徒|面談日|面談時間|担当チューター|面談目的|指導日|教科・単元|対象期間|作成日):/.test(line)
-    );
-  const candidate = lines.find((line) => !/^[•・\-*]\s+/.test(line)) ?? lines[0] ?? "";
-  return candidate.replace(/^[•・\-*]\s+/, "").replace(/\*\*/g, "").trim().slice(0, 140);
-}
-
 function LogsTabFilters({ studentId, tab }: { studentId: string | null; tab: TabType }) {
   const baseLogsPath = studentId ? `/app/logs?studentId=${encodeURIComponent(studentId)}` : "/app/logs";
 
   return (
     <section className={styles.filterRow} aria-label="ログ種別の切り替え">
-      <Link href={studentId ? baseLogsPath : "/app/logs"} className={tab === "all" ? styles.filterChipActive : styles.filterChip}>
+      <Link
+        href={studentId ? baseLogsPath : "/app/logs"}
+        className={tab === "all" ? styles.filterChipActive : styles.filterChip}
+      >
         すべて
       </Link>
       <Link
@@ -88,130 +41,6 @@ function LogsTabFilters({ studentId, tab }: { studentId: string | null; tab: Tab
         指導報告
       </Link>
     </section>
-  );
-}
-
-function LogsListFallback() {
-  return (
-    <Card
-      title="保存済みログ"
-      subtitle="面談ログと指導報告ログを一覧し、どの保護者レポートに使われたかを確認できます。"
-    >
-      <StatePanel
-        kind="processing"
-        title="ログ一覧を開いています..."
-        subtitle="ログ本文と source trace を整えています。"
-      />
-    </Card>
-  );
-}
-
-async function LogsListContent({
-  organizationId,
-  studentId,
-  tab,
-}: {
-  organizationId: string;
-  studentId: string | null;
-  tab: TabType;
-}) {
-  const { conversations, traceByLogId, counts } = await getCachedLogListPageData({
-    organizationId,
-    studentId,
-  });
-
-  const filtered =
-    tab === "interview"
-      ? conversations.filter((item) => item.sessionType !== "LESSON_REPORT")
-      : tab === "lesson"
-        ? conversations.filter((item) => item.sessionType === "LESSON_REPORT")
-        : conversations;
-
-  const summaryItems = [
-    { label: "すべて", value: counts.all },
-    { label: "面談", value: counts.interview },
-    { label: "指導報告", value: counts.lesson },
-  ];
-
-  return (
-    <>
-      <StatStrip items={summaryItems} />
-
-      <Card
-        title="保存済みログ"
-        subtitle="面談ログと指導報告ログを一覧し、どの保護者レポートに使われたかを確認できます。"
-      >
-        {filtered.length === 0 ? (
-          <StatePanel
-            kind="empty"
-            title="この条件に合うログはありません"
-            subtitle="録音後にログを生成すると、ここに表示されます。"
-          />
-        ) : (
-          <div className={styles.list}>
-            {filtered.map((log) => {
-              const traces = traceByLogId[log.id] ?? [];
-              const trustSummary = transcriptReviewSummary(log.transcriptReview);
-              return (
-                <article key={log.id} className={styles.row}>
-                  <Link href={`/app/logs/${log.id}`} className={styles.rowLink} prefetch={false}>
-                    <div className={styles.rowMain}>
-                      <div className={styles.rowTop}>
-                        <div>
-                          <div className={styles.studentName}>{log.student?.name ?? "担当未設定"}</div>
-                          <div className={styles.meta}>{log.student?.grade ?? "学年未設定"}</div>
-                        </div>
-                        <div className={styles.badgeRow}>
-                          <Badge label={sessionTypeLabel(log.sessionType)} tone="neutral" />
-                          <Badge label={statusLabel(log.status)} tone={statusTone(log.status)} />
-                          <Badge
-                            label={transcriptReviewStateLabel(log.reviewState)}
-                            tone={transcriptReviewTone(log.reviewState, log.transcriptReview)}
-                          />
-                        </div>
-                      </div>
-
-                      <p className={styles.summary}>{excerpt(log.summaryMarkdown)}</p>
-                      <div className={styles.trustRow}>
-                        <span className={styles.trustLabel}>信頼判断</span>
-                        <span className={styles.trustSummary}>{trustSummary}</span>
-                      </div>
-
-                      <div className={styles.tracePanel}>
-                        <div className={styles.traceLabel}>このログが使われた保護者レポート</div>
-                        {traces.length === 0 ? (
-                          <p className={styles.traceEmpty}>まだ source trace はありません。</p>
-                        ) : (
-                          <div className={styles.traceChips}>
-                            {traces.map((trace) => (
-                              <span key={`${trace.reportId}-${trace.studentId}`} className={styles.traceChip}>
-                                {trace.studentName} / {trace.reportLabel} / {trace.sourceCount}件
-                              </span>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-
-                      <div className={styles.footerRow}>
-                        <span className={styles.meta}>{new Date(log.createdAt).toLocaleDateString("ja-JP")}</span>
-                        <span className={styles.linkLabel}>開く</span>
-                      </div>
-                    </div>
-                  </Link>
-
-                  <div className={styles.rowActions}>
-                    <DeleteLogButton
-                      logId={log.id}
-                      title={`${sessionTypeLabel(log.sessionType)}ログを削除しますか？`}
-                    />
-                  </div>
-                </article>
-              );
-            })}
-          </div>
-        )}
-      </Card>
-    </>
   );
 }
 
@@ -238,9 +67,7 @@ export default async function LogsListPage({
         viewerRole={(session.user as { role?: string | null }).role ?? null}
       />
       <LogsTabFilters studentId={studentId} tab={tab} />
-      <Suspense fallback={<LogsListFallback />}>
-        <LogsListContent organizationId={organizationId} studentId={studentId} tab={tab} />
-      </Suspense>
+      <LogsListClient studentId={studentId} tab={tab} />
     </div>
   );
 }

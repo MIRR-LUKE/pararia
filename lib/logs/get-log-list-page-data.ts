@@ -1,34 +1,21 @@
 import { unstable_cache } from "next/cache";
 import { prisma } from "@/lib/db";
-import { deriveReportDeliveryState, reportDeliveryStateLabel } from "@/lib/report-delivery";
 import { normalizeTranscriptReviewMeta, type TranscriptReviewMeta } from "@/lib/logs/transcript-review-display";
 import { sanitizeSummaryMarkdown } from "@/lib/user-facing-japanese";
 
 export type LogListItem = {
   id: string;
-  studentId: string;
-  sessionId: string | null;
   status: string;
   reviewState: string;
   summaryMarkdown: string | null;
-  createdAt: string;
   date: string;
   sessionType?: string | null;
   transcriptReview: TranscriptReviewMeta | null;
   student?: { id: string; name: string; grade?: string | null };
 };
 
-export type LogTraceRow = {
-  studentId: string;
-  studentName: string;
-  reportId: string;
-  reportLabel: string;
-  sourceCount: number;
-};
-
 export type LogListPageData = {
   conversations: LogListItem[];
-  traceByLogId: Record<string, LogTraceRow[]>;
   counts: {
     all: number;
     interview: number;
@@ -38,11 +25,6 @@ export type LogListPageData = {
 
 export function getLogListCacheTag(organizationId: string) {
   return `log-list:${organizationId}`;
-}
-
-function toStringArray(value: unknown) {
-  if (!Array.isArray(value)) return [];
-  return value.filter((entry): entry is string => typeof entry === "string" && entry.length > 0);
 }
 
 export async function getLogListPageData({
@@ -61,8 +43,6 @@ export async function getLogListPageData({
     take: studentId ? 100 : 80,
     select: {
       id: true,
-      studentId: true,
-      sessionId: true,
       status: true,
       reviewState: true,
       summaryMarkdown: true,
@@ -73,84 +53,33 @@ export async function getLogListPageData({
     },
   });
 
-  const mappedConversations = conversations.map((conversation) => {
-    return {
-      id: conversation.id,
-      studentId: conversation.studentId,
-      sessionId: conversation.sessionId,
-      status: conversation.status,
-      reviewState: conversation.reviewState,
-      summaryMarkdown: sanitizeSummaryMarkdown(conversation.summaryMarkdown),
-      createdAt: conversation.createdAt.toISOString(),
-      date: conversation.createdAt.toLocaleDateString("ja-JP"),
-      student: conversation.student,
-      sessionType: conversation.session?.type ?? null,
-      transcriptReview: normalizeTranscriptReviewMeta(conversation.qualityMetaJson),
-    };
-  });
+  const mappedConversations = conversations.map((conversation) => ({
+    id: conversation.id,
+    status: conversation.status,
+    reviewState: conversation.reviewState,
+    summaryMarkdown: sanitizeSummaryMarkdown(conversation.summaryMarkdown),
+    date: conversation.createdAt.toLocaleDateString("ja-JP"),
+    student: conversation.student,
+    sessionType: conversation.session?.type ?? null,
+    transcriptReview: normalizeTranscriptReviewMeta(conversation.qualityMetaJson),
+  }));
 
-  const visibleLogIds = new Set(mappedConversations.map((conversation) => conversation.id));
-  const visibleStudentIds = [...new Set(mappedConversations.map((conversation) => conversation.studentId))];
-  const oldestConversationDate = conversations.at(-1)?.createdAt;
-  const traceByLogId = new Map<string, LogTraceRow[]>();
-
-  if (visibleLogIds.size > 0 && visibleStudentIds.length > 0) {
-    const reports = await prisma.report.findMany({
-      where: {
-        organizationId,
-        studentId: { in: visibleStudentIds },
-        ...(oldestConversationDate ? { createdAt: { gte: oldestConversationDate } } : {}),
-      },
-      select: {
-        id: true,
-        status: true,
-        deliveryChannel: true,
-        sourceLogIds: true,
-        student: {
-          select: {
-            id: true,
-            name: true,
-          },
-        },
-        deliveryEvents: {
-          orderBy: { createdAt: "asc" },
-          select: {
-            eventType: true,
-            createdAt: true,
-            deliveryChannel: true,
-          },
-        },
-      },
-      orderBy: { createdAt: "desc" },
-    });
-
-    for (const report of reports) {
-      const sourceLogIds = toStringArray(report.sourceLogIds);
-      const matchingLogIds = sourceLogIds.filter((logId) => visibleLogIds.has(logId));
-      if (matchingLogIds.length === 0) continue;
-
-      const reportLabel = reportDeliveryStateLabel(deriveReportDeliveryState(report));
-      for (const logId of matchingLogIds) {
-        const current = traceByLogId.get(logId) ?? [];
-        current.push({
-          studentId: report.student.id,
-          studentName: report.student.name,
-          reportId: report.id,
-          reportLabel,
-          sourceCount: sourceLogIds.length,
-        });
-        traceByLogId.set(logId, current);
-      }
+  let interviewCount = 0;
+  let lessonCount = 0;
+  for (const conversation of mappedConversations) {
+    if (conversation.sessionType === "LESSON_REPORT") {
+      lessonCount += 1;
+    } else {
+      interviewCount += 1;
     }
   }
 
   return {
     conversations: mappedConversations,
-    traceByLogId: Object.fromEntries(traceByLogId),
     counts: {
       all: mappedConversations.length,
-      interview: mappedConversations.filter((item) => item.sessionType !== "LESSON_REPORT").length,
-      lesson: mappedConversations.filter((item) => item.sessionType === "LESSON_REPORT").length,
+      interview: interviewCount,
+      lesson: lessonCount,
     },
   };
 }
