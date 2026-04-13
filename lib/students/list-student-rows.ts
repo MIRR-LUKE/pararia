@@ -95,6 +95,7 @@ export async function listStudentRows(options: ListStudentRowsOptions): Promise<
 
   const students = await prisma.student.findMany({
     where: { organizationId },
+    relationLoadStrategy: "join",
     ...(typeof limit === "number" ? { take: Math.floor(limit) } : {}),
     select: buildStudentRowSelect(projection),
     orderBy: { createdAt: "desc" },

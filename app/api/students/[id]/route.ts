@@ -2,6 +2,7 @@ import { revalidatePath, revalidateTag } from "next/cache";
 import { NextResponse } from "next/server";
 import { writeAuditLog } from "@/lib/audit";
 import { prisma } from "@/lib/db";
+import { getLogListCacheTag } from "@/lib/logs/get-log-list-page-data";
 import { deleteRuntimeEntries } from "@/lib/runtime-cleanup";
 import { requireAuthorizedSession } from "@/lib/server/request-auth";
 
@@ -91,6 +92,7 @@ export async function PUT(
 
     revalidateTag(`student-directory:${authResult.session.user.organizationId}`);
     revalidateTag(`dashboard-snapshot:${authResult.session.user.organizationId}`);
+    revalidateTag(getLogListCacheTag(authResult.session.user.organizationId));
     revalidatePath("/app/students");
     revalidatePath("/app/dashboard");
     revalidatePath("/app/reports");
@@ -196,6 +198,7 @@ export async function DELETE(
 
     revalidateTag(`student-directory:${authResult.session.user.organizationId}`);
     revalidateTag(`dashboard-snapshot:${authResult.session.user.organizationId}`);
+    revalidateTag(getLogListCacheTag(authResult.session.user.organizationId));
     revalidatePath("/app/students");
     revalidatePath("/app/dashboard");
     revalidatePath("/app/reports");

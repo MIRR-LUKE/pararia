@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { writeAuditLog } from "@/lib/audit";
 import { prisma } from "@/lib/db";
 import { buildReportDeliverySummary } from "@/lib/report-delivery";
+import { getLogListCacheTag } from "@/lib/logs/get-log-list-page-data";
 import { requireAuthorizedSession } from "@/lib/server/request-auth";
 import { sanitizeReportMarkdown } from "@/lib/user-facing-japanese";
 
@@ -121,6 +122,7 @@ export async function DELETE(
 
     revalidateTag(`student-directory:${organizationId}`);
     revalidateTag(`dashboard-snapshot:${organizationId}`);
+    revalidateTag(getLogListCacheTag(organizationId));
     revalidatePath("/app/dashboard");
     revalidatePath("/app/students");
     revalidatePath("/app/logs");

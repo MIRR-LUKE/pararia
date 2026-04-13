@@ -1,4 +1,4 @@
-import type { Page } from "playwright-core";
+import type { BrowserContext, Page } from "playwright-core";
 import {
   ROUTE_PERFORMANCE_BUDGETS,
   getBudgetStatus,
@@ -30,8 +30,10 @@ async function gotoWithRetry(page: Page, url: string, timeoutMs = 60_000) {
 }
 
 async function measureLoadingShell(page: Page, title: string, startedAt: number) {
+  const status = page.getByRole("status", { name: title });
   try {
-    await page.getByRole("status", { name: title }).waitFor({ state: "visible", timeout: 2500 });
+    const visible = await status.isVisible({ timeout: 100 });
+    if (!visible) return null;
     return Date.now() - startedAt;
   } catch {
     return null;
@@ -83,11 +85,22 @@ async function routeScenarioResult(
   };
 }
 
-export async function runNavigationPerformanceScenarios(page: Page, baseUrl: string, studentId: string) {
+export async function runNavigationPerformanceScenarios(context: BrowserContext, baseUrl: string, studentId: string) {
   const scenarios: RoutePerformanceScenarioResult[] = [];
 
+  async function runWithFreshPage(
+    buildOptions: (page: Page) => Parameters<typeof routeScenarioResult>[1]
+  ) {
+    const page = await context.newPage();
+    try {
+      return await routeScenarioResult(page, buildOptions(page));
+    } finally {
+      await page.close().catch(() => {});
+    }
+  }
+
   scenarios.push(
-    await routeScenarioResult(page, {
+    await runWithFreshPage((page) => ({
       id: "dashboard-populated",
       label: "dashboard populated",
       route: `${baseUrl}/app/dashboard`,
@@ -97,11 +110,11 @@ export async function runNavigationPerformanceScenarios(page: Page, baseUrl: str
       populatedCheck: async () => (await page.getByText("今日の優先対応はありません").count()) === 0,
       emptyCheck: async () => (await page.getByText("今日の優先対応はありません").count()) > 0,
       budgetKey: "dashboard",
-    })
+    }))
   );
 
   scenarios.push(
-    await routeScenarioResult(page, {
+    await runWithFreshPage((page) => ({
       id: "students-populated",
       label: "students populated",
       route: `${baseUrl}/app/students`,
@@ -111,11 +124,11 @@ export async function runNavigationPerformanceScenarios(page: Page, baseUrl: str
       populatedCheck: async () => (await page.locator("article").count()) > 0,
       emptyCheck: async () => (await page.getByText("条件に合う生徒がいません").count()) > 0,
       budgetKey: "students",
-    })
+    }))
   );
 
   scenarios.push(
-    await routeScenarioResult(page, {
+    await runWithFreshPage((page) => ({
       id: "students-empty-search",
       label: "students empty search",
       route: `${baseUrl}/app/students`,
@@ -136,11 +149,11 @@ export async function runNavigationPerformanceScenarios(page: Page, baseUrl: str
       },
       budgetKey: "studentsEmptySearch",
       note: "検索入力で空状態を再現",
-    })
+    }))
   );
 
   scenarios.push(
-    await routeScenarioResult(page, {
+    await runWithFreshPage((page) => ({
       id: "logs-populated",
       label: "logs populated",
       route: `${baseUrl}/app/logs`,
@@ -150,11 +163,11 @@ export async function runNavigationPerformanceScenarios(page: Page, baseUrl: str
       populatedCheck: async () => (await page.locator("article").count()) > 0,
       emptyCheck: async () => (await page.getByText("この条件に合うログはありません").count()) > 0,
       budgetKey: "logs",
-    })
+    }))
   );
 
   scenarios.push(
-    await routeScenarioResult(page, {
+    await runWithFreshPage((page) => ({
       id: "logs-empty-student",
       label: "logs empty student",
       route: `${baseUrl}/app/logs?studentId=${encodeURIComponent(studentId)}`,
@@ -165,11 +178,11 @@ export async function runNavigationPerformanceScenarios(page: Page, baseUrl: str
       emptyCheck: async () => (await page.getByText("この条件に合うログはありません").count()) > 0,
       budgetKey: "logsEmpty",
       note: "一時生徒で空ログを再現",
-    })
+    }))
   );
 
   scenarios.push(
-    await routeScenarioResult(page, {
+    await runWithFreshPage((page) => ({
       id: "reports-populated",
       label: "reports populated",
       route: `${baseUrl}/app/reports`,
@@ -179,11 +192,11 @@ export async function runNavigationPerformanceScenarios(page: Page, baseUrl: str
       populatedCheck: async () => (await page.getByText("Student Room で確認する").count()) > 0,
       emptyCheck: async () => (await page.getByText("この条件に合うレポートはありません").count()) > 0,
       budgetKey: "reports",
-    })
+    }))
   );
 
   scenarios.push(
-    await routeScenarioResult(page, {
+    await runWithFreshPage((page) => ({
       id: "reports-empty-filter",
       label: "reports empty filter",
       route: `${baseUrl}/app/reports?filter=manual`,
@@ -194,7 +207,7 @@ export async function runNavigationPerformanceScenarios(page: Page, baseUrl: str
       emptyCheck: async () => (await page.getByText("この条件に合うレポートはありません").count()) > 0,
       budgetKey: "reportsEmpty",
       note: "manual filter で空状態を優先",
-    })
+    }))
   );
 
   return scenarios;

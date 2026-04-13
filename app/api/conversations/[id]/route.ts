@@ -15,6 +15,7 @@ import { toPrismaJson } from "@/lib/prisma-json";
 import { syncSessionAfterConversation } from "@/lib/session-service";
 import { sanitizeFormattedTranscript, sanitizeSummaryMarkdown } from "@/lib/user-facing-japanese";
 import { normalizeRawTranscriptText, pickDisplayTranscriptText } from "@/lib/transcript/source";
+import { getLogListCacheTag } from "@/lib/logs/get-log-list-page-data";
 import { maybeStopRunpodWorkerWhenSessionPartQueueIdle } from "@/lib/runpod/idle-stop";
 import { maybeEnsureRunpodWorker } from "@/lib/runpod/worker-control";
 import { normalizeTranscriptReviewMeta } from "@/lib/logs/transcript-review-display";
@@ -265,6 +266,7 @@ export async function DELETE(
 
     revalidateTag(`student-directory:${organizationId}`);
     revalidateTag(`dashboard-snapshot:${organizationId}`);
+    revalidateTag(getLogListCacheTag(organizationId));
     revalidatePath("/app/dashboard");
     revalidatePath("/app/students");
     revalidatePath("/app/logs");
@@ -344,6 +346,7 @@ export async function PATCH(
 
     revalidateTag(`student-directory:${organizationId}`);
     revalidateTag(`dashboard-snapshot:${organizationId}`);
+    revalidateTag(getLogListCacheTag(organizationId));
     revalidatePath("/app/dashboard");
     revalidatePath("/app/students");
     revalidatePath("/app/logs");

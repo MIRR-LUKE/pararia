@@ -52,14 +52,18 @@ async function main() {
     ignoreHTTPSErrors: true,
     viewport: { width: 1440, height: 1100 },
   });
-  const page = await context.newPage();
   const consoleErrors: string[] = [];
-  page.on("console", (message) => {
-    if (message.type() === "error") consoleErrors.push(message.text());
-  });
-  page.on("pageerror", (error) => {
-    consoleErrors.push(error.message);
-  });
+  const attachPageListeners = (page: Awaited<ReturnType<typeof context.newPage>>) => {
+    page.on("console", (message) => {
+      if (message.type() === "error") consoleErrors.push(message.text());
+    });
+    page.on("pageerror", (error) => {
+      consoleErrors.push(error.message);
+    });
+  };
+  context.on("page", attachPageListeners);
+  const page = await context.newPage();
+  attachPageListeners(page);
 
   let studentId = "";
 
@@ -80,8 +84,9 @@ async function main() {
         callbackUrl: `${baseUrl}/app/dashboard`,
         json: "true",
       },
+      maxRedirects: 0,
     });
-    if (!loginResponse.ok) throw new Error(`認証 API に失敗しました: ${loginResponse.status()}`);
+    if (loginResponse.status() >= 400) throw new Error(`認証 API に失敗しました: ${loginResponse.status()}`);
     const authApiMs = Date.now() - authApiStartedAt;
 
     const createdStudentResponse = await context.request.post(`${baseUrl}/api/students`, {
@@ -97,7 +102,7 @@ async function main() {
     }
     studentId = String(createdStudentBody.student.id);
 
-    const scenarios = await runNavigationPerformanceScenarios(page, baseUrl, studentId);
+    const scenarios = await runNavigationPerformanceScenarios(context, baseUrl, studentId);
     const baseline = await loadJsonIfExists<RoutePerformanceRun>(baselinePath);
     const comparison = summarizeComparison(
       {

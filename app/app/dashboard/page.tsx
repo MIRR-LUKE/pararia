@@ -3,8 +3,6 @@ import DashboardPageClient from "./DashboardPageClient";
 import { getDashboardSnapshot } from "@/lib/students/dashboard-snapshot";
 import { getAppSession } from "@/lib/server/app-session";
 
-export const dynamic = "force-dynamic";
-
 export default async function DashboardPage() {
   const session = await getAppSession();
   const organizationId = session?.user?.organizationId;

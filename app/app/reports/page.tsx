@@ -15,9 +15,6 @@ import {
   type FilterKey,
 } from "./report-dashboard";
 
-export const dynamic = "force-dynamic";
-export const revalidate = 0;
-
 function readQueryParam(value: string | string[] | undefined) {
   return Array.isArray(value) ? value[0] : value;
 }

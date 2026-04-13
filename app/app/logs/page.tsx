@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { AppHeader } from "@/components/layout/AppHeader";
@@ -5,7 +6,7 @@ import { Badge } from "@/components/ui/Badge";
 import { Card } from "@/components/ui/Card";
 import { StatePanel } from "@/components/ui/StatePanel";
 import { StatStrip } from "@/components/ui/StatStrip";
-import { getLogListPageData } from "@/lib/logs/get-log-list-page-data";
+import { getCachedLogListPageData } from "@/lib/logs/get-log-list-page-data";
 import {
   transcriptReviewStateLabel,
   transcriptReviewSummary,
@@ -14,9 +15,6 @@ import {
 import { getAppSession } from "@/lib/server/app-session";
 import DeleteLogButton from "./DeleteLogButton";
 import styles from "./logsList.module.css";
-
-export const dynamic = "force-dynamic";
-export const revalidate = 0;
 
 type TabType = "all" | "interview" | "lesson";
 
@@ -69,20 +67,55 @@ function excerpt(markdown?: string | null) {
   return candidate.replace(/^[•・\-*]\s+/, "").replace(/\*\*/g, "").trim().slice(0, 140);
 }
 
-export default async function LogsListPage({
-  searchParams,
-}: {
-  searchParams?: { studentId?: string | string[]; type?: string | string[] };
-}) {
-  const session = await getAppSession();
-  const organizationId = session?.user?.organizationId;
-  if (!session?.user?.id || !organizationId) {
-    redirect("/login");
-  }
+function LogsTabFilters({ studentId, tab }: { studentId: string | null; tab: TabType }) {
+  const baseLogsPath = studentId ? `/app/logs?studentId=${encodeURIComponent(studentId)}` : "/app/logs";
 
-  const studentId = readQueryParam(searchParams?.studentId) ?? null;
-  const tab = normalizeTab(readQueryParam(searchParams?.type));
-  const { conversations, traceByLogId, counts } = await getLogListPageData({
+  return (
+    <section className={styles.filterRow} aria-label="ログ種別の切り替え">
+      <Link href={studentId ? baseLogsPath : "/app/logs"} className={tab === "all" ? styles.filterChipActive : styles.filterChip}>
+        すべて
+      </Link>
+      <Link
+        href={`${baseLogsPath}${studentId ? "&" : "?"}type=interview`}
+        className={tab === "interview" ? styles.filterChipActive : styles.filterChip}
+      >
+        面談
+      </Link>
+      <Link
+        href={`${baseLogsPath}${studentId ? "&" : "?"}type=lessonReport`}
+        className={tab === "lesson" ? styles.filterChipActive : styles.filterChip}
+      >
+        指導報告
+      </Link>
+    </section>
+  );
+}
+
+function LogsListFallback() {
+  return (
+    <Card
+      title="保存済みログ"
+      subtitle="面談ログと指導報告ログを一覧し、どの保護者レポートに使われたかを確認できます。"
+    >
+      <StatePanel
+        kind="processing"
+        title="ログ一覧を開いています..."
+        subtitle="ログ本文と source trace を整えています。"
+      />
+    </Card>
+  );
+}
+
+async function LogsListContent({
+  organizationId,
+  studentId,
+  tab,
+}: {
+  organizationId: string;
+  studentId: string | null;
+  tab: TabType;
+}) {
+  const { conversations, traceByLogId, counts } = await getCachedLogListPageData({
     organizationId,
     studentId,
   });
@@ -94,7 +127,6 @@ export default async function LogsListPage({
         ? conversations.filter((item) => item.sessionType === "LESSON_REPORT")
         : conversations;
 
-  const baseLogsPath = studentId ? `/app/logs?studentId=${encodeURIComponent(studentId)}` : "/app/logs";
   const summaryItems = [
     { label: "すべて", value: counts.all },
     { label: "面談", value: counts.interview },
@@ -102,33 +134,8 @@ export default async function LogsListPage({
   ];
 
   return (
-    <div className={styles.page}>
-      <AppHeader
-        title="面談ログ / 指導報告ログ"
-        subtitle="ここでは記録の中身だけでなく、どの保護者レポートに使われたかまで追えます。"
-        viewerName={session.user.name ?? null}
-        viewerRole={(session.user as { role?: string | null }).role ?? null}
-      />
-
+    <>
       <StatStrip items={summaryItems} />
-
-      <section className={styles.filterRow} aria-label="ログ種別の切り替え">
-        <Link href={studentId ? baseLogsPath : "/app/logs"} className={tab === "all" ? styles.filterChipActive : styles.filterChip}>
-          すべて
-        </Link>
-        <Link
-          href={`${baseLogsPath}${studentId ? "&" : "?"}type=interview`}
-          className={tab === "interview" ? styles.filterChipActive : styles.filterChip}
-        >
-          面談
-        </Link>
-        <Link
-          href={`${baseLogsPath}${studentId ? "&" : "?"}type=lessonReport`}
-          className={tab === "lesson" ? styles.filterChipActive : styles.filterChip}
-        >
-          指導報告
-        </Link>
-      </section>
 
       <Card
         title="保存済みログ"
@@ -204,6 +211,36 @@ export default async function LogsListPage({
           </div>
         )}
       </Card>
+    </>
+  );
+}
+
+export default async function LogsListPage({
+  searchParams,
+}: {
+  searchParams?: { studentId?: string | string[]; type?: string | string[] };
+}) {
+  const session = await getAppSession();
+  const organizationId = session?.user?.organizationId;
+  if (!session?.user?.id || !organizationId) {
+    redirect("/login");
+  }
+
+  const studentId = readQueryParam(searchParams?.studentId) ?? null;
+  const tab = normalizeTab(readQueryParam(searchParams?.type));
+
+  return (
+    <div className={styles.page}>
+      <AppHeader
+        title="面談ログ / 指導報告ログ"
+        subtitle="ここでは記録の中身だけでなく、どの保護者レポートに使われたかまで追えます。"
+        viewerName={session.user.name ?? null}
+        viewerRole={(session.user as { role?: string | null }).role ?? null}
+      />
+      <LogsTabFilters studentId={studentId} tab={tab} />
+      <Suspense fallback={<LogsListFallback />}>
+        <LogsListContent organizationId={organizationId} studentId={studentId} tab={tab} />
+      </Suspense>
     </div>
   );
 }

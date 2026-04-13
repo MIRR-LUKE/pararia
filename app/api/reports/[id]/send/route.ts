@@ -4,6 +4,7 @@ import { ReportDeliveryEventType, ReportStatus } from "@prisma/client";
 import { auth } from "@/auth";
 import { writeAuditLog } from "@/lib/audit";
 import { prisma } from "@/lib/db";
+import { getLogListCacheTag } from "@/lib/logs/get-log-list-page-data";
 
 export async function POST(
   request: Request,
@@ -131,6 +132,7 @@ export async function POST(
     if (current.organizationId) {
       revalidateTag(`student-directory:${current.organizationId}`);
       revalidateTag(`dashboard-snapshot:${current.organizationId}`);
+      revalidateTag(getLogListCacheTag(current.organizationId));
       revalidatePath("/app/dashboard");
       revalidatePath("/app/students");
       revalidatePath("/app/logs");

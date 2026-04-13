@@ -1,3 +1,4 @@
+import { unstable_cache } from "next/cache";
 import { prisma } from "@/lib/db";
 import { renderConversationArtifactOrFallback } from "@/lib/conversation-artifact";
 import { deriveReportDeliveryState, reportDeliveryStateLabel } from "@/lib/report-delivery";
@@ -36,6 +37,10 @@ export type LogListPageData = {
   };
 };
 
+export function getLogListCacheTag(organizationId: string) {
+  return `log-list:${organizationId}`;
+}
+
 function toStringArray(value: unknown) {
   if (!Array.isArray(value)) return [];
   return value.filter((entry): entry is string => typeof entry === "string" && entry.length > 0);
@@ -53,6 +58,7 @@ export async function getLogListPageData({
       organizationId,
       ...(studentId ? { studentId } : {}),
     },
+    relationLoadStrategy: "join",
     orderBy: { createdAt: "desc" },
     take: studentId ? 100 : 80,
     select: {
@@ -98,6 +104,7 @@ export async function getLogListPageData({
         studentId: { in: visibleStudentIds },
         ...(oldestConversationDate ? { createdAt: { gte: oldestConversationDate } } : {}),
       },
+      relationLoadStrategy: "join",
       select: {
         id: true,
         status: true,
@@ -150,4 +157,26 @@ export async function getLogListPageData({
       lesson: mappedConversations.filter((item) => item.sessionType === "LESSON_REPORT").length,
     },
   };
+}
+
+export function getCachedLogListPageData({
+  organizationId,
+  studentId,
+}: {
+  organizationId: string;
+  studentId?: string | null;
+}) {
+  const normalizedStudentId = studentId ?? "all";
+  return unstable_cache(
+    () =>
+      getLogListPageData({
+        organizationId,
+        studentId,
+      }),
+    ["log-list-page-data", organizationId, normalizedStudentId],
+    {
+      revalidate: 10,
+      tags: [getLogListCacheTag(organizationId)],
+    }
+  )();
 }

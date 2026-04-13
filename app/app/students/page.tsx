@@ -3,9 +3,6 @@ import { getCachedStudentDirectoryView } from "@/lib/students/get-cached-student
 import { getAppSession } from "@/lib/server/app-session";
 import StudentsPageClient from "./StudentsPageClient";
 
-export const dynamic = "force-dynamic";
-export const revalidate = 0;
-
 const INITIAL_STUDENT_LIMIT = 30;
 
 export default async function StudentsPage() {

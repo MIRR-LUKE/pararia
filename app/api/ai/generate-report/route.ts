@@ -6,6 +6,7 @@ import { writeAuditLog } from "@/lib/audit";
 import { prisma } from "@/lib/db";
 import { generateParentReport } from "@/lib/ai/parentReport";
 import { renderConversationArtifactOrFallback } from "@/lib/conversation-artifact";
+import { getLogListCacheTag } from "@/lib/logs/get-log-list-page-data";
 
 export async function POST(request: Request) {
   try {
@@ -155,6 +156,7 @@ export async function POST(request: Request) {
 
     revalidateTag(`student-directory:${student.organizationId}`);
     revalidateTag(`dashboard-snapshot:${student.organizationId}`);
+    revalidateTag(getLogListCacheTag(student.organizationId));
     revalidatePath("/app/dashboard");
     revalidatePath("/app/students");
     revalidatePath("/app/logs");

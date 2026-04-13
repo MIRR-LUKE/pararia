@@ -7,6 +7,7 @@ import { enqueueConversationJobs, processAllConversationJobs } from "@/lib/jobs/
 import { shouldRunBackgroundJobsInline } from "@/lib/jobs/execution-mode";
 import { requireAuthorizedSession } from "@/lib/server/request-auth";
 import { renderConversationArtifactOrFallback } from "@/lib/conversation-artifact";
+import { getLogListCacheTag } from "@/lib/logs/get-log-list-page-data";
 import { getTranscriptExpiryDate } from "@/lib/system-config";
 import { ensureConversationReviewedTranscript } from "@/lib/transcript/review";
 import { sanitizeSummaryMarkdown } from "@/lib/user-facing-japanese";
@@ -192,6 +193,7 @@ export async function POST(request: Request) {
 
     revalidateTag(`student-directory:${organizationId}`);
     revalidateTag(`dashboard-snapshot:${organizationId}`);
+    revalidateTag(getLogListCacheTag(organizationId));
     revalidatePath("/app/dashboard");
     revalidatePath("/app/students");
     revalidatePath("/app/logs");
