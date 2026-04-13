@@ -14,7 +14,7 @@ export default async function DashboardPage() {
 
   const initialData = await getDashboardSnapshot({
     organizationId,
-    candidateLimit: 32,
+    candidateLimit: 24,
     queueLimit: 8,
   });
 
