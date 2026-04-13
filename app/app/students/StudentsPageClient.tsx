@@ -1,6 +1,6 @@
 "use client";
 
-import { useDeferredValue, useEffect, useMemo, useState } from "react";
+import { useCallback, useDeferredValue, useEffect, useMemo, useState } from "react";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
@@ -28,7 +28,7 @@ export default function StudentsPageClient({
   viewerRole,
 }: StudentsPageClientProps) {
   const [students, setStudents] = useState<StudentDirectoryViewRow[]>(initialStudents);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(initialStudents.length === 0);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const deferredQuery = useDeferredValue(query);
@@ -44,12 +44,7 @@ export default function StudentsPageClient({
   const [studentToDelete, setStudentToDelete] = useState<StudentDirectoryViewRow | null>(null);
   const [isDeletingStudent, setIsDeletingStudent] = useState(false);
 
-  useEffect(() => {
-    setStudents(initialStudents);
-    setLoading(false);
-  }, [initialStudents]);
-
-  const refresh = async () => {
+  const refresh = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
@@ -62,7 +57,16 @@ export default function StudentsPageClient({
     } finally {
       setLoading(false);
     }
-  };
+  }, [initialLimit]);
+
+  useEffect(() => {
+    setStudents(initialStudents);
+    if (initialStudents.length > 0) {
+      setLoading(false);
+      return;
+    }
+    void refresh();
+  }, [initialStudents, refresh]);
 
   const rows = useMemo(() => students, [students]);
   const canShowCreateAction = !showCreate;

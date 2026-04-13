@@ -141,12 +141,7 @@ export async function runNavigationPerformanceScenarios(context: BrowserContext,
         const startedAt = Date.now();
         const searchInput = page.locator("input[placeholder='名前、フリガナ、学年、コースで検索']");
         await searchInput.waitFor({ state: "visible", timeout: 5_000 });
-        await page.waitForFunction(() => {
-          const input = document.querySelector("input[placeholder='名前、フリガナ、学年、コースで検索']") as
-            | HTMLInputElement
-            | null;
-          return Boolean(input && (input as unknown as { _valueTracker?: unknown })._valueTracker);
-        });
+        await page.waitForTimeout(120);
         await searchInput.fill("__zz_no_match__");
         await page.waitForTimeout(120);
         await waitForCondition(

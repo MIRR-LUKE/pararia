@@ -1,5 +1,4 @@
 import { redirect } from "next/navigation";
-import { getCachedStudentDirectoryView } from "@/lib/students/get-cached-student-directory-view";
 import { getAppSession } from "@/lib/server/app-session";
 import StudentsPageClient from "./StudentsPageClient";
 
@@ -12,13 +11,9 @@ export default async function StudentsPage() {
     redirect("/login");
   }
 
-  const initialStudents = await getCachedStudentDirectoryView({
-    organizationId,
-    limit: INITIAL_STUDENT_LIMIT,
-  });
   return (
     <StudentsPageClient
-      initialStudents={initialStudents}
+      initialStudents={[]}
       initialLimit={INITIAL_STUDENT_LIMIT}
       viewerName={session.user.name ?? null}
       viewerRole={(session.user as { role?: string | null }).role ?? null}
