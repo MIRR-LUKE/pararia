@@ -40,6 +40,7 @@ type StudentReportRecord = {
   createdAt: Date;
   reviewedAt?: Date | null;
   sentAt?: Date | null;
+  deliveryChannel?: string | null;
   sourceLogIds?: unknown;
   deliveryEvents?: Array<{
     id?: string;

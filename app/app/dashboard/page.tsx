@@ -23,7 +23,7 @@ async function DashboardContent({
 }) {
   const initialData = await getDashboardSnapshot({
     organizationId,
-    candidateLimit: 24,
+    candidateLimit: 16,
     queueLimit: 8,
   });
 

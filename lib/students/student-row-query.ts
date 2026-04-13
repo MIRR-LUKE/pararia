@@ -58,7 +58,6 @@ const dashboardReportSelect = {
   createdAt: true,
   reviewedAt: true,
   sentAt: true,
-  deliveryChannel: true,
   deliveryEvents: {
     select: {
       eventType: true,

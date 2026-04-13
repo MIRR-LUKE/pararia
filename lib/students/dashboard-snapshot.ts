@@ -1,10 +1,6 @@
 import { unstable_cache } from "next/cache";
 import { prisma } from "@/lib/db";
-import {
-  buildReportDeliverySummary,
-  deriveReportDeliveryState,
-  reportDeliveryStateLabel,
-} from "@/lib/report-delivery";
+import { deriveReportDeliveryState, reportDeliveryStateLabel } from "@/lib/report-delivery";
 import { listStudentRows, type StudentListRow } from "@/lib/students/list-student-rows";
 
 export type DashboardQueueKind = "interview" | "report" | "review" | "share" | "room";
@@ -51,6 +47,16 @@ export type DashboardSnapshot = {
 
 type DashboardReportSummary = NonNullable<StudentListRow["reports"]>[number];
 
+type DashboardDeliveryState =
+  | "draft"
+  | "reviewed"
+  | "sent"
+  | "resent"
+  | "delivered"
+  | "failed"
+  | "bounced"
+  | "manual_shared";
+
 type DashboardSnapshotOptions = {
   organizationId: string;
   candidateLimit?: number;
@@ -80,23 +86,43 @@ function diffHours(start?: string | null, end?: string | null) {
   return diffMs / (60 * 60 * 1000);
 }
 
-function latestReportSummary(report?: DashboardReportSummary | null) {
+function latestReportDeliveryState(report?: DashboardReportSummary | null) {
   if (!report) return null;
-  return buildReportDeliverySummary(report);
+  const latestEvent = report.deliveryEvents?.[0]?.eventType;
+  if (latestEvent) {
+    switch (latestEvent) {
+      case "REVIEWED":
+        return "reviewed";
+      case "SENT":
+        return "sent";
+      case "DELIVERED":
+        return "delivered";
+      case "FAILED":
+        return "failed";
+      case "BOUNCED":
+        return "bounced";
+      case "MANUAL_SHARED":
+        return "manual_shared";
+      case "RESENT":
+        return "resent";
+      default:
+        return "draft";
+    }
+  }
+
+  return deriveReportDeliveryState(report) as DashboardDeliveryState;
 }
 
 export function reportStateLabel(report?: DashboardReportSummary | null) {
   if (!report) return "保護者レポート未生成";
-  const summary = latestReportSummary(report);
-  if (summary) return reportDeliveryStateLabel(summary.deliveryState);
-  const deliveryState = deriveReportDeliveryState(report);
-  return reportDeliveryStateLabel(deliveryState);
+  const summary = latestReportDeliveryState(report);
+  return reportDeliveryStateLabel(summary ?? deriveReportDeliveryState(report));
 }
 
 export function summarizeDashboardStudent(student: StudentListRow): DashboardStudentRow {
   const latestSession = student.sessions?.[0];
   const latestReport = student.reports?.[0] ?? null;
-  const latestReportSummary = latestReport ? buildReportDeliverySummary(latestReport) : null;
+  const latestReportState = latestReport ? latestReportDeliveryState(latestReport) : null;
 
   if (!latestSession) {
     return {
@@ -137,12 +163,12 @@ export function summarizeDashboardStudent(student: StudentListRow): DashboardStu
     };
   }
 
-  if (latestReportSummary?.deliveryState === "draft") {
+  if (latestReportState === "draft") {
     return {
       id: student.id,
       name: student.name,
       grade: student.grade,
-      state: latestReportSummary.deliveryStateLabel,
+      state: reportDeliveryStateLabel(latestReportState),
       oneLiner:
         latestSession.heroOneLiner ??
         latestSession.latestSummary ??
@@ -158,12 +184,12 @@ export function summarizeDashboardStudent(student: StudentListRow): DashboardStu
     };
   }
 
-  if (latestReportSummary?.deliveryState === "reviewed") {
+  if (latestReportState === "reviewed") {
     return {
       id: student.id,
       name: student.name,
       grade: student.grade,
-      state: latestReportSummary.deliveryStateLabel,
+      state: reportDeliveryStateLabel(latestReportState),
       oneLiner:
         latestSession.heroOneLiner ?? latestSession.latestSummary ?? "保護者レポートは確認済みです。共有に進めます。",
       queue: {
@@ -177,12 +203,12 @@ export function summarizeDashboardStudent(student: StudentListRow): DashboardStu
     };
   }
 
-  if (latestReportSummary && ["failed", "bounced"].includes(latestReportSummary.deliveryState)) {
+  if (latestReportState && ["failed", "bounced"].includes(latestReportState)) {
     return {
       id: student.id,
       name: student.name,
       grade: student.grade,
-      state: latestReportSummary.deliveryStateLabel,
+      state: reportDeliveryStateLabel(latestReportState),
       oneLiner: "送信に失敗しています。再送または手動共有を確認してください。",
       queue: {
         kind: "share",
@@ -196,14 +222,14 @@ export function summarizeDashboardStudent(student: StudentListRow): DashboardStu
   }
 
   if (
-    latestReportSummary &&
-    ["sent", "delivered", "resent", "manual_shared"].includes(latestReportSummary.deliveryState)
+    latestReportState &&
+    ["sent", "delivered", "resent", "manual_shared"].includes(latestReportState)
   ) {
     return {
       id: student.id,
       name: student.name,
       grade: student.grade,
-      state: latestReportSummary.deliveryStateLabel,
+      state: reportDeliveryStateLabel(latestReportState),
       oneLiner:
         latestSession.heroOneLiner ??
         latestSession.latestSummary ??
@@ -238,41 +264,56 @@ export function summarizeDashboardStudent(student: StudentListRow): DashboardStu
 }
 
 function buildDashboardStats(students: StudentListRow[]): DashboardStats {
-  const reportUncreated = students.filter((item) => Boolean(item.sessions?.[0]?.conversation?.id) && !item.reports?.[0]).length;
-  const reviewWait = students.filter(
-    (item) => latestReportSummary(item.reports?.[0] ?? null)?.deliveryState === "draft"
-  ).length;
-  const shareWait = students.filter(
-    (item) => latestReportSummary(item.reports?.[0] ?? null)?.deliveryState === "reviewed"
-  ).length;
-  const sent = students.filter((item) => {
-    const state = latestReportSummary(item.reports?.[0] ?? null)?.deliveryState;
-    return state === "sent" || state === "delivered" || state === "resent" || state === "manual_shared";
-  }).length;
-  const manualShare = students.filter(
-    (item) => latestReportSummary(item.reports?.[0] ?? null)?.deliveryState === "manual_shared"
-  ).length;
-  const delivered = students.filter(
-    (item) => latestReportSummary(item.reports?.[0] ?? null)?.deliveryState === "delivered"
-  ).length;
-  const resent = students.filter(
-    (item) => latestReportSummary(item.reports?.[0] ?? null)?.deliveryState === "resent"
-  ).length;
-  const failedBounced = students.filter((item) => {
-    const state = latestReportSummary(item.reports?.[0] ?? null)?.deliveryState;
-    return state === "failed" || state === "bounced";
-  }).length;
+  let reportUncreated = 0;
+  let reviewWait = 0;
+  let shareWait = 0;
+  let sent = 0;
+  let manualShare = 0;
+  let delivered = 0;
+  let resent = 0;
+  let failedBounced = 0;
+  const shareDurations: number[] = [];
 
-  const shareDurations = students
-    .map((item) => {
-      const latestReport = item.reports?.[0] ?? null;
-      const shareState = latestReportSummary(latestReport)?.deliveryState;
-      if (!latestReport || !shareState || !["sent", "delivered", "resent", "manual_shared"].includes(shareState)) {
-        return null;
-      }
-      return diffHours(latestReport.reviewedAt ?? latestReport.createdAt, latestReport.sentAt);
-    })
-    .filter((value): value is number => typeof value === "number");
+  for (const item of students) {
+    const latestSession = item.sessions?.[0];
+    const latestReport = item.reports?.[0] ?? null;
+    const state = latestReport ? latestReportDeliveryState(latestReport) : null;
+
+    if (latestSession?.conversation?.id && !latestReport) {
+      reportUncreated += 1;
+      continue;
+    }
+
+    if (state === "draft") {
+      reviewWait += 1;
+      continue;
+    }
+
+    if (state === "reviewed") {
+      shareWait += 1;
+      continue;
+    }
+
+    if (state === "manual_shared") {
+      sent += 1;
+      manualShare += 1;
+    } else if (state === "delivered") {
+      sent += 1;
+      delivered += 1;
+    } else if (state === "resent") {
+      sent += 1;
+      resent += 1;
+    } else if (state === "failed" || state === "bounced") {
+      failedBounced += 1;
+    } else if (state === "sent") {
+      sent += 1;
+    }
+
+    if (latestReport && state && ["sent", "delivered", "resent", "manual_shared"].includes(state)) {
+      const duration = diffHours(latestReport.reviewedAt ?? latestReport.createdAt, latestReport.sentAt);
+      if (typeof duration === "number") shareDurations.push(duration);
+    }
+  }
 
   return {
     reportUncreated,
@@ -331,49 +372,14 @@ function getCachedDashboardSnapshotBase(options: DashboardSnapshotOptions) {
       }),
     ["dashboard-snapshot", organizationId, String(candidateLimit), String(queueLimit)],
     {
-      revalidate: 10,
+      revalidate: 30,
       tags: [`dashboard-snapshot:${organizationId}`],
     }
   )();
 }
 
-async function getActiveRecordingLocks(studentIds: string[]) {
-  if (studentIds.length === 0) return new Map<string, { mode: string; lockedByName: string }>();
-
-  const activeLocks = await prisma.studentRecordingLock.findMany({
-    where: {
-      studentId: { in: studentIds },
-      expiresAt: { gt: new Date() },
-    },
-    select: {
-      studentId: true,
-      mode: true,
-      lockedBy: { select: { name: true } },
-    },
-  });
-
-  return new Map(
-    activeLocks.map((lock) => [
-      lock.studentId,
-      {
-        mode: lock.mode,
-        lockedByName: lock.lockedBy.name,
-      },
-    ])
-  );
-}
-
 export async function getDashboardSnapshot(
   options: DashboardSnapshotOptions
 ): Promise<DashboardSnapshot> {
-  const base = await getCachedDashboardSnapshotBase(options);
-  const lockMap = await getActiveRecordingLocks(base.queue.map((item) => item.id));
-
-  return {
-    ...base,
-    queue: base.queue.map((item) => ({
-      ...item,
-      recordingLock: lockMap.get(item.id) ?? null,
-    })),
-  };
+  return getCachedDashboardSnapshotBase(options);
 }
