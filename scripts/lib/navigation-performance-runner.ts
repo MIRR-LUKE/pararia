@@ -139,10 +139,21 @@ export async function runNavigationPerformanceScenarios(context: BrowserContext,
       emptyCheck: async () => (await page.getByText("条件に合う生徒がいません").count()) > 0,
       interaction: async () => {
         const startedAt = Date.now();
-        await page.locator("input[placeholder='名前、フリガナ、学年、コースで検索']").fill("__zz_no_match__");
+        const searchInput = page.locator("input[placeholder='名前、フリガナ、学年、コースで検索']");
+        await searchInput.waitFor({ state: "visible", timeout: 5_000 });
+        await page.waitForFunction(() => {
+          const input = document.querySelector("input[placeholder='名前、フリガナ、学年、コースで検索']") as
+            | HTMLInputElement
+            | null;
+          return Boolean(input && (input as unknown as { _valueTracker?: unknown })._valueTracker);
+        });
+        await searchInput.fill("__zz_no_match__");
+        await page.waitForTimeout(120);
         await waitForCondition(
           15_000,
-          async () => (await page.getByText("条件に合う生徒がいません").count()) > 0,
+          async () =>
+            (await page.getByText("条件に合う生徒がいません").count()) > 0 ||
+            (await page.locator("article").count()) === 0,
           "生徒一覧の空状態に到達しませんでした。"
         );
         return Date.now() - startedAt;

@@ -2,7 +2,7 @@
 const nextConfig = {
   reactStrictMode: true,
   experimental: {
-    serverComponentsExternalPackages: ["@vercel/blob", "undici"],
+    serverComponentsExternalPackages: ["@vercel/blob", "undici", "@node-rs/bcrypt"],
   },
 };
 

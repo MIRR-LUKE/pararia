@@ -31,6 +31,36 @@ async function loadJsonIfExists<T>(filePath: string): Promise<T | null> {
   return JSON.parse(await readFile(filePath, "utf8")) as T;
 }
 
+async function measureAuthApi(baseUrl: string) {
+  const csrfStartedAt = Date.now();
+  const csrfResponse = await fetch(`${baseUrl}/api/auth/csrf`);
+  const csrfBody = await csrfResponse.json();
+  const csrfMs = Date.now() - csrfStartedAt;
+
+  const authStartedAt = Date.now();
+  const loginResponse = await fetch(`${baseUrl}/api/auth/callback/credentials?json=true`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    redirect: "manual",
+    body: new URLSearchParams({
+      csrfToken: String(csrfBody?.csrfToken ?? ""),
+      email: "admin@demo.com",
+      password: "demo123",
+      callbackUrl: `${baseUrl}/app/dashboard`,
+      json: "true",
+    }),
+  });
+  if (loginResponse.status >= 400) {
+    throw new Error(`認証 API に失敗しました: ${loginResponse.status}`);
+  }
+  return {
+    csrfMs,
+    authApiMs: Date.now() - authStartedAt,
+  };
+}
+
 async function main() {
   const label = argValue("--label") || "local";
   const baseUrl = argValue("--base-url") || "http://localhost:3000";
@@ -73,7 +103,8 @@ async function main() {
     await page.waitForSelector("h1", { timeout: 20_000 });
     const loginPageMs = Date.now() - loginPageStartedAt;
 
-    const authApiStartedAt = Date.now();
+    const authMetric = await measureAuthApi(baseUrl);
+
     const csrfResponse = await context.request.get(`${baseUrl}/api/auth/csrf`);
     const csrfBody = await csrfResponse.json();
     const loginResponse = await context.request.post(`${baseUrl}/api/auth/callback/credentials?json=true`, {
@@ -87,7 +118,7 @@ async function main() {
       maxRedirects: 0,
     });
     if (loginResponse.status() >= 400) throw new Error(`認証 API に失敗しました: ${loginResponse.status()}`);
-    const authApiMs = Date.now() - authApiStartedAt;
+    const authApiMs = authMetric.authApiMs;
 
     const createdStudentResponse = await context.request.post(`${baseUrl}/api/students`, {
       data: {

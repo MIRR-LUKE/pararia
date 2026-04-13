@@ -52,9 +52,9 @@
     "seed": "tsx prisma/seed.ts"
   },
   "dependencies": {
+    "@node-rs/bcrypt": "^1.10.7",
     "@prisma/client": "^5.9.0",
     "@vercel/blob": "^2.3.3",
-    "bcryptjs": "^2.4.3",
     "clsx": "^2.0.0",
     "iconv-lite": "^0.6.3",
     "music-metadata": "^11.12.3",
@@ -64,7 +64,6 @@
     "react-dom": "18.2.0"
   },
   "devDependencies": {
-    "@types/bcryptjs": "^2.4.2",
     "@types/node": "^20.10.5",
     "@types/react": "^18.2.38",
     "eslint": "^8.56.0",
