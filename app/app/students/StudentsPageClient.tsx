@@ -16,6 +16,7 @@ type ViewKey = "all" | "interview" | "report" | "review" | "share" | "sent";
 
 type StudentsPageClientProps = {
   initialStudents: StudentDirectoryViewRow[];
+  initialLimit: number;
   viewerName?: string | null;
   viewerRole?: string | null;
 };
@@ -48,6 +49,7 @@ function isPresent(value: string | null): value is string {
 
 export default function StudentsPageClient({
   initialStudents,
+  initialLimit,
   viewerName,
   viewerRole,
 }: StudentsPageClientProps) {
@@ -81,7 +83,7 @@ export default function StudentsPageClient({
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [initialLimit]);
 
   useEffect(() => {
     setStudents(initialStudents);

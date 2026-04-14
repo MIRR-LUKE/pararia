@@ -1,11 +1,13 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import { pathToFileURL } from "node:url";
 import {
   ConversationJobType,
   ConversationSourceType,
   ConversationStatus,
   ReportDeliveryEventType,
   ReportStatus,
+  SessionPartType,
   SessionStatus,
   SessionType,
 } from "@prisma/client";
@@ -17,6 +19,16 @@ import { loadLocalEnvFiles } from "./load-local-env";
 
 export const CRITICAL_PATH_ADMIN_EMAIL = "admin@demo.com";
 export const CRITICAL_PATH_ADMIN_PASSWORD = "demo123";
+export const CRITICAL_PATH_BASE_URL = process.env.CRITICAL_PATH_BASE_URL?.trim() || "http://127.0.0.1:3000";
+export const CRITICAL_PATH_BOOTSTRAP_URL = process.env.CRITICAL_PATH_BOOTSTRAP_URL?.trim() || "";
+export const DEMO_EMAIL = process.env.CRITICAL_PATH_SMOKE_EMAIL?.trim() || CRITICAL_PATH_ADMIN_EMAIL;
+export const DEMO_PASSWORD = process.env.CRITICAL_PATH_SMOKE_PASSWORD?.trim() || CRITICAL_PATH_ADMIN_PASSWORD;
+export const ROOM_STUDENT_ID = "student-demo-1";
+export const LOCK_STUDENT_ID = "student-demo-2";
+export const NEXT_MEETING_SESSION_ID = "session-demo-1-interview";
+export const NEXT_MEETING_CONVERSATION_ID = "conversation-demo-1-interview";
+export const SESSION_ROUTE_SESSION_ID = "session-critical-path-routes";
+export const SESSION_ROUTE_STUDENT_ID = ROOM_STUDENT_ID;
 
 export type CriticalPathSmokeFixture = {
   studentId: string;
@@ -404,4 +416,211 @@ export async function createNextMeetingMemoFixture(): Promise<
       await cleanupStudentFixtures([studentId]);
     },
   };
+}
+
+type JsonValue = Record<string, unknown>;
+
+class CookieJar {
+  private readonly cookies = new Map<string, string>();
+
+  updateFromResponse(response: Response) {
+    for (const rawCookie of getSetCookieHeaders(response.headers)) {
+      const firstSegment = rawCookie.split(";", 1)[0]?.trim();
+      if (!firstSegment) continue;
+      const separatorIndex = firstSegment.indexOf("=");
+      if (separatorIndex <= 0) continue;
+      const name = firstSegment.slice(0, separatorIndex).trim();
+      const value = firstSegment.slice(separatorIndex + 1).trim();
+      if (!name) continue;
+      this.cookies.set(name, value);
+    }
+  }
+
+  toHeader() {
+    return Array.from(this.cookies.entries())
+      .map(([name, value]) => `${name}=${value}`)
+      .join("; ");
+  }
+}
+
+function getSetCookieHeaders(headers: Headers) {
+  const extended = headers as Headers & { getSetCookie?: () => string[] };
+  if (typeof extended.getSetCookie === "function") {
+    return extended.getSetCookie();
+  }
+  const single = headers.get("set-cookie");
+  return single ? [single] : [];
+}
+
+function withCookieHeader(headers: HeadersInit | undefined, jar: CookieJar) {
+  const nextHeaders = new Headers(headers);
+  const cookieHeader = jar.toHeader();
+  if (cookieHeader) {
+    nextHeaders.set("cookie", cookieHeader);
+  }
+  return nextHeaders;
+}
+
+export async function prepareSessionRouteSmokeSession(sessionId: string = SESSION_ROUTE_SESSION_ID) {
+  await loadCriticalPathSmokeEnv();
+
+  const student = await prisma.student.findUnique({
+    where: { id: SESSION_ROUTE_STUDENT_ID },
+    select: { id: true, organizationId: true },
+  });
+  assert.ok(student, `student ${SESSION_ROUTE_STUDENT_ID} is required for session route smoke`);
+
+  const user = await prisma.user.findUnique({
+    where: { email: DEMO_EMAIL },
+    select: { id: true },
+  });
+
+  await cleanupSessionRouteSmokeSession(sessionId);
+
+  return prisma.session.upsert({
+    where: { id: sessionId },
+    update: {
+      organizationId: student.organizationId,
+      studentId: student.id,
+      userId: user?.id ?? null,
+      type: SessionType.INTERVIEW,
+      status: SessionStatus.DRAFT,
+      title: "Critical path smoke session",
+      notes: null,
+      sessionDate: new Date("2026-04-14T00:00:00.000Z"),
+      heroStateLabel: null,
+      heroOneLiner: null,
+      latestSummary: null,
+      completedAt: null,
+    },
+    create: {
+      id: sessionId,
+      organizationId: student.organizationId,
+      studentId: student.id,
+      userId: user?.id ?? null,
+      type: SessionType.INTERVIEW,
+      status: SessionStatus.DRAFT,
+      title: "Critical path smoke session",
+      notes: null,
+      sessionDate: new Date("2026-04-14T00:00:00.000Z"),
+    },
+  });
+}
+
+export async function cleanupSessionRouteSmokeSession(sessionId: string = SESSION_ROUTE_SESSION_ID) {
+  const sessionParts = await prisma.sessionPart.findMany({
+    where: { sessionId },
+    select: { id: true },
+  });
+  const sessionPartIds = sessionParts.map((part) => part.id);
+
+  const conversation = await prisma.conversationLog.findUnique({
+    where: { sessionId },
+    select: { id: true },
+  });
+
+  await prisma.nextMeetingMemo.deleteMany({ where: { sessionId } });
+  await prisma.properNounSuggestion.deleteMany({ where: { sessionId } });
+
+  if (sessionPartIds.length > 0) {
+    await prisma.properNounSuggestion.deleteMany({
+      where: { sessionPartId: { in: sessionPartIds } },
+    });
+    await prisma.sessionPartJob.deleteMany({
+      where: { sessionPartId: { in: sessionPartIds } },
+    });
+  }
+
+  if (conversation?.id) {
+    await prisma.properNounSuggestion.deleteMany({
+      where: { conversationId: conversation.id },
+    });
+    await prisma.conversationJob.deleteMany({
+      where: { conversationId: conversation.id },
+    });
+  }
+
+  await prisma.conversationLog.deleteMany({ where: { sessionId } });
+  await prisma.sessionPart.deleteMany({ where: { sessionId } });
+  await prisma.session.updateMany({
+    where: { id: sessionId },
+    data: {
+      status: SessionStatus.DRAFT,
+      heroStateLabel: null,
+      heroOneLiner: null,
+      latestSummary: null,
+      completedAt: null,
+    },
+  });
+
+  const fullPart = await prisma.sessionPart.findUnique({
+    where: {
+      sessionId_partType: {
+        sessionId,
+        partType: SessionPartType.FULL,
+      },
+    },
+    select: { id: true },
+  });
+  assert.equal(fullPart, null, "session route smoke cleanup should remove FULL session part");
+}
+
+export async function loginForCriticalPathSmoke(
+  baseUrl: string = CRITICAL_PATH_BASE_URL,
+  options?: {
+    bootstrapUrl?: string | null;
+  }
+) {
+  await loadCriticalPathSmokeEnv();
+  const previousBootstrapUrl = process.env.CRITICAL_PATH_BOOTSTRAP_URL;
+  if (options?.bootstrapUrl !== undefined) {
+    process.env.CRITICAL_PATH_BOOTSTRAP_URL = options.bootstrapUrl ?? "";
+  }
+
+  const { api, close } = await createCriticalPathSmokeApi(baseUrl);
+
+  if (options?.bootstrapUrl !== undefined) {
+    process.env.CRITICAL_PATH_BOOTSTRAP_URL = previousBootstrapUrl;
+  }
+
+  return {
+    baseUrl,
+    async requestJson<T extends JsonValue = JsonValue>(pathname: string, init?: RequestInit) {
+      const method = (init?.method ?? "GET").toUpperCase();
+      const headers = init?.headers as Record<string, string> | undefined;
+      const requestOptions: any = {};
+      if (headers) {
+        requestOptions.headers = headers;
+      }
+      if (init?.body instanceof FormData) {
+        requestOptions.multipart = init.body;
+      } else if (init?.body !== undefined) {
+        requestOptions.data = init.body;
+      }
+
+      const response =
+        method === "POST"
+          ? await api.post(pathname, requestOptions)
+          : method === "DELETE"
+            ? await api.delete(pathname, requestOptions)
+            : method === "PATCH"
+              ? await api.patch(pathname, requestOptions)
+              : method === "PUT"
+                ? await api.put(pathname, requestOptions)
+                : await api.get(pathname, requestOptions);
+      const body = (await response.json().catch(() => ({}))) as T;
+      return {
+        response: {
+          status: response.status(),
+          ok: response.ok(),
+        },
+        body,
+      };
+    },
+    close,
+  };
+}
+
+export function isMainModule(metaUrl: string) {
+  return process.argv[1] ? metaUrl === pathToFileURL(process.argv[1]).href : false;
 }

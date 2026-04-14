@@ -9,7 +9,6 @@ import {
   respondWithOperationError,
 } from "@/lib/observability/operation-errors";
 import { shouldRunBackgroundJobsInline } from "@/lib/jobs/execution-mode";
-import { createOperationContext, logOperationError, operationErrorResponse, withOperationMeta } from "@/lib/observability/operation-errors";
 import {
   acquireRecordingLock,
   forceReleaseRecordingLock,
@@ -231,7 +230,7 @@ export async function POST(
         },
       });
       return NextResponse.json(
-        withOperationMeta(operation, "acquire_lock", {
+        {
           error: result.messageJa,
           operationId: context.operationId,
           stage: "acquire_conflict",
@@ -242,7 +241,7 @@ export async function POST(
           },
           mode: result.mode,
           expiresAt: result.expiresAt,
-        }),
+        },
         { status: 409 }
       );
     }

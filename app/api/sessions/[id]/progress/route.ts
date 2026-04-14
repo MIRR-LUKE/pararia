@@ -140,61 +140,19 @@ async function recoverMissingConversationJobs(conversationId: string | null | un
 
 export async function GET(
   request: Request,
-  { params }: { params: Promise<{ id: string }> }
+  { params }: { params: RouteParams }
 ) {
   try {
-    const { id } = await Promise.resolve(params);
+    const sessionId = await resolveRouteId(params);
+    if (!sessionId) {
+      return NextResponse.json({ error: "sessionId が必要です。" }, { status: 400 });
+    }
+
     const authResult = await requireAuthorizedSession();
     if (authResult.response) return authResult.response;
     const authSession = authResult.session;
 
-    const session = await prisma.session.findFirst({
-      where: {
-        id,
-        organizationId: authSession.user.organizationId,
-      },
-      include: {
-        parts: {
-          orderBy: { createdAt: "asc" },
-          select: {
-            id: true,
-            partType: true,
-            status: true,
-            fileName: true,
-            rawTextOriginal: true,
-            rawTextCleaned: true,
-            reviewedText: true,
-            reviewState: true,
-            qualityMetaJson: true,
-          },
-        },
-        conversation: {
-          select: {
-            id: true,
-            status: true,
-            summaryMarkdown: true,
-            createdAt: true,
-            jobs: {
-              select: {
-                type: true,
-                status: true,
-                startedAt: true,
-                finishedAt: true,
-              },
-            },
-          },
-        },
-        nextMeetingMemo: {
-          select: {
-            status: true,
-            previousSummary: true,
-            suggestedTopics: true,
-            errorMessage: true,
-            updatedAt: true,
-          },
-        },
-      },
-    });
+    let session = await loadSessionProgressSnapshot(sessionId, authSession.user.organizationId);
 
     if (!session) {
       return NextResponse.json({ error: "セッションが見つかりません。" }, { status: 404 });

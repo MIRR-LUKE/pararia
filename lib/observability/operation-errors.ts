@@ -8,6 +8,25 @@ export type OperationErrorContext = {
 
 export type OperationErrorStage = string;
 export type OperationErrorLevel = "warn" | "error";
+export type OperationContext = {
+  route: string;
+  operationId: string;
+};
+
+type OperationErrorOptions = {
+  stage: string;
+  message: string;
+  status?: number;
+  error?: unknown;
+  extra?: Record<string, unknown>;
+};
+
+type OperationLogOptions = {
+  stage: string;
+  message?: string;
+  error?: unknown;
+  extra?: Record<string, unknown>;
+};
 
 export function createOperationErrorContext(operation: string): OperationErrorContext {
   return {
@@ -72,5 +91,48 @@ export function respondWithOperationError(input: {
       stage: input.stage,
     },
     { status: input.status }
+  );
+}
+
+export function createOperationContext(route: string): OperationContext {
+  return {
+    route,
+    operationId: randomUUID(),
+  };
+}
+
+export function withOperationMeta<T extends Record<string, unknown>>(
+  context: OperationContext,
+  stage: string,
+  body: T
+) {
+  return {
+    ...body,
+    operationId: context.operationId,
+    stage,
+  };
+}
+
+export function logOperationError(context: OperationContext, options: OperationLogOptions) {
+  logOperationIssue({
+    context: {
+      operation: context.route,
+      operationId: context.operationId,
+    },
+    stage: options.stage,
+    message: options.message ?? (options.error instanceof Error ? options.error.message : "Unexpected error"),
+    error: options.error,
+    extra: options.extra,
+  });
+}
+
+export function operationErrorResponse(context: OperationContext, options: OperationErrorOptions) {
+  logOperationError(context, options);
+  return NextResponse.json(
+    withOperationMeta(context, options.stage, {
+      error: options.message,
+      ...(options.extra ?? {}),
+    }),
+    { status: options.status ?? 500 }
   );
 }

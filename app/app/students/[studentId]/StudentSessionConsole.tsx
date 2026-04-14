@@ -6,6 +6,7 @@ import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { buildUnsupportedAudioUploadErrorMessage, isSupportedAudioUpload } from "@/lib/audio-upload-support";
 import { buildLessonReportFlowMessage, getLessonReportPartState } from "@/lib/lesson-report-flow";
 import { buildSessionPartUploadPathname } from "@/lib/audio-storage-paths";
+import { ENABLE_LESSON_REPORT_UI } from "@/lib/product-flags";
 import type { RecordingLockInfo, SessionItem } from "./roomTypes";
 import {
   CLIENT_AUDIO_STORAGE_MODE,

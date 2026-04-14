@@ -59,10 +59,14 @@ async function recoverMissingConversationJobs(conversationId: string) {
 
 export async function GET(
   request: Request,
-  { params }: { params: Promise<{ id: string }> }
+  { params }: { params: RouteParams }
 ) {
   try {
-    const { id } = await Promise.resolve(params);
+    const conversationId = await resolveRouteId(params);
+    if (!conversationId) {
+      return NextResponse.json({ error: "conversationId is required" }, { status: 400 });
+    }
+
     const authResult = await requireAuthorizedSession();
     if (authResult.response) return authResult.response;
     const organizationId = authResult.session.user.organizationId;
@@ -73,7 +77,7 @@ export async function GET(
 
     if (brief) {
       const briefConversation = await prisma.conversationLog.findFirst({
-        where: { id, organizationId },
+        where: { id: conversationId, organizationId },
         select: {
           id: true,
           sessionId: true,
@@ -105,8 +109,14 @@ export async function GET(
         return NextResponse.json({ error: "not found" }, { status: 404 });
       }
       if (process === "1") {
-        if (shouldRunBackgroundJobsInline()) {
-          void processAllConversationJobs(id).catch(() => {});
+        const recovery = await recoverMissingConversationJobs(conversationId).catch(() => ({
+          healed: false as const,
+          reason: "recovery_failed" as const,
+        }));
+        if (recovery.healed) {
+          // Recovery already processed the queued finalize job inline.
+        } else if (shouldRunBackgroundJobsInline()) {
+          await processAllConversationJobs(conversationId).catch(() => {});
         } else if (briefConversation.status === "PROCESSING") {
           await wakeConversationWorkerOrFallback(conversationId).catch(() => {});
         }
@@ -115,7 +125,7 @@ export async function GET(
     }
 
     const conversation = await prisma.conversationLog.findFirst({
-      where: { id, organizationId },
+      where: { id: conversationId, organizationId },
       include: {
         student: {
           select: {
@@ -167,14 +177,18 @@ export async function GET(
       return NextResponse.json({ error: "not found" }, { status: 404 });
     }
     if (process === "1") {
-      if (shouldRunBackgroundJobsInline()) {
-        void (async () => {
-          try {
-            await processAllConversationJobs(id);
-          } finally {
-            await maybeStopRunpodWorkerWhenSessionPartQueueIdle().catch(() => {});
-          }
-        })();
+      const recovery = await recoverMissingConversationJobs(conversationId).catch(() => ({
+        healed: false as const,
+        reason: "recovery_failed" as const,
+      }));
+      if (recovery.healed) {
+        // Recovery already processed the queued finalize job inline.
+      } else if (shouldRunBackgroundJobsInline()) {
+        try {
+          await processAllConversationJobs(conversationId);
+        } finally {
+          await maybeStopRunpodWorkerWhenSessionPartQueueIdle().catch(() => {});
+        }
       } else if (conversation.status === "PROCESSING") {
         await wakeConversationWorkerOrFallback(conversationId).catch(() => {});
       }
@@ -225,16 +239,20 @@ export async function GET(
 
 export async function DELETE(
   _request: Request,
-  { params }: { params: Promise<{ id: string }> }
+  { params }: { params: RouteParams }
 ) {
   try {
-    const { id } = await Promise.resolve(params);
+    const conversationId = await resolveRouteId(params);
+    if (!conversationId) {
+      return NextResponse.json({ error: "conversationId is required" }, { status: 400 });
+    }
+
     const authResult = await requireAuthorizedSession();
     if (authResult.response) return authResult.response;
     const organizationId = authResult.session.user.organizationId;
 
     const conversation = await prisma.conversationLog.findFirst({
-      where: { id, organizationId },
+      where: { id: conversationId, organizationId },
       select: { id: true, studentId: true, sessionId: true },
     });
 
@@ -254,24 +272,24 @@ export async function DELETE(
     });
 
     const detachedReportIds = relatedReports
-      .filter((report) => toStringArray(report.sourceLogIds).includes(id))
+      .filter((report) => toStringArray(report.sourceLogIds).includes(conversationId))
       .map((report) => report.id);
 
     await prisma.$transaction(async (tx) => {
       for (const report of relatedReports) {
         const sourceLogIds = toStringArray(report.sourceLogIds);
-        if (!sourceLogIds.includes(id)) continue;
+        if (!sourceLogIds.includes(conversationId)) continue;
 
         await tx.report.update({
           where: { id: report.id },
           data: {
-            sourceLogIds: sourceLogIds.filter((logId) => logId !== id),
+            sourceLogIds: sourceLogIds.filter((logId) => logId !== conversationId),
           },
         });
       }
 
-      await tx.conversationJob.deleteMany({ where: { conversationId: id } });
-      await tx.conversationLog.delete({ where: { id } });
+      await tx.conversationJob.deleteMany({ where: { conversationId } });
+      await tx.conversationLog.delete({ where: { id: conversationId } });
 
       if (conversation.sessionId) {
         await tx.session.updateMany({
@@ -290,8 +308,8 @@ export async function DELETE(
     await writeAuditLog({
       userId: authResult.session.user.id,
       action: "conversation.delete",
-        detail: {
-        conversationId: id,
+      detail: {
+        conversationId,
         studentId: conversation.studentId,
         sessionId: conversation.sessionId,
         detachedReportCount: detachedReportIds.length,
@@ -324,16 +342,20 @@ export async function DELETE(
 
 export async function PATCH(
   request: Request,
-  { params }: { params: Promise<{ id: string }> }
+  { params }: { params: RouteParams }
 ) {
   try {
-    const { id } = await Promise.resolve(params);
+    const conversationId = await resolveRouteId(params);
+    if (!conversationId) {
+      return NextResponse.json({ error: "conversationId is required" }, { status: 400 });
+    }
+
     const authResult = await requireAuthorizedSession();
     if (authResult.response) return authResult.response;
     const organizationId = authResult.session.user.organizationId;
 
     const conversation = await prisma.conversationLog.findFirst({
-      where: { id, organizationId },
+      where: { id: conversationId, organizationId },
       select: {
         id: true,
         summaryMarkdown: true,

@@ -4,9 +4,53 @@ import { ensureConversationForSession } from "@/lib/session-service";
 import { enqueueConversationJobs, processAllConversationJobs } from "@/lib/jobs/conversationJobs";
 import { shouldRunBackgroundJobsInline } from "@/lib/jobs/execution-mode";
 import { maybeStopRunpodWorkerWhenSessionPartQueueIdle } from "@/lib/runpod/idle-stop";
+import { maybeEnsureRunpodWorker } from "@/lib/runpod/worker-control";
 import { toPrismaJson } from "@/lib/prisma-json";
 import { toSessionPartMetaJson } from "@/lib/session-part-meta";
 import { type SessionPartJobPayload, type SessionPartPayload } from "./shared";
+
+type PromoteConversationDispatchDeps = {
+  enqueueConversationJobs: typeof enqueueConversationJobs;
+  processAllConversationJobs: typeof processAllConversationJobs;
+  shouldRunBackgroundJobsInline: typeof shouldRunBackgroundJobsInline;
+  maybeEnsureRunpodWorker: typeof maybeEnsureRunpodWorker;
+};
+
+export async function dispatchPromotedConversationJobs(
+  conversationId: string,
+  deps: PromoteConversationDispatchDeps = {
+    enqueueConversationJobs,
+    processAllConversationJobs,
+    shouldRunBackgroundJobsInline,
+    maybeEnsureRunpodWorker,
+  }
+) {
+  await deps.enqueueConversationJobs(conversationId);
+
+  if (deps.shouldRunBackgroundJobsInline()) {
+    void deps.processAllConversationJobs(conversationId).catch((error) => {
+      console.error("[sessionPartJobs] Background conversation processing failed:", error);
+    });
+    return {
+      mode: "inline" as const,
+      workerWake: null,
+    };
+  }
+
+  const workerWake = await deps.maybeEnsureRunpodWorker().catch((error: any) => ({
+    attempted: true,
+    ok: false,
+    error: error?.message ?? String(error),
+  }));
+  if (workerWake?.attempted && !workerWake.ok) {
+    console.error("[sessionPartJobs] Runpod worker wake failed after promotion:", workerWake);
+  }
+
+  return {
+    mode: "external" as const,
+    workerWake,
+  };
+}
 
 export async function executePromoteSessionJob(job: SessionPartJobPayload, part: SessionPartPayload) {
   const session = await prisma.session.findUnique({
@@ -63,12 +107,7 @@ export async function executePromoteSessionJob(job: SessionPartJobPayload, part:
   });
 
   const conversationId = await ensureConversationForSession(part.sessionId);
-  await enqueueConversationJobs(conversationId);
-  if (shouldRunBackgroundJobsInline()) {
-    void processAllConversationJobs(conversationId).catch((error) => {
-      console.error("[sessionPartJobs] Background conversation processing failed:", error);
-    });
-  }
+  const dispatch = await dispatchPromotedConversationJobs(conversationId);
 
   await prisma.sessionPartJob.update({
     where: { id: job.id },
@@ -77,6 +116,8 @@ export async function executePromoteSessionJob(job: SessionPartJobPayload, part:
       finishedAt: new Date(),
       outputJson: toPrismaJson({
         conversationId,
+        dispatchMode: dispatch.mode,
+        workerWake: dispatch.workerWake,
       }),
     },
   });

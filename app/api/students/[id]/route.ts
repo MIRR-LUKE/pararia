@@ -3,15 +3,15 @@ import { NextResponse } from "next/server";
 import { writeAuditLog } from "@/lib/audit";
 import { prisma } from "@/lib/db";
 import { getLogListCacheTag } from "@/lib/logs/get-log-list-page-data";
+import { resolveRouteId, type RouteParams } from "@/lib/server/route-params";
 import { requireAuthorizedSession } from "@/lib/server/request-auth";
 import { archiveStudent, withActiveStudentWhere } from "@/lib/students/student-lifecycle";
 import { normalizeStudentUpdateInput } from "@/lib/students/student-write";
 
 export async function GET(
   _request: Request,
-  { params }: { params: Promise<{ id: string }> }
+  { params }: { params: RouteParams }
 ) {
-  const { id } = await Promise.resolve(params);
   const authResult = await requireAuthorizedSession();
   if (authResult.response) return authResult.response;
   const studentId = await resolveRouteId(params);
@@ -20,7 +20,7 @@ export async function GET(
   }
 
   const student = await prisma.student.findFirst({
-    where: withActiveStudentWhere({ id, organizationId: authResult.session.user.organizationId }),
+    where: withActiveStudentWhere({ id: studentId, organizationId: authResult.session.user.organizationId }),
     include: {
       profiles: {
         orderBy: { createdAt: "desc" },
@@ -46,15 +46,19 @@ export async function GET(
 
 export async function PUT(
   request: Request,
-  { params }: { params: Promise<{ id: string }> }
+  { params }: { params: RouteParams }
 ) {
   try {
-    const { id } = await Promise.resolve(params);
+    const studentId = await resolveRouteId(params);
+    if (!studentId) {
+      return NextResponse.json({ error: "studentId is required" }, { status: 400 });
+    }
+
     const authResult = await requireAuthorizedSession();
     if (authResult.response) return authResult.response;
 
     const existing = await prisma.student.findFirst({
-      where: withActiveStudentWhere({ id, organizationId: authResult.session.user.organizationId }),
+      where: withActiveStudentWhere({ id: studentId, organizationId: authResult.session.user.organizationId }),
       select: { id: true },
     });
     if (!existing) {
@@ -96,10 +100,14 @@ export async function PUT(
 
 export async function DELETE(
   request: Request,
-  { params }: { params: Promise<{ id: string }> }
+  { params }: { params: RouteParams }
 ) {
   try {
-    const { id } = await Promise.resolve(params);
+    const studentId = await resolveRouteId(params);
+    if (!studentId) {
+      return NextResponse.json({ error: "studentId is required" }, { status: 400 });
+    }
+
     const authResult = await requireAuthorizedSession();
     if (authResult.response) return authResult.response;
 
@@ -109,7 +117,7 @@ export async function DELETE(
         ? body.reason.trim()
         : "manual_archive";
     const archived = await archiveStudent({
-      studentId: id,
+      studentId,
       organizationId: authResult.session.user.organizationId,
       actorUserId: authResult.session.user.id,
       reason: archiveReason,
@@ -119,21 +127,29 @@ export async function DELETE(
       return NextResponse.json({ error: "not found" }, { status: 404 });
     }
 
-    await writeAuditLog({
-      userId: authResult.session.user.id,
-      action: "student.archive",
-      detail: {
+    try {
+      await writeAuditLog({
+        userId: authResult.session.user.id,
+        action: "student.archive",
+        detail: {
+          studentId: archived.student.id,
+          studentName: archived.student.name,
+          archiveReason,
+          archiveSnapshotId: archived.snapshotId,
+          conversationCount: archived.counts.conversations,
+          sessionCount: archived.counts.sessions,
+          reportCount: archived.counts.reports,
+          profileCount: archived.counts.profiles,
+          preservedRuntimeEntryCount: archived.runtimePaths.length,
+        },
+      });
+    } catch (auditError: any) {
+      console.error("[DELETE /api/students/[id]] audit log failed:", {
+        error: auditError?.message,
+        stack: auditError?.stack,
         studentId: archived.student.id,
-        studentName: archived.student.name,
-        archiveReason,
-        archiveSnapshotId: archived.snapshotId,
-        conversationCount: archived.counts.conversations,
-        sessionCount: archived.counts.sessions,
-        reportCount: archived.counts.reports,
-        profileCount: archived.counts.profiles,
-        preservedRuntimeEntryCount: archived.runtimePaths.length,
-      },
-    });
+      });
+    }
 
     revalidateTag(`student-directory:${authResult.session.user.organizationId}`, "max");
     revalidateTag(`dashboard-snapshot:${authResult.session.user.organizationId}`, "max");
