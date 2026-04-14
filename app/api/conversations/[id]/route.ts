@@ -26,6 +26,24 @@ function toStringArray(value: unknown) {
   return value.filter((entry): entry is string => typeof entry === "string");
 }
 
+async function wakeConversationWorkerOrFallback(conversationId: string) {
+  const workerWake = await maybeEnsureRunpodWorker().catch((error: any) => ({
+    attempted: true,
+    ok: false,
+    error: error?.message ?? String(error),
+  }));
+
+  if (workerWake.attempted && workerWake.ok) {
+    return;
+  }
+
+  console.warn("[GET /api/conversations/[id]] falling back to inline conversation processing", {
+    conversationId,
+    workerWake,
+  });
+  await processAllConversationJobs(conversationId);
+}
+
 export async function GET(
   request: Request,
   { params }: { params: RouteParams }
@@ -81,7 +99,7 @@ export async function GET(
         if (shouldRunBackgroundJobsInline()) {
           void processAllConversationJobs(conversationId).catch(() => {});
         } else if (briefConversation.status === "PROCESSING") {
-          void maybeEnsureRunpodWorker().catch(() => {});
+          await wakeConversationWorkerOrFallback(conversationId).catch(() => {});
         }
       }
       return NextResponse.json({ conversation: briefConversation });
@@ -149,7 +167,7 @@ export async function GET(
           }
         })();
       } else if (conversation.status === "PROCESSING") {
-        void maybeEnsureRunpodWorker().catch(() => {});
+        await wakeConversationWorkerOrFallback(conversationId).catch(() => {});
       }
     }
 

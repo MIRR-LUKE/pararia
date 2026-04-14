@@ -5,6 +5,7 @@ import { prisma } from "../../lib/db";
 import { loadLocalEnvFiles } from "./load-local-env";
 
 export const CRITICAL_PATH_BASE_URL = process.env.CRITICAL_PATH_BASE_URL?.trim() || "http://127.0.0.1:3000";
+export const CRITICAL_PATH_BOOTSTRAP_URL = process.env.CRITICAL_PATH_BOOTSTRAP_URL?.trim() || "";
 export const DEMO_EMAIL = process.env.CRITICAL_PATH_SMOKE_EMAIL?.trim() || "admin@demo.com";
 export const DEMO_PASSWORD = process.env.CRITICAL_PATH_SMOKE_PASSWORD?.trim() || "demo123";
 export const ROOM_STUDENT_ID = "student-demo-1";
@@ -179,11 +180,26 @@ export async function cleanupSessionRouteSmokeSession(sessionId: string = SESSIO
   assert.equal(fullPart, null, "session route smoke cleanup should remove FULL session part");
 }
 
-export async function loginForCriticalPathSmoke(baseUrl: string = CRITICAL_PATH_BASE_URL) {
+export async function loginForCriticalPathSmoke(
+  baseUrl: string = CRITICAL_PATH_BASE_URL,
+  options?: {
+    bootstrapUrl?: string | null;
+  }
+) {
   await loadCriticalPathEnv();
   const jar = new CookieJar();
+  const bootstrapUrl = options?.bootstrapUrl?.trim() || CRITICAL_PATH_BOOTSTRAP_URL;
 
-  const csrfResponse = await fetch(`${baseUrl}/api/auth/csrf`, { redirect: "manual" });
+  if (bootstrapUrl) {
+    const bootstrapResponse = await fetch(bootstrapUrl, { redirect: "manual" });
+    jar.updateFromResponse(bootstrapResponse);
+    assert.ok(bootstrapResponse.status < 400, `bootstrap request failed: ${bootstrapResponse.status}`);
+  }
+
+  const csrfResponse = await fetch(`${baseUrl}/api/auth/csrf`, {
+    redirect: "manual",
+    headers: withCookieHeader(undefined, jar),
+  });
   jar.updateFromResponse(csrfResponse);
   assert.equal(csrfResponse.ok, true, `csrf request failed: ${csrfResponse.status}`);
   const csrfBody = (await csrfResponse.json()) as { csrfToken?: string };

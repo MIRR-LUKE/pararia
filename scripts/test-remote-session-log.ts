@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { loginForCriticalPathSmoke } from "./lib/critical-path-smoke";
 
 const BASE_URL = process.argv[2]?.trim() || process.env.CRITICAL_PATH_BASE_URL?.trim() || "http://127.0.0.1:3000";
+const BOOTSTRAP_URL = process.argv[3]?.trim() || process.env.CRITICAL_PATH_BOOTSTRAP_URL?.trim() || "";
 const SMOKE_TRANSCRIPT =
   "今日は模試の振り返りを行い、数学の途中式を飛ばさないことと、英単語の復習時間を毎日確保することを確認した。次回までの行動が本人の言葉で整理できている。";
 
@@ -30,7 +31,9 @@ type ProgressJob = {
 };
 
 async function main() {
-  const client = await loginForCriticalPathSmoke(BASE_URL);
+  const client = await loginForCriticalPathSmoke(BASE_URL, {
+    bootstrapUrl: BOOTSTRAP_URL,
+  });
   const uniqueSuffix = `${Date.now()}`;
 
   let studentId: string | null = null;

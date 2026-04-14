@@ -24,6 +24,48 @@ export function shouldWakeExternalSessionWorker(input: {
   );
 }
 
+async function wakeSessionWorkerOrFallback(sessionId: string, hasPendingConversationWork: boolean) {
+  const workerWake = await maybeEnsureRunpodWorker().catch((error: any) => ({
+    attempted: true,
+    ok: false,
+    error: error?.message ?? String(error),
+  }));
+
+  if (workerWake.attempted && workerWake.ok) {
+    return;
+  }
+
+  console.warn("[GET /api/sessions/[id]/progress] falling back to inline processing", {
+    sessionId,
+    workerWake,
+  });
+
+  await processAllSessionPartJobs(sessionId);
+
+  const refreshedConversation = await prisma.conversationLog.findFirst({
+    where: { sessionId },
+    select: {
+      id: true,
+      status: true,
+      jobs: {
+        select: {
+          status: true,
+        },
+      },
+    },
+  });
+
+  const shouldProcessConversation =
+    Boolean(refreshedConversation?.id) &&
+    (hasPendingConversationWork ||
+      refreshedConversation?.status === "PROCESSING" ||
+      Boolean(refreshedConversation?.jobs.some((job) => job.status === "QUEUED" || job.status === "RUNNING")));
+
+  if (refreshedConversation?.id && shouldProcessConversation) {
+    await processAllConversationJobs(refreshedConversation.id);
+  }
+}
+
 export async function GET(
   request: Request,
   { params }: { params: RouteParams }
@@ -124,7 +166,7 @@ export async function GET(
           hasPendingConversationWork: needsConversationWork,
         });
         if (needsWorkerWake) {
-          void maybeEnsureRunpodWorker().catch(() => {});
+          await wakeSessionWorkerOrFallback(session.id, needsConversationWork).catch(() => {});
         }
       }
     }
