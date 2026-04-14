@@ -3,6 +3,7 @@ import { runWithDatabaseRetry } from "@/lib/db-retry";
 import { buildReportDeliverySummary } from "@/lib/report-delivery";
 import { getRecordingLockView } from "@/lib/recording/lockService";
 import { buildSessionProgressState } from "@/lib/session-progress";
+import { withActiveStudentWhere } from "@/lib/students/student-lifecycle";
 import { sanitizeReportMarkdown } from "@/lib/user-facing-japanese";
 
 export type StudentRoomScope = "summary" | "full";
@@ -277,7 +278,7 @@ export async function getStudentRoomData({
 
   const student = (await runWithDatabaseRetry("student-room", () =>
     prisma.student.findFirst({
-      where: { id: studentId, organizationId },
+      where: withActiveStudentWhere({ id: studentId, organizationId }),
       select: buildStudentRoomSelect(roomScope),
     })
   )) as any;

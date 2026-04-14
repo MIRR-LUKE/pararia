@@ -7,6 +7,7 @@ import { prisma } from "@/lib/db";
 import { generateParentReport } from "@/lib/ai/parentReport";
 import { renderConversationArtifactOrFallback } from "@/lib/conversation-artifact";
 import { getLogListCacheTag } from "@/lib/logs/get-log-list-page-data";
+import { withActiveStudentWhere } from "@/lib/students/student-lifecycle";
 
 export async function POST(request: Request) {
   try {
@@ -23,7 +24,7 @@ export async function POST(request: Request) {
     }
 
     const student = await prisma.student.findFirst({
-      where: { id: studentId, organizationId: session.user.organizationId },
+      where: withActiveStudentWhere({ id: studentId, organizationId: session.user.organizationId }),
     });
     if (!student) {
       return NextResponse.json({ error: "student not found" }, { status: 404 });

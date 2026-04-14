@@ -2,6 +2,7 @@ import { unstable_cache } from "next/cache";
 import { prisma } from "@/lib/db";
 import { deriveReportDeliveryState, reportDeliveryStateLabel } from "@/lib/report-delivery";
 import { listStudentRows, type StudentListRow } from "@/lib/students/list-student-rows";
+import { withActiveStudentWhere } from "@/lib/students/student-lifecycle";
 
 export type DashboardQueueKind = "interview" | "report" | "review" | "share" | "room";
 
@@ -342,7 +343,7 @@ async function buildDashboardSnapshotBase(
       limit: candidateLimit,
       projection: "dashboard",
     }),
-    prisma.student.count({ where: { organizationId } }),
+    prisma.student.count({ where: withActiveStudentWhere({ organizationId }) }),
   ]);
 
   const enriched = students.map((student) => summarizeDashboardStudent(student));

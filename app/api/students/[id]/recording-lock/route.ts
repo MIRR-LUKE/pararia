@@ -12,6 +12,7 @@ import {
   releaseRecordingLock,
 } from "@/lib/recording/lockService";
 import { maybeEnsureRunpodWorker } from "@/lib/runpod/worker-control";
+import { withActiveStudentWhere } from "@/lib/students/student-lifecycle";
 
 export const dynamic = "force-dynamic";
 
@@ -29,12 +30,12 @@ function canForceReleaseRole(role: string | undefined) {
 
 async function assertStudentAccess(studentId: string, organizationId: string) {
   const student = await runWithDatabaseRetry("recording-lock-student-access", () =>
-    prisma.student.findUnique({
-      where: { id: studentId },
+    prisma.student.findFirst({
+      where: withActiveStudentWhere({ id: studentId, organizationId }),
       select: { id: true, organizationId: true },
     })
   );
-  if (!student || student.organizationId !== organizationId) {
+  if (!student) {
     return null;
   }
   return student;

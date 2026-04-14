@@ -10,6 +10,7 @@ import { renderConversationArtifactOrFallback } from "@/lib/conversation-artifac
 import { getLogListCacheTag } from "@/lib/logs/get-log-list-page-data";
 import { getTranscriptExpiryDate } from "@/lib/system-config";
 import { ensureConversationReviewedTranscript } from "@/lib/transcript/review";
+import { withActiveStudentWhere } from "@/lib/students/student-lifecycle";
 import { sanitizeSummaryMarkdown } from "@/lib/user-facing-japanese";
 import { maybeStopRunpodWorkerWhenSessionPartQueueIdle } from "@/lib/runpod/idle-stop";
 import { maybeEnsureRunpodWorker } from "@/lib/runpod/worker-control";
@@ -37,6 +38,7 @@ export async function GET(request: Request) {
         where: {
           organizationId,
           studentId,
+          student: { archivedAt: null },
           ...(sessionTypeFilter ? { session: { type: sessionTypeFilter } } : {}),
         },
         orderBy: { createdAt: "desc" },
@@ -82,6 +84,7 @@ export async function GET(request: Request) {
     const conversations = await prisma.conversationLog.findMany({
       where: {
         organizationId,
+        student: { archivedAt: null },
         ...(sessionTypeFilter ? { session: { type: sessionTypeFilter } } : {}),
       },
       orderBy: { createdAt: "desc" },
@@ -147,11 +150,11 @@ export async function POST(request: Request) {
       );
     }
 
-    const student = await prisma.student.findUnique({
-      where: { id: studentId },
+    const student = await prisma.student.findFirst({
+      where: withActiveStudentWhere({ id: studentId, organizationId }),
       select: { id: true, organizationId: true },
     });
-    if (!student || student.organizationId !== organizationId) {
+    if (!student) {
       return NextResponse.json({ error: "student not found" }, { status: 404 });
     }
 

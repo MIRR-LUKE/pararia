@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db";
+import { withActiveStudentWhere } from "@/lib/students/student-lifecycle";
 import { buildStudentRowSelect, type StudentRowProjection } from "@/lib/students/student-row-query";
 
 type SessionSummary = {
@@ -95,7 +96,7 @@ export async function listStudentRows(options: ListStudentRowsOptions): Promise<
   const now = includeRecordingLock ? new Date() : null;
 
   const students = await prisma.student.findMany({
-    where: { organizationId },
+    where: withActiveStudentWhere({ organizationId }),
     ...(typeof limit === "number" ? { take: Math.floor(limit) } : {}),
     select: buildStudentRowSelect(projection),
     orderBy: { createdAt: "desc" },

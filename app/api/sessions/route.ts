@@ -3,6 +3,7 @@ import { SessionType } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { pickOngoingLessonReportSession } from "@/lib/lesson-report-flow";
 import { requireAuthorizedSession } from "@/lib/server/request-auth";
+import { withActiveStudentWhere } from "@/lib/students/student-lifecycle";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -16,6 +17,17 @@ export async function GET(request: Request) {
     const studentId = searchParams.get("studentId");
     if (!studentId) {
       return NextResponse.json({ error: "studentId is required" }, { status: 400 });
+    }
+
+    const student = await prisma.student.findFirst({
+      where: withActiveStudentWhere({
+        id: studentId,
+        organizationId: authResult.session.user.organizationId,
+      }),
+      select: { id: true },
+    });
+    if (!student) {
+      return NextResponse.json({ error: "student not found" }, { status: 404 });
     }
 
     const sessions = await prisma.session.findMany({
@@ -66,11 +78,11 @@ export async function POST(request: Request) {
       type === SessionType.LESSON_REPORT ? SessionType.LESSON_REPORT : SessionType.INTERVIEW;
     const resolvedOrgId = session.user.organizationId;
 
-    const student = await prisma.student.findUnique({
-      where: { id: studentId },
+    const student = await prisma.student.findFirst({
+      where: withActiveStudentWhere({ id: studentId, organizationId: resolvedOrgId }),
       select: { id: true, organizationId: true },
     });
-    if (!student || student.organizationId !== resolvedOrgId) {
+    if (!student) {
       return NextResponse.json({ error: "student not found" }, { status: 404 });
     }
 

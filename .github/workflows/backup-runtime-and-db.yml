@@ -1,0 +1,109 @@
+name: Backup Runtime And DB
+
+on:
+  workflow_dispatch:
+    inputs:
+      blob_mode:
+        description: Blob backup mode
+        required: false
+        default: manifest
+        type: choice
+        options:
+          - manifest
+          - full
+      blob_prefix:
+        description: Blob prefix to export when blob backup runs
+        required: false
+        default: session-audio/
+  schedule:
+    - cron: "0 */6 * * *"
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+      BLOB_READ_WRITE_TOKEN: ${{ secrets.BLOB_READ_WRITE_TOKEN }}
+      PARARIA_AUDIO_BLOB_ACCESS: private
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Prepare timestamp
+        id: stamp
+        run: echo "stamp=$(date -u +'%Y-%m-%dT%H-%M-%SZ')" >> "$GITHUB_OUTPUT"
+
+      - name: Prepare backup status directory
+        run: mkdir -p ".backups/gha-status/${{ steps.stamp.outputs.stamp }}"
+
+      - name: Capture Supabase backup status
+        if: ${{ env.SUPABASE_ACCESS_TOKEN != '' && env.SUPABASE_PROJECT_REF != '' }}
+        run: |
+          npm run backup:status -- --project-ref "$SUPABASE_PROJECT_REF" --out ".backups/gha-status/${{ steps.stamp.outputs.stamp }}/supabase-backup-status.json"
+
+      - name: Backup roles
+        run: |
+          mkdir -p ".backups/gha-db/${{ steps.stamp.outputs.stamp }}"
+          supabase db dump --db-url "$SUPABASE_DB_URL" -f ".backups/gha-db/${{ steps.stamp.outputs.stamp }}/roles.sql" --role-only
+
+      - name: Backup schema
+        run: |
+          supabase db dump --db-url "$SUPABASE_DB_URL" -f ".backups/gha-db/${{ steps.stamp.outputs.stamp }}/schema.sql"
+
+      - name: Backup data
+        run: |
+          supabase db dump --db-url "$SUPABASE_DB_URL" -f ".backups/gha-db/${{ steps.stamp.outputs.stamp }}/data.sql" --data-only --use-copy
+
+      - name: Checksum DB dumps
+        run: |
+          cd ".backups/gha-db/${{ steps.stamp.outputs.stamp }}"
+          sha256sum roles.sql schema.sql data.sql > SHA256SUMS
+
+      - name: Backup blob manifest
+        if: ${{ env.BLOB_READ_WRITE_TOKEN != '' && (github.event_name != 'workflow_dispatch' || github.event.inputs.blob_mode != 'full') }}
+        run: npm run backup:blob -- --manifest-only --prefix "${{ github.event.inputs.blob_prefix || 'session-audio/' }}" --output-dir ".backups/gha-blob"
+
+      - name: Backup blob full export
+        if: ${{ env.BLOB_READ_WRITE_TOKEN != '' && github.event_name == 'workflow_dispatch' && github.event.inputs.blob_mode == 'full' }}
+        run: npm run backup:blob -- --prefix "${{ github.event.inputs.blob_prefix || 'session-audio/' }}" --output-dir ".backups/gha-blob"
+
+      - name: Upload DB backup artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pararia-db-backup-${{ steps.stamp.outputs.stamp }}
+          path: .backups/gha-db/${{ steps.stamp.outputs.stamp }}
+          retention-days: 14
+
+      - name: Upload Supabase status artifact
+        if: ${{ env.SUPABASE_ACCESS_TOKEN != '' && env.SUPABASE_PROJECT_REF != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: pararia-supabase-status-${{ steps.stamp.outputs.stamp }}
+          path: .backups/gha-status/${{ steps.stamp.outputs.stamp }}
+          retention-days: 14
+
+      - name: Upload blob backup artifact
+        if: ${{ env.BLOB_READ_WRITE_TOKEN != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: pararia-blob-backup-${{ steps.stamp.outputs.stamp }}
+          path: .backups/gha-blob
+          retention-days: 14

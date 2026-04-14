@@ -1,5 +1,6 @@
 import { UserRole } from "@prisma/client";
 import { prisma } from "@/lib/db";
+import { withActiveStudentWhere } from "@/lib/students/student-lifecycle";
 import { getSendingConfigSummary, getTrustPolicySummary } from "@/lib/system-config";
 
 export type MissingStudent = {
@@ -67,21 +68,21 @@ export async function getSettingsSnapshot({
       select: { role: true },
     }),
     prisma.student.count({
-      where: { organizationId },
+      where: withActiveStudentWhere({ organizationId }),
     }),
     prisma.student.count({
-      where: {
+      where: withActiveStudentWhere({
         organizationId,
         guardianNames: {
           not: "",
         },
-      },
+      }),
     }),
     prisma.student.findMany({
-      where: {
+      where: withActiveStudentWhere({
         organizationId,
         OR: [{ guardianNames: null }, { guardianNames: "" }],
-      },
+      }),
       select: {
         id: true,
         name: true,

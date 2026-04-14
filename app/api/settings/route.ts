@@ -4,6 +4,7 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/db";
 import { writeAuditLog } from "@/lib/audit";
 import { canManageSettings, getSettingsSnapshot } from "@/lib/settings/get-settings-snapshot";
+import { withActiveStudentWhere } from "@/lib/students/student-lifecycle";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -74,10 +75,10 @@ export async function PATCH(request: Request) {
     }
 
     const student = await prisma.student.findFirst({
-      where: {
+      where: withActiveStudentWhere({
         id: studentId,
         organizationId: session.user.organizationId,
-      },
+      }),
       select: {
         id: true,
         name: true,

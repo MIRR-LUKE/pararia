@@ -111,7 +111,7 @@ export default function StudentsPageClient({
     await refresh();
   };
 
-  const deleteStudent = async () => {
+  const archiveStudent = async () => {
     if (!studentToDelete) return;
 
     setIsDeletingStudent(true);
@@ -121,13 +121,13 @@ export default function StudentsPageClient({
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
-        throw new Error(body?.error ?? "生徒の削除に失敗しました。");
+        throw new Error(body?.error ?? "生徒のアーカイブに失敗しました。");
       }
 
       setStudentToDelete(null);
       await refresh();
     } catch (nextError: any) {
-      alert(nextError?.message ?? "生徒の削除に失敗しました。");
+      alert(nextError?.message ?? "生徒のアーカイブに失敗しました。");
     } finally {
       setIsDeletingStudent(false);
     }
@@ -289,7 +289,7 @@ export default function StudentsPageClient({
                     className={styles.deleteButton}
                     onClick={() => setStudentToDelete(student)}
                   >
-                    削除
+                    アーカイブ
                   </Button>
                 </div>
               </article>
@@ -300,17 +300,17 @@ export default function StudentsPageClient({
 
       <ConfirmDialog
         open={Boolean(studentToDelete)}
-        title={studentToDelete ? `${studentToDelete.name} を削除しますか？` : ""}
-        description="生徒本体に加えて、関連する面談ログ・指導報告ログ・保護者レポートもまとめて削除します。"
+        title={studentToDelete ? `${studentToDelete.name} をアーカイブしますか？` : ""}
+        description="一覧からは外れますが、関連する面談ログ・指導報告ログ・保護者レポートは保持され、管理者が復旧できます。"
         details={[
-          "この操作は取り消せません。",
-          "削除後は生徒一覧と関連ログ一覧から即時に消えます。",
+          "runtime 音声と DB データは保持されます。",
+          "一覧・ダッシュボード・通常の導線からは即時に外れます。",
         ]}
-        confirmLabel="削除する"
+        confirmLabel="アーカイブする"
         cancelLabel="戻る"
         tone="danger"
         pending={isDeletingStudent}
-        onConfirm={() => void deleteStudent()}
+        onConfirm={() => void archiveStudent()}
         onCancel={() => {
           if (isDeletingStudent) return;
           setStudentToDelete(null);
