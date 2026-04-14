@@ -12,16 +12,17 @@ import { maybeEnsureRunpodWorker } from "@/lib/runpod/worker-control";
 
 export async function GET(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await Promise.resolve(params);
     const authResult = await requireAuthorizedSession();
     if (authResult.response) return authResult.response;
     const authSession = authResult.session;
 
     const session = await prisma.session.findFirst({
       where: {
-        id: params.id,
+        id,
         organizationId: authSession.user.organizationId,
       },
       include: {

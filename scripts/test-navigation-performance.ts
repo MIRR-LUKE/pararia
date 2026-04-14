@@ -3,6 +3,8 @@ import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { chromium } from "playwright-core";
+import type { BrowserContext } from "playwright-core";
+import { assertMeasurementStudent } from "./lib/measurement-student-guard";
 import { renderRoutePerformanceReport, summarizeComparison, type RoutePerformanceRun } from "./lib/navigation-performance";
 import { runNavigationPerformanceScenarios } from "./lib/navigation-performance-runner";
 
@@ -59,6 +61,36 @@ async function measureAuthApi(baseUrl: string) {
     csrfMs,
     authApiMs: Date.now() - authStartedAt,
   };
+}
+
+async function cleanupMeasurementStudent(
+  context: BrowserContext,
+  baseUrl: string,
+  studentId: string
+) {
+  const readResponse = await context.request.get(`${baseUrl}/api/students/${studentId}`);
+  if (!readResponse.ok()) {
+    if (readResponse.status() === 404) {
+      return;
+    }
+    const readBody = await readResponse.text().catch(() => "");
+    throw new Error(`検証用生徒の確認に失敗しました: ${readResponse.status()} ${readBody}`.trim());
+  }
+
+  const readBody = await readResponse.json().catch(() => ({}));
+  assertMeasurementStudent(readBody?.student, {
+    namePrefix: "[",
+    allowedGrades: ["計測用"],
+    coursePrefixes: ["route-performance"],
+  });
+
+  const response = await context.request.delete(`${baseUrl}/api/students/${studentId}`);
+  if (response.ok() || response.status() === 404) {
+    return;
+  }
+
+  const body = await response.text().catch(() => "");
+  throw new Error(`検証用生徒の削除に失敗しました: ${response.status()} ${body}`.trim());
 }
 
 async function main() {
@@ -181,7 +213,12 @@ async function main() {
     if (writeBaseline) console.log(`baseline json: ${baselinePath}`);
   } finally {
     if (studentId) {
-      await context.request.delete(`${baseUrl}/api/students/${studentId}`).catch(() => {});
+      try {
+        await cleanupMeasurementStudent(context, baseUrl, studentId);
+      } catch (error) {
+        console.error(error);
+        process.exitCode = 1;
+      }
     }
     await page.close().catch(() => {});
     await context.close().catch(() => {});

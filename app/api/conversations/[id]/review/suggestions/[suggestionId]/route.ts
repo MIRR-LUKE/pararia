@@ -50,14 +50,15 @@ async function ensureOwnedSuggestion(input: {
 
 export async function PATCH(
   request: Request,
-  { params }: { params: { id: string; suggestionId: string } }
+  { params }: { params: Promise<{ id: string; suggestionId: string }> }
 ) {
   try {
+    const { id, suggestionId } = await Promise.resolve(params);
     const authResult = await requireAuthorizedSession();
     if (authResult.response) return authResult.response;
     await ensureOwnedSuggestion({
-      conversationId: params.id,
-      suggestionId: params.suggestionId,
+      conversationId: id,
+      suggestionId,
       organizationId: authResult.session.user.organizationId,
     });
 
@@ -71,12 +72,12 @@ export async function PATCH(
     }
 
     await updateProperNounSuggestionDecision({
-      suggestionId: params.suggestionId,
+      suggestionId,
       status,
       finalValue: typeof body?.finalValue === "string" ? body.finalValue : null,
     });
 
-    const review = await listConversationProperNounSuggestions(params.id);
+    const review = await listConversationProperNounSuggestions(id);
     return NextResponse.json({ ok: true, review });
   } catch (error: any) {
     console.error("[PATCH /api/conversations/[id]/review/suggestions/[suggestionId]] Error:", error);

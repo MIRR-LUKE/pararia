@@ -16,14 +16,38 @@ type ViewKey = "all" | "interview" | "report" | "review" | "share" | "sent";
 
 type StudentsPageClientProps = {
   initialStudents: StudentDirectoryViewRow[];
-  initialLimit: number;
   viewerName?: string | null;
   viewerRole?: string | null;
 };
 
+function buildStudentEditHref(href: string) {
+  return href.includes("?") ? `${href}&editStudent=1` : `${href}?editStudent=1`;
+}
+
+function normalizeStudentNameKey(value: string) {
+  return value.normalize("NFKC").replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+function formatStudentCreatedAt(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "登録日時不明";
+  }
+
+  return new Intl.DateTimeFormat("ja-JP", {
+    month: "numeric",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
+}
+
+function isPresent(value: string | null): value is string {
+  return Boolean(value);
+}
+
 export default function StudentsPageClient({
   initialStudents,
-  initialLimit,
   viewerName,
   viewerRole,
 }: StudentsPageClientProps) {
@@ -48,7 +72,7 @@ export default function StudentsPageClient({
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`/api/students?limit=${initialLimit}`, { cache: "no-store" });
+      const res = await fetch("/api/students", { cache: "no-store" });
       const body = await res.json();
       if (!res.ok) throw new Error(body?.error ?? "生徒一覧の取得に失敗しました。");
       setStudents(body.students ?? []);
@@ -57,7 +81,7 @@ export default function StudentsPageClient({
     } finally {
       setLoading(false);
     }
-  }, [initialLimit]);
+  }, []);
 
   useEffect(() => {
     setStudents(initialStudents);
@@ -70,6 +94,14 @@ export default function StudentsPageClient({
 
   const rows = useMemo(() => students, [students]);
   const canShowCreateAction = !showCreate;
+  const duplicateCountByName = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const student of rows) {
+      const key = normalizeStudentNameKey(student.name);
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+    return counts;
+  }, [rows]);
 
   const filtered = useMemo(() => {
     const lowered = deferredQuery.trim().toLowerCase();
@@ -124,6 +156,7 @@ export default function StudentsPageClient({
         throw new Error(body?.error ?? "生徒のアーカイブに失敗しました。");
       }
 
+      setStudents((current) => current.filter((item) => item.id !== studentToDelete.id));
       setStudentToDelete(null);
       await refresh();
     } catch (nextError: any) {
@@ -248,15 +281,30 @@ export default function StudentsPageClient({
           />
         ) : (
           <div className={styles.list}>
-            {filtered.map((student, index) => (
-              <article key={student.id} className={styles.row}>
+              {filtered.map((student, index) => (
+                <article key={student.id} className={styles.row} data-student-row="1" data-student-id={student.id}>
                 <div className={styles.rowContent}>
                   <div className={styles.rowIdentity}>
                     <div className={styles.rowTop}>
                       <strong className={styles.rowName}>{student.name}</strong>
                       {student.grade ? <span className={styles.meta}>{student.grade}</span> : null}
+                      {(duplicateCountByName.get(normalizeStudentNameKey(student.name)) ?? 1) > 1 ? (
+                        <span className={styles.duplicateBadge}>
+                          同名 {duplicateCountByName.get(normalizeStudentNameKey(student.name))}件
+                        </span>
+                      ) : null}
                       <Badge label={student.state} tone={student.viewKey === "report" ? "high" : "medium"} />
                     </div>
+                    <p className={styles.identityMeta}>
+                      {[
+                        student.nameKana ? `フリガナ: ${student.nameKana}` : null,
+                        student.course ? `コース: ${student.course}` : null,
+                        student.guardianNames ? `保護者: ${student.guardianNames}` : null,
+                        `登録: ${formatStudentCreatedAt(student.createdAt)}`,
+                      ]
+                        .filter(isPresent)
+                        .join(" / ")}
+                    </p>
                     <p className={styles.oneLiner}>{student.oneLiner}</p>
                   </div>
 
@@ -280,9 +328,28 @@ export default function StudentsPageClient({
                 </div>
 
                 <div className={styles.rowAction}>
-                  <IntentLink href={student.href} prefetchMode={index < 4 ? "mount" : "intent"}>
-                    <Button>生徒詳細へ</Button>
-                  </IntentLink>
+                  <div className={styles.rowActionPrimary}>
+                    <IntentLink
+                      href={buildStudentEditHref(student.href)}
+                      prefetchMode={index < 4 ? "mount" : "intent"}
+                      aria-label="生徒情報を編集"
+                      title="生徒情報を編集"
+                      className={styles.editEntryLink}
+                    >
+                      <Button
+                        variant="ghost"
+                        size="small"
+                        className={styles.editEntryButton}
+                        aria-label={`${student.name} の生徒情報を編集`}
+                        title="生徒情報を編集"
+                      >
+                        ✎
+                      </Button>
+                    </IntentLink>
+                    <IntentLink href={student.href} prefetchMode={index < 4 ? "mount" : "intent"}>
+                      <Button>詳細へ</Button>
+                    </IntentLink>
+                  </div>
                   <Button
                     variant="ghost"
                     size="small"

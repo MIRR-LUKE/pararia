@@ -8,9 +8,10 @@ import { getLogListCacheTag } from "@/lib/logs/get-log-list-page-data";
 
 export async function POST(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await Promise.resolve(params);
     const session = await auth();
     const body = await request.json().catch(() => ({}));
     const action: "review" | "sent" | "delivered" | "failed" | "bounced" | "manual_share" | "resent" =
@@ -42,7 +43,7 @@ export async function POST(
       }[action] ?? ReportDeliveryEventType.MANUAL_SHARED;
 
     const current = await prisma.report.findUnique({
-      where: { id: params.id },
+      where: { id },
       select: {
         id: true,
         studentId: true,
@@ -96,7 +97,7 @@ export async function POST(
 
     const result = await prisma.$transaction(async (tx) => {
       const report = await tx.report.update({
-        where: { id: params.id },
+        where: { id },
         data: nextData,
       });
 

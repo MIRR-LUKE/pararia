@@ -1,0 +1,51 @@
+name: Production Integrity Audit
+
+on:
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: "Audit target URL"
+        required: false
+        default: "https://pararia.vercel.app"
+  deployment_status:
+
+jobs:
+  production-integrity-audit:
+    if: github.event_name == 'workflow_dispatch' || (github.event.deployment_status.state == 'success' && github.event.deployment.environment == 'Production')
+    runs-on: ubuntu-latest
+    env:
+      CI: true
+      NODE_ENV: test
+      DATABASE_URL: ${{ secrets.SUPABASE_DB_URL }}
+      DIRECT_URL: ${{ secrets.SUPABASE_DB_URL }}
+      NEXTAUTH_SECRET: pararia-dev-auth-secret
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npm run prisma:generate
+
+      - name: Resolve audit target
+        id: target
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "base_url=${{ github.event.inputs.base_url || 'https://pararia.vercel.app' }}" >> "$GITHUB_OUTPUT"
+          elif [ -n "${{ github.event.deployment_status.environment_url }}" ]; then
+            echo "base_url=${{ github.event.deployment_status.environment_url }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "base_url=https://pararia.vercel.app" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run read-only integrity audit
+        run: npm run test:student-integrity-audit -- --base-url "${{ steps.target.outputs.base_url }}"

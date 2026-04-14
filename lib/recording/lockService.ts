@@ -1,5 +1,6 @@
 import { createHash, randomBytes } from "crypto";
 import { Prisma, RecordingLockMode } from "@prisma/client";
+import { writeAuditLog } from "@/lib/audit";
 import { prisma } from "@/lib/db";
 import { RECORDING_LOCK_TTL_MS } from "@/lib/recording/lockConstants";
 
@@ -248,10 +249,12 @@ export async function forceReleaseRecordingLock(opts: {
   reason?: string;
 }) {
   await prisma.studentRecordingLock.deleteMany({ where: { studentId: opts.studentId } });
-  await prisma.auditLog.create({
-    data: {
-      userId: opts.actorUserId,
-      action: `recording_lock_force_release:${opts.studentId}:${opts.reason ?? ""}`.slice(0, 500),
+  await writeAuditLog({
+    userId: opts.actorUserId,
+    action: "recording_lock_force_release",
+    detail: {
+      studentId: opts.studentId,
+      reason: opts.reason ?? null,
     },
   });
 }

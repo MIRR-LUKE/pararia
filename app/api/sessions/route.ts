@@ -86,28 +86,43 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "student not found" }, { status: 404 });
     }
 
-    if (sessionType === SessionType.LESSON_REPORT) {
-      const existingSessions = await prisma.session.findMany({
-        where: {
-          organizationId: resolvedOrgId,
-          studentId,
-          type: SessionType.LESSON_REPORT,
-        },
-        orderBy: [{ sessionDate: "desc" }, { createdAt: "desc" }],
-        include: {
-          parts: {
-            select: {
-              partType: true,
-              status: true,
-            },
+    const existingSessions = await prisma.session.findMany({
+      where: {
+        organizationId: resolvedOrgId,
+        studentId,
+        type: sessionType,
+      },
+      orderBy: [{ sessionDate: "desc" }, { createdAt: "desc" }],
+      include: {
+        parts: {
+          select: {
+            partType: true,
+            status: true,
           },
         },
-        take: 8,
-      });
+        conversation: {
+          select: {
+            id: true,
+          },
+        },
+      },
+      take: 8,
+    });
 
+    if (sessionType === SessionType.LESSON_REPORT) {
       const reusable = pickOngoingLessonReportSession(existingSessions);
       if (reusable) {
         return NextResponse.json({ session: reusable, reused: true });
+      }
+    } else {
+      const reusableInterview = existingSessions.find(
+        (existingSession) =>
+          existingSession.status === "DRAFT" &&
+          !existingSession.conversation?.id &&
+          existingSession.parts.length === 0
+      );
+      if (reusableInterview) {
+        return NextResponse.json({ session: reusableInterview, reused: true });
       }
     }
 

@@ -9,15 +9,16 @@ import { maybeEnsureRunpodWorker } from "@/lib/runpod/worker-control";
 
 export async function POST(
   _request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await Promise.resolve(params);
     const authResult = await requireAuthorizedSession();
     if (authResult.response) return authResult.response;
     const organizationId = authResult.session.user.organizationId;
 
     const conversation = await prisma.conversationLog.findFirst({
-      where: { id: params.id, organizationId },
+      where: { id, organizationId },
       select: {
         id: true,
         formattedTranscript: true,
@@ -45,7 +46,7 @@ export async function POST(
 
     await prisma.conversationJob.createMany({
       data: [
-        { conversationId: params.id, type: ConversationJobType.FORMAT, status: JobStatus.QUEUED },
+        { conversationId: id, type: ConversationJobType.FORMAT, status: JobStatus.QUEUED },
       ],
       skipDuplicates: true,
     });
@@ -53,7 +54,7 @@ export async function POST(
     if (shouldRunBackgroundJobsInline()) {
       void (async () => {
         try {
-          await processAllConversationJobs(params.id);
+          await processAllConversationJobs(id);
         } catch (error) {
           console.error("[POST /api/conversations/[id]/format] Background process failed:", error);
         } finally {

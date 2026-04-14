@@ -27,9 +27,10 @@ function toStringArray(value: unknown) {
 
 export async function GET(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await Promise.resolve(params);
     const authResult = await requireAuthorizedSession();
     if (authResult.response) return authResult.response;
     const organizationId = authResult.session.user.organizationId;
@@ -40,7 +41,7 @@ export async function GET(
 
     if (brief) {
       const briefConversation = await prisma.conversationLog.findFirst({
-        where: { id: params.id, organizationId },
+        where: { id, organizationId },
         select: {
           id: true,
           sessionId: true,
@@ -73,7 +74,7 @@ export async function GET(
       }
       if (process === "1") {
         if (shouldRunBackgroundJobsInline()) {
-          void processAllConversationJobs(params.id).catch(() => {});
+          void processAllConversationJobs(id).catch(() => {});
         } else if (briefConversation.status === "PROCESSING") {
           void maybeEnsureRunpodWorker().catch(() => {});
         }
@@ -82,7 +83,7 @@ export async function GET(
     }
 
     const conversation = await prisma.conversationLog.findFirst({
-      where: { id: params.id, organizationId },
+      where: { id, organizationId },
       include: {
         student: {
           select: {
@@ -137,7 +138,7 @@ export async function GET(
       if (shouldRunBackgroundJobsInline()) {
         void (async () => {
           try {
-            await processAllConversationJobs(params.id);
+            await processAllConversationJobs(id);
           } finally {
             await maybeStopRunpodWorkerWhenSessionPartQueueIdle().catch(() => {});
           }
@@ -192,15 +193,16 @@ export async function GET(
 
 export async function DELETE(
   _request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await Promise.resolve(params);
     const authResult = await requireAuthorizedSession();
     if (authResult.response) return authResult.response;
     const organizationId = authResult.session.user.organizationId;
 
     const conversation = await prisma.conversationLog.findFirst({
-      where: { id: params.id, organizationId },
+      where: { id, organizationId },
       select: { id: true, studentId: true, sessionId: true },
     });
 
@@ -220,24 +222,24 @@ export async function DELETE(
     });
 
     const detachedReportIds = relatedReports
-      .filter((report) => toStringArray(report.sourceLogIds).includes(params.id))
+      .filter((report) => toStringArray(report.sourceLogIds).includes(id))
       .map((report) => report.id);
 
     await prisma.$transaction(async (tx) => {
       for (const report of relatedReports) {
         const sourceLogIds = toStringArray(report.sourceLogIds);
-        if (!sourceLogIds.includes(params.id)) continue;
+        if (!sourceLogIds.includes(id)) continue;
 
         await tx.report.update({
           where: { id: report.id },
           data: {
-            sourceLogIds: sourceLogIds.filter((logId) => logId !== params.id),
+            sourceLogIds: sourceLogIds.filter((logId) => logId !== id),
           },
         });
       }
 
-      await tx.conversationJob.deleteMany({ where: { conversationId: params.id } });
-      await tx.conversationLog.delete({ where: { id: params.id } });
+      await tx.conversationJob.deleteMany({ where: { conversationId: id } });
+      await tx.conversationLog.delete({ where: { id } });
 
       if (conversation.sessionId) {
         await tx.session.updateMany({
@@ -256,8 +258,8 @@ export async function DELETE(
     await writeAuditLog({
       userId: authResult.session.user.id,
       action: "conversation.delete",
-      detail: {
-        conversationId: params.id,
+        detail: {
+        conversationId: id,
         studentId: conversation.studentId,
         sessionId: conversation.sessionId,
         detachedReportCount: detachedReportIds.length,
@@ -290,15 +292,16 @@ export async function DELETE(
 
 export async function PATCH(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await Promise.resolve(params);
     const authResult = await requireAuthorizedSession();
     if (authResult.response) return authResult.response;
     const organizationId = authResult.session.user.organizationId;
 
     const conversation = await prisma.conversationLog.findFirst({
-      where: { id: params.id, organizationId },
+      where: { id, organizationId },
       select: {
         id: true,
         summaryMarkdown: true,

@@ -5,34 +5,18 @@ import { prisma } from "@/lib/db";
 import { getLogListCacheTag } from "@/lib/logs/get-log-list-page-data";
 import { requireAuthorizedSession } from "@/lib/server/request-auth";
 import { archiveStudent, withActiveStudentWhere } from "@/lib/students/student-lifecycle";
-
-function normalizeGuardianNames(value: unknown) {
-  if (value === undefined) return undefined;
-  if (value === null) return null;
-  if (typeof value === "string") {
-    const trimmed = value.trim();
-    return trimmed.length > 0 ? trimmed : null;
-  }
-  if (Array.isArray(value)) {
-    const joined = value
-      .filter((entry): entry is string => typeof entry === "string")
-      .map((entry) => entry.trim())
-      .filter(Boolean)
-      .join(" / ");
-    return joined.length > 0 ? joined : null;
-  }
-  throw new TypeError("guardianNames must be a string, string[], or null");
-}
+import { normalizeStudentUpdateInput } from "@/lib/students/student-write";
 
 export async function GET(
   _request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
+  const { id } = await Promise.resolve(params);
   const authResult = await requireAuthorizedSession();
   if (authResult.response) return authResult.response;
 
   const student = await prisma.student.findFirst({
-    where: withActiveStudentWhere({ id: params.id, organizationId: authResult.session.user.organizationId }),
+    where: withActiveStudentWhere({ id, organizationId: authResult.session.user.organizationId }),
     include: {
       profiles: {
         orderBy: { createdAt: "desc" },
@@ -58,14 +42,15 @@ export async function GET(
 
 export async function PUT(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await Promise.resolve(params);
     const authResult = await requireAuthorizedSession();
     if (authResult.response) return authResult.response;
 
     const existing = await prisma.student.findFirst({
-      where: withActiveStudentWhere({ id: params.id, organizationId: authResult.session.user.organizationId }),
+      where: withActiveStudentWhere({ id, organizationId: authResult.session.user.organizationId }),
       select: { id: true },
     });
     if (!existing) {
@@ -73,17 +58,7 @@ export async function PUT(
     }
 
     const body = await request.json();
-    const { name, nameKana, grade, course, guardianNames, enrollmentDate, birthdate } = body ?? {};
-
-    const data: Record<string, unknown> = {};
-    if (name !== undefined) data.name = name;
-    if (nameKana !== undefined) data.nameKana = nameKana;
-    if (grade !== undefined) data.grade = grade;
-    if (course !== undefined) data.course = course;
-    if (guardianNames !== undefined) data.guardianNames = normalizeGuardianNames(guardianNames);
-    if (enrollmentDate !== undefined)
-      data.enrollmentDate = enrollmentDate ? new Date(enrollmentDate) : null;
-    if (birthdate !== undefined) data.birthdate = birthdate ? new Date(birthdate) : null;
+    const data = normalizeStudentUpdateInput(body);
 
     const student = await prisma.student.update({
       where: { id: existing.id },
@@ -117,9 +92,10 @@ export async function PUT(
 
 export async function DELETE(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await Promise.resolve(params);
     const authResult = await requireAuthorizedSession();
     if (authResult.response) return authResult.response;
 
@@ -129,7 +105,7 @@ export async function DELETE(
         ? body.reason.trim()
         : "manual_archive";
     const archived = await archiveStudent({
-      studentId: params.id,
+      studentId: id,
       organizationId: authResult.session.user.organizationId,
       actorUserId: authResult.session.user.id,
       reason: archiveReason,

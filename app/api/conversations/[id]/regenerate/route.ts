@@ -14,9 +14,10 @@ import { maybeEnsureRunpodWorker } from "@/lib/runpod/worker-control";
 
 export async function POST(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await Promise.resolve(params);
     const authResult = await requireAuthorizedSession();
     if (authResult.response) return authResult.response;
     const organizationId = authResult.session.user.organizationId;
@@ -24,7 +25,7 @@ export async function POST(
     const { searchParams } = new URL(request.url);
     const includeFormat = searchParams.get("format") === "1";
     const conversation = await prisma.conversationLog.findFirst({
-      where: { id: params.id, organizationId },
+      where: { id, organizationId },
       select: {
         id: true,
         rawTextOriginal: true,
@@ -41,12 +42,12 @@ export async function POST(
 
     const runningJobs = await prisma.conversationJob.count({
       where: {
-        conversationId: params.id,
+        conversationId: id,
         status: JobStatus.RUNNING,
       },
     });
 
-    if (runningJobs > 0 || isConversationJobRunActive(params.id)) {
+    if (runningJobs > 0 || isConversationJobRunActive(id)) {
       return NextResponse.json(
         { error: "このログは現在生成中です。完了後に再試行してください。" },
         { status: 409 }
@@ -71,10 +72,10 @@ export async function POST(
       !conversation.rawTextOriginal?.trim() &&
       Boolean(conversation.formattedTranscript?.trim());
 
-    await prisma.conversationJob.deleteMany({ where: { conversationId: params.id } });
+    await prisma.conversationJob.deleteMany({ where: { conversationId: id } });
 
     await prisma.conversationLog.update({
-      where: { id: params.id },
+      where: { id },
       data: {
         status: ConversationStatus.PROCESSING,
         artifactJson: Prisma.DbNull,
@@ -84,13 +85,13 @@ export async function POST(
       },
     });
 
-    await ensureConversationReviewedTranscript(params.id);
+    await ensureConversationReviewedTranscript(id);
 
-    await enqueueConversationJobs(params.id, { includeFormat });
+    await enqueueConversationJobs(id, { includeFormat });
     if (shouldRunBackgroundJobsInline()) {
       void (async () => {
         try {
-          await processAllConversationJobs(params.id);
+          await processAllConversationJobs(id);
         } catch (error) {
           console.error("[POST /api/conversations/[id]/regenerate] Background process failed:", error);
         } finally {
@@ -113,7 +114,7 @@ export async function POST(
     return NextResponse.json({
       success: true,
       message: "regeneration started",
-      conversationId: params.id,
+      conversationId: id,
     });
   } catch (error: any) {
     console.error("[POST /api/conversations/[id]/regenerate] Error:", error);

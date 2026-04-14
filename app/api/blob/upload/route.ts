@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireAuthorizedSession } from "@/lib/server/request-auth";
-import { shouldRunBackgroundJobsInline } from "@/lib/jobs/execution-mode";
-import { maybeEnsureRunpodWorker } from "@/lib/runpod/worker-control";
+import { checkAudioBlobWriteHealth } from "@/lib/audio-storage-health";
 
 export const runtime = "nodejs";
 
@@ -40,16 +39,16 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "audio upload path is invalid" }, { status: 400 });
     }
 
-    if (!shouldRunBackgroundJobsInline()) {
-      void maybeEnsureRunpodWorker()
-        .then((workerWake) => {
-          if (workerWake.attempted && !workerWake.ok) {
-            console.error("[POST /api/blob/upload] Runpod worker wake failed:", workerWake);
-          }
-        })
-        .catch((error) => {
-          console.error("[POST /api/blob/upload] Runpod worker wake crashed:", error);
-        });
+    const blobHealth = await checkAudioBlobWriteHealth();
+    if (!blobHealth.ok) {
+      console.error("[POST /api/blob/upload] Blob write health check failed:", blobHealth.detail);
+      return NextResponse.json(
+        {
+          error: blobHealth.message,
+          code: blobHealth.code,
+        },
+        { status: 409 }
+      );
     }
 
     const { generateClientTokenFromReadWriteToken } = await import("@vercel/blob/client");

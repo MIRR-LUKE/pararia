@@ -4,27 +4,10 @@ import { prisma } from "@/lib/db";
 import { requireAuthorizedSession } from "@/lib/server/request-auth";
 import { listStudentRows } from "@/lib/students/list-student-rows";
 import { mapStudentDirectoryRows } from "@/lib/students/student-directory-view";
+import { normalizeStudentCreateInput } from "@/lib/students/student-write";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
-
-function normalizeGuardianNames(value: unknown) {
-  if (value === undefined) return undefined;
-  if (value === null) return null;
-  if (typeof value === "string") {
-    const trimmed = value.trim();
-    return trimmed.length > 0 ? trimmed : null;
-  }
-  if (Array.isArray(value)) {
-    const joined = value
-      .filter((entry): entry is string => typeof entry === "string")
-      .map((entry) => entry.trim())
-      .filter(Boolean)
-      .join(" / ");
-    return joined.length > 0 ? joined : null;
-  }
-  throw new TypeError("guardianNames must be a string, string[], or null");
-}
 
 export async function GET(request: Request) {
   try {
@@ -34,7 +17,7 @@ export async function GET(request: Request) {
 
     const { searchParams } = new URL(request.url);
     const limitRaw = searchParams.get("limit");
-    const limit = limitRaw ? Math.max(1, Math.min(200, Number(limitRaw))) : undefined;
+    const limit = limitRaw ? Math.max(1, Math.min(1000, Number(limitRaw))) : undefined;
     const includeRecordingLock = /^(1|true|yes)$/i.test(searchParams.get("includeRecordingLock") ?? "");
     const studentsOut = await listStudentRows({
       organizationId,
@@ -69,13 +52,8 @@ export async function POST(request: Request) {
     if (authResult.response) return authResult.response;
 
     const body = await request.json();
-    const { name, nameKana, grade, course, enrollmentDate, birthdate, guardianNames } = body ?? {};
-    if (!name) {
-      return NextResponse.json(
-        { error: "name is required" },
-        { status: 400 }
-      );
-    }
+    const { name, nameKana, grade, course, enrollmentDate, birthdate, guardianNames } =
+      normalizeStudentCreateInput(body);
 
     const student = await prisma.student.create({
       data: {
@@ -84,9 +62,9 @@ export async function POST(request: Request) {
         nameKana,
         grade,
         course,
-        enrollmentDate: enrollmentDate ? new Date(enrollmentDate) : undefined,
-        birthdate: birthdate ? new Date(birthdate) : undefined,
-        guardianNames: normalizeGuardianNames(guardianNames),
+        enrollmentDate,
+        birthdate,
+        guardianNames,
       },
     });
 

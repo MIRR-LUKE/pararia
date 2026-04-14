@@ -1,13 +1,20 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
+import { requireAuthorizedSession } from "@/lib/server/request-auth";
 
 export async function GET(
   _request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const session = await prisma.session.findUnique({
-      where: { id: params.id },
+    const { id } = await Promise.resolve(params);
+    const authResult = await requireAuthorizedSession();
+    if (authResult.response) return authResult.response;
+    const session = await prisma.session.findFirst({
+      where: {
+        id,
+        organizationId: authResult.session.user.organizationId,
+      },
       include: {
         parts: {
           orderBy: { createdAt: "asc" },
@@ -51,17 +58,31 @@ export async function GET(
 
 export async function PATCH(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await Promise.resolve(params);
+    const authResult = await requireAuthorizedSession();
+    if (authResult.response) return authResult.response;
     const body = await request.json();
     const data: Record<string, unknown> = {};
     if (body?.title !== undefined) data.title = body.title || null;
     if (body?.notes !== undefined) data.notes = body.notes || null;
     if (body?.sessionDate !== undefined) data.sessionDate = body.sessionDate ? new Date(body.sessionDate) : new Date();
 
+    const existing = await prisma.session.findFirst({
+      where: {
+        id,
+        organizationId: authResult.session.user.organizationId,
+      },
+      select: { id: true },
+    });
+    if (!existing) {
+      return NextResponse.json({ error: "session not found" }, { status: 404 });
+    }
+
     const session = await prisma.session.update({
-      where: { id: params.id },
+      where: { id: existing.id },
       data,
     });
 

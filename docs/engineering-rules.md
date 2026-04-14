@@ -103,7 +103,32 @@
 - field の監視は `/api/rum` に送る Web Vitals と route timing で補完する
 - budget の目安は `dashboard 700/1000ms`, `students 450/700ms`, `logs 450/700ms`, `reports 650/900ms`
 
-## 5. PR / commit 前の確認
+## 5. Protected Critical Path
+
+### 5.1 再確認が必須の主経路
+
+- protected critical path は `録音ロック -> session part ingest -> session progress -> student room -> next meeting memo`
+- auth、dynamic route params、student room 集約、recording lock、session progress、next meeting memo のどれかを触ったら `npm run test:critical-path-smoke` を回す
+- CI でも同じ語彙で `Critical Path Smoke` を回し、ローカルと PR の確認対象をずらさない
+- 指定した `conversationId / reportId / sessionId` が別の生徒データに化けないことは `npm run test:conversation-route` でも止める
+
+### 5.2 backend/perf branch の path guard
+
+- backend / perf 系ブランチでは UI 変更を混ぜない
+- 禁止対象は `app/** (app/api/** を除く)`, `components/**`, `public/**`, `styles/**`, `*.css`, `*.scss`, `*.sass`, `*.less`, `tailwind/postcss config`
+- 許可対象は `app/api/**`, `lib/**`, `scripts/**`, `prisma/**`, `.github/**`, `docs/**`
+- 例外を作るときだけ `ALLOW_UI_CHANGES=1` を明示する
+- guard の自己確認は `npm run test:backend-scope-guard`
+
+### 5.3 Production Integrity Guard
+
+- production / shared tenant に mutating fixture を流さない
+- `critical-path` や `student-directory-ui` のような fixture 作成 script は `local app + local DB` 以外では既定で fail する
+- 例外を作るときだけ `PARARIA_ALLOW_REMOTE_FIXTURES=1` を明示する
+- `prisma/seed.ts` は remote DB に対して既定で fail する。明示 override は `PARARIA_ALLOW_REMOTE_SEED=1`
+- deploy 後の read-only canary は `npm run test:student-integrity-audit -- --base-url https://pararia.vercel.app`
+
+## 6. PR / commit 前の確認
 
 最低限これを通す:
 
@@ -121,7 +146,7 @@ tsx scripts/test-navigation-performance.ts --label local
 
 field 監視の読み方は [performance-observability.md](./performance-observability.md) にまとめる。
 
-## 6. 今回入れた実例
+## 7. 今回入れた実例
 
 - Student Detail の `summary -> full` 二重取得をやめた
 - `StudentSessionConsole` を memo 化し、親の細かい state 更新で巻き込まれにくくした

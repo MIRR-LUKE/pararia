@@ -22,14 +22,15 @@ async function ensureOwnedConversation(conversationId: string, organizationId: s
 
 export async function GET(
   _request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await Promise.resolve(params);
     const authResult = await requireAuthorizedSession();
     if (authResult.response) return authResult.response;
-    await ensureOwnedConversation(params.id, authResult.session.user.organizationId);
+    await ensureOwnedConversation(id, authResult.session.user.organizationId);
 
-    const review = await listConversationProperNounSuggestions(params.id);
+    const review = await listConversationProperNounSuggestions(id);
     return NextResponse.json({ review });
   } catch (error: any) {
     console.error("[GET /api/conversations/[id]/review] Error:", error);
@@ -40,15 +41,16 @@ export async function GET(
 
 export async function POST(
   _request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await Promise.resolve(params);
     const authResult = await requireAuthorizedSession();
     if (authResult.response) return authResult.response;
-    await ensureOwnedConversation(params.id, authResult.session.user.organizationId);
+    await ensureOwnedConversation(id, authResult.session.user.organizationId);
 
-    await ensureConversationReviewedTranscript(params.id);
-    const review = await listConversationProperNounSuggestions(params.id);
+    await ensureConversationReviewedTranscript(id);
+    const review = await listConversationProperNounSuggestions(id);
     return NextResponse.json({ ok: true, review });
   } catch (error: any) {
     console.error("[POST /api/conversations/[id]/review] Error:", error);

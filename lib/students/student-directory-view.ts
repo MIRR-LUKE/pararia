@@ -6,6 +6,7 @@ export type StudentDirectoryViewKey = "all" | "interview" | "report" | "review" 
 export type StudentDirectoryViewRow = {
   id: string;
   name: string;
+  createdAt: string;
   nameKana?: string | null;
   grade?: string | null;
   course?: string | null;
@@ -20,14 +21,26 @@ export type StudentDirectoryViewRow = {
   href: string;
 };
 
+type DirectorySessionSummary = NonNullable<StudentListRow["sessions"]>[number];
+
 function computeProfileCompleteness(profileData?: any) {
   const basic = Array.isArray(profileData?.basic) ? profileData.basic.length : 0;
   const personal = Array.isArray(profileData?.personal) ? profileData.personal.length : 0;
   return Math.min(100, (basic + personal) * 6);
 }
 
+function isEmptyInterviewDraft(session?: DirectorySessionSummary) {
+  if (!session) return false;
+  return (
+    session.type === "INTERVIEW" &&
+    session.status === "DRAFT" &&
+    !session.conversation?.id &&
+    (session.parts?.length ?? 0) === 0
+  );
+}
+
 function summarize(student: StudentListRow) {
-  const latestSession = student.sessions?.[0];
+  const latestSession = student.sessions?.find((session) => !isEmptyInterviewDraft(session));
   const latestReport = student.reports?.[0] ?? null;
   const latestReportSummary = latestReport ? buildReportDeliverySummary(latestReport) : null;
 
@@ -36,6 +49,18 @@ function summarize(student: StudentListRow) {
       state: "未開始",
       oneLiner: "まだ会話データがありません。最初の面談から始められる状態です。",
       nextAction: "最初の面談を始める",
+      viewKey: "interview" as const,
+    };
+  }
+
+  if (latestSession.type === "INTERVIEW" && !latestSession.conversation?.id) {
+    return {
+      state: latestSession.heroStateLabel ?? "面談準備中",
+      oneLiner:
+        latestSession.heroOneLiner ??
+        latestSession.latestSummary ??
+        "面談の準備を進めています。詳細から続きの状態を確認できます。",
+      nextAction: "生徒詳細を開く",
       viewKey: "interview" as const,
     };
   }
@@ -111,6 +136,7 @@ export function mapStudentDirectoryRow(student: StudentListRow): StudentDirector
   return {
     id: student.id,
     name: student.name,
+    createdAt: student.createdAt,
     nameKana: student.nameKana,
     grade: student.grade,
     course: student.course,

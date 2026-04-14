@@ -10,8 +10,9 @@ function canRestoreStudent(role: string | null | undefined) {
   return role === UserRole.ADMIN || role === UserRole.MANAGER || role === "ADMIN" || role === "MANAGER";
 }
 
-export async function POST(_request: Request, { params }: { params: { id: string } }) {
+export async function POST(_request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
+    const { id } = await Promise.resolve(params);
     const authResult = await requireAuthorizedSession();
     if (authResult.response) return authResult.response;
 
@@ -20,7 +21,7 @@ export async function POST(_request: Request, { params }: { params: { id: string
     }
 
     const restored = await restoreArchivedStudent({
-      studentId: params.id,
+      studentId: id,
       organizationId: authResult.session.user.organizationId,
     });
 

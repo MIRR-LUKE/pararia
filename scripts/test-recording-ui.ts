@@ -5,6 +5,7 @@ import { spawnSync } from "node:child_process";
 import ffmpegPath from "ffmpeg-static";
 import { chromium } from "playwright-core";
 import { loadEnvFile } from "./lib/load-env-file";
+import { assertMeasurementStudent } from "./lib/measurement-student-guard";
 
 type RecordingUiResult = {
   label: string;
@@ -124,6 +125,15 @@ async function cleanupStudentArtifacts(envFile: string, studentId: string) {
       import("../lib/db"),
       import("../lib/audio-storage"),
     ]);
+    const student = await prisma.student.findUnique({
+      where: { id: studentId },
+      select: { id: true, name: true, grade: true, course: true },
+    });
+    assertMeasurementStudent(student, {
+      namePrefix: "[",
+      allowedGrades: ["検証用"],
+      coursePrefixes: ["recording-ui"],
+    });
 
     const sessions = await prisma.session.findMany({
       where: { studentId },

@@ -1,6 +1,6 @@
 # 直近で切る Issue 一覧
 
-更新日: 2026-04-13
+更新日: 2026-04-14
 
 今回の前提:
 
@@ -116,7 +116,13 @@
 
 次の active open issue:
 
-- なし
+- `#79` ログ生成を protected critical path として repo で守る
+- `#80` 録音ロックから次回の面談メモまでの critical path smoke を CI で止める
+- `#81` backend/perf ブランチで UI 変更を止める path guard を入れる
+- `#82` 主経路の失敗を stage / operationId 付きで可視化する
+- `#83` audit などの非本質 side effect を main flow から切り離す
+- `#86` 本番データ整合性を read-only audit と fixture isolation で守る
+- `#87` 生徒一覧から生徒情報編集へ直接入れる導線を追加する
 
 今回追加した issue docs:
 

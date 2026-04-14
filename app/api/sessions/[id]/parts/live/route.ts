@@ -8,10 +8,11 @@ import { handleFinalizeLiveSessionPart, handleLiveChunkSubmission } from "../ses
 
 export async function POST(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const access = await loadAuthorizedSessionPartContext(params.id);
+    const { id } = await Promise.resolve(params);
+    const access = await loadAuthorizedSessionPartContext(id);
     if ("response" in access) return access.response;
 
     const contentType = request.headers.get("content-type") || "";

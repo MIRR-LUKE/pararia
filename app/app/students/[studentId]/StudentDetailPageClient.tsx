@@ -25,7 +25,7 @@ const LazyStudentDetailOverlay = dynamic(
 const LazyStudentSessionConsole = dynamic(
   () => import("./StudentSessionConsole").then((mod) => mod.StudentSessionConsole),
   {
-    loading: () => <div className={styles.sectionLoading}>録音パネルを準備しています...</div>,
+    loading: () => <div className={styles.sectionLoading}>録音を準備しています...</div>,
   }
 );
 const LazyStudentDetailWorkspace = dynamic(
@@ -38,12 +38,36 @@ const LazyStudentDetailWorkspace = dynamic(
 type StudentDetailPageClientProps = {
   params: { studentId: string };
   initialRoom: RoomResponse;
+  initialEditStudent?: boolean;
   viewerName?: string | null;
 };
+
+type StudentEditorDraft = {
+  name: string;
+  nameKana: string;
+  grade: string;
+  course: string;
+  guardianNames: string;
+};
+
+function createStudentEditorDraft(student: RoomResponse["student"]): StudentEditorDraft {
+  return {
+    name: student.name ?? "",
+    nameKana: student.nameKana ?? "",
+    grade: student.grade ?? "",
+    course: student.course ?? "",
+    guardianNames: student.guardianNames ?? "",
+  };
+}
+
+function isStudentMetaItem(value: string | null): value is string {
+  return Boolean(value);
+}
 
 export default function StudentDetailPageClient({
   params,
   initialRoom,
+  initialEditStudent = false,
   viewerName,
 }: StudentDetailPageClientProps) {
   const { room, loading, error, refresh } = useStudentDetailRefresh({
@@ -94,8 +118,6 @@ export default function StudentDetailPageClient({
   });
   const [periodFilter, setPeriodFilter] = useState<StudentDetailPeriodFilter>("all");
   const [sortOrder, setSortOrder] = useState<StudentDetailSortOrder>("desc");
-  const [isConsoleOpen, setIsConsoleOpen] = useState(false);
-  const [isWorkspaceOpen, setIsWorkspaceOpen] = useState(false);
 
   const latestConversation = room?.latestConversation ?? null;
   const latestReport = room?.reports[0] ?? null;
@@ -103,8 +125,33 @@ export default function StudentDetailPageClient({
     () => pickLatestInterviewMemoSession(room?.sessions ?? []),
     [room?.sessions]
   );
+  const studentDraftFromRoom = useMemo(
+    () => createStudentEditorDraft(room?.student ?? initialRoom.student),
+    [initialRoom.student, room?.student]
+  );
+  const [isEditingStudent, setIsEditingStudent] = useState(initialEditStudent);
+  const [studentDraft, setStudentDraft] = useState<StudentEditorDraft>(() =>
+    createStudentEditorDraft(initialRoom.student)
+  );
+  const [isSavingStudent, setIsSavingStudent] = useState(false);
+  const [studentSaveMessage, setStudentSaveMessage] = useState<string | null>(null);
   const latestNextMeetingMemo = latestInterviewMemoSession?.nextMeetingMemo ?? null;
   const viewerBadge = userBadge(viewerName ?? null);
+  const studentMeta = useMemo(
+    () =>
+      [
+        room?.student?.nameKana ? `フリガナ: ${room.student.nameKana}` : null,
+        room?.student?.course ? `コース: ${room.student.course}` : null,
+        room?.student?.guardianNames ? `保護者: ${room.student.guardianNames}` : null,
+      ].filter(isStudentMetaItem),
+    [room?.student?.course, room?.student?.guardianNames, room?.student?.nameKana]
+  );
+  const studentDraftChanged =
+    studentDraft.name !== studentDraftFromRoom.name ||
+    studentDraft.nameKana !== studentDraftFromRoom.nameKana ||
+    studentDraft.grade !== studentDraftFromRoom.grade ||
+    studentDraft.course !== studentDraftFromRoom.course ||
+    studentDraft.guardianNames !== studentDraftFromRoom.guardianNames;
 
   const nextMeetingMemoStatus = latestNextMeetingMemo?.status ?? null;
   const nextMeetingMemoPreviousSummary =
@@ -125,21 +172,45 @@ export default function StudentDetailPageClient({
           : "前回の面談ログを作ると、次に何を話すかまで短くまとまります。";
   const nextMeetingMemoError =
     nextMeetingMemoStatus === "FAILED" ? latestNextMeetingMemo?.errorMessage?.trim() || "次回の面談メモの作成に失敗しました。" : null;
-  const roomScope = room?.meta?.scope ?? null;
-  const openConsole = () => {
-    setIsConsoleOpen(true);
-    void refresh({ silent: true });
-  };
-  const openWorkspace = () => {
-    setIsWorkspaceOpen(true);
-    void refresh({ silent: true });
-  };
 
   useEffect(() => {
-    if (roomScope !== "summary") return;
-    if (!isConsoleOpen && !isWorkspaceOpen) return;
-    void refresh({ silent: true });
-  }, [isConsoleOpen, isWorkspaceOpen, refresh, roomScope]);
+    if (!isEditingStudent) {
+      setStudentDraft(studentDraftFromRoom);
+    }
+  }, [isEditingStudent, studentDraftFromRoom]);
+
+  const handleStudentSave = async () => {
+    setIsSavingStudent(true);
+    setStudentSaveMessage(null);
+
+    try {
+      const res = await fetch(`/api/students/${params.studentId}`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          name: studentDraft.name,
+          nameKana: studentDraft.nameKana,
+          grade: studentDraft.grade,
+          course: studentDraft.course,
+          guardianNames: studentDraft.guardianNames,
+        }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(body?.error ?? "生徒情報の更新に失敗しました。");
+      }
+
+      await refresh();
+      setIsEditingStudent(false);
+      setStudentSaveMessage("生徒情報を更新しました。");
+    } catch (nextError: any) {
+      setStudentSaveMessage(nextError?.message ?? "生徒情報の更新に失敗しました。");
+    } finally {
+      setIsSavingStudent(false);
+    }
+  };
 
   if (loading) {
     return <div className={styles.loadingState}>生徒詳細を読み込んでいます...</div>;
@@ -171,8 +242,104 @@ export default function StudentDetailPageClient({
       <div className={styles.headingBlock}>
         <div className={styles.gradeLabel}>{room.student.grade ?? "学年未設定"}</div>
         <h1 className={styles.studentName}>{room.student.name}</h1>
+        {studentMeta.length > 0 ? (
+          <div className={styles.studentMetaList}>
+            {studentMeta.map((item) => (
+              <span key={item}>{item}</span>
+            ))}
+          </div>
+        ) : null}
         <div className={styles.updatedText}>最終更新：{formatUpdated(latestConversation?.createdAt ?? latestReport?.createdAt ?? null)}</div>
+        <div className={styles.headingActions}>
+          <Button
+            variant={isEditingStudent ? "secondary" : "primary"}
+            onClick={() => {
+              if (isEditingStudent) {
+                setStudentDraft(studentDraftFromRoom);
+                setStudentSaveMessage(null);
+              }
+              setIsEditingStudent((current) => !current);
+            }}
+          >
+            {isEditingStudent ? "編集を閉じる" : "生徒情報を編集"}
+          </Button>
+        </div>
       </div>
+
+      {isEditingStudent ? (
+        <section className={styles.studentEditorPanel}>
+          <div className={styles.studentEditorHeader}>
+            <div>
+              <div className={styles.cardTitle}>生徒情報を編集</div>
+              <div className={styles.cardSubtext}>名前、フリガナ、学年、コース、保護者名をここで直せます。</div>
+            </div>
+          </div>
+          <div className={styles.studentEditorGrid}>
+            <label className={styles.studentEditorField}>
+              <span>生徒名</span>
+              <input
+                value={studentDraft.name}
+                onChange={(event) => setStudentDraft((current) => ({ ...current, name: event.target.value }))}
+                placeholder="生徒名"
+              />
+            </label>
+            <label className={styles.studentEditorField}>
+              <span>フリガナ</span>
+              <input
+                value={studentDraft.nameKana}
+                onChange={(event) => setStudentDraft((current) => ({ ...current, nameKana: event.target.value }))}
+                placeholder="フリガナ"
+              />
+            </label>
+            <label className={styles.studentEditorField}>
+              <span>学年</span>
+              <input
+                value={studentDraft.grade}
+                onChange={(event) => setStudentDraft((current) => ({ ...current, grade: event.target.value }))}
+                placeholder="学年"
+              />
+            </label>
+            <label className={styles.studentEditorField}>
+              <span>コース</span>
+              <input
+                value={studentDraft.course}
+                onChange={(event) => setStudentDraft((current) => ({ ...current, course: event.target.value }))}
+                placeholder="コース"
+              />
+            </label>
+            <label className={`${styles.studentEditorField} ${styles.studentEditorFieldWide}`}>
+              <span>保護者名</span>
+              <input
+                value={studentDraft.guardianNames}
+                onChange={(event) =>
+                  setStudentDraft((current) => ({ ...current, guardianNames: event.target.value }))
+                }
+                placeholder="保護者名"
+              />
+            </label>
+          </div>
+          <div className={styles.studentEditorActions}>
+            <Button
+              variant="secondary"
+              onClick={() => {
+                setStudentDraft(studentDraftFromRoom);
+                setIsEditingStudent(false);
+                setStudentSaveMessage(null);
+              }}
+              disabled={isSavingStudent}
+            >
+              キャンセル
+            </Button>
+            <Button
+              onClick={() => void handleStudentSave()}
+              disabled={isSavingStudent || !studentDraft.name.trim() || !studentDraftChanged}
+            >
+              {isSavingStudent ? "保存中..." : "生徒情報を更新"}
+            </Button>
+          </div>
+          {studentSaveMessage ? <div className={styles.studentEditorNotice}>{studentSaveMessage}</div> : null}
+        </section>
+      ) : null}
 
       <StudentDetailActionQueue
         sessions={room.sessions}
@@ -185,47 +352,19 @@ export default function StudentDetailPageClient({
 
       <section className={styles.topGrid}>
         <div className={styles.recordCard}>
-          {isConsoleOpen ? (
-            <LazyStudentSessionConsole
-              studentId={room.student.id}
-              studentName={room.student.name}
-              mode={recordingMode}
-              lessonPart={lessonPart}
-              ongoingLessonSession={null}
-              onModeChange={setRecordingMode}
-              onLessonPartChange={setLessonPart}
-              onRefresh={refresh}
-              onOpenLog={openLog}
-              recordingLock={room.recordingLock}
-              showModePicker={false}
-            />
-          ) : (
-            <div className={styles.sectionGate}>
-              <div className={styles.sectionGateHead}>
-                <div>
-                  <div className={styles.cardTitle}>録音パネル</div>
-                  <div className={styles.cardSubtext}>
-                    初回は要点だけ見せて、録音や保存を開く時だけ重いパネルを読み込みます。
-                  </div>
-                </div>
-              </div>
-              <div className={styles.sectionGateBody}>
-                <div className={styles.sectionGateStat}>
-                  <strong>{room.sessions.length}件</strong>
-                  <span>最近の面談ログ</span>
-                </div>
-                <div className={styles.sectionGateStat}>
-                  <strong>{room.reports.length}件</strong>
-                  <span>保護者レポート</span>
-                </div>
-              </div>
-              <div className={styles.sectionGateActions}>
-                <Button variant="secondary" onClick={openConsole}>
-                  録音パネルを開く
-                </Button>
-              </div>
-            </div>
-          )}
+          <LazyStudentSessionConsole
+            studentId={room.student.id}
+            studentName={room.student.name}
+            mode={recordingMode}
+            lessonPart={lessonPart}
+            ongoingLessonSession={null}
+            onModeChange={setRecordingMode}
+            onLessonPartChange={setLessonPart}
+            onRefresh={refresh}
+            onOpenLog={openLog}
+            recordingLock={room.recordingLock}
+            showModePicker={false}
+          />
         </div>
 
         <div className={styles.memoCard}>
@@ -323,48 +462,20 @@ export default function StudentDetailPageClient({
       </section>
 
       <section className={styles.workspaceSection}>
-        {isWorkspaceOpen ? (
-          <LazyStudentDetailWorkspace
-            sessions={room.sessions}
-            reports={room.reports}
-            activeTab={activeTab}
-            periodFilter={periodFilter}
-            sortOrder={sortOrder}
-            viewerBadge={viewerBadge}
-            viewerName={viewerName ?? null}
-            onActiveTabChange={setActiveTab}
-            onPeriodFilterChange={setPeriodFilter}
-            onSortOrderChange={setSortOrder}
-            onOpenLog={openLog}
-            onOpenParentReport={openParentReport}
-          />
-        ) : (
-          <div className={styles.sectionGate}>
-            <div className={styles.sectionGateHead}>
-              <div>
-                <div className={styles.cardTitle}>履歴とレポート</div>
-                <div className={styles.cardSubtext}>
-                  面談・指導報告・保護者レポートの深い一覧は、必要な時だけ読み込みます。
-                </div>
-              </div>
-            </div>
-            <div className={styles.sectionGateBody}>
-              <div className={styles.sectionGateStat}>
-                <strong>{room.sessions.length}</strong>
-                <span>面談 / 指導報告</span>
-              </div>
-              <div className={styles.sectionGateStat}>
-                <strong>{room.reports.length}</strong>
-                <span>保護者レポート</span>
-              </div>
-            </div>
-            <div className={styles.sectionGateActions}>
-              <Button variant="secondary" onClick={openWorkspace}>
-                履歴を開く
-              </Button>
-            </div>
-          </div>
-        )}
+        <LazyStudentDetailWorkspace
+          sessions={room.sessions}
+          reports={room.reports}
+          activeTab={activeTab}
+          periodFilter={periodFilter}
+          sortOrder={sortOrder}
+          viewerBadge={viewerBadge}
+          viewerName={viewerName ?? null}
+          onActiveTabChange={setActiveTab}
+          onPeriodFilterChange={setPeriodFilter}
+          onSortOrderChange={setSortOrder}
+          onOpenLog={openLog}
+          onOpenParentReport={openParentReport}
+        />
       </section>
 
       {overlay.kind !== "none" ? (

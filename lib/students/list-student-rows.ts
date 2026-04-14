@@ -10,6 +10,7 @@ type SessionSummary = {
   heroStateLabel?: string | null;
   heroOneLiner?: string | null;
   latestSummary?: string | null;
+  parts?: Array<{ id: string }>;
   conversation?: { id: string } | null;
 };
 
@@ -60,6 +61,7 @@ type StudentReportRecord = {
 export type StudentListRow = {
   id: string;
   name: string;
+  createdAt: string;
   nameKana?: string | null;
   grade?: string | null;
   course?: string | null;
@@ -105,6 +107,7 @@ export async function listStudentRows(options: ListStudentRowsOptions): Promise<
   const rows: StudentListRow[] = students.map((student) => ({
     id: student.id,
     name: student.name,
+    createdAt: student.createdAt.toISOString(),
     nameKana: student.nameKana,
     grade: student.grade,
     course: student.course,
