@@ -139,21 +139,29 @@ export async function DELETE(
       return NextResponse.json({ error: "not found" }, { status: 404 });
     }
 
-    await writeAuditLog({
-      userId: authResult.session.user.id,
-      action: "student.archive",
-      detail: {
+    try {
+      await writeAuditLog({
+        userId: authResult.session.user.id,
+        action: "student.archive",
+        detail: {
+          studentId: archived.student.id,
+          studentName: archived.student.name,
+          archiveReason,
+          archiveSnapshotId: archived.snapshotId,
+          conversationCount: archived.counts.conversations,
+          sessionCount: archived.counts.sessions,
+          reportCount: archived.counts.reports,
+          profileCount: archived.counts.profiles,
+          preservedRuntimeEntryCount: archived.runtimePaths.length,
+        },
+      });
+    } catch (auditError: any) {
+      console.error("[DELETE /api/students/[id]] audit log failed:", {
+        error: auditError?.message,
+        stack: auditError?.stack,
         studentId: archived.student.id,
-        studentName: archived.student.name,
-        archiveReason,
-        archiveSnapshotId: archived.snapshotId,
-        conversationCount: archived.counts.conversations,
-        sessionCount: archived.counts.sessions,
-        reportCount: archived.counts.reports,
-        profileCount: archived.counts.profiles,
-        preservedRuntimeEntryCount: archived.runtimePaths.length,
-      },
-    });
+      });
+    }
 
     revalidateTag(`student-directory:${authResult.session.user.organizationId}`, "max");
     revalidateTag(`dashboard-snapshot:${authResult.session.user.organizationId}`, "max");

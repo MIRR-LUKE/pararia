@@ -114,6 +114,7 @@ export default function StudentsPageClient({
   const archiveStudent = async () => {
     if (!studentToDelete) return;
 
+    const targetStudentId = studentToDelete.id;
     setIsDeletingStudent(true);
     try {
       const res = await fetch(`/api/students/${studentToDelete.id}`, {
@@ -124,6 +125,7 @@ export default function StudentsPageClient({
         throw new Error(body?.error ?? "生徒のアーカイブに失敗しました。");
       }
 
+      setStudents((current) => current.filter((student) => student.id !== targetStudentId));
       setStudentToDelete(null);
       await refresh();
     } catch (nextError: any) {
