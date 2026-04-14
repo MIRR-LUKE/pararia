@@ -4,6 +4,7 @@ import { processAllConversationJobs } from "@/lib/jobs/conversationJobs";
 import { processAllSessionPartJobs } from "@/lib/jobs/sessionPartJobs";
 import { buildSessionProgressState } from "@/lib/session-progress";
 import { buildSummaryPreview } from "@/lib/session-part-meta";
+import { resolveRouteId, type RouteParams } from "@/lib/server/route-params";
 import { requireAuthorizedSession } from "@/lib/server/request-auth";
 import { pickDisplayTranscriptText } from "@/lib/transcript/source";
 import { shouldRunBackgroundJobsInline } from "@/lib/jobs/execution-mode";
@@ -12,16 +13,21 @@ import { maybeEnsureRunpodWorker } from "@/lib/runpod/worker-control";
 
 export async function GET(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: RouteParams }
 ) {
   try {
+    const sessionId = await resolveRouteId(params);
+    if (!sessionId) {
+      return NextResponse.json({ error: "sessionId が必要です。" }, { status: 400 });
+    }
+
     const authResult = await requireAuthorizedSession();
     if (authResult.response) return authResult.response;
     const authSession = authResult.session;
 
     const session = await prisma.session.findFirst({
       where: {
-        id: params.id,
+        id: sessionId,
         organizationId: authSession.user.organizationId,
       },
       include: {

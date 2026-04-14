@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { SessionPartType, SessionType } from "@prisma/client";
 import { prisma } from "@/lib/db";
+import { normalizeRouteParam } from "@/lib/server/route-params";
 import { requireAuthorizedSession } from "@/lib/server/request-auth";
 
 export type SessionPartAuthSession = {
@@ -108,11 +109,16 @@ export async function loadAuthorizedSessionPartContext(sessionId: string): Promi
   | { response: NextResponse }
   | SessionPartAccessContext
 > {
+  const normalizedSessionId = normalizeRouteParam(sessionId);
+  if (!normalizedSessionId) {
+    return { response: NextResponse.json({ error: "sessionId が必要です。" }, { status: 400 }) };
+  }
+
   const authResult = await requireAuthorizedSession();
   if (authResult.response) return authResult;
 
   const sessionRow = await prisma.session.findUnique({
-    where: { id: sessionId },
+    where: { id: normalizedSessionId },
     include: {
       student: { select: { id: true, organizationId: true } },
     },

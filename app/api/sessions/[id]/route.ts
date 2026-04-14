@@ -1,13 +1,19 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
+import { resolveRouteId, type RouteParams } from "@/lib/server/route-params";
 
 export async function GET(
   _request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: RouteParams }
 ) {
   try {
+    const sessionId = await resolveRouteId(params);
+    if (!sessionId) {
+      return NextResponse.json({ error: "sessionId is required" }, { status: 400 });
+    }
+
     const session = await prisma.session.findUnique({
-      where: { id: params.id },
+      where: { id: sessionId },
       include: {
         parts: {
           orderBy: { createdAt: "asc" },
@@ -51,9 +57,14 @@ export async function GET(
 
 export async function PATCH(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: RouteParams }
 ) {
   try {
+    const sessionId = await resolveRouteId(params);
+    if (!sessionId) {
+      return NextResponse.json({ error: "sessionId is required" }, { status: 400 });
+    }
+
     const body = await request.json();
     const data: Record<string, unknown> = {};
     if (body?.title !== undefined) data.title = body.title || null;
@@ -61,7 +72,7 @@ export async function PATCH(
     if (body?.sessionDate !== undefined) data.sessionDate = body.sessionDate ? new Date(body.sessionDate) : new Date();
 
     const session = await prisma.session.update({
-      where: { id: params.id },
+      where: { id: sessionId },
       data,
     });
 

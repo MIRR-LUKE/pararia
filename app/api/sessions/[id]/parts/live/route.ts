@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { resolveRouteId, type RouteParams } from "@/lib/server/route-params";
 import {
   loadAuthorizedSessionPartContext,
   parseLiveChunkSubmissionFormData,
@@ -8,10 +9,11 @@ import { handleFinalizeLiveSessionPart, handleLiveChunkSubmission } from "../ses
 
 export async function POST(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: RouteParams }
 ) {
   try {
-    const access = await loadAuthorizedSessionPartContext(params.id);
+    const sessionId = await resolveRouteId(params);
+    const access = await loadAuthorizedSessionPartContext(sessionId);
     if ("response" in access) return access.response;
 
     const contentType = request.headers.get("content-type") || "";

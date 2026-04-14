@@ -1,5 +1,6 @@
 import { runNextMeetingMemoRouteTest } from "./test-next-meeting-memo-route";
 import { runRecordingLockRouteTest } from "./test-recording-lock-route";
+import { runSessionRoutesRouteTest } from "./test-session-routes-route";
 import { runStudentRoomRouteTest } from "./test-student-room-route";
 
 async function main() {
@@ -7,6 +8,7 @@ async function main() {
     runRecordingLockRouteTest(),
     runStudentRoomRouteTest(),
     runNextMeetingMemoRouteTest(),
+    runSessionRoutesRouteTest(),
   ]);
   console.log("critical-path smoke passed");
 }

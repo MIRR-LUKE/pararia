@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { pathToFileURL } from "node:url";
+import { SessionPartType, SessionStatus, SessionType } from "@prisma/client";
 import { prisma } from "../../lib/db";
 import { loadLocalEnvFiles } from "./load-local-env";
 
@@ -10,6 +11,8 @@ export const ROOM_STUDENT_ID = "student-demo-1";
 export const LOCK_STUDENT_ID = "student-demo-2";
 export const NEXT_MEETING_SESSION_ID = "session-demo-1-interview";
 export const NEXT_MEETING_CONVERSATION_ID = "conversation-demo-1-interview";
+export const SESSION_ROUTE_SESSION_ID = "session-critical-path-routes";
+export const SESSION_ROUTE_STUDENT_ID = ROOM_STUDENT_ID;
 
 type JsonValue = Record<string, unknown>;
 
@@ -70,6 +73,110 @@ export async function cleanupNextMeetingMemo(sessionId: string, conversationId: 
       type: "GENERATE_NEXT_MEETING_MEMO",
     },
   });
+}
+
+export async function prepareSessionRouteSmokeSession(sessionId: string = SESSION_ROUTE_SESSION_ID) {
+  await loadCriticalPathEnv();
+
+  const student = await prisma.student.findUnique({
+    where: { id: SESSION_ROUTE_STUDENT_ID },
+    select: { id: true, organizationId: true },
+  });
+  assert.ok(student, `student ${SESSION_ROUTE_STUDENT_ID} is required for session route smoke`);
+
+  const user = await prisma.user.findUnique({
+    where: { email: DEMO_EMAIL },
+    select: { id: true },
+  });
+
+  await cleanupSessionRouteSmokeSession(sessionId);
+
+  return prisma.session.upsert({
+    where: { id: sessionId },
+    update: {
+      organizationId: student.organizationId,
+      studentId: student.id,
+      userId: user?.id ?? null,
+      type: SessionType.INTERVIEW,
+      status: SessionStatus.DRAFT,
+      title: "Critical path smoke session",
+      notes: null,
+      sessionDate: new Date("2026-04-14T00:00:00.000Z"),
+      heroStateLabel: null,
+      heroOneLiner: null,
+      latestSummary: null,
+      completedAt: null,
+    },
+    create: {
+      id: sessionId,
+      organizationId: student.organizationId,
+      studentId: student.id,
+      userId: user?.id ?? null,
+      type: SessionType.INTERVIEW,
+      status: SessionStatus.DRAFT,
+      title: "Critical path smoke session",
+      notes: null,
+      sessionDate: new Date("2026-04-14T00:00:00.000Z"),
+    },
+  });
+}
+
+export async function cleanupSessionRouteSmokeSession(sessionId: string = SESSION_ROUTE_SESSION_ID) {
+  const sessionParts = await prisma.sessionPart.findMany({
+    where: { sessionId },
+    select: { id: true },
+  });
+  const sessionPartIds = sessionParts.map((part) => part.id);
+
+  const conversation = await prisma.conversationLog.findUnique({
+    where: { sessionId },
+    select: { id: true },
+  });
+
+  await prisma.nextMeetingMemo.deleteMany({ where: { sessionId } });
+  await prisma.properNounSuggestion.deleteMany({ where: { sessionId } });
+
+  if (sessionPartIds.length > 0) {
+    await prisma.properNounSuggestion.deleteMany({
+      where: { sessionPartId: { in: sessionPartIds } },
+    });
+    await prisma.sessionPartJob.deleteMany({
+      where: { sessionPartId: { in: sessionPartIds } },
+    });
+  }
+
+  if (conversation?.id) {
+    await prisma.properNounSuggestion.deleteMany({
+      where: { conversationId: conversation.id },
+    });
+    await prisma.conversationJob.deleteMany({
+      where: { conversationId: conversation.id },
+    });
+  }
+
+  await prisma.conversationLog.deleteMany({ where: { sessionId } });
+  await prisma.sessionPart.deleteMany({ where: { sessionId } });
+  await prisma.session.updateMany({
+    where: { id: sessionId },
+    data: {
+      status: SessionStatus.DRAFT,
+      heroStateLabel: null,
+      heroOneLiner: null,
+      latestSummary: null,
+      completedAt: null,
+    },
+  });
+
+  const fullPart = await prisma.sessionPart.findUnique({
+    where: {
+      sessionId_partType: {
+        sessionId,
+        partType: SessionPartType.FULL,
+      },
+    },
+    select: { id: true },
+  });
+  assert.equal(fullPart, null, "session route smoke cleanup should remove FULL session part");
 }
 
 export async function loginForCriticalPathSmoke(baseUrl: string = CRITICAL_PATH_BASE_URL) {

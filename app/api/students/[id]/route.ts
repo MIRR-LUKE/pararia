@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { writeAuditLog } from "@/lib/audit";
 import { prisma } from "@/lib/db";
 import { getLogListCacheTag } from "@/lib/logs/get-log-list-page-data";
+import { resolveRouteId, type RouteParams } from "@/lib/server/route-params";
 import { requireAuthorizedSession } from "@/lib/server/request-auth";
 import { archiveStudent, withActiveStudentWhere } from "@/lib/students/student-lifecycle";
 
@@ -26,13 +27,17 @@ function normalizeGuardianNames(value: unknown) {
 
 export async function GET(
   _request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: RouteParams }
 ) {
   const authResult = await requireAuthorizedSession();
   if (authResult.response) return authResult.response;
+  const studentId = await resolveRouteId(params);
+  if (!studentId) {
+    return NextResponse.json({ error: "studentId is required" }, { status: 400 });
+  }
 
   const student = await prisma.student.findFirst({
-    where: withActiveStudentWhere({ id: params.id, organizationId: authResult.session.user.organizationId }),
+    where: withActiveStudentWhere({ id: studentId, organizationId: authResult.session.user.organizationId }),
     include: {
       profiles: {
         orderBy: { createdAt: "desc" },
@@ -58,14 +63,19 @@ export async function GET(
 
 export async function PUT(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: RouteParams }
 ) {
   try {
+    const studentId = await resolveRouteId(params);
+    if (!studentId) {
+      return NextResponse.json({ error: "studentId is required" }, { status: 400 });
+    }
+
     const authResult = await requireAuthorizedSession();
     if (authResult.response) return authResult.response;
 
     const existing = await prisma.student.findFirst({
-      where: withActiveStudentWhere({ id: params.id, organizationId: authResult.session.user.organizationId }),
+      where: withActiveStudentWhere({ id: studentId, organizationId: authResult.session.user.organizationId }),
       select: { id: true },
     });
     if (!existing) {
@@ -117,9 +127,14 @@ export async function PUT(
 
 export async function DELETE(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: RouteParams }
 ) {
   try {
+    const studentId = await resolveRouteId(params);
+    if (!studentId) {
+      return NextResponse.json({ error: "studentId is required" }, { status: 400 });
+    }
+
     const authResult = await requireAuthorizedSession();
     if (authResult.response) return authResult.response;
 
@@ -129,7 +144,7 @@ export async function DELETE(
         ? body.reason.trim()
         : "manual_archive";
     const archived = await archiveStudent({
-      studentId: params.id,
+      studentId,
       organizationId: authResult.session.user.organizationId,
       actorUserId: authResult.session.user.id,
       reason: archiveReason,

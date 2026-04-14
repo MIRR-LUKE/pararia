@@ -18,6 +18,7 @@
     "test:local-stt": "tsx scripts/test-local-stt.ts",
     "test:next-meeting-memo-route": "tsx scripts/test-next-meeting-memo-route.ts",
     "test:recording-lock-route": "tsx scripts/test-recording-lock-route.ts",
+    "test:session-routes-route": "tsx scripts/test-session-routes-route.ts",
     "test:session-progress": "tsx scripts/test-session-progress.ts",
     "test:student-room-route": "tsx scripts/test-student-room-route.ts",
     "test:conversation-eval": "tsx scripts/test-conversation-eval.ts",
