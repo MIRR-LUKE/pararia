@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { requireAuthorizedSession } from "@/lib/server/request-auth";
+import { resolveRouteId, type RouteParams } from "@/lib/server/route-params";
 import {
   ensureConversationReviewedTranscript,
   listConversationProperNounSuggestions,
@@ -22,14 +23,19 @@ async function ensureOwnedConversation(conversationId: string, organizationId: s
 
 export async function GET(
   _request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: RouteParams }
 ) {
   try {
+    const conversationId = await resolveRouteId(params);
+    if (!conversationId) {
+      return NextResponse.json({ error: "conversationId is required" }, { status: 400 });
+    }
+
     const authResult = await requireAuthorizedSession();
     if (authResult.response) return authResult.response;
-    await ensureOwnedConversation(params.id, authResult.session.user.organizationId);
+    await ensureOwnedConversation(conversationId, authResult.session.user.organizationId);
 
-    const review = await listConversationProperNounSuggestions(params.id);
+    const review = await listConversationProperNounSuggestions(conversationId);
     return NextResponse.json({ review });
   } catch (error: any) {
     console.error("[GET /api/conversations/[id]/review] Error:", error);
@@ -40,15 +46,20 @@ export async function GET(
 
 export async function POST(
   _request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: RouteParams }
 ) {
   try {
+    const conversationId = await resolveRouteId(params);
+    if (!conversationId) {
+      return NextResponse.json({ error: "conversationId is required" }, { status: 400 });
+    }
+
     const authResult = await requireAuthorizedSession();
     if (authResult.response) return authResult.response;
-    await ensureOwnedConversation(params.id, authResult.session.user.organizationId);
+    await ensureOwnedConversation(conversationId, authResult.session.user.organizationId);
 
-    await ensureConversationReviewedTranscript(params.id);
-    const review = await listConversationProperNounSuggestions(params.id);
+    await ensureConversationReviewedTranscript(conversationId);
+    const review = await listConversationProperNounSuggestions(conversationId);
     return NextResponse.json({ ok: true, review });
   } catch (error: any) {
     console.error("[POST /api/conversations/[id]/review] Error:", error);

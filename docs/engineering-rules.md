@@ -49,6 +49,14 @@
 - `build` の bundle size と、実ブラウザの遷移時間の両方で確認する
 - 性能改善では、まず二重取得・無駄な poll・不要な rerender を潰す
 
+### 1.8 Protected Critical Path
+
+- `録音ロック -> session part ingest -> conversation job -> next meeting memo -> student room` は protected critical path として扱う
+- この経路に触れた変更は、通常の `typecheck / build` だけで終わらせない
+- route params, auth, background job enqueue, room 取得のどれかを変えたら、critical path smoke を通す
+- `backend / perf / infra / worker / jobs / guardrails` 系の branch では UI path を勝手に触らない
+- audit log や補助 side effect の失敗で main flow を落とさない
+
 ## 2. コード形状の基準
 
 `npm run check:code-shape` を最低限のガードとして使います。

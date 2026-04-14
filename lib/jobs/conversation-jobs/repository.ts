@@ -418,6 +418,46 @@ export async function enqueueConversationJobs(
   );
 }
 
+export function shouldRecoverProcessingConversationJobs(input: {
+  status: ConversationStatus | string | null | undefined;
+  jobs: Array<{ status: JobStatus | string | null | undefined }>;
+}) {
+  if (input.status !== ConversationStatus.PROCESSING) return false;
+  if (input.jobs.length === 0) return true;
+  return input.jobs.every((job) => job.status === JobStatus.ERROR);
+}
+
+export async function ensureConversationJobsAvailable(
+  conversationId: string,
+  opts?: { includeFormat?: boolean }
+) {
+  const conversation = await prisma.conversationLog.findUnique({
+    where: { id: conversationId },
+    select: {
+      status: true,
+      jobs: {
+        where: {
+          type: { in: ACTIVE_JOB_TYPES },
+        },
+        select: {
+          status: true,
+        },
+      },
+    },
+  });
+
+  if (!conversation) {
+    return { healed: false as const, reason: "not_found" as const };
+  }
+
+  if (!shouldRecoverProcessingConversationJobs(conversation)) {
+    return { healed: false as const, reason: "jobs_present" as const };
+  }
+
+  await enqueueConversationJobs(conversationId, opts);
+  return { healed: true as const, reason: "enqueued_missing_jobs" as const };
+}
+
 export async function recordJobFailure(job: JobPayload, error: unknown) {
   const message = error instanceof Error ? error.message : String(error ?? "unknown error");
   const retryable = isRetryableJobError(error);

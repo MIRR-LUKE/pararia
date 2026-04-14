@@ -4,6 +4,7 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/db";
 import { runWithDatabaseRetry } from "@/lib/db-retry";
 import { shouldRunBackgroundJobsInline } from "@/lib/jobs/execution-mode";
+import { createOperationContext, logOperationError, operationErrorResponse, withOperationMeta } from "@/lib/observability/operation-errors";
 import {
   acquireRecordingLock,
   forceReleaseRecordingLock,
@@ -47,18 +48,19 @@ async function resolveStudentId(params: { id: string } | Promise<{ id: string }>
 }
 
 export async function GET(_request: Request, { params }: { params: { id: string } | Promise<{ id: string }> }) {
+  const operation = createOperationContext("GET /api/students/[id]/recording-lock");
   try {
     const studentId = await resolveStudentId(params);
     if (!studentId) {
-      return NextResponse.json({ error: "studentId が必要です。" }, { status: 400 });
+      return NextResponse.json(withOperationMeta(operation, "resolve_params", { error: "studentId が必要です。" }), { status: 400 });
     }
     const session = await auth();
     if (!session?.user?.id || !session.user.organizationId) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      return NextResponse.json(withOperationMeta(operation, "authorize", { error: "Unauthorized" }), { status: 401 });
     }
     const student = await assertStudentAccess(studentId, session.user.organizationId);
     if (!student) {
-      return NextResponse.json({ error: "生徒が見つかりません。" }, { status: 404 });
+      return NextResponse.json(withOperationMeta(operation, "student_lookup", { error: "生徒が見つかりません。" }), { status: 404 });
     }
 
     const view = await runWithDatabaseRetry("recording-lock-view", () =>
@@ -69,30 +71,37 @@ export async function GET(_request: Request, { params }: { params: { id: string 
     );
     return NextResponse.json(view);
   } catch (e: any) {
-    console.error("[GET recording-lock]", e);
-    return NextResponse.json({ error: e?.message ?? "Internal Server Error" }, { status: 500 });
+    return operationErrorResponse(operation, {
+      stage: "view_lock",
+      message: e?.message ?? "Internal Server Error",
+      error: e,
+    });
   }
 }
 
 export async function POST(request: Request, { params }: { params: { id: string } | Promise<{ id: string }> }) {
+  const operation = createOperationContext("POST /api/students/[id]/recording-lock");
   try {
     const studentId = await resolveStudentId(params);
     if (!studentId) {
-      return NextResponse.json({ error: "studentId が必要です。" }, { status: 400 });
+      return NextResponse.json(withOperationMeta(operation, "resolve_params", { error: "studentId が必要です。" }), { status: 400 });
     }
     const session = await auth();
     if (!session?.user?.id || !session.user.organizationId) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      return NextResponse.json(withOperationMeta(operation, "authorize", { error: "Unauthorized" }), { status: 401 });
     }
     const student = await assertStudentAccess(studentId, session.user.organizationId);
     if (!student) {
-      return NextResponse.json({ error: "生徒が見つかりません。" }, { status: 404 });
+      return NextResponse.json(withOperationMeta(operation, "student_lookup", { error: "生徒が見つかりません。" }), { status: 404 });
     }
 
     const body = await request.json().catch(() => ({}));
     if (body?.forceRelease === true) {
       if (!canForceReleaseRole(session.user.role)) {
-        return NextResponse.json({ error: "ロックの強制解除は管理者のみ実行できます。" }, { status: 403 });
+        return NextResponse.json(
+          withOperationMeta(operation, "force_release", { error: "ロックの強制解除は管理者のみ実行できます。" }),
+          { status: 403 }
+        );
       }
       await runWithDatabaseRetry("recording-lock-force-release", () =>
         forceReleaseRecordingLock({
@@ -109,7 +118,10 @@ export async function POST(request: Request, { params }: { params: { id: string 
 
     const mode = parseMode(body?.mode);
     if (!mode) {
-      return NextResponse.json({ error: "mode は INTERVIEW または LESSON_REPORT を指定してください。" }, { status: 400 });
+      return NextResponse.json(
+        withOperationMeta(operation, "validate_mode", { error: "mode は INTERVIEW または LESSON_REPORT を指定してください。" }),
+        { status: 400 }
+      );
     }
 
     const result = await runWithDatabaseRetry("recording-lock-acquire", () =>
@@ -123,7 +135,7 @@ export async function POST(request: Request, { params }: { params: { id: string 
 
     if (!result.ok) {
       return NextResponse.json(
-        {
+        withOperationMeta(operation, "acquire_lock", {
           error: result.messageJa,
           code: "recording_lock_conflict",
           lockedBy: {
@@ -132,14 +144,18 @@ export async function POST(request: Request, { params }: { params: { id: string 
           },
           mode: result.mode,
           expiresAt: result.expiresAt,
-        },
+        }),
         { status: 409 }
       );
     }
 
     if (!shouldRunBackgroundJobsInline() && mode === RecordingLockMode.INTERVIEW) {
       void maybeEnsureRunpodWorker().catch((error) => {
-        console.error("[POST recording-lock] Runpod worker wake failed:", error);
+        logOperationError(operation, {
+          stage: "wake_runpod_worker",
+          message: "Runpod worker wake failed",
+          error,
+        });
       });
     }
 
@@ -149,25 +165,29 @@ export async function POST(request: Request, { params }: { params: { id: string 
       mode: result.mode,
     });
   } catch (e: any) {
-    console.error("[POST recording-lock]", e);
-    return NextResponse.json({ error: e?.message ?? "Internal Server Error" }, { status: 500 });
+    return operationErrorResponse(operation, {
+      stage: "acquire_lock",
+      message: e?.message ?? "Internal Server Error",
+      error: e,
+    });
   }
 }
 
 export async function PATCH(request: Request, { params }: { params: { id: string } | Promise<{ id: string }> }) {
+  const operation = createOperationContext("PATCH /api/students/[id]/recording-lock");
   try {
     const studentId = await resolveStudentId(params);
     if (!studentId) {
-      return NextResponse.json({ error: "studentId が必要です。" }, { status: 400 });
+      return NextResponse.json(withOperationMeta(operation, "resolve_params", { error: "studentId が必要です。" }), { status: 400 });
     }
     const session = await auth();
     if (!session?.user?.id || !session.user.organizationId) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      return NextResponse.json(withOperationMeta(operation, "authorize", { error: "Unauthorized" }), { status: 401 });
     }
     const body = await request.json().catch(() => ({}));
     const lockToken = typeof body?.lockToken === "string" ? body.lockToken.trim() : "";
     if (!lockToken) {
-      return NextResponse.json({ error: "lockToken が必要です。" }, { status: 400 });
+      return NextResponse.json(withOperationMeta(operation, "validate_lock_token", { error: "lockToken が必要です。" }), { status: 400 });
     }
 
     const beat = await runWithDatabaseRetry("recording-lock-heartbeat", () =>
@@ -178,24 +198,28 @@ export async function PATCH(request: Request, { params }: { params: { id: string
       })
     );
     if (!beat.ok) {
-      return NextResponse.json({ ok: false, code: beat.code }, { status: 200 });
+      return NextResponse.json(withOperationMeta(operation, "heartbeat", { ok: false, code: beat.code }), { status: 200 });
     }
     return NextResponse.json({ ok: true, expiresAt: beat.expiresAt });
   } catch (e: any) {
-    console.error("[PATCH recording-lock]", e);
-    return NextResponse.json({ error: e?.message ?? "Internal Server Error" }, { status: 500 });
+    return operationErrorResponse(operation, {
+      stage: "heartbeat",
+      message: e?.message ?? "Internal Server Error",
+      error: e,
+    });
   }
 }
 
 export async function DELETE(request: Request, { params }: { params: { id: string } | Promise<{ id: string }> }) {
+  const operation = createOperationContext("DELETE /api/students/[id]/recording-lock");
   try {
     const studentId = await resolveStudentId(params);
     if (!studentId) {
-      return NextResponse.json({ error: "studentId が必要です。" }, { status: 400 });
+      return NextResponse.json(withOperationMeta(operation, "resolve_params", { error: "studentId が必要です。" }), { status: 400 });
     }
     const session = await auth();
     if (!session?.user?.id || !session.user.organizationId) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      return NextResponse.json(withOperationMeta(operation, "authorize", { error: "Unauthorized" }), { status: 401 });
     }
     let lockToken = "";
     try {
@@ -205,7 +229,7 @@ export async function DELETE(request: Request, { params }: { params: { id: strin
       lockToken = "";
     }
     if (!lockToken) {
-      return NextResponse.json({ error: "lockToken が必要です。" }, { status: 400 });
+      return NextResponse.json(withOperationMeta(operation, "validate_lock_token", { error: "lockToken が必要です。" }), { status: 400 });
     }
 
     const released = await runWithDatabaseRetry("recording-lock-release", () =>
@@ -216,11 +240,14 @@ export async function DELETE(request: Request, { params }: { params: { id: strin
       })
     );
     if (!released.ok) {
-      return NextResponse.json({ ok: false, code: released.code }, { status: 200 });
+      return NextResponse.json(withOperationMeta(operation, "release_lock", { ok: false, code: released.code }), { status: 200 });
     }
     return NextResponse.json({ ok: true });
   } catch (e: any) {
-    console.error("[DELETE recording-lock]", e);
-    return NextResponse.json({ error: e?.message ?? "Internal Server Error" }, { status: 500 });
+    return operationErrorResponse(operation, {
+      stage: "release_lock",
+      message: e?.message ?? "Internal Server Error",
+      error: e,
+    });
   }
 }

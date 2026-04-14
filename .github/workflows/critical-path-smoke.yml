@@ -1,0 +1,78 @@
+name: Critical Path Smoke
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  critical-path-smoke:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: pararia_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d pararia_ci"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/pararia_ci?schema=public
+      DIRECT_URL: postgresql://postgres:postgres@127.0.0.1:5432/pararia_ci?schema=public
+      AUTH_SECRET: pararia-ci-auth-secret
+      NEXTAUTH_SECRET: pararia-ci-auth-secret
+      CRITICAL_PATH_BASE_URL: http://127.0.0.1:3000
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npm run prisma:generate
+
+      - name: Prepare database
+        run: npm run prisma:test:prepare
+
+      - name: Seed database
+        run: npm run prisma:seed
+
+      - name: Start Next.js dev server
+        run: |
+          npm run dev > .tmp-critical-path-server.log 2>&1 &
+          echo $! > .tmp-critical-path-server.pid
+        shell: bash
+
+      - name: Wait for app
+        run: |
+          node -e "const wait = async () => { for (let i = 0; i < 60; i += 1) { try { const res = await fetch('http://127.0.0.1:3000/login'); if (res.ok) return; } catch {} await new Promise((resolve) => setTimeout(resolve, 1000)); } throw new Error('app did not become ready in time'); }; wait().catch((error) => { console.error(error); process.exit(1); });"
+
+      - name: Run critical path smoke
+        run: npx tsx scripts/test-critical-path-smoke.ts
+
+      - name: Print server log on failure
+        if: failure()
+        run: cat .tmp-critical-path-server.log
+        shell: bash
+
+      - name: Stop Next.js dev server
+        if: always()
+        run: |
+          if [ -f .tmp-critical-path-server.pid ]; then
+            kill $(cat .tmp-critical-path-server.pid) || true
+          fi
+        shell: bash

@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { UserRole } from "@prisma/client";
 import { writeAuditLog } from "@/lib/audit";
 import { getLogListCacheTag } from "@/lib/logs/get-log-list-page-data";
+import { resolveRouteId, type RouteParams } from "@/lib/server/route-params";
 import { requireAuthorizedSession } from "@/lib/server/request-auth";
 import { restoreArchivedStudent } from "@/lib/students/student-lifecycle";
 
@@ -10,8 +11,13 @@ function canRestoreStudent(role: string | null | undefined) {
   return role === UserRole.ADMIN || role === UserRole.MANAGER || role === "ADMIN" || role === "MANAGER";
 }
 
-export async function POST(_request: Request, { params }: { params: { id: string } }) {
+export async function POST(_request: Request, { params }: { params: RouteParams }) {
   try {
+    const studentId = await resolveRouteId(params);
+    if (!studentId) {
+      return NextResponse.json({ error: "studentId is required" }, { status: 400 });
+    }
+
     const authResult = await requireAuthorizedSession();
     if (authResult.response) return authResult.response;
 
@@ -20,7 +26,7 @@ export async function POST(_request: Request, { params }: { params: { id: string
     }
 
     const restored = await restoreArchivedStudent({
-      studentId: params.id,
+      studentId,
       organizationId: authResult.session.user.organizationId,
     });
 

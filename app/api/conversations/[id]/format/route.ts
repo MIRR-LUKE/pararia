@@ -4,20 +4,26 @@ import { ConversationJobType, JobStatus } from "@prisma/client";
 import { processAllConversationJobs } from "@/lib/jobs/conversationJobs";
 import { shouldRunBackgroundJobsInline } from "@/lib/jobs/execution-mode";
 import { requireAuthorizedSession } from "@/lib/server/request-auth";
+import { resolveRouteId, type RouteParams } from "@/lib/server/route-params";
 import { maybeStopRunpodWorkerWhenSessionPartQueueIdle } from "@/lib/runpod/idle-stop";
 import { maybeEnsureRunpodWorker } from "@/lib/runpod/worker-control";
 
 export async function POST(
   _request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: RouteParams }
 ) {
   try {
+    const conversationId = await resolveRouteId(params);
+    if (!conversationId) {
+      return NextResponse.json({ error: "conversationId is required" }, { status: 400 });
+    }
+
     const authResult = await requireAuthorizedSession();
     if (authResult.response) return authResult.response;
     const organizationId = authResult.session.user.organizationId;
 
     const conversation = await prisma.conversationLog.findFirst({
-      where: { id: params.id, organizationId },
+      where: { id: conversationId, organizationId },
       select: {
         id: true,
         formattedTranscript: true,
@@ -45,7 +51,7 @@ export async function POST(
 
     await prisma.conversationJob.createMany({
       data: [
-        { conversationId: params.id, type: ConversationJobType.FORMAT, status: JobStatus.QUEUED },
+        { conversationId, type: ConversationJobType.FORMAT, status: JobStatus.QUEUED },
       ],
       skipDuplicates: true,
     });
@@ -53,7 +59,7 @@ export async function POST(
     if (shouldRunBackgroundJobsInline()) {
       void (async () => {
         try {
-          await processAllConversationJobs(params.id);
+          await processAllConversationJobs(conversationId);
         } catch (error) {
           console.error("[POST /api/conversations/[id]/format] Background process failed:", error);
         } finally {

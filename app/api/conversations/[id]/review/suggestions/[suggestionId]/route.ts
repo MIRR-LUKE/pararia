@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { ProperNounSuggestionStatus } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { requireAuthorizedSession } from "@/lib/server/request-auth";
+import { normalizeRouteParam, resolveRouteParams, type RouteParams } from "@/lib/server/route-params";
 import {
   listConversationProperNounSuggestions,
   updateProperNounSuggestionDecision,
@@ -50,14 +51,21 @@ async function ensureOwnedSuggestion(input: {
 
 export async function PATCH(
   request: Request,
-  { params }: { params: { id: string; suggestionId: string } }
+  { params }: { params: RouteParams<{ id: string; suggestionId: string }> }
 ) {
   try {
+    const resolvedParams = await resolveRouteParams(params);
+    const conversationId = normalizeRouteParam(resolvedParams.id);
+    const suggestionId = normalizeRouteParam(resolvedParams.suggestionId);
+    if (!conversationId || !suggestionId) {
+      return NextResponse.json({ error: "conversationId and suggestionId are required" }, { status: 400 });
+    }
+
     const authResult = await requireAuthorizedSession();
     if (authResult.response) return authResult.response;
     await ensureOwnedSuggestion({
-      conversationId: params.id,
-      suggestionId: params.suggestionId,
+      conversationId,
+      suggestionId,
       organizationId: authResult.session.user.organizationId,
     });
 
@@ -71,12 +79,12 @@ export async function PATCH(
     }
 
     await updateProperNounSuggestionDecision({
-      suggestionId: params.suggestionId,
+      suggestionId,
       status,
       finalValue: typeof body?.finalValue === "string" ? body.finalValue : null,
     });
 
-    const review = await listConversationProperNounSuggestions(params.id);
+    const review = await listConversationProperNounSuggestions(conversationId);
     return NextResponse.json({ ok: true, review });
   } catch (error: any) {
     console.error("[PATCH /api/conversations/[id]/review/suggestions/[suggestionId]] Error:", error);

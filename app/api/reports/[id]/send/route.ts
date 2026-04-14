@@ -5,12 +5,18 @@ import { auth } from "@/auth";
 import { writeAuditLog } from "@/lib/audit";
 import { prisma } from "@/lib/db";
 import { getLogListCacheTag } from "@/lib/logs/get-log-list-page-data";
+import { resolveRouteId, type RouteParams } from "@/lib/server/route-params";
 
 export async function POST(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: RouteParams }
 ) {
   try {
+    const reportId = await resolveRouteId(params);
+    if (!reportId) {
+      return NextResponse.json({ error: "reportId is required" }, { status: 400 });
+    }
+
     const session = await auth();
     const body = await request.json().catch(() => ({}));
     const action: "review" | "sent" | "delivered" | "failed" | "bounced" | "manual_share" | "resent" =
@@ -42,7 +48,7 @@ export async function POST(
       }[action] ?? ReportDeliveryEventType.MANUAL_SHARED;
 
     const current = await prisma.report.findUnique({
-      where: { id: params.id },
+      where: { id: reportId },
       select: {
         id: true,
         studentId: true,
@@ -96,7 +102,7 @@ export async function POST(
 
     const result = await prisma.$transaction(async (tx) => {
       const report = await tx.report.update({
-        where: { id: params.id },
+        where: { id: reportId },
         data: nextData,
       });
 

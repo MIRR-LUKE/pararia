@@ -116,7 +116,11 @@
 
 次の active open issue:
 
-- なし
+1. [65-log-generation-critical-path-contract.md](./65-log-generation-critical-path-contract.md)
+2. [66-critical-path-smoke-ci-gate.md](./66-critical-path-smoke-ci-gate.md)
+3. [67-backend-only-branch-ui-guard.md](./67-backend-only-branch-ui-guard.md)
+4. [68-stage-aware-operation-errors.md](./68-stage-aware-operation-errors.md)
+5. [69-make-noncritical-side-effects-best-effort.md](./69-make-noncritical-side-effects-best-effort.md)
 
 今回追加した issue docs:
 

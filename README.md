@@ -9,7 +9,9 @@ PARARIA は、塾・個別指導・学習コーチング向けの `Teaching OS` 
 
 - コード品質と性能の基準は [docs/engineering-rules.md](./docs/engineering-rules.md)
 - DB / Blob の保全・復旧手順は [docs/db-backup-recovery.md](./docs/db-backup-recovery.md)
+- protected critical path は `録音ロック -> session part ingest -> conversation job -> next meeting memo -> student room`
 - shape guard は `npm run check:code-shape`
+- backend / perf 系 branch の UI 混入 guard は `npm run check:backend-scope`
 - 最低限の確認は `npm run typecheck && npm run build && npm run check:code-shape`
 
 ## 1. 先に結論
@@ -1029,18 +1031,24 @@ npm run restore:student -- --student-id <studentId>
 
 ## 16. 現在の smoke check
 
-2026-04-06 に次を実行して通過確認済み:
+2026-04-14 時点で次を主な smoke / regression として持つ:
 
 - `npm run typecheck`
 - `npm run test:audio-upload-support`
+- `npm run test:critical-path-smoke`
 - `npm run test:external-worker-config`
 - `npm run test:generation-progress`
 - `npm run test:local-stt`
+- `npm run test:next-meeting-memo-route`
+- `npm run test:recording-lock-route`
 - `npm run test:session-progress`
+- `npm run test:student-room-route`
 
 ## 17. CI の品質ゲート
 
 - GitHub Actions の `Conversation Quality` で faithfulness 系の代表チェックを回す
+- GitHub Actions の `Critical Path Smoke` で `録音ロック -> student room -> next meeting memo` の route smoke を回す
+- GitHub Actions の `Backend Scope Guard` で backend / perf 系 branch の UI 変更を止める
 - workflow では PostgreSQL service container を立てて、local と同じ Prisma 前提で回す
 - 実行内容:
   - `npm ci`
@@ -1051,8 +1059,11 @@ npm run restore:student -- --student-id <studentId>
   - `npx tsx scripts/test-conversation-artifact-semantics.ts`
   - `npm run test:conversation-draft-quality`
   - `npm run test:conversation-eval -- --out artifacts/conversation-eval-report.md`
+  - `npm run prisma:seed`
+  - `npm run test:critical-path-smoke`
+  - `npm run check:backend-scope`
 - `conversation-eval` のレポートは artifact として保存する
-- 目的は「コードは通るが、盛ったログや固有名詞崩れが入った」を PR 時点で止めること
+- 目的は「コードは通るが、主経路が壊れた」や「backend branch に UI が混ざった」を PR 時点で止めること
 
 ## 18. やらないこと
 
