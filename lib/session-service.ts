@@ -13,7 +13,6 @@ import { parseConversationArtifact, renderConversationArtifactOrFallback } from 
 import { getTranscriptExpiryDate } from "./system-config";
 import { sanitizeTranscriptSegments } from "./user-facing-japanese";
 import { normalizeRawTranscriptText, pickEvidenceTranscriptText } from "./transcript/source";
-import { ensureConversationReviewedTranscript } from "./transcript/review";
 
 type SessionPartLike = {
   id: string;
@@ -224,7 +223,6 @@ export async function ensureConversationForSession(sessionId: string) {
       },
       select: { id: true },
     });
-    await ensureConversationReviewedTranscript(conversation.id);
     return conversation.id;
   }
 
@@ -232,7 +230,6 @@ export async function ensureConversationForSession(sessionId: string) {
     data,
     select: { id: true },
   });
-  await ensureConversationReviewedTranscript(conversation.id);
   return conversation.id;
 }
 

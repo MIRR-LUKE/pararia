@@ -22,6 +22,7 @@
     "test:session-routes-route": "tsx scripts/test-session-routes-route.ts",
     "test:session-progress": "tsx scripts/test-session-progress.ts",
     "test:session-progress-worker-wake": "tsx scripts/test-session-progress-worker-wake.ts",
+    "test:conversation-job-recovery": "tsx scripts/test-conversation-job-recovery.ts",
     "test:session-part-ingest-dispatch": "tsx scripts/test-session-part-ingest-dispatch.ts",
     "test:student-room-route": "tsx scripts/test-student-room-route.ts",
     "test:conversation-eval": "tsx scripts/test-conversation-eval.ts",

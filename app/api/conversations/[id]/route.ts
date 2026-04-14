@@ -1,7 +1,10 @@
 import { revalidatePath, revalidateTag } from "next/cache";
 import { NextResponse } from "next/server";
 import { writeAuditLog } from "@/lib/audit";
-import { processAllConversationJobs } from "@/lib/jobs/conversationJobs";
+import {
+  ensureConversationJobsAvailable,
+  processAllConversationJobs,
+} from "@/lib/jobs/conversationJobs";
 import { prisma } from "@/lib/db";
 import {
   parseConversationArtifact,
@@ -42,6 +45,16 @@ async function wakeConversationWorkerOrFallback(conversationId: string) {
     workerWake,
   });
   await processAllConversationJobs(conversationId);
+}
+
+async function recoverMissingConversationJobs(conversationId: string) {
+  const recovery = await ensureConversationJobsAvailable(conversationId);
+  if (!recovery.healed) {
+    return recovery;
+  }
+
+  await processAllConversationJobs(conversationId);
+  return recovery;
 }
 
 export async function GET(
@@ -96,7 +109,13 @@ export async function GET(
         return NextResponse.json({ error: "not found" }, { status: 404 });
       }
       if (process === "1") {
-        if (shouldRunBackgroundJobsInline()) {
+        const recovery = await recoverMissingConversationJobs(conversationId).catch(() => ({
+          healed: false as const,
+          reason: "recovery_failed" as const,
+        }));
+        if (recovery.healed) {
+          // Recovery already processed the queued finalize job inline.
+        } else if (shouldRunBackgroundJobsInline()) {
           void processAllConversationJobs(conversationId).catch(() => {});
         } else if (briefConversation.status === "PROCESSING") {
           await wakeConversationWorkerOrFallback(conversationId).catch(() => {});
@@ -158,7 +177,13 @@ export async function GET(
       return NextResponse.json({ error: "not found" }, { status: 404 });
     }
     if (process === "1") {
-      if (shouldRunBackgroundJobsInline()) {
+      const recovery = await recoverMissingConversationJobs(conversationId).catch(() => ({
+        healed: false as const,
+        reason: "recovery_failed" as const,
+      }));
+      if (recovery.healed) {
+        // Recovery already processed the queued finalize job inline.
+      } else if (shouldRunBackgroundJobsInline()) {
         void (async () => {
           try {
             await processAllConversationJobs(conversationId);

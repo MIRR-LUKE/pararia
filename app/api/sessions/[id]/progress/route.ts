@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server";
 import { JobStatus } from "@prisma/client";
 import { prisma } from "@/lib/db";
-import { processAllConversationJobs } from "@/lib/jobs/conversationJobs";
+import {
+  ensureConversationJobsAvailable,
+  processAllConversationJobs,
+} from "@/lib/jobs/conversationJobs";
 import { processAllSessionPartJobs } from "@/lib/jobs/sessionPartJobs";
 import { buildSessionProgressState } from "@/lib/session-progress";
 import { buildSummaryPreview } from "@/lib/session-part-meta";
@@ -64,6 +67,20 @@ async function wakeSessionWorkerOrFallback(sessionId: string, hasPendingConversa
   if (refreshedConversation?.id && shouldProcessConversation) {
     await processAllConversationJobs(refreshedConversation.id);
   }
+}
+
+async function recoverMissingConversationJobs(conversationId: string | null | undefined) {
+  if (!conversationId) {
+    return { healed: false as const, reason: "missing_conversation_id" as const };
+  }
+
+  const recovery = await ensureConversationJobsAvailable(conversationId);
+  if (!recovery.healed) {
+    return recovery;
+  }
+
+  await processAllConversationJobs(conversationId);
+  return recovery;
 }
 
 export async function GET(
@@ -134,12 +151,19 @@ export async function GET(
 
     const { searchParams } = new URL(request.url);
     if (searchParams.get("process") === "1") {
+      const recovery = await recoverMissingConversationJobs(session.conversation?.id).catch(() => ({
+        healed: false as const,
+        reason: "recovery_failed" as const,
+      }));
       const needsConversationWork =
+        recovery.healed ||
         session.conversation?.status === "PROCESSING" ||
         Boolean(session.conversation?.jobs.some((job) => job.status === "QUEUED" || job.status === "RUNNING")) ||
         session.nextMeetingMemo?.status === "QUEUED" ||
         session.nextMeetingMemo?.status === "GENERATING";
-      if (shouldRunBackgroundJobsInline()) {
+      if (recovery.healed) {
+        await maybeStopRunpodWorkerWhenSessionPartQueueIdle().catch(() => {});
+      } else if (shouldRunBackgroundJobsInline()) {
         void processAllSessionPartJobs(session.id).catch(() => {});
         void (async () => {
           try {
