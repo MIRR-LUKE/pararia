@@ -60,7 +60,7 @@ async function runExternalCase() {
 
   assert.equal(result.mode, "external");
   assert.equal(result.workerWake?.ok, true);
-  assert.deepEqual(events, ["enqueue:part-external", "wake"]);
+  assert.deepEqual(events, ["enqueue:part-external", "wake", "process:session-external"]);
 }
 
 await runInlineCase();
