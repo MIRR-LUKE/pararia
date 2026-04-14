@@ -165,13 +165,9 @@ export async function GET(
         await maybeStopRunpodWorkerWhenSessionPartQueueIdle().catch(() => {});
       } else if (shouldRunBackgroundJobsInline()) {
         void processAllSessionPartJobs(session.id).catch(() => {});
-        void (async () => {
-          try {
-            if (session.conversation?.id && needsConversationWork) {
-              await processAllConversationJobs(session.conversation.id);
-            }
-          } catch {}
-        })();
+        if (session.conversation?.id && needsConversationWork) {
+          await processAllConversationJobs(session.conversation.id).catch(() => {});
+        }
         await maybeStopRunpodWorkerWhenSessionPartQueueIdle().catch(() => {});
       } else {
         const queuedSessionPartJobCount = await prisma.sessionPartJob.count({

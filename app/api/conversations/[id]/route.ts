@@ -116,7 +116,7 @@ export async function GET(
         if (recovery.healed) {
           // Recovery already processed the queued finalize job inline.
         } else if (shouldRunBackgroundJobsInline()) {
-          void processAllConversationJobs(conversationId).catch(() => {});
+          await processAllConversationJobs(conversationId).catch(() => {});
         } else if (briefConversation.status === "PROCESSING") {
           await wakeConversationWorkerOrFallback(conversationId).catch(() => {});
         }
@@ -184,13 +184,11 @@ export async function GET(
       if (recovery.healed) {
         // Recovery already processed the queued finalize job inline.
       } else if (shouldRunBackgroundJobsInline()) {
-        void (async () => {
-          try {
-            await processAllConversationJobs(conversationId);
-          } finally {
-            await maybeStopRunpodWorkerWhenSessionPartQueueIdle().catch(() => {});
-          }
-        })();
+        try {
+          await processAllConversationJobs(conversationId);
+        } finally {
+          await maybeStopRunpodWorkerWhenSessionPartQueueIdle().catch(() => {});
+        }
       } else if (conversation.status === "PROCESSING") {
         await wakeConversationWorkerOrFallback(conversationId).catch(() => {});
       }

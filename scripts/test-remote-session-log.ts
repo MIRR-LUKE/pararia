@@ -85,7 +85,7 @@ async function main() {
     assert.equal(submission.response.status, 200, `part submission failed: ${submission.response.status}`);
     assert.equal(submission.body.part?.status, "READY", "manual transcript part should be READY");
 
-    const deadline = Date.now() + 120_000;
+    const deadline = Date.now() + 240_000;
     let lastProgress: ProgressResponse | null = null;
 
     while (Date.now() < deadline) {
