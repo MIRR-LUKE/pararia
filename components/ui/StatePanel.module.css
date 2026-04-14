@@ -3,9 +3,9 @@
   align-items: flex-start;
   justify-content: space-between;
   gap: 16px;
-  border: 1px solid #d6dce8;
+  border: 1px solid var(--border);
   border-radius: 8px;
-  background: #f7f9fc;
+  background: var(--surface-2);
   padding: 18px 20px;
 }
 
@@ -14,17 +14,15 @@
 }
 
 .empty {
-  background: #f7f9fc;
+  background: var(--surface-2);
 }
 
 .error {
-  border-color: #f0b9b9;
-  background: #fff6f6;
+  background: linear-gradient(180deg, rgba(255, 139, 132, 0.14), rgba(255, 255, 255, 0.01)), var(--surface-2);
 }
 
 .processing {
-  border-color: #c8d8f2;
-  background: #f4f8ff;
+  background: linear-gradient(180deg, rgba(219, 255, 75, 0.06), rgba(255, 255, 255, 0.01)), var(--surface-2);
 }
 
 .copy {
@@ -33,21 +31,22 @@
 }
 
 .eyebrow {
-  color: #5f6c82;
+  color: var(--muted);
   font-size: 12px;
   font-weight: 700;
-  letter-spacing: 0;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 
 .title {
-  color: #101828;
+  color: var(--text);
   font-size: 16px;
   line-height: 1.45;
 }
 
 .subtitle {
   margin: 0;
-  color: #475467;
+  color: var(--muted);
   font-size: 14px;
   line-height: 1.6;
 }

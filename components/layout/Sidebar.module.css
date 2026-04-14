@@ -235,7 +235,7 @@
   height: 30px;
   border-radius: 999px;
   background: var(--avatar);
-  color: var(--accent-contrast);
+  color: #ffffff;
   display: grid;
   place-items: center;
   font-size: 10px;
