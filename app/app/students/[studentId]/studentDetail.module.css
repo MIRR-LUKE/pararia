@@ -70,7 +70,7 @@
   height: 35px;
   border-radius: var(--radius-round);
   background: var(--avatar);
-  color: var(--accent-contrast);
+  color: var(--text);
   display: grid;
   place-items: center;
   font-size: 10px;
@@ -84,7 +84,7 @@
   height: 30px;
   border-radius: var(--radius-round);
   background: var(--avatar);
-  color: var(--accent-contrast);
+  color: var(--text);
   display: grid;
   place-items: center;
   font-size: 10px;
