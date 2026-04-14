@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { SessionPartType } from "@prisma/client";
+import { ConversationStatus, SessionPartType } from "@prisma/client";
 import { prisma } from "../lib/db";
 import {
   SESSION_ROUTE_SESSION_ID,
@@ -11,6 +11,64 @@ import {
 
 const SMOKE_TRANSCRIPT =
   "今日は模試の振り返りを行い、数学の見直し方法と英単語の復習計画を整理した。次回まで毎日三十分の復習を続ける方針で合意した。";
+
+async function waitForGeneratedConversation(sessionId: string, client: Awaited<ReturnType<typeof loginForCriticalPathSmoke>>) {
+  const deadline = Date.now() + 45_000;
+
+  while (Date.now() < deadline) {
+    const conversation = await prisma.conversationLog.findUnique({
+      where: { sessionId },
+      select: {
+        id: true,
+        status: true,
+        summaryMarkdown: true,
+        artifactJson: true,
+        jobs: {
+          select: {
+            type: true,
+            status: true,
+            lastError: true,
+          },
+          orderBy: { createdAt: "asc" },
+        },
+      },
+    });
+
+    if (
+      conversation?.status === ConversationStatus.DONE &&
+      (Boolean(conversation.summaryMarkdown?.trim()) || Boolean(conversation.artifactJson))
+    ) {
+      return conversation;
+    }
+
+    if (conversation?.status === ConversationStatus.ERROR) {
+      throw new Error(
+        `conversation generation failed: ${conversation.jobs.map((job) => `${job.type}:${job.status}:${job.lastError ?? ""}`).join(" | ")}`
+      );
+    }
+
+    await client.requestJson(`/api/sessions/${sessionId}/progress?process=1`);
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+  }
+
+  const latestConversation = await prisma.conversationLog.findUnique({
+    where: { sessionId },
+    select: {
+      id: true,
+      status: true,
+      jobs: {
+        select: {
+          type: true,
+          status: true,
+          lastError: true,
+        },
+      },
+    },
+  });
+  throw new Error(
+    `conversation generation timed out: ${JSON.stringify(latestConversation)}`
+  );
+}
 
 export async function runSessionRoutesRouteTest() {
   await prepareSessionRouteSmokeSession();
@@ -73,6 +131,13 @@ export async function runSessionRoutesRouteTest() {
     assert.equal(processingProgress.response.status, 200, "session progress with process=1 should succeed");
     assert.equal(processingProgress.body.session?.id, SESSION_ROUTE_SESSION_ID, "processed progress should keep session id");
     assert.ok(Array.isArray(processingProgress.body.parts), "processed progress should include parts");
+
+    const conversation = await waitForGeneratedConversation(SESSION_ROUTE_SESSION_ID, client);
+    assert.equal(conversation.status, ConversationStatus.DONE, "conversation should be generated");
+    assert.ok(
+      Boolean(conversation.summaryMarkdown?.trim()) || Boolean(conversation.artifactJson),
+      "generated conversation should keep rendered output"
+    );
 
     console.log("session routes smoke passed");
   } finally {
