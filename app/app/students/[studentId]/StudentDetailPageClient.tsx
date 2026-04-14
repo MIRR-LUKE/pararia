@@ -103,6 +103,10 @@ export default function StudentDetailPageClient({
     () => pickLatestInterviewMemoSession(room?.sessions ?? []),
     [room?.sessions]
   );
+  const interviewSessionCount = useMemo(
+    () => (room?.sessions ?? []).filter((session) => session.type === "INTERVIEW").length,
+    [room?.sessions]
+  );
   const latestNextMeetingMemo = latestInterviewMemoSession?.nextMeetingMemo ?? null;
   const viewerBadge = userBadge(viewerName ?? null);
 
@@ -211,7 +215,7 @@ export default function StudentDetailPageClient({
               </div>
               <div className={styles.sectionGateBody}>
                 <div className={styles.sectionGateStat}>
-                  <strong>{room.sessions.length}件</strong>
+                  <strong>{interviewSessionCount}件</strong>
                   <span>最近の面談ログ</span>
                 </div>
                 <div className={styles.sectionGateStat}>
@@ -344,14 +348,14 @@ export default function StudentDetailPageClient({
               <div>
                 <div className={styles.cardTitle}>履歴とレポート</div>
                 <div className={styles.cardSubtext}>
-                  面談・指導報告・保護者レポートの深い一覧は、必要な時だけ読み込みます。
+                  面談ログと保護者レポートの深い一覧は、必要な時だけ読み込みます。
                 </div>
               </div>
             </div>
             <div className={styles.sectionGateBody}>
               <div className={styles.sectionGateStat}>
-                <strong>{room.sessions.length}</strong>
-                <span>面談 / 指導報告</span>
+                <strong>{interviewSessionCount}</strong>
+                <span>面談ログ</span>
               </div>
               <div className={styles.sectionGateStat}>
                 <strong>{room.reports.length}</strong>

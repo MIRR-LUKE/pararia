@@ -1,7 +1,7 @@
 import type { SessionConsoleLessonPart, SessionConsoleMode } from "./StudentSessionConsole";
 import type { ReportStudioView } from "./roomTypes";
 
-export type StudentDetailTabKey = "communications" | "lessonReports" | "parentReports";
+export type StudentDetailTabKey = "communications" | "parentReports";
 export type StudentDetailPeriodFilter = "all" | "month";
 export type StudentDetailSortOrder = "desc" | "asc";
 
@@ -31,7 +31,6 @@ export type StudentDetailSearchParamsLike = Pick<URLSearchParams, "get" | "toStr
 export const EMPTY_SEARCH_PARAMS = new URLSearchParams();
 
 export function normalizeTab(value: string | null): StudentDetailTabKey {
-  if (value === "lessonReports") return "lessonReports";
   if (value === "parentReports") return "parentReports";
   return "communications";
 }

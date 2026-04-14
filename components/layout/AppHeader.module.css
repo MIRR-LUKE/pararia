@@ -54,7 +54,7 @@
   height: 30px;
   border-radius: var(--radius-round);
   background: var(--avatar);
-  color: var(--text);
+  color: var(--accent-contrast);
   display: grid;
   place-items: center;
   font-size: 10px;

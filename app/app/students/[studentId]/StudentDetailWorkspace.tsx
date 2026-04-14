@@ -3,14 +3,10 @@
 import { memo } from "react";
 import { StudentSessionStream } from "./StudentSessionStream";
 import type { ReportItem, SessionItem } from "./roomTypes";
-import {
-  formatReportDate,
-  formatSessionLabel,
-  lessonSummaryLabel,
-} from "./studentDetailFormatting";
+import { formatReportDate } from "./studentDetailFormatting";
 import styles from "./studentDetail.module.css";
 
-export type StudentDetailTabKey = "communications" | "lessonReports" | "parentReports";
+export type StudentDetailTabKey = "communications" | "parentReports";
 export type StudentDetailPeriodFilter = "all" | "month";
 export type StudentDetailSortOrder = "desc" | "asc";
 
@@ -85,22 +81,11 @@ function StudentDetailWorkspaceInner({
     );
   })();
 
-  const lessonReports = (() => {
-    const base = sessions.filter((session) => session.type === "LESSON_REPORT");
-    const filtered = periodFilter === "month" ? base.filter((session) => withinCurrentMonth(session.sessionDate)) : base;
-    return [...filtered].sort((left, right) =>
-      sortOrder === "desc"
-        ? new Date(right.sessionDate).getTime() - new Date(left.sessionDate).getTime()
-        : new Date(left.sessionDate).getTime() - new Date(right.sessionDate).getTime()
-    );
-  })();
-
   return (
     <>
       <div className={styles.tabBar}>
         {[
           { key: "communications", label: "面談ログ" },
-          { key: "lessonReports", label: "指導報告" },
           { key: "parentReports", label: "保護者レポートログ" },
         ].map((tab) => (
           <button
@@ -155,44 +140,6 @@ function StudentDetailWorkspaceInner({
           assigneeName={viewerName ?? undefined}
           onOpenLog={onOpenLog}
         />
-      ) : null}
-
-      {activeTab === "lessonReports" ? (
-        <div className={styles.historyList}>
-          {lessonReports.length === 0 ? (
-            <div className={styles.emptyState}>
-              まだ指導報告はありません。チェックインとチェックアウトがそろうとここに並びます。
-            </div>
-          ) : (
-            lessonReports.map((session) => {
-              const logId = session.pipeline?.openLogId ?? session.conversation?.id ?? null;
-              return (
-                <button
-                  key={session.id}
-                  type="button"
-                  className={`${styles.historyRow} ${!logId ? styles.historyRowDisabled : ""}`}
-                  disabled={!logId}
-                  onClick={() => {
-                    if (logId) onOpenLog(logId);
-                  }}
-                >
-                  <div className={styles.historyRowLeft}>
-                    <div className={styles.historyIcon} aria-hidden>
-                      <span />
-                    </div>
-                    <div>
-                      <div className={styles.historyRowTitle}>{formatSessionLabel(session)}</div>
-                      <div className={styles.historyRowMeta}>
-                        {lessonSummaryLabel(session)} / {conversationReviewLabel(session)}
-                      </div>
-                    </div>
-                  </div>
-                  <div className={styles.assigneePill}>{viewerBadge}</div>
-                </button>
-              );
-            })
-          )}
-        </div>
       ) : null}
 
       {activeTab === "parentReports" ? (

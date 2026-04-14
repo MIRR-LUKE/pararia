@@ -9,9 +9,9 @@
   --border: #353535;
   --border-strong: #4e4e4e;
   --text: #ffffff;
-  --muted: rgba(255, 255, 255, 0.5);
-  --muted-strong: rgba(255, 255, 255, 0.74);
-  --muted-faint: rgba(255, 255, 255, 0.3);
+  --muted: rgba(255, 255, 255, 0.58);
+  --muted-strong: rgba(255, 255, 255, 0.82);
+  --muted-faint: rgba(255, 255, 255, 0.46);
   --recording: #dbff4b;
   --danger: #ff8b84;
   --review: #ffffff;
