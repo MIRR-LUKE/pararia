@@ -48,8 +48,11 @@ export function StudentDetailActionQueue({
   const shareReports = reports.filter((report) => report.needsReview || report.needsShare);
   const activeGenerationSessions = sessions.filter(
     (session) =>
+      session.type === "INTERVIEW" &&
+      (
       ["TRANSCRIBING", "GENERATING"].includes(session.status) ||
       ["QUEUED", "GENERATING"].includes(session.nextMeetingMemo?.status ?? "")
+      )
   );
 
   const cards: QueueCard[] = [

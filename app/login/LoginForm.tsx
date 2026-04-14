@@ -65,7 +65,7 @@ export function LoginForm({ callbackUrl }: Props) {
     <div className={styles.page}>
       <div className={styles.card}>
         <h1 className={styles.title}>PARARIA</h1>
-        <p className={styles.subtitle}>面談と指導報告を、次の会話に使える運用データへ。</p>
+        <p className={styles.subtitle}>面談ログを、次の会話に使える運用データへ。</p>
         <form onSubmit={onSubmit}>
           <div className={styles.field}>
             <label className={styles.label}>メールアドレス</label>

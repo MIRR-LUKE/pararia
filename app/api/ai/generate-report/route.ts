@@ -82,7 +82,7 @@ export async function POST(request: Request) {
     );
     if (pendingLogs.length > 0) {
       return NextResponse.json(
-        { error: "選択したログ本文がまだ生成されていません。面談ログ / 指導報告ログの生成完了後に再実行してください。" },
+        { error: "選択したログ本文がまだ生成されていません。面談ログの生成完了後に再実行してください。" },
         { status: 400 }
       );
     }
