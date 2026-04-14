@@ -17,13 +17,22 @@ function computeExpiresAt(from: Date = new Date()) {
   return new Date(from.getTime() + RECORDING_LOCK_TTL_MS);
 }
 
+function requireStudentId(studentId: string | null | undefined) {
+  const normalized = typeof studentId === "string" ? studentId.trim() : "";
+  if (!normalized) {
+    throw new Error("studentId is required");
+  }
+  return normalized;
+}
+
 export async function pruneExpiredRecordingLock(studentId: string) {
+  const resolvedStudentId = requireStudentId(studentId);
   const now = new Date();
   const row = await prisma.studentRecordingLock.findUnique({
-    where: { studentId },
+    where: { studentId: resolvedStudentId },
   });
   if (row && row.expiresAt <= now) {
-    await prisma.studentRecordingLock.deleteMany({ where: { studentId } });
+    await prisma.studentRecordingLock.deleteMany({ where: { studentId: resolvedStudentId } });
   }
 }
 
@@ -31,8 +40,9 @@ export async function getRecordingLockView(opts: {
   studentId: string;
   viewerUserId?: string | null;
 }) {
+  const resolvedStudentId = requireStudentId(opts.studentId);
   const row = await prisma.studentRecordingLock.findUnique({
-    where: { studentId: opts.studentId },
+    where: { studentId: resolvedStudentId },
     include: {
       lockedBy: { select: { id: true, name: true, email: true } },
     },
@@ -41,7 +51,7 @@ export async function getRecordingLockView(opts: {
 
   const now = new Date();
   if (row.expiresAt <= now) {
-    await prisma.studentRecordingLock.deleteMany({ where: { studentId: opts.studentId } });
+    await prisma.studentRecordingLock.deleteMany({ where: { studentId: resolvedStudentId } });
     return { active: false as const, lock: null };
   }
 
@@ -76,6 +86,7 @@ export async function acquireRecordingLock(opts: {
   organizationId: string;
   mode: RecordingLockMode;
 }): Promise<AcquireRecordingLockResult> {
+  const resolvedStudentId = requireStudentId(opts.studentId);
   const now = new Date();
   const plainToken = generateRecordingLockToken();
   const tokenHash = hashRecordingLockToken(plainToken);
@@ -105,7 +116,7 @@ export async function acquireRecordingLock(opts: {
 
   for (let attempt = 0; attempt < 3; attempt += 1) {
     const existing = await prisma.studentRecordingLock.findUnique({
-      where: { studentId: opts.studentId },
+      where: { studentId: resolvedStudentId },
       include: { lockedBy: { select: { name: true } } },
     });
 
@@ -117,7 +128,7 @@ export async function acquireRecordingLock(opts: {
       if (existing.expiresAt <= now) {
         await prisma.studentRecordingLock.deleteMany({
           where: {
-            studentId: opts.studentId,
+            studentId: resolvedStudentId,
             expiresAt: { lte: now },
           },
         });
@@ -126,7 +137,7 @@ export async function acquireRecordingLock(opts: {
 
       const updated = await prisma.studentRecordingLock.updateMany({
         where: {
-          studentId: opts.studentId,
+          studentId: resolvedStudentId,
           lockedByUserId: opts.userId,
         },
         data: {
@@ -149,7 +160,7 @@ export async function acquireRecordingLock(opts: {
     try {
       await prisma.studentRecordingLock.create({
         data: {
-          studentId: opts.studentId,
+          studentId: resolvedStudentId,
           organizationId: opts.organizationId,
           lockedByUserId: opts.userId,
           lockTokenHash: tokenHash,
@@ -168,7 +179,7 @@ export async function acquireRecordingLock(opts: {
   }
 
   const finalExisting = await prisma.studentRecordingLock.findUnique({
-    where: { studentId: opts.studentId },
+    where: { studentId: resolvedStudentId },
     include: { lockedBy: { select: { name: true } } },
   });
 
@@ -184,13 +195,14 @@ export async function heartbeatRecordingLock(opts: {
   userId: string;
   plainToken: string;
 }) {
+  const resolvedStudentId = requireStudentId(opts.studentId);
   const now = new Date();
   const hash = hashRecordingLockToken(opts.plainToken);
   const row = await prisma.studentRecordingLock.findUnique({
-    where: { studentId: opts.studentId },
+    where: { studentId: resolvedStudentId },
   });
   if (!row || row.expiresAt <= now) {
-    await prisma.studentRecordingLock.deleteMany({ where: { studentId: opts.studentId } });
+    await prisma.studentRecordingLock.deleteMany({ where: { studentId: resolvedStudentId } });
     return { ok: false as const, code: "stale_or_missing" as const };
   }
   if (row.lockedByUserId !== opts.userId || row.lockTokenHash !== hash) {
@@ -198,7 +210,7 @@ export async function heartbeatRecordingLock(opts: {
   }
   const nextExpires = computeExpiresAt(now);
   await prisma.studentRecordingLock.update({
-    where: { studentId: opts.studentId },
+    where: { studentId: resolvedStudentId },
     data: { lastHeartbeatAt: now, expiresAt: nextExpires },
   });
   return { ok: true as const, expiresAt: nextExpires.toISOString() };
@@ -209,20 +221,21 @@ export async function releaseRecordingLock(opts: {
   userId: string;
   plainToken: string;
 }) {
+  const resolvedStudentId = requireStudentId(opts.studentId);
   const now = new Date();
   const hash = hashRecordingLockToken(opts.plainToken);
   const row = await prisma.studentRecordingLock.findUnique({
-    where: { studentId: opts.studentId },
+    where: { studentId: resolvedStudentId },
   });
   if (!row) return { ok: true as const };
   if (row.expiresAt <= now) {
-    await prisma.studentRecordingLock.deleteMany({ where: { studentId: opts.studentId } });
+    await prisma.studentRecordingLock.deleteMany({ where: { studentId: resolvedStudentId } });
     return { ok: true as const };
   }
   if (row.lockedByUserId !== opts.userId || row.lockTokenHash !== hash) {
     return { ok: false as const, code: "token_mismatch" as const };
   }
-  await prisma.studentRecordingLock.deleteMany({ where: { studentId: opts.studentId } });
+  await prisma.studentRecordingLock.deleteMany({ where: { studentId: resolvedStudentId } });
   return { ok: true as const };
 }
 
@@ -231,10 +244,11 @@ export async function verifyRecordingLockForAudioUpload(opts: {
   userId: string;
   plainToken: string;
 }) {
+  const resolvedStudentId = requireStudentId(opts.studentId);
   const now = new Date();
   const hash = hashRecordingLockToken(opts.plainToken);
   const row = await prisma.studentRecordingLock.findUnique({
-    where: { studentId: opts.studentId },
+    where: { studentId: resolvedStudentId },
   });
   if (!row || row.expiresAt <= now) {
     return false;
@@ -247,11 +261,12 @@ export async function forceReleaseRecordingLock(opts: {
   actorUserId: string;
   reason?: string;
 }) {
-  await prisma.studentRecordingLock.deleteMany({ where: { studentId: opts.studentId } });
+  const resolvedStudentId = requireStudentId(opts.studentId);
+  await prisma.studentRecordingLock.deleteMany({ where: { studentId: resolvedStudentId } });
   await prisma.auditLog.create({
     data: {
       userId: opts.actorUserId,
-      action: `recording_lock_force_release:${opts.studentId}:${opts.reason ?? ""}`.slice(0, 500),
+      action: `recording_lock_force_release:${resolvedStudentId}:${opts.reason ?? ""}`.slice(0, 500),
     },
   });
 }
