@@ -9,9 +9,11 @@ PARARIA は、塾・個別指導・学習コーチング向けの `Teaching OS` 
 
 - コード品質と性能の基準は [docs/engineering-rules.md](./docs/engineering-rules.md)
 - DB / Blob の保全・復旧手順は [docs/db-backup-recovery.md](./docs/db-backup-recovery.md)
-- protected critical path は `録音ロック -> session part ingest -> conversation job -> next meeting memo -> student room`
+- protected critical path は `録音ロック -> session part ingest -> session progress -> student room -> next meeting memo` として扱い、回帰確認は `npm run test:critical-path-smoke`
+- backend / perf 系ブランチは UI を触らない前提で進め、guard の自己確認は `npm run test:backend-scope-guard`
+- mutating fixture を使う smoke / UI script は local app + local DB でしか動かさない。remote で明示的に許可するときだけ `PARARIA_ALLOW_REMOTE_FIXTURES=1`
+- production / shared tenant の整合性確認は read-only の `npm run test:student-integrity-audit -- --base-url https://pararia.vercel.app`
 - shape guard は `npm run check:code-shape`
-- backend / perf 系 branch の UI 混入 guard は `npm run check:backend-scope`
 - 最低限の確認は `npm run typecheck && npm run build && npm run check:code-shape`
 
 ## 1. 先に結論
@@ -819,6 +821,7 @@ GPU が強いときの最初の目安:
 - `PARARIA_RUNTIME_DIR` を repo 外へ向けると、uploads / temp audio を完全に分離できる
 - `.data/` と `.tmp/` は Git 管理対象に入れない
 - benchmark や検証スクリプトの出力は `.tmp/` などの ignore 済みディレクトリへ出す
+- mutating fixture を作る script は local app + local DB の組み合わせ以外では既定で fail する
 - 保存期間は `PARARIA_TRANSCRIPT_RETENTION_DAYS` / `PARARIA_AUDIO_RETENTION_DAYS` / `PARARIA_REPORT_DELIVERY_EVENT_RETENTION_DAYS` で調整する
 - transcript 保存期間を過ぎたら `rawTextOriginal / rawTextCleaned / reviewedText / rawSegments / proper noun suggestion` を消す
 - 削除ポリシーの詳細は `docs/data-retention-policy.md` を参照する
@@ -1031,11 +1034,13 @@ npm run restore:student -- --student-id <studentId>
 
 ## 16. 現在の smoke check
 
-2026-04-14 時点で次を主な smoke / regression として持つ:
+2026-04-14 時点の主な smoke / regression:
 
 - `npm run typecheck`
-- `npm run test:audio-upload-support`
 - `npm run test:critical-path-smoke`
+- `npm run test:student-integrity-audit -- --base-url https://pararia.vercel.app`
+- `npm run test:audio-upload-support`
+- `npm run test:backend-scope-guard`
 - `npm run test:external-worker-config`
 - `npm run test:generation-progress`
 - `npm run test:local-stt`

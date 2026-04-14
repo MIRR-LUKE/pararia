@@ -1,7 +1,6 @@
 import { unstable_cache } from "next/cache";
 import { prisma } from "@/lib/db";
 import { normalizeTranscriptReviewMeta, type TranscriptReviewMeta } from "@/lib/logs/transcript-review-display";
-import { ENABLE_LESSON_REPORT_UI } from "@/lib/product-flags";
 import { sanitizeSummaryMarkdown } from "@/lib/user-facing-japanese";
 
 export type LogListItem = {
@@ -39,15 +38,6 @@ export async function getLogListPageData({
     where: {
       organizationId,
       ...(studentId ? { studentId } : {}),
-      ...(!ENABLE_LESSON_REPORT_UI
-        ? {
-            session: {
-              is: {
-                type: "INTERVIEW",
-              },
-            },
-          }
-        : {}),
     },
     orderBy: { createdAt: "desc" },
     take: studentId ? 100 : 80,

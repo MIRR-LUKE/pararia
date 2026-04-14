@@ -24,11 +24,12 @@ jobs:
           --health-timeout 5s
           --health-retries 5
     env:
+      CI: true
+      NODE_ENV: test
       DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/pararia_ci?schema=public
       DIRECT_URL: postgresql://postgres:postgres@127.0.0.1:5432/pararia_ci?schema=public
-      AUTH_SECRET: pararia-ci-auth-secret
-      NEXTAUTH_SECRET: pararia-ci-auth-secret
-      CRITICAL_PATH_BASE_URL: http://127.0.0.1:3000
+      PARARIA_BACKGROUND_MODE: external
+      NEXTAUTH_SECRET: pararia-dev-auth-secret
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -45,34 +46,42 @@ jobs:
       - name: Generate Prisma client
         run: npm run prisma:generate
 
-      - name: Prepare database
+      - name: Prepare test database
         run: npm run prisma:test:prepare
 
-      - name: Seed database
+      - name: Seed test database
         run: npm run prisma:seed
 
-      - name: Start Next.js dev server
-        run: |
-          npm run dev > .tmp-critical-path-server.log 2>&1 &
-          echo $! > .tmp-critical-path-server.pid
-        shell: bash
-
-      - name: Wait for app
-        run: |
-          node -e "const wait = async () => { for (let i = 0; i < 60; i += 1) { try { const res = await fetch('http://127.0.0.1:3000/login'); if (res.ok) return; } catch {} await new Promise((resolve) => setTimeout(resolve, 1000)); } throw new Error('app did not become ready in time'); }; wait().catch((error) => { console.error(error); process.exit(1); });"
-
       - name: Run critical path smoke
-        run: npx tsx scripts/test-critical-path-smoke.ts
-
-      - name: Print server log on failure
-        if: failure()
-        run: cat .tmp-critical-path-server.log
-        shell: bash
-
-      - name: Stop Next.js dev server
-        if: always()
         run: |
-          if [ -f .tmp-critical-path-server.pid ]; then
-            kill $(cat .tmp-critical-path-server.pid) || true
-          fi
-        shell: bash
+          set -euo pipefail
+          mkdir -p .tmp
+          npm run dev -- --hostname 127.0.0.1 --port 3000 > .tmp/critical-path-smoke-server.log 2>&1 &
+          server_pid=$!
+          cleanup() {
+            kill "$server_pid" 2>/dev/null || true
+          }
+          trap cleanup EXIT
+
+          for attempt in $(seq 1 90); do
+            if curl -fsS http://127.0.0.1:3000/api/auth/csrf >/dev/null; then
+              break
+            fi
+            if [ "$attempt" -eq 90 ]; then
+              echo "Next.js server did not become ready"
+              cat .tmp/critical-path-smoke-server.log
+              exit 1
+            fi
+            sleep 2
+          done
+
+          npm run test:critical-path-smoke -- --base-url http://127.0.0.1:3000
+          npm run test:conversation-route -- --base-url http://127.0.0.1:3000
+          npm run test:student-directory-route -- --base-url http://127.0.0.1:3000
+
+      - name: Run student directory UI smoke
+        run: npm run test:student-directory-ui -- --base-url http://127.0.0.1:3000
+
+      - name: Dump server log on failure
+        if: failure()
+        run: tail -n 200 .tmp/critical-path-smoke-server.log || true

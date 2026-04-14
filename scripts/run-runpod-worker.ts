@@ -1,6 +1,7 @@
 #!/usr/bin/env tsx
 
 import { stopFasterWhisperWorkers, warmFasterWhisperWorkers } from "../lib/ai/stt";
+import { writeAuditLog } from "../lib/audit";
 import { processQueuedJobs } from "../lib/jobs/conversationJobs";
 import { processQueuedSessionPartJobs } from "../lib/jobs/sessionPartJobs";
 import { stopCurrentRunpodPod } from "../lib/runpod/worker-control";
@@ -91,9 +92,14 @@ async function recordWorkerStartupHeartbeat(input: {
 
   try {
     await prisma.$queryRaw`SELECT 1`;
-    await prisma.auditLog.create({
-      data: {
-        action: `[runpod-worker] startup pod=${payload.podId ?? "local"} session=${payload.scope.sessionId ?? "-"} conversation=${payload.scope.conversationId ?? "-"} spl=${payload.sessionPartLimit} cl=${payload.conversationLimit}`,
+    await writeAuditLog({
+      action: "runpod_worker_startup",
+      detail: {
+        podId: payload.podId,
+        sessionId: payload.scope.sessionId ?? null,
+        conversationId: payload.scope.conversationId ?? null,
+        sessionPartLimit: payload.sessionPartLimit,
+        conversationLimit: payload.conversationLimit,
       },
     });
     await saveStorageText({

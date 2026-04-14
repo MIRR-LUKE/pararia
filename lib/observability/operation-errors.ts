@@ -1,64 +1,76 @@
-import { randomUUID } from "node:crypto";
+import { randomUUID } from "crypto";
 import { NextResponse } from "next/server";
 
-export type OperationContext = {
-  route: string;
+export type OperationErrorContext = {
+  operation: string;
   operationId: string;
 };
 
-type OperationErrorOptions = {
-  stage: string;
-  message: string;
-  status?: number;
-  error?: unknown;
-  extra?: Record<string, unknown>;
-};
+export type OperationErrorStage = string;
+export type OperationErrorLevel = "warn" | "error";
 
-type OperationLogOptions = {
-  stage: string;
-  message?: string;
-  error?: unknown;
-  extra?: Record<string, unknown>;
-};
-
-export function createOperationContext(route: string): OperationContext {
+export function createOperationErrorContext(operation: string): OperationErrorContext {
   return {
-    route,
+    operation,
     operationId: randomUUID(),
   };
 }
 
-export function withOperationMeta<T extends Record<string, unknown>>(
-  context: OperationContext,
-  stage: string,
-  body: T
-) {
-  return {
-    ...body,
-    operationId: context.operationId,
-    stage,
-  };
+function normalizeError(error: unknown) {
+  if (error instanceof Error) {
+    return {
+      name: error.name,
+      message: error.message,
+      stack: error.stack,
+    };
+  }
+
+  return error;
 }
 
-export function logOperationError(context: OperationContext, options: OperationLogOptions) {
-  const error = options.error as { message?: string; stack?: string } | undefined;
-  console.error(`[${context.route}]`, {
-    operationId: context.operationId,
-    stage: options.stage,
-    message: options.message ?? error?.message ?? "Unexpected error",
-    error: error?.message ?? null,
-    stack: error?.stack ?? null,
-    ...(options.extra ?? {}),
+export function logOperationIssue(input: {
+  context: OperationErrorContext;
+  stage: OperationErrorStage;
+  message: string;
+  error?: unknown;
+  level?: OperationErrorLevel;
+  extra?: Record<string, unknown>;
+}) {
+  const level = input.level ?? "error";
+  const logger = level === "warn" ? console.warn : console.error;
+  logger(`[${input.context.operation}]`, {
+    operationId: input.context.operationId,
+    stage: input.stage,
+    message: input.message,
+    error: normalizeError(input.error),
+    ...(input.extra ?? {}),
   });
 }
 
-export function operationErrorResponse(context: OperationContext, options: OperationErrorOptions) {
-  logOperationError(context, options);
+export function respondWithOperationError(input: {
+  context: OperationErrorContext;
+  stage: OperationErrorStage;
+  message: string;
+  status: number;
+  error?: unknown;
+  level?: OperationErrorLevel;
+  extra?: Record<string, unknown>;
+}) {
+  logOperationIssue({
+    context: input.context,
+    stage: input.stage,
+    message: input.message,
+    error: input.error,
+    level: input.level ?? (input.status >= 500 ? "error" : "warn"),
+    extra: input.extra,
+  });
+
   return NextResponse.json(
-    withOperationMeta(context, options.stage, {
-      error: options.message,
-      ...(options.extra ?? {}),
-    }),
-    { status: options.status ?? 500 }
+    {
+      error: input.message,
+      operationId: input.context.operationId,
+      stage: input.stage,
+    },
+    { status: input.status }
   );
 }

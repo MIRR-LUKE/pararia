@@ -1,20 +1,30 @@
 import { prisma } from "@/lib/db";
 
-export async function writeAuditLog(input: {
+export type AuditLogInput = {
   userId?: string | null;
   action: string;
   detail?: Record<string, unknown> | null;
-}) {
-  let suffix = "";
-  if (input.detail && Object.keys(input.detail).length > 0) {
-    try {
-      suffix = `:${JSON.stringify(input.detail).slice(0, 420)}`;
-    } catch (error) {
-      console.error("[writeAuditLog] failed to serialize detail:", error);
-    }
+};
+
+function formatAuditDetail(detail: Record<string, unknown> | null | undefined) {
+  if (!detail || Object.keys(detail).length === 0) {
+    return "";
   }
 
   try {
+    return `:${JSON.stringify(detail).slice(0, 420)}`;
+  } catch (error) {
+    console.error("[audit] failed to serialize audit detail", {
+      error,
+      detailKeys: Object.keys(detail),
+    });
+    return ":<unserializable>";
+  }
+}
+
+export async function writeAuditLog(input: AuditLogInput) {
+  try {
+    const suffix = formatAuditDetail(input.detail);
     await prisma.auditLog.create({
       data: {
         userId: input.userId ?? undefined,
@@ -22,6 +32,10 @@ export async function writeAuditLog(input: {
       },
     });
   } catch (error) {
-    console.error("[writeAuditLog] failed to persist audit log:", error);
+    console.error("[audit] failed to write audit log", {
+      error,
+      action: input.action,
+      userId: input.userId ?? null,
+    });
   }
 }

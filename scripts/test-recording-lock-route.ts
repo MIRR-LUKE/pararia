@@ -1,61 +1,112 @@
+#!/usr/bin/env tsx
+
 import assert from "node:assert/strict";
-import { prisma } from "../lib/db";
+import { pathToFileURL } from "node:url";
+import { prisma } from "@/lib/db";
 import {
-  LOCK_STUDENT_ID,
-  cleanupRecordingLock,
-  isMainModule,
-  loginForCriticalPathSmoke,
+  createRecordingLockFixture,
+  createCriticalPathSmokeApi,
+  loadCriticalPathSmokeEnv,
+  resetRecordingLockFixture,
 } from "./lib/critical-path-smoke";
 
-export async function runRecordingLockRouteTest() {
-  await cleanupRecordingLock(LOCK_STUDENT_ID);
-  const client = await loginForCriticalPathSmoke();
+type RecordingLockRouteSmokeResult = {
+  studentId: string;
+  initialActive: boolean;
+  acquiredMode: string;
+  afterAcquireActive: boolean;
+  heldByViewer: boolean;
+  heartbeatOk: boolean;
+  released: boolean;
+  finalActive: boolean;
+};
 
-  const initial = await client.requestJson(`/api/students/${LOCK_STUDENT_ID}/recording-lock`);
-  assert.equal(initial.response.status, 200, "initial GET recording-lock");
-  assert.equal(initial.body.active, false, "lock should be inactive before acquire");
-
-  const acquired = await client.requestJson(`/api/students/${LOCK_STUDENT_ID}/recording-lock`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ mode: "INTERVIEW" }),
-  });
-  assert.equal(acquired.response.status, 200, "POST recording-lock should succeed");
-  assert.equal(typeof acquired.body.lockToken, "string", "lockToken should be returned");
-
-  const afterAcquire = await client.requestJson(`/api/students/${LOCK_STUDENT_ID}/recording-lock`);
-  assert.equal(afterAcquire.response.status, 200, "GET after acquire should succeed");
-  assert.equal(afterAcquire.body.active, true, "lock should be active after acquire");
-
-  const heartbeat = await client.requestJson(`/api/students/${LOCK_STUDENT_ID}/recording-lock`, {
-    method: "PATCH",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ lockToken: acquired.body.lockToken }),
-  });
-  assert.equal(heartbeat.response.status, 200, "PATCH heartbeat should succeed");
-  assert.equal(heartbeat.body.ok, true, "heartbeat should confirm lock");
-
-  const released = await client.requestJson(`/api/students/${LOCK_STUDENT_ID}/recording-lock`, {
-    method: "DELETE",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ lockToken: acquired.body.lockToken }),
-  });
-  assert.equal(released.response.status, 200, "DELETE release should succeed");
-  assert.equal(released.body.ok, true, "release should succeed");
-
-  const finalView = await client.requestJson(`/api/students/${LOCK_STUDENT_ID}/recording-lock`);
-  assert.equal(finalView.response.status, 200, "final GET recording-lock");
-  assert.equal(finalView.body.active, false, "lock should be inactive after release");
-
-  const persisted = await prisma.studentRecordingLock.findUnique({ where: { studentId: LOCK_STUDENT_ID } });
-  assert.equal(persisted, null, "recording lock row should be removed");
-
-  await cleanupRecordingLock(LOCK_STUDENT_ID);
-  console.log("recording-lock route smoke passed");
+function argValue(flag: string) {
+  const index = process.argv.indexOf(flag);
+  if (index === -1) return null;
+  return process.argv[index + 1] ?? null;
 }
 
-if (isMainModule(import.meta.url)) {
-  runRecordingLockRouteTest().catch((error) => {
+export async function runRecordingLockRouteSmoke(baseUrl: string): Promise<RecordingLockRouteSmokeResult> {
+  await loadCriticalPathSmokeEnv();
+  process.env.CRITICAL_PATH_BASE_URL = baseUrl;
+  const fixture = await createRecordingLockFixture();
+  await resetRecordingLockFixture(fixture.studentId);
+
+  const { api, close } = await createCriticalPathSmokeApi(baseUrl);
+  try {
+    const initialResponse = await api.get(`/api/students/${fixture.studentId}/recording-lock`);
+    assert.equal(initialResponse.ok(), true, `initial GET failed: ${initialResponse.status()}`);
+    const initialBody = await initialResponse.json();
+    assert.deepEqual(initialBody, { active: false, lock: null }, "initial recording lock view");
+
+    const acquireResponse = await api.post(`/api/students/${fixture.studentId}/recording-lock`, {
+      data: { mode: "INTERVIEW" },
+    });
+    assert.equal(acquireResponse.ok(), true, `acquire failed: ${acquireResponse.status()}`);
+    const acquireBody = await acquireResponse.json();
+    assert.equal(acquireBody.mode, "INTERVIEW");
+    assert.equal(typeof acquireBody.lockToken, "string");
+    assert.equal(typeof acquireBody.expiresAt, "string");
+    const lockToken = String(acquireBody.lockToken);
+
+    const afterAcquireResponse = await api.get(`/api/students/${fixture.studentId}/recording-lock`);
+    assert.equal(afterAcquireResponse.ok(), true, `after acquire GET failed: ${afterAcquireResponse.status()}`);
+    const afterAcquireBody = await afterAcquireResponse.json();
+    assert.equal(afterAcquireBody.active, true);
+    assert.equal(afterAcquireBody.lock?.mode, "INTERVIEW");
+    assert.equal(afterAcquireBody.lock?.isHeldByViewer, true);
+
+    const heartbeatResponse = await api.patch(`/api/students/${fixture.studentId}/recording-lock`, {
+      data: { lockToken },
+    });
+    assert.equal(heartbeatResponse.ok(), true, `heartbeat failed: ${heartbeatResponse.status()}`);
+    const heartbeatBody = await heartbeatResponse.json();
+    assert.equal(heartbeatBody.ok, true);
+    assert.equal(typeof heartbeatBody.expiresAt, "string");
+
+    const releaseResponse = await api.delete(`/api/students/${fixture.studentId}/recording-lock`, {
+      data: { lockToken },
+    });
+    assert.equal(releaseResponse.ok(), true, `release failed: ${releaseResponse.status()}`);
+    const releaseBody = await releaseResponse.json();
+    assert.equal(releaseBody.ok, true);
+
+    const finalResponse = await api.get(`/api/students/${fixture.studentId}/recording-lock`);
+    assert.equal(finalResponse.ok(), true, `final GET failed: ${finalResponse.status()}`);
+    const finalBody = await finalResponse.json();
+    assert.deepEqual(finalBody, { active: false, lock: null }, "final recording lock view");
+
+    const persistedLock = await prisma.studentRecordingLock.findUnique({
+      where: { studentId: fixture.studentId },
+    });
+    assert.equal(persistedLock, null);
+
+    return {
+      studentId: fixture.studentId,
+      initialActive: initialBody.active,
+      acquiredMode: acquireBody.mode,
+      afterAcquireActive: afterAcquireBody.active,
+      heldByViewer: afterAcquireBody.lock?.isHeldByViewer ?? false,
+      heartbeatOk: heartbeatBody.ok,
+      released: releaseBody.ok,
+      finalActive: finalBody.active,
+    };
+  } finally {
+    await resetRecordingLockFixture(fixture.studentId).catch(() => {});
+    await fixture.cleanup().catch(() => {});
+    await close().catch(() => {});
+  }
+}
+
+async function main() {
+  const baseUrl = argValue("--base-url") || process.env.CRITICAL_PATH_BASE_URL || "http://127.0.0.1:3000";
+  const result = await runRecordingLockRouteSmoke(baseUrl);
+  console.log(JSON.stringify({ label: "recording-lock-route", baseUrl, result }, null, 2));
+}
+
+if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) {
+  main().catch((error) => {
     console.error(error);
     process.exitCode = 1;
   });

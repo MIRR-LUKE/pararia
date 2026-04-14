@@ -61,8 +61,10 @@ export function normalizePrismaDatabaseUrl(rawUrl?: string | null) {
 
 export function resolvePrismaDatasourceUrl() {
   const directUrl = process.env.DIRECT_URL?.trim();
-  if (directUrl && !isServerlessRuntime()) {
+  if (directUrl && !isServerlessRuntime() && !shouldConstrainPrismaPool(directUrl)) {
     return directUrl;
   }
-  return normalizePrismaDatabaseUrl(process.env.DATABASE_URL);
+
+  const primaryUrl = process.env.DATABASE_URL?.trim();
+  return normalizePrismaDatabaseUrl(primaryUrl || directUrl);
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
@@ -16,12 +16,15 @@ import {
 import DeleteLogButton from "./DeleteLogButton";
 import styles from "./logsList.module.css";
 
+type TabType = "all" | "interview" | "lesson";
+
 type Props = {
   studentId: string | null;
+  tab: TabType;
 };
 
-function sessionTypeLabel() {
-  return "面談";
+function sessionTypeLabel(type?: string | null) {
+  return type === "LESSON_REPORT" ? "指導報告" : "面談";
 }
 
 function statusLabel(status: string) {
@@ -63,7 +66,7 @@ function LogsListFallback() {
   return (
     <Card
       title="保存済みログ"
-      subtitle="面談ログを一覧し、どの保護者レポートに使われたかを確認できます。"
+      subtitle="面談ログと指導報告ログを一覧し、どの保護者レポートに使われたかを確認できます。"
     >
       <StatePanel
         kind="processing"
@@ -74,7 +77,7 @@ function LogsListFallback() {
   );
 }
 
-export default function LogsListClient({ studentId }: Props) {
+export default function LogsListClient({ studentId, tab }: Props) {
   const [data, setData] = useState<LogListPageData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -101,7 +104,16 @@ export default function LogsListClient({ studentId }: Props) {
     void refresh();
   }, [refresh]);
 
-  const logs = data?.conversations ?? [];
+  const filtered = useMemo(() => {
+    const conversations = data?.conversations ?? [];
+    if (tab === "interview") {
+      return conversations.filter((item) => item.sessionType !== "LESSON_REPORT");
+    }
+    if (tab === "lesson") {
+      return conversations.filter((item) => item.sessionType === "LESSON_REPORT");
+    }
+    return conversations;
+  }, [data?.conversations, tab]);
 
   if (loading && !data) {
     return <LogsListFallback />;
@@ -111,7 +123,7 @@ export default function LogsListClient({ studentId }: Props) {
     return (
       <Card
         title="保存済みログ"
-        subtitle="面談ログを一覧し、どの保護者レポートに使われたかを確認できます。"
+        subtitle="面談ログと指導報告ログを一覧し、どの保護者レポートに使われたかを確認できます。"
       >
         <StatePanel
           kind="error"
@@ -132,7 +144,9 @@ export default function LogsListClient({ studentId }: Props) {
   }
 
   const summaryItems = [
+    { label: "すべて", value: data.counts.all },
     { label: "面談", value: data.counts.interview },
+    { label: "指導報告", value: data.counts.lesson },
   ];
 
   return (
@@ -141,17 +155,17 @@ export default function LogsListClient({ studentId }: Props) {
 
       <Card
         title="保存済みログ"
-        subtitle="面談ログを一覧し、どの保護者レポートに使われたかを確認できます。"
+        subtitle="面談ログと指導報告ログを一覧し、どの保護者レポートに使われたかを確認できます。"
       >
-        {logs.length === 0 ? (
+        {filtered.length === 0 ? (
           <StatePanel
             kind="empty"
-            title="まだ面談ログはありません"
+            title="この条件に合うログはありません"
             subtitle="録音後にログを生成すると、ここに表示されます。"
           />
         ) : (
           <div className={styles.list}>
-            {logs.map((log) => {
+            {filtered.map((log) => {
               const trustSummary = transcriptReviewSummary(log.transcriptReview);
               return (
                 <article key={log.id} className={styles.row}>
@@ -163,7 +177,7 @@ export default function LogsListClient({ studentId }: Props) {
                           <div className={styles.meta}>{log.student?.grade ?? "学年未設定"}</div>
                         </div>
                         <div className={styles.badgeRow}>
-                          <Badge label={sessionTypeLabel()} tone="neutral" />
+                          <Badge label={sessionTypeLabel(log.sessionType)} tone="neutral" />
                           <Badge label={statusLabel(log.status)} tone={statusTone(log.status)} />
                           <Badge
                             label={transcriptReviewStateLabel(log.reviewState)}
@@ -190,7 +204,7 @@ export default function LogsListClient({ studentId }: Props) {
                   <div className={styles.rowActions}>
                     <DeleteLogButton
                       logId={log.id}
-                      title={`${sessionTypeLabel()}ログを削除しますか？`}
+                      title={`${sessionTypeLabel(log.sessionType)}ログを削除しますか？`}
                       onDeleted={refresh}
                     />
                   </div>

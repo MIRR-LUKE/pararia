@@ -5,10 +5,16 @@ import StudentDetailPageClient from "./StudentDetailPageClient";
 
 export default async function StudentDetailPage({
   params,
+  searchParams,
 }: {
   params: { studentId: string } | Promise<{ studentId: string }>;
+  searchParams?: Promise<{ editStudent?: string | string[] }>;
 }) {
   const { studentId } = await Promise.resolve(params);
+  const resolvedSearchParams = (await searchParams) ?? {};
+  const initialEditStudent = Array.isArray(resolvedSearchParams.editStudent)
+    ? resolvedSearchParams.editStudent[0] === "1"
+    : resolvedSearchParams.editStudent === "1";
   const session = await getAppSession();
   const organizationId = session?.user?.organizationId;
   if (!session?.user?.id || !organizationId) {
@@ -19,7 +25,6 @@ export default async function StudentDetailPage({
     studentId,
     organizationId,
     viewerUserId: session.user.id,
-    scope: "summary",
   });
 
   if (!initialRoom) {
@@ -30,6 +35,7 @@ export default async function StudentDetailPage({
     <StudentDetailPageClient
       params={{ studentId }}
       initialRoom={initialRoom}
+      initialEditStudent={initialEditStudent}
       viewerName={session.user.name ?? null}
     />
   );

@@ -4,7 +4,6 @@ import { writeAuditLog } from "@/lib/audit";
 import { prisma } from "@/lib/db";
 import { buildReportDeliverySummary } from "@/lib/report-delivery";
 import { getLogListCacheTag } from "@/lib/logs/get-log-list-page-data";
-import { resolveRouteId, type RouteParams } from "@/lib/server/route-params";
 import { requireAuthorizedSession } from "@/lib/server/request-auth";
 import { sanitizeReportMarkdown } from "@/lib/user-facing-japanese";
 
@@ -15,20 +14,16 @@ function toStringArray(value: unknown) {
 
 export async function GET(
   _request: Request,
-  { params }: { params: RouteParams }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const reportId = await resolveRouteId(params);
-    if (!reportId) {
-      return NextResponse.json({ error: "reportId is required" }, { status: 400 });
-    }
-
+    const { id } = await Promise.resolve(params);
     const authResult = await requireAuthorizedSession();
     if (authResult.response) return authResult.response;
     const organizationId = authResult.session.user.organizationId;
 
     const report = await prisma.report.findFirst({
-      where: { id: reportId, organizationId },
+      where: { id, organizationId },
       select: {
         id: true,
         status: true,
@@ -92,20 +87,16 @@ export async function GET(
 
 export async function DELETE(
   _request: Request,
-  { params }: { params: RouteParams }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const reportId = await resolveRouteId(params);
-    if (!reportId) {
-      return NextResponse.json({ error: "reportId is required" }, { status: 400 });
-    }
-
+    const { id } = await Promise.resolve(params);
     const authResult = await requireAuthorizedSession();
     if (authResult.response) return authResult.response;
     const organizationId = authResult.session.user.organizationId;
 
     const report = await prisma.report.findFirst({
-      where: { id: reportId, organizationId },
+      where: { id, organizationId },
       select: {
         id: true,
         studentId: true,

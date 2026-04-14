@@ -149,18 +149,13 @@ function deliveryLabel(report?: ReportSummary | null) {
   return reportStatusLabel(report.status);
 }
 
-function latestInterviewSession(student: StudentListRow) {
-  return student.sessions?.find((session) => session.type === "INTERVIEW") ?? null;
-}
-
 function sessionLabel(session?: SessionSummary | null) {
-  if (!session) return "面談ログなし";
-  return "面談";
+  if (!session) return "会話ログなし";
+  return session.type === "LESSON_REPORT" ? "授業報告" : "面談";
 }
 
 function sourceText(student: StudentListRow) {
-  const session = latestInterviewSession(student);
-  return session?.heroOneLiner ?? session?.latestSummary ?? "まだ会話要約はありません。ログを生成するとここに要点が出ます。";
+  return student.sessions?.[0]?.heroOneLiner ?? student.sessions?.[0]?.latestSummary ?? "まだ会話要約はありません。ログを生成するとここに要点が出ます。";
 }
 
 function reportRank(row: ReportCardRow) {
@@ -179,7 +174,7 @@ function queueRank(item: QueueItem) {
 
 function buildReportRow(student: StudentListRow): ReportCardRow {
   const latestReport = student.reports?.[0] ?? null;
-  const latestSession = latestInterviewSession(student);
+  const latestSession = student.sessions?.[0] ?? null;
   const hasConversation = Boolean(latestSession?.conversation?.id);
   const state = latestReportState(latestReport);
   const workflow = workflowLabel(latestReport);
@@ -216,14 +211,15 @@ function buildReportRow(student: StudentListRow): ReportCardRow {
 
 function buildQueueItem(student: StudentListRow): QueueItem | null {
   const latestReport = student.reports?.[0] ?? null;
-  const latestSession = latestInterviewSession(student);
+  const latestSession = student.sessions?.[0] ?? null;
   const hasConversation = Boolean(latestSession?.conversation?.id);
+  const needsCheckout = latestSession?.type === "LESSON_REPORT" && latestSession.status === "COLLECTING";
   const needsReport = hasConversation && !latestReport;
   const needsReview = latestReport?.status === "DRAFT";
   const needsShare = latestReport?.status === "REVIEWED";
   const isDelayedShare = isDelayed(latestReport);
 
-  if (!latestSession || (!needsReport && !needsReview && !needsShare)) {
+  if (!latestSession || (!needsCheckout && !needsReport && !needsReview && !needsShare)) {
     return null;
   }
 
@@ -233,18 +229,28 @@ function buildQueueItem(student: StudentListRow): QueueItem | null {
     id: student.id,
     name: student.name,
     grade: student.grade,
-    label: needsReport ? "レポート未作成" : needsReview ? "レビュー待ち" : "共有待ち",
-    description: needsReport
-      ? "会話ログがあるので、この生徒はまずレポート生成が必要です。"
-      : needsReview
-        ? "レポート本文を確認して、共有前の最終チェックに進めます。"
-        : "共有待ちのレポートがあります。送信前の確認だけで進められます。",
-    href: `/app/students/${student.id}?panel=report`,
-    cta: needsReport ? "ログを生成する" : "共有を確認する",
+    label: needsCheckout
+      ? "チェックアウト待ち"
+      : needsReport
+        ? "レポート未作成"
+        : needsReview
+          ? "レビュー待ち"
+          : "共有待ち",
+    description: needsCheckout
+      ? "録音を閉じてからレポート生成に進むと、次の処理に流せます。"
+      : needsReport
+        ? "会話ログがあるので、この生徒はまずレポート生成が必要です。"
+        : needsReview
+          ? "レポート本文を確認して、共有前の最終チェックに進めます。"
+    : "共有待ちのレポートがあります。送信前の確認だけで進められます。",
+    href: needsCheckout
+      ? `/app/students/${student.id}?panel=recording&mode=LESSON_REPORT&part=CHECK_OUT`
+      : `/app/students/${student.id}?panel=report`,
+    cta: needsCheckout ? "チェックアウトする" : needsReport ? "ログを生成する" : "共有を確認する",
     tone: isDelayedShare ? "high" : needsReport ? "high" : needsReview ? "medium" : "low",
     latestDeliveryLabel: deliveryLabel(latestReport),
     updatedLabel: formatRelativeLabel(updatedSource),
-    priority: isDelayedShare ? 0 : needsReport ? 1 : needsReview ? 2 : 3,
+    priority: isDelayedShare ? 0 : needsCheckout ? 1 : needsReport ? 2 : needsReview ? 3 : 4,
     isDelayedShare,
   };
 }
@@ -300,7 +306,7 @@ export function buildReportDashboardData(
   const delayedQueue = queue.filter((item) => item.isDelayedShare);
 
   const counts: ReportCounts = {
-    uncreated: students.filter((student) => Boolean(latestInterviewSession(student)?.conversation?.id) && !student.reports?.[0]).length,
+    uncreated: students.filter((student) => Boolean(student.sessions?.[0]?.conversation?.id) && !student.reports?.[0]).length,
     review: students.filter((student) => student.reports?.[0]?.status === "DRAFT").length,
     share: students.filter((student) => student.reports?.[0]?.status === "REVIEWED").length,
     sent: students.filter((student) => {

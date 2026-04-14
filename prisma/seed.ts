@@ -12,6 +12,7 @@ import {
 } from "@prisma/client";
 import { hash } from "@node-rs/bcrypt";
 import { DEFAULT_ORGANIZATION_ID, DEFAULT_ORGANIZATION_NAME } from "../lib/constants";
+import { assertSeedTargetSafe } from "../scripts/lib/environment-safety";
 
 const prisma = new PrismaClient();
 const SALT_ROUNDS = 10;
@@ -407,6 +408,8 @@ async function createAoi() {
 
 async function main() {
   console.log("Seeding PARARIA MVP demo data...");
+  assertSeedTargetSafe("prisma-seed");
+  const includeDemoStudents = /^(1|true|yes)$/i.test(process.env.PARARIA_INCLUDE_DEMO_STUDENTS ?? "");
 
   await prisma.organization.upsert({
     where: { id: DEFAULT_ORGANIZATION_ID },
@@ -419,13 +422,18 @@ async function main() {
 
   await upsertUsers();
   await cleanup(["student-demo-1", "student-demo-2"]);
-  await createHana();
-  await createAoi();
+  if (includeDemoStudents) {
+    await createHana();
+    await createAoi();
+  }
 
   console.log("Seed completed.");
   console.log(`Organization: ${DEFAULT_ORGANIZATION_ID} (${DEFAULT_ORGANIZATION_NAME})`);
   console.log("Demo login: admin@demo.com / demo123");
-  console.log("Students: 2");
+  console.log(`Students: ${includeDemoStudents ? 2 : 0}`);
+  if (!includeDemoStudents) {
+    console.log("Demo students skipped. Set PARARIA_INCLUDE_DEMO_STUDENTS=1 to seed fixture students.");
+  }
 }
 
 main()

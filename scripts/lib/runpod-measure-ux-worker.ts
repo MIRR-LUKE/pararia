@@ -1,5 +1,6 @@
 import { buildBootstrapCommand, buildDirectStartCommand, buildWorkerEnv, getHeartbeatPath, patchRunpodPodWorkerConfig, runpodRequest, startRunpodPod, stopRunpodPod, terminatePodsByName, tryReadStorageJson } from "./runpod-measure-ux-runpod";
 import { sleep } from "./runpod-measure-ux-core";
+import { assertMeasurementStudent } from "./measurement-student-guard";
 
 import type { GpuProfile } from "./runpod-measure-ux-runpod";
 
@@ -198,6 +199,15 @@ export async function cleanupBenchmarkRecords(input: {
       await prisma.session.deleteMany({ where: { id: input.sessionId } }).catch(() => {});
     }
     if (input.studentId) {
+      const student = await prisma.student.findUnique({
+        where: { id: input.studentId },
+        select: { id: true, name: true, grade: true, course: true },
+      });
+      assertMeasurementStudent(student, {
+        namePrefix: "[Runpod UX ",
+        allowedGrades: ["計測用"],
+        coursePrefixes: ["runpod-ux-"],
+      });
       await prisma.studentProfile.deleteMany({ where: { studentId: input.studentId } }).catch(() => {});
       await prisma.student.deleteMany({ where: { id: input.studentId } }).catch(() => {});
     }

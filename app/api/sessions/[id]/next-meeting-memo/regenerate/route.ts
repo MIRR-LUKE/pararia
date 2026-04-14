@@ -6,7 +6,11 @@ import {
   processAllConversationJobs,
 } from "@/lib/jobs/conversationJobs";
 import { shouldRunBackgroundJobsInline } from "@/lib/jobs/execution-mode";
-import { createOperationContext, logOperationError, operationErrorResponse, withOperationMeta } from "@/lib/observability/operation-errors";
+import {
+  createOperationErrorContext,
+  logOperationIssue,
+  respondWithOperationError,
+} from "@/lib/observability/operation-errors";
 import { maybeStopRunpodWorkerWhenSessionPartQueueIdle } from "@/lib/runpod/idle-stop";
 import { maybeEnsureRunpodWorker } from "@/lib/runpod/worker-control";
 import { requireAuthorizedSession } from "@/lib/server/request-auth";
@@ -15,7 +19,8 @@ export async function POST(
   _request: Request,
   { params }: { params: { id: string } | Promise<{ id: string }> }
 ) {
-  const operation = createOperationContext("POST /api/sessions/[id]/next-meeting-memo/regenerate");
+  const context = createOperationErrorContext("next-meeting-memo-regenerate");
+  let stage = "auth";
   try {
     const { id } = await Promise.resolve(params);
     const sessionId = typeof id === "string" ? id.trim() : "";
@@ -25,10 +30,27 @@ export async function POST(
 
     const authResult = await requireAuthorizedSession();
     if (authResult.response) {
-      return NextResponse.json(withOperationMeta(operation, "authorize", { error: "Unauthorized" }), { status: 401 });
+      return respondWithOperationError({
+        context,
+        stage,
+        message: "Unauthorized",
+        status: 401,
+      });
     }
     const organizationId = authResult.session.user.organizationId;
+    const { id } = await Promise.resolve(params);
+    const sessionId = typeof id === "string" ? id.trim() : "";
+    if (!sessionId) {
+      return respondWithOperationError({
+        context,
+        stage: "params",
+        message: "セッションIDが必要です。",
+        status: 400,
+        level: "warn",
+      });
+    }
 
+    stage = "session_lookup";
     const session = await prisma.session.findFirst({
       where: {
         id: sessionId,
@@ -48,30 +70,48 @@ export async function POST(
     });
 
     if (!session) {
-      return NextResponse.json(withOperationMeta(operation, "session_lookup", { error: "セッションが見つかりません。" }), { status: 404 });
+      return respondWithOperationError({
+        context,
+        stage,
+        message: "セッションが見つかりません。",
+        status: 404,
+        level: "warn",
+      });
     }
 
+    stage = "validate_session_type";
     if (session.type !== SessionType.INTERVIEW) {
-      return NextResponse.json(
-        withOperationMeta(operation, "validate_session_type", { error: "面談セッションのみ再生成できます。" }),
-        { status: 409 }
-      );
+      return respondWithOperationError({
+        context,
+        stage,
+        message: "面談セッションのみ再生成できます。",
+        status: 409,
+        level: "warn",
+      });
     }
 
+    stage = "validate_conversation";
     if (!session.conversation?.id || session.conversation.status !== ConversationStatus.DONE) {
-      return NextResponse.json(
-        withOperationMeta(operation, "validate_conversation", { error: "面談ログの生成完了後に作り直してください。" }),
-        { status: 409 }
-      );
+      return respondWithOperationError({
+        context,
+        stage,
+        message: "面談ログの生成完了後に作り直してください。",
+        status: 409,
+        level: "warn",
+      });
     }
 
     if (!session.conversation.summaryMarkdown?.trim()) {
-      return NextResponse.json(
-        withOperationMeta(operation, "validate_conversation", { error: "面談ログ本文がないため、次回の面談メモを作り直せません。" }),
-        { status: 409 }
-      );
+      return respondWithOperationError({
+        context,
+        stage,
+        message: "面談ログ本文がないため、次回の面談メモを作り直せません。",
+        status: 409,
+        level: "warn",
+      });
     }
 
+    stage = "enqueue_job";
     await enqueueNextMeetingMemoJob(session.conversation.id);
 
     if (shouldRunBackgroundJobsInline()) {
@@ -79,7 +119,8 @@ export async function POST(
         try {
           await processAllConversationJobs(session.conversation!.id);
         } catch (error) {
-          logOperationError(operation, {
+          logOperationIssue({
+            context,
             stage: "background_process",
             message: "Background process failed",
             error,
@@ -90,8 +131,9 @@ export async function POST(
       })();
     } else {
       void maybeEnsureRunpodWorker().catch((error) => {
-        logOperationError(operation, {
-          stage: "wake_runpod_worker",
+        logOperationIssue({
+          context,
+          stage: "worker_wake",
           message: "Runpod wake failed",
           error,
         });
@@ -105,9 +147,11 @@ export async function POST(
       operationId: operation.operationId,
     });
   } catch (error: any) {
-    return operationErrorResponse(operation, {
-      stage: "enqueue_job",
+    return respondWithOperationError({
+      context,
+      stage,
       message: error?.message ?? "Internal Server Error",
+      status: 500,
       error,
     });
   }

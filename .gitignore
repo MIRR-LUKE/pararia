@@ -15,3 +15,5 @@ tsconfig.tsbuildinfo
 .tmp/
 .runtime/
 .backups/
+
+.env*.local

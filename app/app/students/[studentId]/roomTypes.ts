@@ -128,6 +128,7 @@ export type RoomResponse = {
   student: {
     id: string;
     name: string;
+    nameKana?: string | null;
     grade?: string | null;
     course?: string | null;
     guardianNames?: string | null;

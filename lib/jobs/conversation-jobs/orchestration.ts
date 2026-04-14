@@ -2,14 +2,7 @@ import { JobStatus } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { ACTIVE_JOB_TYPES, buildJobContext } from "./shared";
 import type { JobPayload, ProcessJobsOptions } from "./types";
-import {
-  claimNextJob,
-  enqueueConversationJobs,
-  enqueueNextMeetingMemoJob,
-  ensureConversationJobsAvailable,
-  recordJobFailure,
-  shouldRecoverProcessingConversationJobs,
-} from "./repository";
+import { claimNextJob, enqueueConversationJobs, enqueueNextMeetingMemoJob, recordJobFailure } from "./repository";
 import { executeJob } from "./handlers";
 import { logJobError, logJobWarn, stopRunpodWorkerAfterConversationJob } from "./side-effects";
 
@@ -52,12 +45,7 @@ async function handleJobFailure(job: JobPayload, error: unknown) {
   };
 }
 
-export {
-  enqueueConversationJobs,
-  enqueueNextMeetingMemoJob,
-  ensureConversationJobsAvailable,
-  shouldRecoverProcessingConversationJobs,
-};
+export { enqueueConversationJobs, enqueueNextMeetingMemoJob };
 
 export async function processQueuedJobs(
   limit = 1,

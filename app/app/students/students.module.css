@@ -100,6 +100,26 @@
   font-size: 13px;
 }
 
+.duplicateBadge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 0 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: var(--surface-3);
+  color: var(--muted-strong);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.identityMeta {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
 .oneLiner {
   margin: 8px 0 0;
   color: var(--muted);
@@ -128,6 +148,26 @@
   flex-direction: column;
   align-items: flex-end;
   gap: 10px;
+}
+
+.rowActionPrimary {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.editEntryLink {
+  display: inline-flex;
+  flex: 0 0 auto;
+}
+
+.editEntryButton {
+  min-width: 35px;
+  padding: 8px 10px;
+  font-size: 16px;
+  line-height: 1;
 }
 
 .deleteButton {
@@ -202,9 +242,18 @@
     width: 100%;
   }
 
-  .rowAction :global(a),
-  .rowAction :global(button) {
+  .rowActionPrimary {
     width: 100%;
+    justify-content: stretch;
+  }
+
+  .rowActionPrimary :global(a:last-child),
+  .rowAction > :global(button) {
+    width: 100%;
+  }
+
+  .editEntryLink {
+    width: auto;
   }
 
   .formActions {

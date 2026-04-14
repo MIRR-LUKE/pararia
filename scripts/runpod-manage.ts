@@ -41,11 +41,53 @@ function readBoolArg(name: string, fallback: boolean) {
   return raw === "1" || raw.toLowerCase() === "true" || raw.toLowerCase() === "yes";
 }
 
+function isSensitiveKey(key: string) {
+  return (
+    key === "DATABASE_URL" ||
+    key === "DIRECT_URL" ||
+    /(?:^|_)(?:KEY|TOKEN|SECRET|PASSWORD)(?:$|_)/i.test(key)
+  );
+}
+
+function sanitizeForOutput(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map((item) => sanitizeForOutput(item));
+  }
+
+  if (!value || typeof value !== "object") {
+    return value;
+  }
+
+  const entries = Object.entries(value as Record<string, unknown>).map(([key, entryValue]) => {
+    if (key === "env" && entryValue && typeof entryValue === "object" && !Array.isArray(entryValue)) {
+      const sanitizedEnv = Object.fromEntries(
+        Object.keys(entryValue as Record<string, unknown>)
+          .sort()
+          .map((envKey) => [envKey, "[redacted]"])
+      );
+      return [key, sanitizedEnv];
+    }
+
+    if (isSensitiveKey(key)) {
+      return [key, "[redacted]"];
+    }
+
+    return [key, sanitizeForOutput(entryValue)];
+  });
+
+  return Object.fromEntries(entries);
+}
+
+function printJson(value: unknown) {
+  console.log(JSON.stringify(sanitizeForOutput(value), null, 2));
+}
+
 function applyConfigOverrides(config: RunpodWorkerConfig): RunpodWorkerConfig {
   return {
     ...config,
     name: readArg("name") ?? config.name,
     image: readArg("image") ?? config.image,
+    containerRegistryAuthId: readArg("registry-auth-id") ?? config.containerRegistryAuthId ?? null,
     gpu: readArg("gpu") ?? config.gpu,
     secureCloud: readBoolArg("secure-cloud", config.secureCloud),
     containerDiskInGb: readNumberArg("container-disk", config.containerDiskInGb, 0),
@@ -144,19 +186,13 @@ async function main() {
 
   if (command === "status") {
     const pods = await getManagedRunpodPods(resolvedConfig);
-    console.log(
-      JSON.stringify(
-        {
-          workerName: resolvedConfig.name,
-          image: resolvedConfig.image,
-          gpu: resolvedConfig.gpu,
-          autoStopIdleMs: resolvedConfig.autoStopIdleMs,
-          pods,
-        },
-        null,
-        2
-      )
-    );
+    printJson({
+      workerName: resolvedConfig.name,
+      image: resolvedConfig.image,
+      gpu: resolvedConfig.gpu,
+      autoStopIdleMs: resolvedConfig.autoStopIdleMs,
+      pods,
+    });
     return;
   }
 
@@ -166,49 +202,37 @@ async function main() {
     const timeoutMs = Number(readArg("timeout-ms") ?? 8 * 60 * 1000);
     const pollMs = Number(readArg("poll-ms") ?? 5_000);
     if (!wait || !ensured.pod.id) {
-      console.log(JSON.stringify(ensured, null, 2));
+      printJson(ensured);
       return;
     }
 
     const waited = await waitForPodRunning(ensured.pod.id, timeoutMs, pollMs);
     if (!waited.ok) {
-      console.log(
-        JSON.stringify(
-          {
-            ...ensured,
-            waited,
-          },
-          null,
-          2
-        )
-      );
+      printJson({
+        ...ensured,
+        waited,
+      });
       return;
     }
 
     const readiness = await waitForWorkerReady(ensured.pod.id, timeoutMs, pollMs);
-    console.log(
-      JSON.stringify(
-        {
-          ...ensured,
-          waited,
-          readiness,
-        },
-        null,
-        2
-      )
-    );
+    printJson({
+      ...ensured,
+      waited,
+      readiness,
+    });
     return;
   }
 
   if (command === "stop") {
     const stopped = await stopManagedRunpodWorker(resolvedConfig);
-    console.log(JSON.stringify(stopped, null, 2));
+    printJson(stopped);
     return;
   }
 
   if (command === "terminate") {
     const terminated = await terminateManagedRunpodWorker(resolvedConfig);
-    console.log(JSON.stringify(terminated, null, 2));
+    printJson(terminated);
     return;
   }
 

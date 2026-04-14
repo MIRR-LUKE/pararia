@@ -262,13 +262,12 @@ export async function forceReleaseRecordingLock(opts: {
   actorUserId: string;
   reason?: string;
 }) {
-  const resolvedStudentId = requireStudentId(opts.studentId);
-  await prisma.studentRecordingLock.deleteMany({ where: { studentId: resolvedStudentId } });
+  await prisma.studentRecordingLock.deleteMany({ where: { studentId: opts.studentId } });
   await writeAuditLog({
     userId: opts.actorUserId,
     action: "recording_lock_force_release",
     detail: {
-      studentId: resolvedStudentId,
+      studentId: opts.studentId,
       reason: opts.reason ?? null,
     },
   });

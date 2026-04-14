@@ -5,6 +5,7 @@ export type StudentRowProjection = "report" | "directory" | "dashboard";
 const studentCoreSelect = {
   id: true,
   name: true,
+  createdAt: true,
   grade: true,
   sessions: {
     select: {
@@ -15,6 +16,12 @@ const studentCoreSelect = {
       heroStateLabel: true,
       heroOneLiner: true,
       latestSummary: true,
+      parts: {
+        select: {
+          id: true,
+        },
+        take: 1,
+      },
       conversation: {
         select: {
           id: true,
@@ -22,7 +29,7 @@ const studentCoreSelect = {
       },
     },
     orderBy: [{ sessionDate: "desc" as const }, { createdAt: "desc" as const }],
-    take: 1,
+    take: 6,
   },
 } satisfies Prisma.StudentSelect;
 
@@ -139,7 +146,21 @@ export function buildStudentRowSelect(projection: StudentRowProjection): Prisma.
     ...(projection === "directory"
       ? {
           _count: {
-            select: { sessions: true, reports: true },
+            select: {
+              sessions: {
+                where: {
+                  NOT: {
+                    AND: [
+                      { type: "INTERVIEW" as const },
+                      { status: "DRAFT" as const },
+                      { conversation: null },
+                      { parts: { none: {} } },
+                    ],
+                  },
+                },
+              },
+              reports: true,
+            },
           },
         }
       : {}),

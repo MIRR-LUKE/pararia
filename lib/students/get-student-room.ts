@@ -50,7 +50,10 @@ function buildStudentRoomSelect(scope: StudentRoomScope) {
     return {
       id: true,
       name: true,
+      nameKana: true,
       grade: true,
+      course: true,
+      guardianNames: true,
       sessions: {
         orderBy: [{ sessionDate: "desc" as const }, { createdAt: "desc" as const }],
         take: 6,
@@ -122,7 +125,10 @@ function buildStudentRoomSelect(scope: StudentRoomScope) {
   return {
     id: true,
     name: true,
+    nameKana: true,
     grade: true,
+    course: true,
+    guardianNames: true,
     sessions: {
       orderBy: [{ sessionDate: "desc" as const }, { createdAt: "desc" as const }],
       take: 12,
@@ -384,7 +390,10 @@ export async function getStudentRoomData({
     student: {
       id: student.id,
       name: student.name,
+      nameKana: student.nameKana ?? null,
       grade: student.grade,
+      course: student.course ?? null,
+      guardianNames: student.guardianNames ?? null,
       profiles: [],
     },
     latestConversation: latestConversation

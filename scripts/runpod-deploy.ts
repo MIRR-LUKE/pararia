@@ -28,6 +28,7 @@ function buildArgs(current: RunpodWorkerConfig): Args {
     gpu: readArg("gpu", current.gpu)!,
     name: readArg("name", current.name)!,
     image: readArg("image", current.image)!,
+    containerRegistryAuthId: readArg("registry-auth-id", current.containerRegistryAuthId ?? undefined),
     secureCloud: readBoolArg("secure-cloud", current.secureCloud),
     containerDiskInGb: readIntArg("container-disk", current.containerDiskInGb),
     volumeInGb: readIntArg("volume", current.volumeInGb),
