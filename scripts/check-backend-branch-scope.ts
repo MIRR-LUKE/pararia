@@ -32,7 +32,7 @@ function isTargetBranch(branchName: string) {
 
 function resolveBaseSha() {
   const explicit = process.env.BASE_SHA?.trim();
-  if (explicit) {
+  if (explicit && !/^0+$/.test(explicit)) {
     return explicit;
   }
 
