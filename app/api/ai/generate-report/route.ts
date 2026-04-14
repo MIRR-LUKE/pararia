@@ -1,3 +1,4 @@
+import { revalidatePath, revalidateTag } from "next/cache";
 import { NextResponse } from "next/server";
 import { ReportDeliveryEventType } from "@prisma/client";
 import { auth } from "@/auth";
@@ -5,6 +6,8 @@ import { writeAuditLog } from "@/lib/audit";
 import { prisma } from "@/lib/db";
 import { generateParentReport } from "@/lib/ai/parentReport";
 import { renderConversationArtifactOrFallback } from "@/lib/conversation-artifact";
+import { getLogListCacheTag } from "@/lib/logs/get-log-list-page-data";
+import { withActiveStudentWhere } from "@/lib/students/student-lifecycle";
 
 export async function POST(request: Request) {
   try {
@@ -21,7 +24,7 @@ export async function POST(request: Request) {
     }
 
     const student = await prisma.student.findFirst({
-      where: { id: studentId, organizationId: session.user.organizationId },
+      where: withActiveStudentWhere({ id: studentId, organizationId: session.user.organizationId }),
     });
     if (!student) {
       return NextResponse.json({ error: "student not found" }, { status: 404 });
@@ -151,6 +154,15 @@ export async function POST(request: Request) {
         sourceLogCount: logs.length,
       },
     });
+
+    revalidateTag(`student-directory:${student.organizationId}`, "max");
+    revalidateTag(`dashboard-snapshot:${student.organizationId}`, "max");
+    revalidateTag(getLogListCacheTag(student.organizationId), "max");
+    revalidatePath("/app/dashboard");
+    revalidatePath("/app/students");
+    revalidatePath("/app/logs");
+    revalidatePath("/app/reports");
+    revalidatePath(`/app/students/${studentId}`);
 
     return NextResponse.json({ report });
   } catch (error: any) {

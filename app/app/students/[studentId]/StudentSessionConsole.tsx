@@ -1,47 +1,51 @@
 "use client";
 
-import Image from "next/image";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
-import { GenerationProgress } from "@/components/ui/GenerationProgress";
-import {
-  AUDIO_UPLOAD_ACCEPT_ATTR,
-  AUDIO_UPLOAD_EXTENSIONS_LABEL,
-  buildUnsupportedAudioUploadErrorMessage,
-  isSupportedAudioUpload,
-} from "@/lib/audio-upload-support";
+import { buildUnsupportedAudioUploadErrorMessage, isSupportedAudioUpload } from "@/lib/audio-upload-support";
 import { buildLessonReportFlowMessage, getLessonReportPartState } from "@/lib/lesson-report-flow";
-import { RECORDING_LOCK_HEARTBEAT_MS } from "@/lib/recording/lockConstants";
-import {
-  DEFAULT_MIN_RECORDING_DURATION_SEC,
-  buildRecordingTooLongMessage,
-  buildRecordingTooShortMessage,
-} from "@/lib/recording/policy";
-import {
-  clearPendingRecordingDraft,
-  loadPendingRecordingDraft,
-  savePendingRecordingDraft,
-  type PendingRecordingDraftRecord,
-} from "@/lib/recording/pendingRecordingStore";
-import { isLiveChunkUploadEnabled } from "@/lib/recording/live-chunk-upload";
-import { uploadFileToBlobFromBrowser } from "@/lib/blob-browser-upload";
 import { buildSessionPartUploadPathname } from "@/lib/audio-storage-paths";
-import type { RecordingLockInfo, SessionItem, SessionPipelineInfo } from "./roomTypes";
+import type { RecordingLockInfo, SessionItem } from "./roomTypes";
+import {
+  CLIENT_AUDIO_STORAGE_MODE,
+  LIVE_CHUNK_UPLOAD_ENABLED,
+  LIVE_STT_WINDOW_MS,
+  MAX_SECONDS,
+  MIN_SECONDS_BEFORE_SAVE_ENABLED,
+  RECORDING_TIMESLICE_MS,
+  buildChunkUploadFileName,
+  buildUploadFileName,
+  formatBytes,
+  getDurationValidationMessage,
+  loadBlobUploadModule,
+  modeLabel,
+  pickRecordingMimeType,
+  readAudioDurationSeconds,
+  stopTracks,
+} from "./studentSessionConsoleUtils";
+import type {
+  ConsoleState,
+  SessionConsoleLessonPart,
+  SessionConsoleMode,
+  StopIntent,
+  UploadSource,
+} from "./studentSessionConsoleTypes";
+import { StudentSessionConsoleLockSection } from "./StudentSessionConsoleLockSection";
+import { StudentSessionConsoleProgressSection } from "./StudentSessionConsoleProgressSection";
+import { StudentSessionConsoleRecordingSection } from "./StudentSessionConsoleRecordingSection";
+import { StudentSessionConsoleUploadSection } from "./StudentSessionConsoleUploadSection";
+import { usePendingRecordingDraft } from "./usePendingRecordingDraft";
+import { useRecordingLock } from "./useRecordingLock";
+import { useRecordingNavigationGuards } from "./useRecordingNavigationGuards";
+import { useStudentSessionProgress } from "./useStudentSessionProgress";
+import {
+  buildStudentSessionConsoleProgress,
+  buildStudentSessionConsoleStatusCopy,
+} from "./studentSessionConsoleView";
 import styles from "./studentSessionConsole.module.css";
 
-export type SessionConsoleMode = "INTERVIEW" | "LESSON_REPORT";
-export type SessionConsoleLessonPart = "CHECK_IN" | "CHECK_OUT";
-
-type ConsoleState = "idle" | "preparing" | "recording" | "uploading" | "processing" | "success" | "error";
-
-type SessionProgressResponse = {
-  conversation?: {
-    id: string;
-    status: string;
-  } | null;
-  progress: SessionPipelineInfo;
-};
+export type { SessionConsoleLessonPart, SessionConsoleMode } from "./studentSessionConsoleTypes";
 
 type Props = {
   studentId: string;
@@ -58,152 +62,7 @@ type Props = {
   autoStartOnMount?: boolean;
 };
 
-type UploadSource = "file_upload" | "direct_recording";
-type StopIntent = "save" | "cancel";
-type PendingRecordingDraft = {
-  key: string;
-  file: File;
-  createdAt: string;
-  durationSeconds: number | null;
-  sizeBytes: number;
-};
-
-const MAX_SECONDS: Record<SessionConsoleMode, number> = {
-  INTERVIEW: 60 * 60,
-  LESSON_REPORT: 10 * 60,
-};
-const MIN_SECONDS = DEFAULT_MIN_RECORDING_DURATION_SEC;
-const MIN_SECONDS_BEFORE_SAVE_ENABLED = MIN_SECONDS + 1;
-const RECORDING_TIMESLICE_MS = 1000;
-const LIVE_STT_WINDOW_MS: Record<SessionConsoleMode, number> = {
-  INTERVIEW: 15_000,
-  LESSON_REPORT: 8_000,
-};
-const CLIENT_AUDIO_STORAGE_MODE =
-  process.env.NEXT_PUBLIC_AUDIO_STORAGE_MODE?.trim().toLowerCase() === "blob" ? "blob" : "local";
-const LIVE_CHUNK_UPLOAD_ENABLED = isLiveChunkUploadEnabled();
-
-function stopTracks(stream: MediaStream | null) {
-  stream?.getTracks().forEach((track) => track.stop());
-}
-
-function sleep(ms: number) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function formatTime(totalSeconds: number) {
-  const hours = Math.floor(totalSeconds / 3600);
-  const minutes = Math.floor((totalSeconds % 3600) / 60);
-  const seconds = totalSeconds % 60;
-
-  if (hours > 0) {
-    return `${hours.toString().padStart(2, "0")}:${minutes.toString().padStart(2, "0")}:${seconds
-      .toString()
-      .padStart(2, "0")}`;
-  }
-
-  return `${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`;
-}
-
-function formatBytes(bytes: number) {
-  if (!bytes) return "0 B";
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-function readAudioDurationSeconds(file: File) {
-  return new Promise<number | null>((resolve) => {
-    const url = URL.createObjectURL(file);
-    const audio = document.createElement("audio");
-    const cleanup = () => {
-      URL.revokeObjectURL(url);
-      audio.src = "";
-    };
-    audio.preload = "metadata";
-    audio.onloadedmetadata = () => {
-      const duration = Number.isFinite(audio.duration) ? audio.duration : null;
-      cleanup();
-      resolve(duration);
-    };
-    audio.onerror = () => {
-      cleanup();
-      resolve(null);
-    };
-    audio.src = url;
-  });
-}
-
-function modeLabel(mode: SessionConsoleMode, part: SessionConsoleLessonPart) {
-  if (mode === "INTERVIEW") return "面談";
-  return part === "CHECK_OUT" ? "チェックアウト" : "チェックイン";
-}
-
-function buildUploadFileName(
-  studentId: string,
-  mode: SessionConsoleMode,
-  part: SessionConsoleLessonPart,
-  mimeType: string
-) {
-  const ext = mimeType.includes("ogg")
-    ? "ogg"
-    : mimeType.includes("wav")
-      ? "wav"
-      : mimeType.includes("mp4") || mimeType.includes("m4a")
-        ? "m4a"
-        : "webm";
-  const prefix =
-    mode === "INTERVIEW" ? "interview" : part === "CHECK_OUT" ? "lesson-checkout" : "lesson-checkin";
-  return `${prefix}-${studentId}-${new Date().toISOString().slice(0, 19)}.${ext}`;
-}
-
-function buildChunkUploadFileName(baseName: string, sequence: number) {
-  const dotIndex = baseName.lastIndexOf(".");
-  if (dotIndex === -1) return `${baseName}-chunk-${String(sequence).padStart(4, "0")}`;
-  return `${baseName.slice(0, dotIndex)}-chunk-${String(sequence).padStart(4, "0")}${baseName.slice(dotIndex)}`;
-}
-
-function pickRecordingMimeType() {
-  if (typeof MediaRecorder === "undefined") return null;
-  const candidates = [
-    "audio/webm;codecs=opus",
-    "audio/webm",
-    "audio/mp4;codecs=mp4a.40.2",
-    "audio/mp4",
-    "audio/ogg;codecs=opus",
-    "audio/ogg",
-  ];
-  return candidates.find((candidate) => MediaRecorder.isTypeSupported(candidate)) ?? null;
-}
-
-function getDurationValidationMessage(
-  mode: SessionConsoleMode,
-  durationSeconds: number | null
-) {
-  if (durationSeconds !== null && durationSeconds < MIN_SECONDS) {
-    return buildRecordingTooShortMessage(MIN_SECONDS);
-  }
-  if (durationSeconds !== null && durationSeconds > MAX_SECONDS[mode]) {
-    return buildRecordingTooLongMessage(mode, MAX_SECONDS[mode]);
-  }
-  return null;
-}
-
-function toPendingDraft(record: PendingRecordingDraftRecord) {
-  const file = new File([record.blob], record.fileName, {
-    type: record.mimeType || "audio/webm",
-    lastModified: Date.parse(record.updatedAt) || Date.now(),
-  });
-  return {
-    key: record.key,
-    file,
-    createdAt: record.createdAt,
-    durationSeconds: record.durationSeconds,
-    sizeBytes: record.sizeBytes,
-  } satisfies PendingRecordingDraft;
-}
-
-export function StudentSessionConsole({
+function StudentSessionConsoleInner({
   studentId,
   studentName,
   mode,
@@ -224,15 +83,9 @@ export function StudentSessionConsole({
   const [isPaused, setIsPaused] = useState(false);
   const [levels, setLevels] = useState([12, 18, 14, 24, 16, 20, 15]);
   const [estimatedSize, setEstimatedSize] = useState("0 B");
-  const [createdConversationId, setCreatedConversationId] = useState<string | null>(null);
-  const [sessionProgress, setSessionProgress] = useState<SessionPipelineInfo | null>(ongoingLessonSession?.pipeline ?? null);
-  const [recoverableSessionId, setRecoverableSessionId] = useState<string | null>(null);
-  const [pendingDraft, setPendingDraft] = useState<PendingRecordingDraft | null>(null);
-  const [pendingDraftPersistence, setPendingDraftPersistence] = useState<"durable" | "memory" | null>(null);
   const [showCancelDialog, setShowCancelDialog] = useState(false);
   const [showDiscardDraftDialog, setShowDiscardDraftDialog] = useState(false);
 
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const chunksRef = useRef<BlobPart[]>([]);
@@ -246,8 +99,6 @@ export function StudentSessionConsole({
   const recordingSessionIdRef = useRef<string | null>(null);
   const liveStreamingEnabledRef = useRef(false);
   const mimeTypeRef = useRef("audio/webm");
-  const lockTokenRef = useRef<string | null>(null);
-  const heartbeatRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const autoStartedRef = useRef(false);
   const secondsRef = useRef(0);
   const stopIntentRef = useRef<StopIntent>("save");
@@ -264,71 +115,60 @@ export function StudentSessionConsole({
     activeRecordingStateRef.current = state;
   }, [state]);
 
-  useEffect(() => {
-    if (mode === "LESSON_REPORT") {
-      setSessionProgress(ongoingLessonSession?.pipeline ?? null);
-      if (ongoingLessonSession?.conversation?.id) {
-        setCreatedConversationId(ongoingLessonSession.conversation.id);
-      }
-      return;
-    }
-    setSessionProgress(null);
-  }, [mode, ongoingLessonSession?.conversation?.id, ongoingLessonSession?.pipeline]);
+  const {
+    acquireLock,
+    ensureLockForAudio,
+    finalizeLock,
+    lockConflict,
+    lockConflictName,
+    lockTokenRef,
+  } = useRecordingLock({
+    studentId,
+    mode,
+    recordingLock,
+    isActive: state === "preparing" || state === "recording",
+  });
 
-  const lockConflict =
-    recordingLock?.active &&
-    recordingLock.lock &&
-    !recordingLock.lock.isHeldByViewer;
+  const {
+    clearPendingDraftState,
+    downloadPendingDraft,
+    pendingDraft,
+    pendingDraftPersistence,
+    savePendingDraftState,
+  } = usePendingRecordingDraft({
+    studentId,
+    mode,
+    lessonPart,
+  });
 
-  const hasNavigationGuard =
-    state === "preparing" || state === "recording" || state === "uploading" || Boolean(pendingDraft);
+  const {
+    createdConversationId,
+    handleSavedPartResponse,
+    pollSessionProgress,
+    recoverableSessionId,
+    resetSessionProgress,
+    resolveTargetSessionId,
+    retryGeneration,
+    sessionProgress,
+    setCreatedConversationId,
+    setRecoverableSessionId,
+    setSessionProgress,
+  } = useStudentSessionProgress({
+    studentId,
+    mode,
+    lessonPart,
+    ongoingLessonSession,
+    onLessonPartChange,
+    onRefresh,
+    setState,
+    setError,
+    setMessage,
+  });
 
-  useEffect(() => {
-    if (!hasNavigationGuard || typeof window === "undefined") return undefined;
-
-    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
-      event.preventDefault();
-      event.returnValue = "";
-    };
-
-    window.addEventListener("beforeunload", handleBeforeUnload);
-    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
-  }, [hasNavigationGuard]);
-
-  useEffect(() => {
-    if (!hasNavigationGuard || typeof document === "undefined" || typeof window === "undefined") return undefined;
-
-    const handleAnchorNavigation = (event: MouseEvent) => {
-      const target = event.target as Element | null;
-      const anchor = target?.closest("a[href]") as HTMLAnchorElement | null;
-      if (!anchor) return;
-      if (anchor.target === "_blank" || anchor.hasAttribute("download")) return;
-      const href = anchor.getAttribute("href");
-      if (!href || href.startsWith("#")) return;
-      const nextUrl = new URL(anchor.href, window.location.href);
-      const currentUrl = new URL(window.location.href);
-      const isSameLocation =
-        nextUrl.origin === currentUrl.origin &&
-        nextUrl.pathname === currentUrl.pathname &&
-        nextUrl.search === currentUrl.search &&
-        nextUrl.hash === currentUrl.hash;
-      if (isSameLocation) return;
-
-      event.preventDefault();
-      event.stopPropagation();
-      const confirmed = window.confirm(
-        pendingDraft
-          ? "未送信の録音データがあります。移動すると再送前の確認を忘れやすくなります。移動しますか？"
-          : "録音中または保存前の音声があります。移動すると録音が失われることがあります。移動しますか？"
-      );
-      if (confirmed) {
-        window.location.href = nextUrl.toString();
-      }
-    };
-
-    document.addEventListener("click", handleAnchorNavigation, true);
-    return () => document.removeEventListener("click", handleAnchorNavigation, true);
-  }, [hasNavigationGuard, pendingDraft]);
+  useRecordingNavigationGuards({
+    enabled: state === "preparing" || state === "recording" || state === "uploading" || Boolean(pendingDraft),
+    pendingDraft,
+  });
 
   useEffect(() => {
     if (state !== "recording" || typeof document === "undefined") return undefined;
@@ -346,37 +186,6 @@ export function StudentSessionConsole({
     return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
   }, [state]);
 
-  const stopHeartbeat = useCallback(() => {
-    if (heartbeatRef.current) {
-      clearInterval(heartbeatRef.current);
-      heartbeatRef.current = null;
-    }
-  }, []);
-
-  const sendLockHeartbeat = useCallback(
-    async (token: string) => {
-      const response = await fetch(`/api/students/${studentId}/recording-lock`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ lockToken: token }),
-      }).catch(() => null);
-      if (!response?.ok) return false;
-      const body = await response.json().catch(() => ({}));
-      return body?.ok === true;
-    },
-    [studentId]
-  );
-
-  const startHeartbeat = useCallback(
-    (token: string) => {
-      stopHeartbeat();
-      heartbeatRef.current = setInterval(() => {
-        void sendLockHeartbeat(token);
-      }, RECORDING_LOCK_HEARTBEAT_MS);
-    },
-    [sendLockHeartbeat, stopHeartbeat]
-  );
-
   const resetLiveCapture = useCallback(() => {
     livePendingChunksRef.current = [];
     livePendingDurationMsRef.current = 0;
@@ -387,99 +196,6 @@ export function StudentSessionConsole({
     recordingSessionIdRef.current = null;
     liveStreamingEnabledRef.current = false;
   }, []);
-
-  const releaseLockClient = useCallback(
-    async (token: string) => {
-      await fetch(`/api/students/${studentId}/recording-lock`, {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ lockToken: token }),
-      }).catch(() => {});
-    },
-    [studentId]
-  );
-
-  const clearPendingDraftState = useCallback(async () => {
-    await clearPendingRecordingDraft({ studentId, mode, lessonPart }).catch(() => {});
-    setPendingDraft(null);
-    setPendingDraftPersistence(null);
-  }, [lessonPart, mode, studentId]);
-
-  const savePendingDraftState = useCallback(
-    async (file: File, durationSeconds: number | null) => {
-      try {
-        const record = await savePendingRecordingDraft({
-          studentId,
-          mode,
-          lessonPart,
-          file,
-          durationSeconds,
-        });
-        setPendingDraft(toPendingDraft(record));
-        setPendingDraftPersistence("durable");
-      } catch {
-        setPendingDraft({
-          key: `memory:${studentId}:${mode}:${lessonPart}`,
-          file,
-          createdAt: new Date().toISOString(),
-          durationSeconds,
-          sizeBytes: file.size,
-        });
-        setPendingDraftPersistence("memory");
-      }
-    },
-    [lessonPart, mode, studentId]
-  );
-
-  const downloadPendingDraft = useCallback(() => {
-    if (typeof window === "undefined" || !pendingDraft) return;
-    const url = URL.createObjectURL(pendingDraft.file);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = pendingDraft.file.name;
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    window.setTimeout(() => URL.revokeObjectURL(url), 0);
-  }, [pendingDraft]);
-
-  const loadPendingDraftState = useCallback(async () => {
-    const record = await loadPendingRecordingDraft({ studentId, mode, lessonPart }).catch(() => null);
-    setPendingDraft(record ? toPendingDraft(record) : null);
-    setPendingDraftPersistence(record ? "durable" : null);
-  }, [lessonPart, mode, studentId]);
-
-  const acquireLock = useCallback(async () => {
-    const res = await fetch(`/api/students/${studentId}/recording-lock`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ mode }),
-    });
-    const body = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      throw new Error(body?.error ?? "録音ロックの取得に失敗しました。");
-    }
-    const token = body.lockToken as string;
-    lockTokenRef.current = token;
-    startHeartbeat(token);
-    return token;
-  }, [mode, startHeartbeat, studentId]);
-
-  const ensureLockForAudio = useCallback(async () => {
-    const token = lockTokenRef.current;
-    if (token) {
-      const isAlive = await sendLockHeartbeat(token);
-      if (isAlive) {
-        if (!heartbeatRef.current) {
-          startHeartbeat(token);
-        }
-        return token;
-      }
-      stopHeartbeat();
-      lockTokenRef.current = null;
-    }
-    return acquireLock();
-  }, [acquireLock, sendLockHeartbeat, startHeartbeat, stopHeartbeat]);
 
   useEffect(() => {
     if (state !== "recording" || isPaused) return;
@@ -514,176 +230,11 @@ export function StudentSessionConsole({
           // noop
         }
         stopTracks(mediaStreamRef.current);
-        stopHeartbeat();
-        const token = lockTokenRef.current;
-        lockTokenRef.current = null;
-        if (token) void releaseLockClient(token);
+        void finalizeLock();
         resetLiveCapture();
       }
     };
-  }, [releaseLockClient, resetLiveCapture, stopHeartbeat]);
-
-  useEffect(() => {
-    if (state !== "preparing" && state !== "recording") return undefined;
-
-    const refreshHeartbeat = () => {
-      void (async () => {
-        const token = lockTokenRef.current;
-        if (!token) {
-          await acquireLock().catch(() => {});
-          return;
-        }
-        const isAlive = await sendLockHeartbeat(token);
-        if (isAlive) {
-          if (!heartbeatRef.current) {
-            startHeartbeat(token);
-          }
-          return;
-        }
-        stopHeartbeat();
-        lockTokenRef.current = null;
-        await acquireLock().catch(() => {});
-      })();
-    };
-
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === "visible") {
-        refreshHeartbeat();
-      }
-    };
-
-    window.addEventListener("focus", refreshHeartbeat);
-    window.addEventListener("pageshow", refreshHeartbeat);
-    document.addEventListener("visibilitychange", handleVisibilityChange);
-
-    return () => {
-      window.removeEventListener("focus", refreshHeartbeat);
-      window.removeEventListener("pageshow", refreshHeartbeat);
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
-    };
-  }, [acquireLock, sendLockHeartbeat, startHeartbeat, state, stopHeartbeat]);
-
-  const createSession = useCallback(async () => {
-    const payload = {
-      studentId,
-      type: mode,
-      title:
-        mode === "INTERVIEW"
-          ? `${new Date().toLocaleDateString("ja-JP")} の面談`
-          : `${new Date().toLocaleDateString("ja-JP")} の指導報告`,
-    };
-
-    const res = await fetch("/api/sessions", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-    const body = await res.json().catch(() => ({}));
-    if (!res.ok || !body?.session?.id) {
-      throw new Error(body?.error ?? "セッションの作成に失敗しました。");
-    }
-    return body.session.id as string;
-  }, [mode, studentId]);
-
-  const resolveTargetSessionId = useCallback(async () => {
-    if (mode === "LESSON_REPORT" && ongoingLessonSession?.id) {
-      return ongoingLessonSession.id;
-    }
-    return createSession();
-  }, [createSession, mode, ongoingLessonSession?.id]);
-
-  const pollSessionProgress = useCallback(
-    async (sessionId: string) => {
-      const startedAt = Date.now();
-      let lastWorkerKickAt = 0;
-      setState("processing");
-      setRecoverableSessionId(sessionId);
-
-      while (Date.now() - startedAt < 300000) {
-        const now = Date.now();
-        const shouldKickWorker = now - lastWorkerKickAt >= 2500;
-        if (shouldKickWorker) {
-          lastWorkerKickAt = now;
-        }
-        const res = await fetch(`/api/sessions/${sessionId}/progress${shouldKickWorker ? "?process=1" : ""}`, {
-          cache: "no-store",
-        });
-        const body = (await res.json().catch(() => ({}))) as SessionProgressResponse & { error?: string };
-        if (!res.ok || !body?.progress) {
-          await sleep(800);
-          continue;
-        }
-
-        setSessionProgress(body.progress);
-        const openLogId = body.progress.openLogId ?? body.conversation?.id ?? null;
-        if (openLogId) {
-          setCreatedConversationId(openLogId);
-        }
-
-        if (body.progress.stage === "WAITING_COUNTERPART") {
-          setRecoverableSessionId(null);
-          setState("success");
-          setError(null);
-          setMessage(body.progress.progress.description);
-          if (mode === "LESSON_REPORT") {
-            onLessonPartChange(body.progress.waitingForPart === "CHECK_IN" ? "CHECK_IN" : "CHECK_OUT");
-          }
-          await onRefresh();
-          return openLogId;
-        }
-
-        if (body.progress.stage === "READY") {
-          setRecoverableSessionId(null);
-          setState("success");
-          setError(null);
-          setMessage(body.progress.progress.description);
-          await onRefresh();
-          return openLogId;
-        }
-
-        if (body.progress.stage === "REJECTED" || body.progress.stage === "ERROR") {
-          setState("error");
-          setError(body.progress.progress.description);
-          await onRefresh();
-          return null;
-        }
-
-        await sleep(900);
-      }
-
-      setState("success");
-      setMessage("処理を続けています。閉じても大丈夫です。ログや一覧から続きの反映を確認できます。");
-      await onRefresh();
-      return null;
-    },
-    [mode, onLessonPartChange, onRefresh]
-  );
-
-  const handleSavedPartResponse = useCallback(
-    async (body: any, sessionId: string) => {
-      setSessionProgress(null);
-      setRecoverableSessionId(sessionId);
-      setError(null);
-      if (mode === "LESSON_REPORT" && lessonPart === "CHECK_IN") {
-        setRecoverableSessionId(null);
-        setState("idle");
-        setMessage("チェックインを保存しました。チェックアウトへ進んでください。文字起こしは裏で続けます。");
-        onLessonPartChange("CHECK_OUT");
-        await onRefresh();
-        return null;
-      }
-
-      setState("processing");
-      setMessage(
-        mode === "INTERVIEW"
-          ? "文字起こし準備中です。STT worker の起動が終わりしだい、文字起こしに入ります。"
-          : "文字起こし準備中です。STT worker の起動が終わりしだい、指導報告ログの準備に入ります。"
-      );
-      await onRefresh();
-      return pollSessionProgress(sessionId);
-    },
-    [lessonPart, mode, onLessonPartChange, onRefresh, pollSessionProgress]
-  );
+  }, [finalizeLock, resetLiveCapture]);
 
   const queueLiveChunkUpload = useCallback(
     async (options?: { force?: boolean }) => {
@@ -737,7 +288,7 @@ export function StudentSessionConsole({
 
       await liveUploadQueueRef.current;
     },
-    [lessonPart, mode, studentId]
+    [lessonPart, lockTokenRef, mode, studentId]
   );
 
   const finalizeLiveRecording = useCallback(
@@ -764,7 +315,7 @@ export function StudentSessionConsole({
       await handleSavedPartResponse(body, sessionId);
       return body;
     },
-    [handleSavedPartResponse, lessonPart, mode, queueLiveChunkUpload]
+    [handleSavedPartResponse, lessonPart, lockTokenRef, mode, queueLiveChunkUpload]
   );
 
   const reset = useCallback(() => {
@@ -775,36 +326,10 @@ export function StudentSessionConsole({
     setIsPaused(false);
     setEstimatedSize("0 B");
     recordedDurationMsRef.current = 0;
-    setCreatedConversationId(null);
-    setSessionProgress(mode === "LESSON_REPORT" ? ongoingLessonSession?.pipeline ?? null : null);
-    setRecoverableSessionId(null);
+    resetSessionProgress();
     autoStartedRef.current = false;
     resetLiveCapture();
-  }, [mode, ongoingLessonSession?.pipeline, resetLiveCapture]);
-
-  const retryGeneration = useCallback(async () => {
-    const sessionId = recoverableSessionId;
-    if (!sessionId) return;
-
-    setError(null);
-    setState("processing");
-
-    try {
-      await pollSessionProgress(sessionId);
-    } catch (nextError: any) {
-      setState("error");
-      setError(nextError?.message ?? "生成の再開に失敗しました。");
-    }
-  }, [pollSessionProgress, recoverableSessionId]);
-
-  const finalizeLock = useCallback(async () => {
-    stopHeartbeat();
-    const token = lockTokenRef.current;
-    lockTokenRef.current = null;
-    if (token) {
-      await releaseLockClient(token);
-    }
-  }, [releaseLockClient, stopHeartbeat]);
+  }, [resetLiveCapture, resetSessionProgress]);
 
   const uploadAudioFile = useCallback(
     async (
@@ -840,6 +365,7 @@ export function StudentSessionConsole({
 
         if (CLIENT_AUDIO_STORAGE_MODE === "blob") {
           setMessage("音声を共有保存へ送っています。");
+          const { uploadFileToBlobFromBrowser } = await loadBlobUploadModule();
           const blob = await uploadFileToBlobFromBrowser({
             pathname: buildSessionPartUploadPathname(sessionId, uploadPartType, file.name),
             file,
@@ -898,6 +424,8 @@ export function StudentSessionConsole({
       mode,
       pendingDraft,
       resolveTargetSessionId,
+      setRecoverableSessionId,
+      setSessionProgress,
     ]
   );
 
@@ -914,7 +442,7 @@ export function StudentSessionConsole({
 
     if (lockConflict) {
       setState("error");
-      setError(`${recordingLock?.lock?.lockedByName ?? "他のユーザー"} が録音中です。終了後に開始してください。`);
+      setError(`${lockConflictName} が録音中です。終了後に開始してください。`);
       return;
     }
     if (pendingDraft) {
@@ -1125,15 +653,17 @@ export function StudentSessionConsole({
     savePendingDraftState,
     lessonPart,
     lockConflict,
+    lockConflictName,
     mode,
     pendingDraft,
-    queueLiveChunkUpload,
-    recordingLock?.lock?.lockedByName,
-    resolveTargetSessionId,
-    resetLiveCapture,
-    studentId,
-    finalizeLiveRecording,
-    uploadAudioFile,
+      queueLiveChunkUpload,
+      resolveTargetSessionId,
+      resetLiveCapture,
+      setCreatedConversationId,
+      setSessionProgress,
+      studentId,
+      finalizeLiveRecording,
+      uploadAudioFile,
   ]);
 
   useEffect(() => {
@@ -1198,7 +728,7 @@ export function StudentSessionConsole({
       }
       if (lockConflict) {
         setState("error");
-        setError(`${recordingLock?.lock?.lockedByName ?? "他のユーザー"} が録音中です。終了後に開始してください。`);
+        setError(`${lockConflictName} が録音中です。終了後に開始してください。`);
         return;
       }
       const durationSeconds = await readAudioDurationSeconds(file);
@@ -1211,7 +741,7 @@ export function StudentSessionConsole({
       setCreatedConversationId(null);
       await uploadAudioFile(file, "file_upload", durationSeconds);
     },
-    [lockConflict, mode, recordingLock?.lock?.lockedByName, uploadAudioFile]
+    [lockConflict, lockConflictName, mode, setCreatedConversationId, uploadAudioFile]
   );
 
   const retryPendingDraftUpload = useCallback(async () => {
@@ -1230,10 +760,6 @@ export function StudentSessionConsole({
       setState("idle");
     }
   }, [clearPendingDraftState, state]);
-
-  useEffect(() => {
-    void loadPendingDraftState();
-  }, [loadPendingDraftState]);
 
   const canRecord =
     !lockConflict && !pendingDraft && state !== "preparing" && state !== "uploading" && state !== "processing";
@@ -1255,45 +781,30 @@ export function StudentSessionConsole({
   const visiblePendingDraft = showPendingDraftWarning ? pendingDraft : null;
   const remainingSecondsUntilSavable = Math.max(0, MIN_SECONDS_BEFORE_SAVE_ENABLED - seconds);
   const isPreparingOrRecording = state === "preparing" || state === "recording";
-  const generationProgress =
-    state === "uploading" || state === "processing"
-      ? sessionProgress?.progress ?? {
-          title: "文字起こし準備中です",
-          description: "STT worker を起動しています。このまま閉じても大丈夫です。",
-          value: 18,
-          steps:
-            mode === "LESSON_REPORT"
-              ? [
-                  { id: "0-checkin", label: "チェックイン", status: "active" as const },
-                  { id: "1-checkout", label: "チェックアウト", status: "pending" as const },
-                  { id: "2-generate", label: "ログ生成", status: "pending" as const },
-                  { id: "3-done", label: "完了", status: "pending" as const },
-                ]
-              : [
-                  { id: "0-save", label: "保存受付", status: "complete" as const },
-                  { id: "1-stt", label: "文字起こし", status: "active" as const },
-                  { id: "2-generate", label: "ログ生成", status: "pending" as const },
-                  { id: "3-done", label: "完了", status: "pending" as const },
-                ],
-        }
-      : null;
+  const generationProgress = useMemo(
+    () =>
+      buildStudentSessionConsoleProgress({
+        mode,
+        state,
+        sessionProgress,
+      }),
+    [mode, sessionProgress, state]
+  );
   const showGenerationProgress =
     Boolean(generationProgress) &&
     !(mode === "LESSON_REPORT" && lessonPart === "CHECK_IN");
-
-  const idleHeadline =
-    mode === "INTERVIEW"
-      ? "面談を始めましょう"
-      : lessonPart === "CHECK_OUT"
-        ? "チェックアウト録音"
-        : "チェックイン録音";
-
-  const idleDescription =
-    mode === "INTERVIEW"
-      ? "録音が終わると、自動でログを整理して次回の話題まで更新します。"
-      : lessonPart === "CHECK_OUT"
-        ? "録音を保存すると、チェックインと合算して指導報告を自動生成します。"
-        : "授業前の状態を短く録音して保存します（この段階では生成しません）。";
+  const statusCopy = useMemo(
+    () =>
+      buildStudentSessionConsoleStatusCopy({
+        mode,
+        lessonPart,
+        state,
+        studentName,
+        message,
+        generationProgress,
+      }),
+    [generationProgress, lessonPart, mode, message, state, studentName]
+  );
 
   return (
     <div className={styles.console} data-recording-state={state}>
@@ -1374,183 +885,59 @@ export function StudentSessionConsole({
       ) : null}
 
       <div className={styles.surface}>
-        <div className={styles.recorderArea}>
-          <button
-            type="button"
-            className={`${styles.microphoneCircle} ${canStartFromCircle ? styles.microphoneButton : styles.microphoneButtonDisabled}`}
-            onClick={() => void startRecording()}
-            disabled={!canStartFromCircle}
-            aria-label="録音を開始する"
-            data-testid="recording-start-button"
-          >
-            <Image
-              src="/icons/mic-icon.svg"
-              alt=""
-              aria-hidden
-              width={14}
-              height={19}
-              className={styles.microphoneGlyph}
-            />
-          </button>
+        <StudentSessionConsoleRecordingSection
+          state={state}
+          currentModeLabel={isPreparingOrRecording ? modeLabel(mode, lessonPart) : null}
+          currentStudentLabel={statusCopy.currentStudentLabel}
+          statusLine={statusCopy.statusLine}
+          lessonMetaLine={
+            ongoingLessonSession?.id && mode === "LESSON_REPORT"
+              ? lessonFlowState.hasCheckIn && !lessonFlowState.hasCheckOut
+                ? lessonFlowState.hasReadyCheckIn
+                  ? "チェックイン保存済み → チェックアウト待ち"
+                  : "チェックイン受付済み → 裏で文字起こし中"
+                : "同じ授業セッションに追記されます"
+              : null
+          }
+          lessonGuide={mode === "LESSON_REPORT" ? lessonFlowMessage : null}
+          canStartFromCircle={canStartFromCircle}
+          isPaused={isPaused}
+          levels={levels}
+          seconds={seconds}
+          estimatedSize={estimatedSize}
+          canFinishRecording={canFinishRecording}
+          remainingSecondsUntilSavable={remainingSecondsUntilSavable}
+          onStartRecording={() => void startRecording()}
+          onTogglePause={togglePause}
+          onRequestCancelRecording={requestCancelRecording}
+          onStopRecording={stopRecording}
+        />
 
-          <div className={styles.recorderMeta}>
-            {isPreparingOrRecording ? <div className={styles.currentMode}>{modeLabel(mode, lessonPart)}</div> : null}
-            <div className={styles.currentStudent}>
-              {state === "recording"
-                ? `${studentName} を録音中`
-                : state === "preparing"
-                  ? `${studentName} の録音準備中`
-                : state === "uploading" || state === "processing"
-                  ? generationProgress?.title ?? "文字起こし準備中です"
-                  : idleHeadline}
-            </div>
-            <div className={styles.statusLine}>
-              {state === "recording"
-                ? mode === "LESSON_REPORT" && lessonPart === "CHECK_IN"
-                  ? "話し終えたら終了してください。音声を保存します。"
-                  : "話し終えたら終了してください。自動で保存して生成に入ります。"
-                : state === "preparing"
-                  ? message || "マイクと録音セッションを準備しています。"
-                : state === "uploading" || state === "processing"
-                  ? generationProgress?.description ?? message
-                  : message || idleDescription}
-            </div>
-            {ongoingLessonSession?.id && mode === "LESSON_REPORT" ? (
-              <div className={styles.lessonMeta}>
-                {lessonFlowState.hasCheckIn && !lessonFlowState.hasCheckOut
-                  ? lessonFlowState.hasReadyCheckIn
-                    ? "チェックイン保存済み → チェックアウト待ち"
-                    : "チェックイン受付済み → 裏で文字起こし中"
-                  : "同じ授業セッションに追記されます"}
-              </div>
-            ) : null}
-          </div>
+        <StudentSessionConsoleProgressSection
+          showGenerationProgress={showGenerationProgress}
+          progress={generationProgress}
+        />
 
-          {mode === "LESSON_REPORT" ? (
-            <div className={styles.lessonGuide}>
-              <p>{lessonFlowMessage}</p>
-            </div>
-          ) : null}
+        <StudentSessionConsoleLockSection lockConflict={Boolean(lockConflict)} lockConflictName={lockConflictName} />
 
-          {state === "recording" ? (
-            <>
-              <div className={styles.timer}>{formatTime(seconds)}</div>
-              <div className={styles.wave}>
-                {levels.map((height, index) => (
-                  <span key={`${index}-${height}`} className={styles.waveBar} style={{ height: `${height}px` }} />
-                ))}
-              </div>
-              <div className={styles.inlineActions}>
-                <Button variant="secondary" onClick={togglePause}>
-                  {isPaused ? "再開" : "一時停止"}
-                </Button>
-                <Button variant="secondary" onClick={requestCancelRecording}>
-                  キャンセル
-                </Button>
-                <Button onClick={stopRecording} disabled={!canFinishRecording} data-testid="recording-stop-button">
-                  終了
-                </Button>
-              </div>
-              <div className={styles.supportLine}>
-                現在のサイズ: {estimatedSize}
-                {!canFinishRecording ? ` / 保存できるまであと${remainingSecondsUntilSavable}秒` : ""}
-              </div>
-            </>
-          ) : state === "preparing" ? (
-            <div className={styles.processingBox}>
-              <strong>録音準備中</strong>
-              <p>{message || "マイクと録音セッションを準備しています。"}</p>
-            </div>
-          ) : (
-            <>
-              <div className={styles.inlineActions}>
-                <Button variant="secondary" onClick={() => fileInputRef.current?.click()} disabled={!canUpload}>
-                  音声ファイルを選ぶ
-                </Button>
-              </div>
-              <input
-                ref={fileInputRef}
-                hidden
-                type="file"
-                accept={AUDIO_UPLOAD_ACCEPT_ATTR}
-                onChange={(event) => {
-                  const file = event.target.files?.[0] ?? null;
-                  event.currentTarget.value = "";
-                  void handleFileSelection(file);
-                }}
-              />
-              <div className={`${styles.supportLine} ${styles.uploadFormats}`}>
-                対応拡張子: {AUDIO_UPLOAD_EXTENSIONS_LABEL}
-              </div>
-            </>
-          )}
-
-          {showGenerationProgress ? (
-            generationProgress ? <GenerationProgress progress={generationProgress} /> : null
-          ) : null}
-
-          {lockConflict ? (
-            <div className={styles.warningBox}>
-              <strong>他の担当者が録音中です</strong>
-              <p>
-                {recordingLock?.lock?.lockedByName ?? "他のユーザー"} がこの生徒で録音中です。終了後に開始してください。
-              </p>
-            </div>
-          ) : null}
-
-          {visiblePendingDraft ? (
-            <div className={styles.warningBox}>
-              <strong>未送信の録音データがあります</strong>
-              <p>
-                {new Date(visiblePendingDraft.createdAt).toLocaleString("ja-JP")} に保存した録音です。
-                {visiblePendingDraft.durationSeconds
-                  ? ` 長さは約${Math.round(visiblePendingDraft.durationSeconds)}秒、サイズは ${formatBytes(
-                      visiblePendingDraft.sizeBytes
-                    )} です。`
-                  : ` サイズは ${formatBytes(visiblePendingDraft.sizeBytes)} です。`}
-                {pendingDraftPersistence === "memory"
-                  ? " このタブ上には残っていますが、ページを閉じると消える可能性があります。先に再送するか、端末へ保存してください。"
-                  : ""}
-              </p>
-              <div className={styles.inlineActions}>
-                {pendingDraftCanUpload ? (
-                  <Button onClick={() => void retryPendingDraftUpload()}>一時保存した録音を再送</Button>
-                ) : null}
-                <Button variant="secondary" onClick={downloadPendingDraft}>
-                  端末へ保存
-                </Button>
-                <Button variant="secondary" onClick={() => setShowDiscardDraftDialog(true)}>
-                  破棄する
-                </Button>
-              </div>
-            </div>
-          ) : null}
-
-          {error ? (
-            <div className={styles.errorBox}>
-              <strong>処理に失敗しました</strong>
-              <p>{error}</p>
-              {recoverableSessionId ? (
-                <div className={styles.inlineActions}>
-                  <Button onClick={() => void retryGeneration()}>生成を再開する</Button>
-                </div>
-              ) : null}
-            </div>
-          ) : null}
-
-          {state === "success" ? (
-            <div className={styles.successBox}>
-              <strong>保存が完了しました</strong>
-              <p>{message}</p>
-              <div className={styles.inlineActions}>
-                {createdConversationId ? <Button onClick={() => onOpenLog(createdConversationId)}>ログを確認</Button> : null}
-                <Button variant="secondary" onClick={reset}>
-                  もう一度録る
-                </Button>
-              </div>
-            </div>
-          ) : null}
-        </div>
+        <StudentSessionConsoleUploadSection
+          canUpload={canUpload}
+          pendingDraft={visiblePendingDraft}
+          pendingDraftPersistence={pendingDraftPersistence}
+          pendingDraftCanUpload={pendingDraftCanUpload}
+          error={error}
+          recoverableSessionId={recoverableSessionId}
+          createdConversationId={createdConversationId}
+          message={message}
+          state={state}
+          onSelectFile={(file) => void handleFileSelection(file)}
+          onRetryPendingDraft={() => void retryPendingDraftUpload()}
+          onDownloadPendingDraft={downloadPendingDraft}
+          onDiscardPendingDraft={() => setShowDiscardDraftDialog(true)}
+          onRetryGeneration={() => void retryGeneration()}
+          onReset={reset}
+          onOpenLog={onOpenLog}
+        />
       </div>
 
       <ConfirmDialog
@@ -1581,3 +968,7 @@ export function StudentSessionConsole({
     </div>
   );
 }
+
+StudentSessionConsoleInner.displayName = "StudentSessionConsole";
+
+export const StudentSessionConsole = memo(StudentSessionConsoleInner);

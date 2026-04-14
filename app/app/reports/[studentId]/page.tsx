@@ -1,5 +1,10 @@
 import { redirect } from "next/navigation";
 
-export default function ReportBuilderRedirectPage({ params }: { params: { studentId: string } }) {
-  redirect(`/app/students/${params.studentId}?panel=report`);
+export default async function ReportBuilderRedirectPage({
+  params,
+}: {
+  params: Promise<{ studentId: string }>;
+}) {
+  const { studentId } = await params;
+  redirect(`/app/students/${studentId}?panel=report`);
 }

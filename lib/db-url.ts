@@ -6,6 +6,19 @@ function isLocalDatabaseHost(hostname: string) {
   return normalized === "localhost" || normalized === "127.0.0.1";
 }
 
+function isServerlessRuntime() {
+  return Boolean(
+    process.env.VERCEL ||
+      process.env.AWS_LAMBDA_FUNCTION_NAME ||
+      process.env.AWS_EXECUTION_ENV ||
+      process.env.K_SERVICE
+  );
+}
+
+function defaultPrismaConnectionLimit() {
+  return isServerlessRuntime() ? "1" : "5";
+}
+
 export function shouldConstrainPrismaPool(rawUrl?: string | null) {
   if (!rawUrl) return false;
   try {
@@ -33,7 +46,7 @@ export function normalizePrismaDatabaseUrl(rawUrl?: string | null) {
     }
 
     if (!url.searchParams.has("connection_limit")) {
-      url.searchParams.set("connection_limit", process.env.PRISMA_CONNECTION_LIMIT?.trim() || "1");
+      url.searchParams.set("connection_limit", process.env.PRISMA_CONNECTION_LIMIT?.trim() || defaultPrismaConnectionLimit());
     }
 
     if (!url.searchParams.has("pool_timeout")) {
@@ -44,4 +57,12 @@ export function normalizePrismaDatabaseUrl(rawUrl?: string | null) {
   } catch {
     return rawUrl;
   }
+}
+
+export function resolvePrismaDatasourceUrl() {
+  const directUrl = process.env.DIRECT_URL?.trim();
+  if (directUrl && !isServerlessRuntime()) {
+    return directUrl;
+  }
+  return normalizePrismaDatabaseUrl(process.env.DATABASE_URL);
 }

@@ -10,18 +10,25 @@
 }
 
 .summaryCard {
-  min-height: 96px;
-  padding: 18px;
-  border-radius: var(--card-radius);
+  min-height: 110px;
+  padding: 16px;
+  border-radius: 8px;
   border: 1px solid var(--border);
   background: var(--surface);
   display: grid;
-  gap: 10px;
+  gap: 8px;
   box-shadow: var(--shadow-card);
 }
 
 .summaryCard strong {
   font-size: 28px;
+  line-height: 1;
+}
+
+.summaryCard p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.6;
 }
 
 .summaryLabel,
@@ -29,7 +36,8 @@
 .footerLabel {
   color: var(--muted);
   font-size: 12px;
-  font-weight: 700;
+  font-weight: 800;
+  letter-spacing: 0.02em;
 }
 
 .filterRow {
@@ -38,20 +46,123 @@
   flex-wrap: wrap;
 }
 
-.filterChip {
-  min-height: 35px;
-  padding: 0 14px;
-  border-radius: 999px;
+.listSummary {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  padding: 14px 16px;
+  border-radius: 8px;
   border: 1px solid var(--border);
   background: var(--surface-3);
+}
+
+.listSummaryLabel,
+.listSummaryMeta {
+  color: var(--muted);
+  font-size: 12px;
   font-weight: 700;
+}
+
+.listSummary strong {
+  font-size: 16px;
+}
+
+.pager {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.pagerMeta {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.pagerActions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.pagerPage {
+  min-height: 36px;
+  padding: 0 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  display: inline-flex;
+  align-items: center;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 800;
+  background: var(--surface-3);
+}
+
+.pagerLink,
+.pagerLinkDisabled {
+  min-height: 36px;
+  padding: 0 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  display: inline-flex;
+  align-items: center;
+  font-weight: 700;
+}
+
+.pagerLink {
+  text-decoration: none;
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.pagerLinkDisabled {
+  color: var(--muted);
+  background: var(--surface-3);
+}
+
+.filterChip,
+.filterChipActive,
+.stateLink {
+  min-height: 36px;
+  padding: 0 14px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  font-weight: 700;
+  text-decoration: none;
   cursor: pointer;
+}
+
+.filterChip {
+  background: var(--surface-3);
+  color: var(--text);
 }
 
 .filterChipActive {
   background: var(--accent);
   border-color: rgba(219, 255, 75, 0.3);
   color: var(--accent-contrast);
+}
+
+.stateLink {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface-3);
+  color: var(--text);
+}
+
+.retryButton {
+  min-height: 36px;
+  padding: 0 14px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface-3);
+  color: var(--text);
+  font-weight: 700;
 }
 
 .grid {
@@ -64,9 +175,10 @@
   display: grid;
   gap: 14px;
   padding: 18px;
-  border-radius: var(--card-radius);
+  border-radius: 8px;
   border: 1px solid var(--border);
   background: var(--surface-2);
+  text-decoration: none;
   transition: border-color 0.16s ease, transform 0.16s ease, background 0.16s ease;
 }
 
@@ -80,16 +192,37 @@
   display: flex;
   justify-content: space-between;
   gap: 12px;
+  align-items: flex-start;
+}
+
+.identity {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.badgeRow {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: flex-start;
 }
 
 .name {
   font-size: 16px;
-  font-weight: 700;
+  font-weight: 800;
 }
 
 .meta,
 .oneLiner {
   color: var(--muted);
+}
+
+.meta {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
 }
 
 .oneLiner {
@@ -99,38 +232,21 @@
 
 .metricGrid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
 }
 
 .metricItem {
   padding: 12px;
-  border-radius: var(--card-radius);
+  border-radius: 8px;
   border: 1px solid var(--border);
   background: var(--surface-3);
   display: grid;
   gap: 6px;
 }
 
-.traceBox {
-  padding: 12px;
-  border-radius: var(--card-radius);
-  border: 1px solid var(--border);
-  background: linear-gradient(180deg, rgba(22, 22, 22, 0.92), rgba(20, 20, 20, 0.82));
-  display: grid;
-  gap: 8px;
-}
-
-.traceSummary {
-  margin: 0;
-  font-weight: 700;
-}
-
-.traceMeta {
-  margin: 0;
-  color: var(--muted);
-  font-size: 12px;
-  line-height: 1.6;
+.metricItem strong {
+  min-width: 0;
   overflow-wrap: anywhere;
 }
 
@@ -142,7 +258,7 @@
 
 .empty {
   min-height: 220px;
-  border-radius: var(--card-radius);
+  border-radius: 8px;
   border: 1px dashed var(--border-strong);
   background: var(--surface-2);
   display: grid;
@@ -163,6 +279,7 @@
 @media (max-width: 720px) {
   .filterRow,
   .cardHeader,
+  .pager,
   .footer {
     flex-direction: column;
     align-items: flex-start;
@@ -181,5 +298,14 @@
   .footer :global(a),
   .footer :global(button) {
     width: 100%;
+  }
+
+  .pagerActions {
+    width: 100%;
+  }
+
+  .pagerActions > * {
+    flex: 1 1 0;
+    justify-content: center;
   }
 }

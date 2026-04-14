@@ -106,7 +106,9 @@ async function waitForRunpodStop(envFile: string) {
     const startedAt = Date.now();
     while (Date.now() - startedAt < 180_000) {
       const pods = await getManagedRunpodPods().catch(() => []);
-      const active = pods.filter((pod) => !["EXITED", "TERMINATED"].includes(String(pod.desiredStatus || "")));
+      const active = pods.filter(
+        (pod: { desiredStatus?: string | null }) => !["EXITED", "TERMINATED"].includes(String(pod.desiredStatus || ""))
+      );
       if (active.length === 0) {
         return true;
       }

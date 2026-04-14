@@ -1,7 +1,9 @@
+import { revalidatePath, revalidateTag } from "next/cache";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { requireAuthorizedSession } from "@/lib/server/request-auth";
 import { listStudentRows } from "@/lib/students/list-student-rows";
+import { mapStudentDirectoryRows } from "@/lib/students/student-directory-view";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -38,10 +40,11 @@ export async function GET(request: Request) {
       organizationId,
       limit: limit && Number.isFinite(limit) ? Math.floor(limit) : undefined,
       includeRecordingLock,
+      projection: "directory",
     });
 
     return NextResponse.json(
-      { students: studentsOut },
+      { students: mapStudentDirectoryRows(studentsOut) },
       {
         headers: {
           "Cache-Control": "no-store, max-age=0",
@@ -86,6 +89,13 @@ export async function POST(request: Request) {
         guardianNames: normalizeGuardianNames(guardianNames),
       },
     });
+
+    revalidateTag(`student-directory:${authResult.session.user.organizationId}`, "max");
+    revalidateTag(`dashboard-snapshot:${authResult.session.user.organizationId}`, "max");
+    revalidatePath("/app/students");
+    revalidatePath("/app/dashboard");
+    revalidatePath("/app/reports");
+    revalidatePath("/app/settings");
 
     return NextResponse.json({ student }, { status: 201 });
   } catch (e: any) {

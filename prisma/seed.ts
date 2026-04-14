@@ -10,7 +10,7 @@ import {
   SessionType,
   UserRole,
 } from "@prisma/client";
-import bcrypt from "bcryptjs";
+import { hash } from "@node-rs/bcrypt";
 import { DEFAULT_ORGANIZATION_ID, DEFAULT_ORGANIZATION_NAME } from "../lib/constants";
 
 const prisma = new PrismaClient();
@@ -31,7 +31,7 @@ function plusDays(dateString: string, days: number) {
 
 async function upsertUsers() {
   for (const user of USERS) {
-    const passwordHash = await bcrypt.hash(user.password, SALT_ROUNDS);
+    const passwordHash = await hash(user.password, SALT_ROUNDS);
     await prisma.user.upsert({
       where: { email: user.email },
       update: {

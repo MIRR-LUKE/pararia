@@ -1,3 +1,4 @@
+import { revalidatePath, revalidateTag } from "next/cache";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { ConversationSourceType, ConversationStatus } from "@prisma/client";
@@ -6,8 +7,10 @@ import { enqueueConversationJobs, processAllConversationJobs } from "@/lib/jobs/
 import { shouldRunBackgroundJobsInline } from "@/lib/jobs/execution-mode";
 import { requireAuthorizedSession } from "@/lib/server/request-auth";
 import { renderConversationArtifactOrFallback } from "@/lib/conversation-artifact";
+import { getLogListCacheTag } from "@/lib/logs/get-log-list-page-data";
 import { getTranscriptExpiryDate } from "@/lib/system-config";
 import { ensureConversationReviewedTranscript } from "@/lib/transcript/review";
+import { withActiveStudentWhere } from "@/lib/students/student-lifecycle";
 import { sanitizeSummaryMarkdown } from "@/lib/user-facing-japanese";
 import { maybeStopRunpodWorkerWhenSessionPartQueueIdle } from "@/lib/runpod/idle-stop";
 import { maybeEnsureRunpodWorker } from "@/lib/runpod/worker-control";
@@ -35,6 +38,7 @@ export async function GET(request: Request) {
         where: {
           organizationId,
           studentId,
+          student: { archivedAt: null },
           ...(sessionTypeFilter ? { session: { type: sessionTypeFilter } } : {}),
         },
         orderBy: { createdAt: "desc" },
@@ -80,6 +84,7 @@ export async function GET(request: Request) {
     const conversations = await prisma.conversationLog.findMany({
       where: {
         organizationId,
+        student: { archivedAt: null },
         ...(sessionTypeFilter ? { session: { type: sessionTypeFilter } } : {}),
       },
       orderBy: { createdAt: "desc" },
@@ -145,11 +150,11 @@ export async function POST(request: Request) {
       );
     }
 
-    const student = await prisma.student.findUnique({
-      where: { id: studentId },
+    const student = await prisma.student.findFirst({
+      where: withActiveStudentWhere({ id: studentId, organizationId }),
       select: { id: true, organizationId: true },
     });
-    if (!student || student.organizationId !== organizationId) {
+    if (!student) {
       return NextResponse.json({ error: "student not found" }, { status: 404 });
     }
 
@@ -188,6 +193,14 @@ export async function POST(request: Request) {
         console.error("[POST /api/conversations] Runpod wake failed:", error);
       });
     }
+
+    revalidateTag(`student-directory:${organizationId}`, "max");
+    revalidateTag(`dashboard-snapshot:${organizationId}`, "max");
+    revalidateTag(getLogListCacheTag(organizationId), "max");
+    revalidatePath("/app/dashboard");
+    revalidatePath("/app/students");
+    revalidatePath("/app/logs");
+    revalidatePath(`/app/students/${studentId}`);
 
     return NextResponse.json({ conversation }, { status: 201 });
   } catch (error: any) {

@@ -214,3 +214,8 @@ export function formatSessionDateLabel(value?: string | Date | null) {
   if (Number.isNaN(date.getTime())) return "";
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
+
+export function formatDurationLabel(minutes?: number | null) {
+  if (typeof minutes !== "number" || !Number.isFinite(minutes) || minutes <= 0) return "未記録";
+  return `${Math.max(1, Math.round(minutes))}分`;
+}

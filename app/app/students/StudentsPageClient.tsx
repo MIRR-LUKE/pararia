@@ -1,133 +1,34 @@
 "use client";
 
-import { useDeferredValue, useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useCallback, useDeferredValue, useEffect, useMemo, useState } from "react";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
-import { buildReportDeliverySummary } from "@/lib/report-delivery";
+import { IntentLink } from "@/components/ui/IntentLink";
+import { MetricList } from "@/components/ui/MetricList";
+import { StatePanel } from "@/components/ui/StatePanel";
+import type { StudentDirectoryViewRow } from "@/lib/students/student-directory-view";
 import styles from "./students.module.css";
-
-type SessionSummary = {
-  id: string;
-  status: string;
-  type: "INTERVIEW" | "LESSON_REPORT";
-  sessionDate: string;
-  heroStateLabel?: string | null;
-  heroOneLiner?: string | null;
-  latestSummary?: string | null;
-  conversation?: { id: string } | null;
-};
-
-type ReportSummary = {
-  id: string;
-  status: "DRAFT" | "REVIEWED" | "SENT" | string;
-  createdAt: string;
-  reviewedAt?: string | null;
-  sentAt?: string | null;
-  deliveryChannel?: string | null;
-  sourceLogIds?: string[] | null;
-  deliveryEvents?: Array<{
-    id?: string;
-    eventType: string;
-    createdAt: string;
-    deliveryChannel?: string | null;
-  }>;
-};
-
-type StudentRow = {
-  id: string;
-  name: string;
-  nameKana?: string | null;
-  grade?: string | null;
-  course?: string | null;
-  guardianNames?: string | null;
-  profileCompleteness: number;
-  sessions?: SessionSummary[];
-  reports?: ReportSummary[];
-  _count?: { sessions: number; reports: number };
-};
 
 type ViewKey = "all" | "interview" | "report" | "review" | "share" | "sent";
 
 type StudentsPageClientProps = {
-  initialStudents: StudentRow[];
+  initialStudents: StudentDirectoryViewRow[];
+  initialLimit: number;
+  viewerName?: string | null;
+  viewerRole?: string | null;
 };
 
-function summarize(student: StudentRow) {
-  const latestSession = student.sessions?.[0];
-  const latestReport = student.reports?.[0] ?? null;
-  const latestReportSummary = latestReport ? buildReportDeliverySummary(latestReport) : null;
-
-  if (!latestSession) {
-    return {
-      state: "未開始",
-      oneLiner: "まだ会話データがありません。最初の面談から始められる状態です。",
-      nextAction: "最初の面談を始める",
-      view: "interview" as const,
-    };
-  }
-
-  if (latestSession.conversation?.id && !latestReport) {
-    return {
-      state: latestSession.heroStateLabel ?? "レポート作成待ち",
-      oneLiner: latestSession.heroOneLiner ?? latestSession.latestSummary ?? "ログは生成済みです。必要なログを選んで保護者レポートを作れます。",
-      nextAction: "ログを選んでレポートを作る",
-      view: "report" as const,
-    };
-  }
-
-  if (latestReportSummary?.deliveryState === "draft") {
-    return {
-      state: latestReportSummary.deliveryStateLabel,
-      oneLiner: latestSession.heroOneLiner ?? latestSession.latestSummary ?? "保護者レポートの確認と共有がまだ残っています。",
-      nextAction: "レポートを開く",
-      view: "review" as const,
-    };
-  }
-
-  if (latestReportSummary?.deliveryState === "reviewed") {
-    return {
-      state: latestReportSummary.deliveryStateLabel,
-      oneLiner: latestSession.heroOneLiner ?? latestSession.latestSummary ?? "保護者レポートは共有待ちです。",
-      nextAction: "共有を完了する",
-      view: "share" as const,
-    };
-  }
-
-  if (latestReportSummary && ["failed", "bounced"].includes(latestReportSummary.deliveryState)) {
-    return {
-      state: latestReportSummary.deliveryStateLabel,
-      oneLiner: latestSession.heroOneLiner ?? latestSession.latestSummary ?? "保護者共有に失敗しています。再送が必要です。",
-      nextAction: "再送を確認",
-      view: "share" as const,
-    };
-  }
-
-  if (latestReportSummary && ["sent", "delivered", "resent", "manual_shared"].includes(latestReportSummary.deliveryState)) {
-    return {
-      state: latestReportSummary.deliveryStateLabel,
-      oneLiner: latestSession.heroOneLiner ?? latestSession.latestSummary ?? "保護者共有は完了しています。",
-      nextAction: "生徒詳細を開く",
-      view: "sent" as const,
-    };
-  }
-
-  return {
-    state: latestSession.heroStateLabel ?? "更新済み",
-    oneLiner:
-      latestSession.heroOneLiner ?? latestSession.latestSummary ?? "次の会話に向けた材料が揃っています。",
-    nextAction: "生徒詳細を開く",
-    view: "all" as const,
-  };
-}
-
-export default function StudentsPageClient({ initialStudents }: StudentsPageClientProps) {
-  const router = useRouter();
-  const [students, setStudents] = useState<StudentRow[]>(initialStudents);
-  const [loading, setLoading] = useState(false);
+export default function StudentsPageClient({
+  initialStudents,
+  initialLimit,
+  viewerName,
+  viewerRole,
+}: StudentsPageClientProps) {
+  const [students, setStudents] = useState<StudentDirectoryViewRow[]>(initialStudents);
+  const [loading, setLoading] = useState(initialStudents.length === 0);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const deferredQuery = useDeferredValue(query);
@@ -140,19 +41,14 @@ export default function StudentsPageClient({ initialStudents }: StudentsPageClie
     course: "",
     guardianNames: "",
   });
-  const [studentToDelete, setStudentToDelete] = useState<StudentRow | null>(null);
+  const [studentToDelete, setStudentToDelete] = useState<StudentDirectoryViewRow | null>(null);
   const [isDeletingStudent, setIsDeletingStudent] = useState(false);
 
-  useEffect(() => {
-    setStudents(initialStudents);
-    setLoading(false);
-  }, [initialStudents]);
-
-  const refresh = async () => {
+  const refresh = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch("/api/students", { cache: "no-store" });
+      const res = await fetch(`/api/students?limit=${initialLimit}`, { cache: "no-store" });
       const body = await res.json();
       if (!res.ok) throw new Error(body?.error ?? "生徒一覧の取得に失敗しました。");
       setStudents(body.students ?? []);
@@ -161,21 +57,19 @@ export default function StudentsPageClient({ initialStudents }: StudentsPageClie
     } finally {
       setLoading(false);
     }
-  };
+  }, [initialLimit]);
 
-  const rows = useMemo(() => {
-    return students.map((student) => {
-      const summary = summarize(student);
-      return {
-        ...student,
-        state: summary.state,
-        oneLiner: summary.oneLiner,
-        nextAction: summary.nextAction,
-        href: `/app/students/${student.id}`,
-        viewKey: summary.view,
-      };
-    });
-  }, [students]);
+  useEffect(() => {
+    setStudents(initialStudents);
+    if (initialStudents.length > 0) {
+      setLoading(false);
+      return;
+    }
+    void refresh();
+  }, [initialStudents, refresh]);
+
+  const rows = useMemo(() => students, [students]);
+  const canShowCreateAction = !showCreate;
 
   const filtered = useMemo(() => {
     const lowered = deferredQuery.trim().toLowerCase();
@@ -217,7 +111,7 @@ export default function StudentsPageClient({ initialStudents }: StudentsPageClie
     await refresh();
   };
 
-  const deleteStudent = async () => {
+  const archiveStudent = async () => {
     if (!studentToDelete) return;
 
     setIsDeletingStudent(true);
@@ -227,13 +121,13 @@ export default function StudentsPageClient({ initialStudents }: StudentsPageClie
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
-        throw new Error(body?.error ?? "生徒の削除に失敗しました。");
+        throw new Error(body?.error ?? "生徒のアーカイブに失敗しました。");
       }
 
       setStudentToDelete(null);
       await refresh();
     } catch (nextError: any) {
-      alert(nextError?.message ?? "生徒の削除に失敗しました。");
+      alert(nextError?.message ?? "生徒のアーカイブに失敗しました。");
     } finally {
       setIsDeletingStudent(false);
     }
@@ -244,6 +138,8 @@ export default function StudentsPageClient({ initialStudents }: StudentsPageClie
       <AppHeader
         title="生徒一覧"
         subtitle="生徒を選んで詳細に入り、録音や確認は生徒ページの中で進めます。"
+        viewerName={viewerName}
+        viewerRole={viewerRole}
         actions={
           <Button variant="secondary" onClick={() => setShowCreate((prev) => !prev)}>
             生徒を追加
@@ -318,17 +214,41 @@ export default function StudentsPageClient({ initialStudents }: StudentsPageClie
       )}
 
       <Card title="生徒ディレクトリ" subtitle="一覧では状態だけを見て、操作は生徒詳細ページの中で落ち着いて進めます。">
-        {error && <div className={styles.error}>{error}</div>}
-        {loading ? (
-          <div className={styles.empty}>読み込み中です。</div>
+        {error ? (
+          <StatePanel
+            kind="error"
+            compact
+            title="生徒一覧を更新できませんでした"
+            subtitle={error}
+            action={
+              <Button variant="secondary" onClick={() => void refresh()}>
+                もう一度読む
+              </Button>
+            }
+          />
+        ) : loading ? (
+          <StatePanel
+            kind="processing"
+            compact
+            title="生徒一覧を更新しています"
+            subtitle="必要な生徒だけを先に並べ直しています。"
+          />
         ) : filtered.length === 0 ? (
-          <div className={styles.emptyState}>
-            <strong>条件に合う生徒がいません</strong>
-            <p>検索条件を変えるか、新しい生徒を追加してください。</p>
-          </div>
+          <StatePanel
+            kind="empty"
+            title="条件に合う生徒がいません"
+            subtitle="検索条件を変えるか、新しい生徒を追加してください。"
+            action={
+              canShowCreateAction ? (
+                <Button variant="secondary" onClick={() => setShowCreate(true)}>
+                  生徒を追加
+                </Button>
+              ) : null
+            }
+          />
         ) : (
           <div className={styles.list}>
-            {filtered.map((student) => (
+            {filtered.map((student, index) => (
               <article key={student.id} className={styles.row}>
                 <div className={styles.rowContent}>
                   <div className={styles.rowIdentity}>
@@ -341,37 +261,35 @@ export default function StudentsPageClient({ initialStudents }: StudentsPageClie
                   </div>
 
                   <div className={styles.rowMetaColumn}>
-                    <div>
-                      <div className={styles.metaLabel}>次にやること</div>
-                      <div className={styles.metaValue}>{student.nextAction}</div>
-                    </div>
-                    <div>
-                      <div className={styles.metaLabel}>プロフィール</div>
-                      <div className={styles.metaValue}>{student.profileCompleteness}%</div>
-                    </div>
+                    <MetricList
+                      items={[
+                        { label: "次にやること", value: student.nextAction },
+                        { label: "プロフィール", value: `${student.profileCompleteness}%` },
+                      ]}
+                    />
                   </div>
 
                   <div className={styles.rowMetaColumn}>
-                    <div>
-                      <div className={styles.metaLabel}>セッション</div>
-                      <div className={styles.metaValue}>{student._count?.sessions ?? 0} 件</div>
-                    </div>
-                    <div>
-                      <div className={styles.metaLabel}>レポート</div>
-                      <div className={styles.metaValue}>{student._count?.reports ?? 0} 件</div>
-                    </div>
+                    <MetricList
+                      items={[
+                        { label: "セッション", value: `${student.sessionCount} 件` },
+                        { label: "レポート", value: `${student.reportCount} 件` },
+                      ]}
+                    />
                   </div>
                 </div>
 
                 <div className={styles.rowAction}>
-                  <Button onClick={() => router.push(student.href)}>生徒詳細へ</Button>
+                  <IntentLink href={student.href} prefetchMode={index < 4 ? "mount" : "intent"}>
+                    <Button>生徒詳細へ</Button>
+                  </IntentLink>
                   <Button
                     variant="ghost"
                     size="small"
                     className={styles.deleteButton}
                     onClick={() => setStudentToDelete(student)}
                   >
-                    削除
+                    アーカイブ
                   </Button>
                 </div>
               </article>
@@ -382,17 +300,17 @@ export default function StudentsPageClient({ initialStudents }: StudentsPageClie
 
       <ConfirmDialog
         open={Boolean(studentToDelete)}
-        title={studentToDelete ? `${studentToDelete.name} を削除しますか？` : ""}
-        description="生徒本体に加えて、関連する面談ログ・指導報告ログ・保護者レポートもまとめて削除します。"
+        title={studentToDelete ? `${studentToDelete.name} をアーカイブしますか？` : ""}
+        description="一覧からは外れますが、関連する面談ログ・指導報告ログ・保護者レポートは保持され、管理者が復旧できます。"
         details={[
-          "この操作は取り消せません。",
-          "削除後は生徒一覧と関連ログ一覧から即時に消えます。",
+          "runtime 音声と DB データは保持されます。",
+          "一覧・ダッシュボード・通常の導線からは即時に外れます。",
         ]}
-        confirmLabel="削除する"
+        confirmLabel="アーカイブする"
         cancelLabel="戻る"
         tone="danger"
         pending={isDeletingStudent}
-        onConfirm={() => void deleteStudent()}
+        onConfirm={() => void archiveStudent()}
         onCancel={() => {
           if (isDeletingStudent) return;
           setStudentToDelete(null);

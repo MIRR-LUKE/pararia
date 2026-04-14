@@ -1,7 +1,6 @@
 "use client";
 
 import { FormEvent, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
 import { signIn } from "next-auth/react";
 import { Button } from "@/components/ui/Button";
 import styles from "@/app/login/login.module.css";
@@ -11,7 +10,6 @@ type Props = {
 };
 
 export function InviteAcceptForm({ token }: Props) {
-  const router = useRouter();
   const [name, setName] = useState("");
   const [password, setPassword] = useState("");
   const [password2, setPassword2] = useState("");
@@ -48,11 +46,10 @@ export function InviteAcceptForm({ token }: Props) {
         callbackUrl: "/app/dashboard",
       });
       if (sign?.error) {
-        router.push(`/login?callbackUrl=${encodeURIComponent("/app/dashboard")}`);
+        window.location.assign(`/login?callbackUrl=${encodeURIComponent("/app/dashboard")}`);
         return;
       }
-      router.push(sign?.url || "/app/dashboard");
-      router.refresh();
+      window.location.assign(sign?.url || "/app/dashboard");
     } catch {
       setError("通信に失敗しました。");
     } finally {

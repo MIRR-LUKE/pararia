@@ -2,9 +2,9 @@
 
 ## 状態
 
-- 未着手
+- 実装済み
 - GitHub Issue: `#42`
-- 最終更新: `2026-03-27`
+- 最終更新: `2026-04-13`
 
 ## 何のための画面か
 
@@ -19,6 +19,18 @@
 - エラー
 - 再実行できる
 - 一時的に途中で止まっている
+
+## いま入っているもの
+
+- Student Detail は loading / error / empty を明示し、再読込導線も出している
+- 録音まわりは `生成中 / 再送 / 再開` の導線が画面内にある
+- Reports / Students / Settings にも最低限の empty / loading 表示は入っている
+
+## 今回そろえたもの
+
+- Reports 画面の empty / loading / error / processing を同じ語彙と UI で出すようにした
+- `PageLoadingState` に `aria-busy` と `role=status` を付けて、読み込み状態の意味を揃えた
+- transcript review / report dashboard / Student Detail で「次に押す導線」を残す形に寄せた
 
 ## 大事なこと
 

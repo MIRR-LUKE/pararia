@@ -1,6 +1,6 @@
 # 直近で切る Issue 一覧
 
-更新日: 2026-03-27
+更新日: 2026-04-13
 
 今回の前提:
 
@@ -103,47 +103,64 @@
 - `#18` と `#22` と `#29` は、artifact 先行生成に合わせて本文も更新した
 - `#32` は `test:conversation-draft-quality` と CI 実行内容まで最新化した
 
-次に切る UI Issue:
+今回完了した追加 issue:
 
-1. [21-transcript-review-screen.md](./21-transcript-review-screen.md)
-2. [22-log-review-screen.md](./22-log-review-screen.md)
-3. [23-student-detail-review-guidance.md](./23-student-detail-review-guidance.md)
-4. [24-dashboard-review-queue.md](./24-dashboard-review-queue.md)
-5. [25-report-generation-reliability-display.md](./25-report-generation-reliability-display.md)
-6. [26-glossary-management-screen.md](./26-glossary-management-screen.md)
-7. [27-delivery-operations-screen.md](./27-delivery-operations-screen.md)
-8. [28-log-and-report-list-clarity.md](./28-log-and-report-list-clarity.md)
-9. [29-unify-empty-loading-error-states.md](./29-unify-empty-loading-error-states.md)
+1. `#34` UI: 文字起こし確認画面を作る
+2. `#35` UI: ログ確認画面を、信頼できるか判断できる画面に作り直す
+3. `#36` UI: 生徒詳細に「要確認」の導線を足す
+4. `#41` UI: ログ一覧とレポート一覧を、もっと見やすく整理する
+5. `#42` UI: エラー・空状態・生成中状態の表示を全部そろえる
+6. `#44` Student Detail を server-first / no double fetch で速くする
+7. `#45` コード形状ガードと分割ルールを repo に定着させる
+8. `#3` 共有状態と送信履歴を Student Room で追えるようにする
 
-対応する GitHub Issue:
+次の active open issue:
 
-- `#34` UI: 文字起こし確認画面を作る
-- `#35` UI: ログ確認画面を、信頼できるか判断できる画面に作り直す
-- `#36` UI: 生徒詳細に「要確認」の導線を足す
-- `#37` UI: ダッシュボードに「文字起こし確認待ち」を入れる
-- `#38` UI: 保護者レポート生成画面に、ログの信頼性が見える表示を足す
-- `#39` UI: 辞書管理画面を作る
-- `#40` UI: 共有・送付まわりの運用画面を作る
-- `#41` UI: ログ一覧とレポート一覧を、もっと見やすく整理する
-- `#42` UI: エラー・空状態・生成中状態の表示を全部そろえる
+- なし
 
-UI の優先順:
+今回追加した issue docs:
 
-1. 文字起こし確認画面
-2. ログ確認画面の強化
-3. 生徒詳細の要確認導線
-4. ダッシュボードの要確認キュー
-5. 保護者レポート生成画面の信頼性表示
-6. 辞書管理画面
-7. 共有・送付の運用画面
-8. 一覧画面の見やすさ改善
-9. 空状態・エラー状態の統一
+1. [37-student-detail-summary-first-lazy-sections.md](./37-student-detail-summary-first-lazy-sections.md)
+2. [38-reports-summary-first-pagination-trace-defer.md](./38-reports-summary-first-pagination-trace-defer.md)
+3. [39-upgrade-next-to-active-lts.md](./39-upgrade-next-to-active-lts.md)
+4. [40-rum-and-tighter-budgets.md](./40-rum-and-tighter-budgets.md)
+
+今回完了した追加 issue:
+
+1. `#46` Dashboard / Students 一覧の projection query を分けて初回表示を軽くする
+2. `#47` StudentSessionConsole を recording / lock / progress hooks に分割する
+3. `#48` StudentDetailPageClient を URL sync / overlay / selection hooks に分割する
+4. `#49` conversationJobs を orchestration / repository / side effects に分割する
+5. `#50` sessionPartJobs を stage handler ごとに分割する
+6. `#51` conversation generate pipeline を prompt / normalize / render に分割する
+7. `#52` session-progress を状態遷移表と文言レジストリに置き換える
+8. `#53` STT runtime を worker pool / chunking policy / IO で分割する
+9. `#54` app/api/sessions/[id]/parts を ingest / validation / job dispatch に分割する
+10. `#55` Students / Dashboard / Logs / Reports の一覧・状態 UI を共通 primitive 化する
+11. `#56` route performance budget と計測 harness を Dashboard / Students / Logs / Reports に広げる
+12. `#59` LogView / ReportStudio を section + action hook に分割する
+13. `#57` StudentSessionConsole を recording / upload / lock / progress sections に再分割する
+14. `#58` conversation-artifact を schema / render / trace helpers に分割する
+15. `#60` parent report / next meeting memo 生成基盤を shared helper に寄せて重複を減らす
+16. `#64` RUM と tighter budget を入れて世界水準の UX を field で監視する: 実装済み
+17. `#61` Student Detail を summary-first + lazy sections にして重い client 導線を分離する: 実装済み
+18. `#62` Reports 一覧を summary-first / pagination / source trace defer で軽くする: 実装済み
+19. `#63` Next.js を Active LTS に上げて App Router の最新 perf 基盤に乗せる: 実装済み
+
+active に残す基準:
+
+- 現行の主導線を直接よくする
+- 既にある backend / data の価値を UI で回収する
+- 速度か保守性の debt を実際に減らす
+
+close / defer に回した考え方:
+
+- 大きすぎる umbrella issue は、具体 issue に分けられた時点で閉じる
+- Campus / LINE / digest のような拡張候補は active open に置かない
+- 今すぐ触らない運用 / 管理機能は、必要になるまで reopen 前提で閉じる
 
 補足:
 
-- このディレクトリの Markdown は、GitHub Issue の本文更新にも使う
-- 今回の 5 本は「まず backend を固める」ための issue で、完成 UI はスコープ外
-- glossary 管理画面や Student Room の最終 UI は今回の issue には含めない
-- 今回の 9 本で transcript / review / grounded generation / CI のズレをまとめて埋めた
-
-このディレクトリの Markdown は、GitHub Issue の本文更新にも使えるように、実装状況と確認内容まで含めて整理しています。
+- このディレクトリの Markdown は GitHub Issue の本文更新にも使う
+- `#38` と `#40` は `2026-04-13` 時点で main に反映済み
+- `#13` は backlog 整理の役割を終えたため close 済み

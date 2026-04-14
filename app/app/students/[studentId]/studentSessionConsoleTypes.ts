@@ -1,0 +1,23 @@
+import type { SessionPipelineInfo } from "./roomTypes";
+
+export type SessionConsoleMode = "INTERVIEW" | "LESSON_REPORT";
+export type SessionConsoleLessonPart = "CHECK_IN" | "CHECK_OUT";
+export type ConsoleState = "idle" | "preparing" | "recording" | "uploading" | "processing" | "success" | "error";
+export type UploadSource = "file_upload" | "direct_recording";
+export type StopIntent = "save" | "cancel";
+
+export type PendingRecordingDraft = {
+  key: string;
+  file: File;
+  createdAt: string;
+  durationSeconds: number | null;
+  sizeBytes: number;
+};
+
+export type SessionProgressResponse = {
+  conversation?: {
+    id: string;
+    status: string;
+  } | null;
+  progress: SessionPipelineInfo;
+};

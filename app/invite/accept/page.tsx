@@ -16,14 +16,15 @@ function AcceptInner({ searchParams }: { searchParams: { token?: string } }) {
   return <InviteAcceptForm token={token} />;
 }
 
-export default function InviteAcceptPage({
+export default async function InviteAcceptPage({
   searchParams,
 }: {
-  searchParams: { token?: string };
+  searchParams: Promise<{ token?: string }>;
 }) {
+  const resolvedSearchParams = await searchParams;
   return (
     <Suspense>
-      <AcceptInner searchParams={searchParams} />
+      <AcceptInner searchParams={resolvedSearchParams} />
     </Suspense>
   );
 }

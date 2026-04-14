@@ -1,0 +1,31 @@
+.stackList,
+.splitList {
+  display: grid;
+  gap: 12px;
+}
+
+.stackItem,
+.splitItem {
+  min-width: 0;
+}
+
+.splitItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.label {
+  color: #5f6c82;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+.value {
+  color: #101828;
+  font-size: 15px;
+  line-height: 1.5;
+  font-weight: 600;
+}

@@ -5,6 +5,15 @@ import {
   type BundleQualityEval,
 } from "@/lib/operational-log";
 import { parseConversationArtifact, renderConversationArtifactOrFallback } from "@/lib/conversation-artifact";
+import {
+  addLlmTokenUsage,
+  emptyLlmTokenUsage,
+  generateJsonObject,
+  normalizeGeneratedText,
+  renderMarkdownDocument,
+  readGeneratedJson,
+  type LlmTokenUsage,
+} from "@/lib/ai/structured-generation";
 
 const REPORT_MODEL =
   process.env.LLM_MODEL_REPORT ||
@@ -44,13 +53,7 @@ export type ParentReportResult = {
   generationMeta: ParentReportGenerationMeta;
 };
 
-export type ParentReportTokenUsage = {
-  inputTokens: number;
-  cachedInputTokens: number;
-  outputTokens: number;
-  totalTokens: number;
-  reasoningTokens: number;
-};
+export type ParentReportTokenUsage = LlmTokenUsage;
 
 export type ParentReportGenerationMeta = {
   model: string;
@@ -68,29 +71,6 @@ const DEFAULT_REPORT_SECTIONS = [
   { title: "次回までの方針", body: "今回整理した確認事項と次の行動をもとに、学習の進め方を具体化していきます。" },
   { title: "ご家庭で見てほしいこと", body: "課題を終えたかどうかだけでなく、やり直しや定着確認まで進められたかを一言確認いただけると効果的です。" },
 ] as const;
-
-function getApiKey() {
-  const apiKey = process.env.LLM_API_KEY || process.env.OPENAI_API_KEY || "";
-  if (!apiKey) {
-    throw new Error("LLM_API_KEY or OPENAI_API_KEY is required.");
-  }
-  return apiKey;
-}
-
-function tryParseJson<T>(text: string): T | null {
-  try {
-    return JSON.parse(text) as T;
-  } catch {
-    return null;
-  }
-}
-
-function extractJsonCandidate(text: string) {
-  const start = text.indexOf("{");
-  const end = text.lastIndexOf("}");
-  if (start === -1 || end === -1 || end <= start) return null;
-  return text.slice(start, end + 1);
-}
 
 function containsSentenceLikeEnglish(text: string) {
   const normalized = String(text ?? "").replace(/\s+/g, " ").trim();
@@ -121,47 +101,11 @@ function isJapanesePrimaryText(text: string) {
 }
 
 function sanitizeReportText(text: unknown, maxLength: number) {
-  const normalized = String(text ?? "").replace(/\s+/g, " ").trim();
+  const normalized = normalizeGeneratedText(text, maxLength);
   if (!normalized) return "";
-  const sliced = normalized.slice(0, maxLength).trim();
-  if (!sliced) return "";
-  if (containsSentenceLikeEnglish(sliced)) return "";
-  if (!isJapanesePrimaryText(sliced)) return "";
-  return sliced;
-}
-
-function emptyTokenUsage(): ParentReportTokenUsage {
-  return {
-    inputTokens: 0,
-    cachedInputTokens: 0,
-    outputTokens: 0,
-    totalTokens: 0,
-    reasoningTokens: 0,
-  };
-}
-
-function parseTokenUsage(payload: any): ParentReportTokenUsage {
-  const usage = payload?.usage ?? {};
-  return {
-    inputTokens: Number(usage?.prompt_tokens ?? usage?.input_tokens ?? 0) || 0,
-    cachedInputTokens:
-      Number(usage?.prompt_tokens_details?.cached_tokens ?? usage?.input_tokens_details?.cached_tokens ?? 0) || 0,
-    outputTokens: Number(usage?.completion_tokens ?? usage?.output_tokens ?? 0) || 0,
-    totalTokens: Number(usage?.total_tokens ?? 0) || 0,
-    reasoningTokens:
-      Number(usage?.completion_tokens_details?.reasoning_tokens ?? usage?.output_tokens_details?.reasoning_tokens ?? 0) ||
-      0,
-  };
-}
-
-function addTokenUsage(left: ParentReportTokenUsage, right: ParentReportTokenUsage): ParentReportTokenUsage {
-  return {
-    inputTokens: left.inputTokens + right.inputTokens,
-    cachedInputTokens: left.cachedInputTokens + right.cachedInputTokens,
-    outputTokens: left.outputTokens + right.outputTokens,
-    totalTokens: left.totalTokens + right.totalTokens,
-    reasoningTokens: left.reasoningTokens + right.reasoningTokens,
-  };
+  if (containsSentenceLikeEnglish(normalized)) return "";
+  if (!isJapanesePrimaryText(normalized)) return "";
+  return normalized;
 }
 
 function countReportBodyChars(report: ParentReportJson) {
@@ -234,85 +178,43 @@ ${input.logPayload}
 }
 
 async function callReportModel(systemPrompt: string, userPrompt: string) {
-  const body = {
+  return generateJsonObject({
     model: REPORT_MODEL,
     messages: [
       { role: "system", content: systemPrompt },
       { role: "user", content: userPrompt },
     ],
-    response_format: { type: "json_object" },
     temperature: 0.2,
-    max_completion_tokens: 3200,
-  };
-
-  const res = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${getApiKey()}`,
-    },
-    body: JSON.stringify(body),
-  });
-
-  const text = await res.text();
-  if (!res.ok) {
-    let detail: unknown = text;
-    try {
-      detail = JSON.parse(text);
-    } catch {
-      // use raw text
-    }
-
-    const tempUnsupported = /temperature/i.test(text) && /unsupported|invalid/i.test(text);
-    if (tempUnsupported) {
-      const retry = await fetch("https://api.openai.com/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${getApiKey()}`,
+    max_output_tokens: 3200,
+    json_schema: {
+      name: "parent_report",
+      strict: true,
+      schema: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          date: { type: "string" },
+          greeting: { type: "string" },
+          introduction: { type: "string" },
+          summary: { type: "string" },
+          sections: {
+            type: "array",
+            items: {
+              type: "object",
+              additionalProperties: false,
+              properties: {
+                title: { type: "string" },
+                body: { type: "string" },
+              },
+              required: ["title", "body"],
+            },
+          },
+          closing: { type: "string" },
         },
-        body: JSON.stringify({
-          ...body,
-          temperature: undefined,
-        }),
-      });
-      const retryText = await retry.text();
-      if (!retry.ok) {
-        throw new Error(`Parent report generation failed (${retry.status}): ${retryText}`);
-      }
-      const retryParsed = tryParseJson<any>(retryText);
-      const retryContent = retryParsed?.choices?.[0]?.message?.content;
-      return {
-        contentText: typeof retryContent === "string" ? retryContent : JSON.stringify(retryContent ?? ""),
-        tokenUsage: parseTokenUsage(retryParsed),
-      };
-    }
-
-    throw new Error(`Parent report generation failed (${res.status}): ${JSON.stringify(detail)}`);
-  }
-
-  const parsed = tryParseJson<any>(text);
-  const content = parsed?.choices?.[0]?.message?.content;
-  const tokenUsage = parseTokenUsage(parsed);
-  if (typeof content === "string") {
-    return {
-      contentText: content,
-      tokenUsage,
-    };
-  }
-  if (Array.isArray(content)) {
-    return {
-      contentText: content
-        .map((part) => (typeof part?.text === "string" ? part.text : typeof part === "string" ? part : ""))
-        .join("")
-        .trim(),
-      tokenUsage,
-    };
-  }
-  return {
-    contentText: text,
-    tokenUsage,
-  };
+        required: ["date", "greeting", "introduction", "summary", "sections", "closing"],
+      },
+    },
+  });
 }
 
 function renderParentReportMarkdown(
@@ -337,7 +239,7 @@ function renderParentReportMarkdown(
     lines.push("");
   }
   lines.push(report.closing);
-  return lines.join("\n").trim();
+  return renderMarkdownDocument(lines);
 }
 
 function defaultReportJson(input: ReportInput, createdAt: string): ParentReportJson {
@@ -473,12 +375,10 @@ ${logPayload}
 - structuredArtifact / derivedMarkdown のどちらにもない内容は足さない`;
 
   const firstCall = await callReportModel(systemPrompt, userPrompt);
-  const jsonText = extractJsonCandidate(firstCall.contentText) ?? firstCall.contentText;
-  const parsed = tryParseJson<ParentReportJson>(jsonText);
   const fallbackReport = defaultReportJson(input, createdAt);
-  let reportJson = sanitizeParentReportJson(parsed, fallbackReport);
+  let reportJson = sanitizeParentReportJson(readGeneratedJson<ParentReportJson>(firstCall), fallbackReport);
   let apiCalls = 1;
-  let tokenUsage = firstCall.tokenUsage ?? emptyTokenUsage();
+  let tokenUsage = firstCall.usage ?? emptyLlmTokenUsage();
   const qualityIssues = evaluateParentReportQuality(reportJson, fallbackReport);
 
   if (qualityIssues.length > 0) {
@@ -495,16 +395,14 @@ ${logPayload}
         issues: qualityIssues,
       })
     );
-    const retryJsonText = extractJsonCandidate(retryCall.contentText) ?? retryCall.contentText;
-    const retryParsed = tryParseJson<ParentReportJson>(retryJsonText);
-    const retryReportJson = sanitizeParentReportJson(retryParsed, fallbackReport);
+    const retryReportJson = sanitizeParentReportJson(retryCall.json as ParentReportJson | null, fallbackReport);
     const retryIssues = evaluateParentReportQuality(retryReportJson, fallbackReport);
 
     if (retryIssues.length <= qualityIssues.length) {
       reportJson = retryReportJson;
     }
     apiCalls += 1;
-    tokenUsage = addTokenUsage(tokenUsage, retryCall.tokenUsage ?? emptyTokenUsage());
+    tokenUsage = addLlmTokenUsage(tokenUsage, retryCall.usage ?? emptyLlmTokenUsage());
   }
 
   const markdown = renderParentReportMarkdown(reportJson, organizationName, periodFrom, periodTo);

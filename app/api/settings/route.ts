@@ -1,16 +1,13 @@
+import { revalidatePath, revalidateTag } from "next/cache";
 import { NextResponse } from "next/server";
-import { UserRole } from "@prisma/client";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/db";
 import { writeAuditLog } from "@/lib/audit";
-import { getSendingConfigSummary, getTrustPolicySummary } from "@/lib/system-config";
+import { canManageSettings, getSettingsSnapshot } from "@/lib/settings/get-settings-snapshot";
+import { withActiveStudentWhere } from "@/lib/students/student-lifecycle";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
-
-function canManageSettings(role: string | undefined) {
-  return role === UserRole.ADMIN || role === UserRole.MANAGER || role === "ADMIN" || role === "MANAGER";
-}
 
 export async function GET() {
   try {
@@ -19,73 +16,16 @@ export async function GET() {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const organizationId = session.user.organizationId;
-    const [organization, users, totalStudents, studentsWithGuardian, missingGuardianStudents] = await Promise.all([
-      prisma.organization.findUnique({
-        where: { id: organizationId },
-        select: { id: true, name: true, createdAt: true, updatedAt: true },
-      }),
-      prisma.user.findMany({
-        where: { organizationId },
-        select: { id: true, role: true, name: true, email: true },
-        orderBy: { name: "asc" },
-      }),
-      prisma.student.count({
-        where: { organizationId },
-      }),
-      prisma.student.count({
-        where: {
-          organizationId,
-          guardianNames: {
-            not: "",
-          },
-        },
-      }),
-      prisma.student.findMany({
-        where: {
-          organizationId,
-          OR: [{ guardianNames: null }, { guardianNames: "" }],
-        },
-        select: {
-          id: true,
-          name: true,
-          grade: true,
-          guardianNames: true,
-        },
-        orderBy: [{ grade: "asc" }, { createdAt: "desc" }],
-        take: 8,
-      }),
-    ]);
+    const snapshot = await getSettingsSnapshot({
+      organizationId: session.user.organizationId,
+      viewerRole: session.user.role,
+    });
 
-    if (!organization) {
+    if (!snapshot) {
       return NextResponse.json({ error: "organization not found" }, { status: 404 });
     }
 
-    const sending = getSendingConfigSummary();
-    const trust = getTrustPolicySummary();
-    const roleCounts = users.reduce<Record<string, number>>((acc, user) => {
-      acc[user.role] = (acc[user.role] ?? 0) + 1;
-      return acc;
-    }, {});
-
-    return NextResponse.json({
-      organization,
-      permissions: {
-        viewerRole: session.user.role,
-        canManage: canManageSettings(session.user.role),
-        roleCounts,
-      },
-      guardianContacts: {
-        totalStudents,
-        studentsWithGuardian,
-        studentsMissingGuardian: Math.max(0, totalStudents - studentsWithGuardian),
-        coveragePercent:
-          totalStudents > 0 ? Math.round((studentsWithGuardian / Math.max(1, totalStudents)) * 100) : 0,
-        missingStudents: missingGuardianStudents,
-      },
-      sending,
-      trust,
-    });
+    return NextResponse.json(snapshot);
   } catch (error: any) {
     console.error("[GET /api/settings] Error:", error);
     return NextResponse.json({ error: error?.message ?? "Internal Server Error" }, { status: 500 });
@@ -121,6 +61,8 @@ export async function PATCH(request: Request) {
         detail: { organizationId: organization.id, organizationName: organization.name },
       });
 
+      revalidatePath("/app/settings");
+
       return NextResponse.json({ organization });
     }
 
@@ -133,10 +75,10 @@ export async function PATCH(request: Request) {
     }
 
     const student = await prisma.student.findFirst({
-      where: {
+      where: withActiveStudentWhere({
         id: studentId,
         organizationId: session.user.organizationId,
-      },
+      }),
       select: {
         id: true,
         name: true,
@@ -167,6 +109,11 @@ export async function PATCH(request: Request) {
         hasGuardianNames: Boolean(updated.guardianNames?.trim()),
       },
     });
+
+    revalidateTag(`student-directory:${session.user.organizationId}`, "max");
+    revalidatePath("/app/settings");
+    revalidatePath("/app/students");
+    revalidatePath(`/app/students/${updated.id}`);
 
     return NextResponse.json({ student: updated });
   } catch (error: any) {

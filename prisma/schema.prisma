@@ -1,5 +1,6 @@
 generator client {
   provider = "prisma-client-js"
+  previewFeatures = ["relationJoins"]
 }
 
 datasource db {
@@ -55,6 +56,9 @@ model Student {
   enrollmentDate DateTime?
   birthdate      DateTime?
   guardianNames  String?
+  archivedAt     DateTime?
+  archivedByUserId String?
+  archiveReason  String?
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 
@@ -69,7 +73,8 @@ model Student {
   properNounSuggestions     ProperNounSuggestion[]
   nextMeetingMemos          NextMeetingMemo[]
 
-  @@index([organizationId, createdAt])
+  @@index([organizationId, archivedAt, createdAt])
+  @@index([organizationId, archivedAt, name])
 }
 
 /// 1 生徒につき同時 1 録音のみ（heartbeat + 自動失効）
@@ -357,6 +362,21 @@ model AuditLog {
   userId    String?
   action    String
   createdAt DateTime @default(now())
+}
+
+model StudentArchiveSnapshot {
+  id               String   @id @default(cuid())
+  organizationId   String
+  studentId        String
+  studentName      String
+  archivedByUserId String?
+  reason           String?
+  runtimePathsJson Json?
+  snapshotJson     Json
+  createdAt        DateTime @default(now())
+
+  @@index([organizationId, createdAt])
+  @@index([studentId, createdAt])
 }
 
 model Session {

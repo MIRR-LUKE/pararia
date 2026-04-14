@@ -1,21 +1,21 @@
 import { PrismaClient } from "@prisma/client";
-import { normalizePrismaDatabaseUrl } from "@/lib/db-url";
+import { resolvePrismaDatasourceUrl } from "@/lib/db-url";
 
 const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined;
 };
 
-const normalizedDatasourceUrl = normalizePrismaDatabaseUrl(process.env.DATABASE_URL);
+const resolvedDatasourceUrl = resolvePrismaDatasourceUrl();
 
 export const prisma =
   globalForPrisma.prisma ??
   new PrismaClient({
     log: process.env.NODE_ENV === "development" ? ["warn", "error"] : ["error"],
-    ...(normalizedDatasourceUrl
+    ...(resolvedDatasourceUrl
       ? {
           datasources: {
             db: {
-              url: normalizedDatasourceUrl,
+              url: resolvedDatasourceUrl,
             },
           },
         }

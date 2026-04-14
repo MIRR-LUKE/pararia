@@ -1,8 +1,10 @@
+import { revalidatePath, revalidateTag } from "next/cache";
 import { NextResponse } from "next/server";
 import { writeAuditLog } from "@/lib/audit";
 import { prisma } from "@/lib/db";
-import { deleteRuntimeEntries } from "@/lib/runtime-cleanup";
+import { getLogListCacheTag } from "@/lib/logs/get-log-list-page-data";
 import { requireAuthorizedSession } from "@/lib/server/request-auth";
+import { archiveStudent, withActiveStudentWhere } from "@/lib/students/student-lifecycle";
 
 function normalizeGuardianNames(value: unknown) {
   if (value === undefined) return undefined;
@@ -30,7 +32,7 @@ export async function GET(
   if (authResult.response) return authResult.response;
 
   const student = await prisma.student.findFirst({
-    where: { id: params.id, organizationId: authResult.session.user.organizationId },
+    where: withActiveStudentWhere({ id: params.id, organizationId: authResult.session.user.organizationId }),
     include: {
       profiles: {
         orderBy: { createdAt: "desc" },
@@ -63,7 +65,7 @@ export async function PUT(
     if (authResult.response) return authResult.response;
 
     const existing = await prisma.student.findFirst({
-      where: { id: params.id, organizationId: authResult.session.user.organizationId },
+      where: withActiveStudentWhere({ id: params.id, organizationId: authResult.session.user.organizationId }),
       select: { id: true },
     });
     if (!existing) {
@@ -88,6 +90,15 @@ export async function PUT(
       data,
     });
 
+    revalidateTag(`student-directory:${authResult.session.user.organizationId}`, "max");
+    revalidateTag(`dashboard-snapshot:${authResult.session.user.organizationId}`, "max");
+    revalidateTag(getLogListCacheTag(authResult.session.user.organizationId), "max");
+    revalidatePath("/app/students");
+    revalidatePath("/app/dashboard");
+    revalidatePath("/app/reports");
+    revalidatePath("/app/settings");
+    revalidatePath(`/app/students/${student.id}`);
+
     return NextResponse.json({ student });
   } catch (e: any) {
     if (e instanceof TypeError) {
@@ -105,91 +116,61 @@ export async function PUT(
 }
 
 export async function DELETE(
-  _request: Request,
+  request: Request,
   { params }: { params: { id: string } }
 ) {
   try {
     const authResult = await requireAuthorizedSession();
     if (authResult.response) return authResult.response;
 
-    const student = await prisma.student.findFirst({
-      where: { id: params.id, organizationId: authResult.session.user.organizationId },
-      select: {
-        id: true,
-        name: true,
-        _count: {
-          select: {
-            conversations: true,
-            sessions: true,
-            reports: true,
-            profiles: true,
-          },
-        },
-      },
+    const body = await request.json().catch(() => ({}));
+    const archiveReason =
+      typeof body?.reason === "string" && body.reason.trim().length > 0
+        ? body.reason.trim()
+        : "manual_archive";
+    const archived = await archiveStudent({
+      studentId: params.id,
+      organizationId: authResult.session.user.organizationId,
+      actorUserId: authResult.session.user.id,
+      reason: archiveReason,
     });
 
-    if (!student) {
+    if (!archived) {
       return NextResponse.json({ error: "not found" }, { status: 404 });
     }
 
-    const conversationIds = await prisma.conversationLog.findMany({
-      where: { studentId: student.id, organizationId: authResult.session.user.organizationId },
-      select: { id: true },
-    });
-    const sessionParts = await prisma.sessionPart.findMany({
-      where: {
-        session: {
-          studentId: student.id,
-          organizationId: authResult.session.user.organizationId,
-        },
-      },
-      select: {
-        storageUrl: true,
-      },
-    });
-    const runtimePaths = sessionParts.map((part) => part.storageUrl);
-
-    await prisma.$transaction(async (tx) => {
-      if (conversationIds.length > 0) {
-        await tx.conversationJob.deleteMany({
-          where: { conversationId: { in: conversationIds.map((conversation) => conversation.id) } },
-        });
-      }
-
-      await tx.report.deleteMany({
-        where: { studentId: student.id, organizationId: authResult.session.user.organizationId },
-      });
-      await tx.conversationLog.deleteMany({
-        where: { studentId: student.id, organizationId: authResult.session.user.organizationId },
-      });
-      await tx.studentProfile.deleteMany({ where: { studentId: student.id } });
-      await tx.studentRecordingLock.deleteMany({ where: { studentId: student.id } });
-      await tx.session.deleteMany({
-        where: { studentId: student.id, organizationId: authResult.session.user.organizationId },
-      });
-      await tx.student.delete({ where: { id: student.id } });
-    });
-    const runtimeDeletion = await deleteRuntimeEntries(runtimePaths);
-
     await writeAuditLog({
       userId: authResult.session.user.id,
-      action: "student.delete",
+      action: "student.archive",
       detail: {
-        studentId: student.id,
-        studentName: student.name,
-        conversationCount: student._count.conversations,
-        sessionCount: student._count.sessions,
-        reportCount: student._count.reports,
-        profileCount: student._count.profiles,
-        deletedRuntimeEntryCount: runtimeDeletion.deletedCount,
+        studentId: archived.student.id,
+        studentName: archived.student.name,
+        archiveReason,
+        archiveSnapshotId: archived.snapshotId,
+        conversationCount: archived.counts.conversations,
+        sessionCount: archived.counts.sessions,
+        reportCount: archived.counts.reports,
+        profileCount: archived.counts.profiles,
+        preservedRuntimeEntryCount: archived.runtimePaths.length,
       },
     });
+
+    revalidateTag(`student-directory:${authResult.session.user.organizationId}`, "max");
+    revalidateTag(`dashboard-snapshot:${authResult.session.user.organizationId}`, "max");
+    revalidateTag(getLogListCacheTag(authResult.session.user.organizationId), "max");
+    revalidatePath("/app/students");
+    revalidatePath("/app/dashboard");
+    revalidatePath("/app/reports");
+    revalidatePath("/app/settings");
+    revalidatePath("/app/logs");
+    revalidatePath(`/app/students/${archived.student.id}`);
 
     return NextResponse.json({
       success: true,
-      message: "student deleted",
-      studentId: student.id,
-      deletedRuntimeEntryCount: runtimeDeletion.deletedCount,
+      message: "student archived",
+      studentId: archived.student.id,
+      archiveSnapshotId: archived.snapshotId,
+      preservedRuntimeEntryCount: archived.runtimePaths.length,
     });
   } catch (e: any) {
     console.error("[DELETE /api/students/[id]] Error:", {

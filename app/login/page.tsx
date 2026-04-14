@@ -1,12 +1,13 @@
 import { Suspense } from "react";
 import { LoginForm } from "./LoginForm";
 
-export default function LoginPage({
+export default async function LoginPage({
   searchParams,
 }: {
-  searchParams?: { callbackUrl?: string };
+  searchParams?: Promise<{ callbackUrl?: string }>;
 }) {
-  const callbackUrl = searchParams?.callbackUrl || "/app/dashboard";
+  const resolvedSearchParams = (await searchParams) ?? {};
+  const callbackUrl = resolvedSearchParams.callbackUrl || "/app/dashboard";
 
   return (
     <Suspense>

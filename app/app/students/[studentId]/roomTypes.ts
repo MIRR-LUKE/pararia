@@ -46,6 +46,8 @@ export type SessionItem = {
   conversation?: {
     id: string;
     status: string;
+    reviewState?: string | null;
+    qualityMetaJson?: any;
     artifactJson?: unknown;
     summaryMarkdown?: string | null;
     createdAt: string;
@@ -120,6 +122,9 @@ export type RecordingLockInfo = {
 };
 
 export type RoomResponse = {
+  meta?: {
+    scope?: "summary" | "full";
+  };
   student: {
     id: string;
     name: string;

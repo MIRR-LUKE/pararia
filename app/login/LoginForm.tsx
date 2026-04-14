@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { signIn } from "next-auth/react";
 import styles from "./login.module.css";
@@ -16,6 +16,30 @@ export function LoginForm({ callbackUrl }: Props) {
   const [password, setPassword] = useState("demo123");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    let timer: number | null = null;
+    let attempts = 0;
+
+    const prefetch = () => {
+      if (cancelled || attempts >= 4) return;
+      router.prefetch(callbackUrl);
+      attempts += 1;
+      if (attempts < 4) {
+        timer = window.setTimeout(prefetch, 700);
+      }
+    };
+
+    prefetch();
+
+    return () => {
+      cancelled = true;
+      if (timer !== null) {
+        window.clearTimeout(timer);
+      }
+    };
+  }, [callbackUrl, router]);
 
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -34,8 +58,7 @@ export function LoginForm({ callbackUrl }: Props) {
       return;
     }
 
-    router.push(result?.url || callbackUrl);
-    router.refresh();
+    window.location.assign(result?.url || callbackUrl);
   };
 
   return (

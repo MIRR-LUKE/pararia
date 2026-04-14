@@ -9,7 +9,13 @@ import {
   isValidNextMeetingMemoText,
   sanitizeNextMeetingMemoText,
 } from "@/lib/next-meeting-memo";
-import { callJsonGeneration } from "@/lib/ai/conversation/transport";
+import {
+  addLlmTokenUsage,
+  emptyLlmTokenUsage,
+  generateJsonObject,
+  readGeneratedJson,
+  type LlmTokenUsage,
+} from "@/lib/ai/structured-generation";
 
 const NEXT_MEETING_MEMO_MODEL =
   process.env.LLM_MODEL_FAST ||
@@ -17,13 +23,7 @@ const NEXT_MEETING_MEMO_MODEL =
   "gpt-5.4";
 const PROMPT_VERSION = "next-meeting-memo/v3";
 
-type NextMeetingMemoTokenUsage = {
-  inputTokens: number;
-  cachedInputTokens: number;
-  outputTokens: number;
-  totalTokens: number;
-  reasoningTokens: number;
-};
+type NextMeetingMemoTokenUsage = LlmTokenUsage;
 
 export type NextMeetingMemoResult = {
   previousSummary: string;
@@ -41,30 +41,6 @@ type NextMeetingMemoInput = {
   artifactJson?: unknown;
   summaryMarkdown?: string | null;
 };
-
-function emptyTokenUsage(): NextMeetingMemoTokenUsage {
-  return {
-    inputTokens: 0,
-    cachedInputTokens: 0,
-    outputTokens: 0,
-    totalTokens: 0,
-    reasoningTokens: 0,
-  };
-}
-
-function addTokenUsage(
-  left: NextMeetingMemoTokenUsage,
-  right?: Partial<NextMeetingMemoTokenUsage> | null
-) {
-  if (!right) return left;
-  return {
-    inputTokens: left.inputTokens + Math.max(0, Math.floor(Number(right.inputTokens ?? 0))),
-    cachedInputTokens: left.cachedInputTokens + Math.max(0, Math.floor(Number(right.cachedInputTokens ?? 0))),
-    outputTokens: left.outputTokens + Math.max(0, Math.floor(Number(right.outputTokens ?? 0))),
-    totalTokens: left.totalTokens + Math.max(0, Math.floor(Number(right.totalTokens ?? 0))),
-    reasoningTokens: left.reasoningTokens + Math.max(0, Math.floor(Number(right.reasoningTokens ?? 0))),
-  };
-}
 
 function formatSessionDate(value?: string | Date | null) {
   if (!value) return "未記録";
@@ -441,12 +417,12 @@ export async function generateNextMeetingMemo(input: NextMeetingMemoInput): Prom
   const sessionDate = formatSessionDate(input.sessionDate);
   const model = NEXT_MEETING_MEMO_MODEL;
   let apiCalls = 0;
-  let tokenUsage = emptyTokenUsage();
+  let tokenUsage = emptyLlmTokenUsage();
   let previousRaw = "";
 
   for (let attempt = 0; attempt < 2; attempt += 1) {
     apiCalls += 1;
-    const result = await callJsonGeneration({
+    const result = await generateJsonObject({
       model,
       messages: [
         { role: "system", content: buildSystemPrompt() },
@@ -470,10 +446,10 @@ export async function generateNextMeetingMemo(input: NextMeetingMemoInput): Prom
         },
       },
     });
-    tokenUsage = addTokenUsage(tokenUsage, result.usage);
+    tokenUsage = addLlmTokenUsage(tokenUsage, result.usage ?? emptyLlmTokenUsage());
     previousRaw = result.contentText ?? result.raw ?? "";
 
-    const parsed = parseOutput(result.json);
+    const parsed = parseOutput(readGeneratedJson(result));
     if (!parsed) continue;
 
     const polished = applyPreferredMemoPatterns(parsed, source.sections);

@@ -1,4 +1,4 @@
-import bcrypt from "bcryptjs";
+import { compare, hash } from "@node-rs/bcrypt";
 import { prisma } from "./db";
 import { User } from "@prisma/client";
 
@@ -10,12 +10,11 @@ export type SessionUser = Pick<
 >;
 
 export async function hashPassword(password: string) {
-  const salt = await bcrypt.genSalt(SALT_ROUNDS);
-  return bcrypt.hash(password, salt);
+  return hash(password, SALT_ROUNDS);
 }
 
 export async function verifyPassword(password: string, hash: string) {
-  return bcrypt.compare(password, hash);
+  return compare(password, hash);
 }
 
 export async function loginWithEmail(

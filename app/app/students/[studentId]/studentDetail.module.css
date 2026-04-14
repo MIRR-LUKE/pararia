@@ -131,6 +131,67 @@
   align-items: start;
 }
 
+.actionQueueSection {
+  display: grid;
+  gap: 14px;
+}
+
+.actionQueueHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.actionQueueGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.actionQueueCard {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  box-shadow: var(--shadow-card);
+}
+
+.actionQueueCardAttention {
+  background: linear-gradient(180deg, rgba(219, 255, 75, 0.08), rgba(255, 255, 255, 0.02)), var(--surface);
+}
+
+.actionQueueCardWarning {
+  background: linear-gradient(180deg, rgba(255, 159, 153, 0.12), rgba(255, 255, 255, 0.02)), var(--surface);
+}
+
+.actionQueueMeta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.actionQueueLabel {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.actionQueueCount {
+  font-size: 18px;
+  line-height: 1;
+  color: var(--text);
+}
+
+.actionQueueDescription {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.7;
+}
+
 .recordCard,
 .memoCard,
 .reportCard {
@@ -142,6 +203,71 @@
 
 .recordCard {
   min-height: 387px;
+}
+
+.sectionGate {
+  min-height: 387px;
+  display: grid;
+  gap: 18px;
+  align-content: start;
+}
+
+.sectionGateHead {
+  display: grid;
+  gap: 8px;
+}
+
+.sectionGateBody {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.sectionGateStat {
+  display: grid;
+  gap: 6px;
+  padding: 14px 15px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+}
+
+.sectionGateStat strong {
+  font-size: 18px;
+  line-height: 1;
+  color: var(--text);
+}
+
+.sectionGateStat span {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.sectionGateActions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.recordCardLoading,
+.overlayLoading,
+.sectionLoading {
+  display: grid;
+  place-items: center;
+  min-height: 180px;
+  padding: 24px;
+  border-radius: inherit;
+  color: var(--muted);
+  line-height: 1.7;
+}
+
+.recordCardLoading {
+  min-height: 387px;
+}
+
+.overlayLoading {
+  min-height: 240px;
 }
 
 .memoCard {
@@ -423,6 +549,11 @@
   text-align: left;
 }
 
+.historyRowDisabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
 .historyRowLeft {
   display: flex;
   align-items: center;
@@ -555,6 +686,43 @@
   color: #ffffff;
 }
 
+.deliveryTimeline {
+  display: grid;
+  gap: 12px;
+}
+
+.deliveryTimelineItem {
+  display: grid;
+  gap: 12px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+}
+
+.deliveryTimelineMeta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.deliveryTimelineMeta strong {
+  font-size: 14px;
+  color: #ffffff;
+}
+
+.deliveryTimelineMeta span,
+.deliveryTimelineNote {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+.deliveryTimelineNote {
+  margin: 0;
+}
+
 .reportParagraph {
   border-radius: 12px;
   border: 1px solid var(--border);
@@ -567,8 +735,16 @@
     grid-template-columns: 1fr;
   }
 
+  .actionQueueGrid {
+    grid-template-columns: 1fr;
+  }
+
   .reportCard {
     grid-column: auto;
+  }
+
+  .sectionGateBody {
+    grid-template-columns: 1fr;
   }
 
   .topicColumns {
@@ -605,6 +781,7 @@
 
   .filterRow,
   .reportCardHead,
+  .actionQueueHeader,
   .reportSelectionHead,
   .reportActions,
   .overlayHeader,
@@ -703,6 +880,10 @@
   .reportParagraph {
     padding: 14px;
   }
+
+  .deliveryTimelineItem {
+    padding: 14px;
+  }
 }
 
 @media (max-width: 560px) {
@@ -712,6 +893,10 @@
 
   .filterRow {
     grid-template-columns: 1fr;
+  }
+
+  .sectionGate {
+    min-height: 0;
   }
 
   .reportCardHead {

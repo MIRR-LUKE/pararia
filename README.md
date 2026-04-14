@@ -5,6 +5,13 @@ PARARIA は、塾・個別指導・学習コーチング向けの `Teaching OS` 
 
 この README は、**2026-04-08 時点の現行コードと一致する運用仕様書** です。
 
+## Engineering
+
+- コード品質と性能の基準は [docs/engineering-rules.md](./docs/engineering-rules.md)
+- DB / Blob の保全・復旧手順は [docs/db-backup-recovery.md](./docs/db-backup-recovery.md)
+- shape guard は `npm run check:code-shape`
+- 最低限の確認は `npm run typecheck && npm run build && npm run check:code-shape`
+
 ## 1. 先に結論
 
 - 主導線は `Student Room`
@@ -851,6 +858,153 @@ PARARIA_AUDIO_RETENTION_DAYS=14
 - 途中離脱ガードだけ確認するときは `npm run test:recording-ui -- --base-url http://localhost:3000 --leave-safety-only`
 
 現行の STT 実行は次の前提です。
+
+## 16. DB / Backup / Recovery
+
+この repo では、**DB は Supabase(Postgres)、音声 runtime は Vercel Blob** が正本です。  
+そのため、**DB backup だけでは完全復旧になりません**。世界標準の運用に合わせて、次の 4 層で守ります。
+
+1. **Supabase 側の DB backup / PITR**
+2. **`pg_dump` による別系統の論理バックアップ**
+3. **Vercel Blob の別退避**
+4. **アプリ側で hard delete を避ける**
+
+### 16.1 非交渉ルール
+
+- shared / production DB に対して `prisma migrate dev` を直接打たない
+- shared / production への schema 反映は `prisma migrate deploy` を使う
+- `DATABASE_URL` は通常の app 接続用、`DIRECT_URL` は migration / backup 用の直結優先で扱う
+- 生徒削除は **hard delete しない**
+- 生徒は **archive** し、関連データと runtime path の snapshot を `StudentArchiveSnapshot` に残す
+- runtime 音声は DB と別系統なので、DB dump と Blob 退避を **両方** 回す
+
+### 16.2 いまの削除ポリシー
+
+- `/app/students` からの操作は「削除」ではなく **アーカイブ**
+- アーカイブすると、生徒は通常一覧・ダッシュボード・通常導線から外れる
+- 面談ログ、指導報告ログ、保護者レポート、runtime path 情報は保持する
+- 復旧に必要な snapshot を `StudentArchiveSnapshot` に保存する
+- 復旧は管理者 API または script から行う
+
+### 16.3 毎日やる backup
+
+DB dump:
+
+```bash
+npm run backup:db
+```
+
+- `pg_dump` を使って `.backups/db/<timestamp>/pararia.dump` を作る
+- 実行端末には PostgreSQL client (`pg_dump`) が必要
+- `pg_dump` が無い場合は Supabase CLI fallback を試すが、Windows では Docker Desktop が必要
+- metadata と sha256 を同じディレクトリに残す
+- 接続先は `PARARIA_BACKUP_DATABASE_URL` → `DIRECT_URL` → `DATABASE_URL` の順で解決する
+- 本番では Supabase の PITR を有効にした上で、この dump を **別ストレージにも退避** する
+
+Blob runtime backup:
+
+```bash
+npm run backup:blob
+```
+
+- 既定では `session-audio/` prefix を列挙し、`.backups/blob/<timestamp>/files/` にダウンロードする
+- `manifest.json` に pathname / uploadedAt / size / etag / localSha256 を残す
+- inventory だけ欲しい場合は `npm run backup:blob -- --manifest-only`
+
+両方まとめて回す:
+
+```bash
+npm run backup:all
+```
+
+GitHub Actions でも同じ思想で回す:
+
+- workflow: `.github/workflows/backup-runtime-and-db.yml`
+- cadence: 6 時間ごと
+- secrets:
+  - `SUPABASE_DB_URL`
+  - `SUPABASE_PROJECT_REF`
+  - `SUPABASE_ACCESS_TOKEN` (status 取得用)
+  - `BLOB_READ_WRITE_TOKEN` (Blob manifest も保全したい場合)
+- 出力:
+  - DB: roles / schema / data dump + sha256
+  - Supabase: PITR / backup 状態 JSON
+  - Blob: 日次は manifest、手動実行時は full export も可
+- retention:
+  - GitHub artifact 14 日
+
+`workflow_dispatch` では次を選べます。
+
+- `blob_mode=manifest`
+  - 軽い inventory だけ取る
+- `blob_mode=full`
+  - 対象 prefix の blob 本体まで artifact に入れる
+
+無料前提のおすすめ:
+
+- 日次 schedule は `manifest`
+- 必要時だけ `workflow_dispatch + blob_mode=full`
+
+GitHub secrets を CLI から同期したい場合:
+
+```bash
+npm run backup:sync-github-secrets
+```
+
+注意:
+
+- `gh auth status` が通っても、token に **Actions secrets write 権限** がないと同期は 403 で失敗する
+
+### 16.3.1 Supabase 側で必ずやること
+
+この repo だけでは完結しません。Supabase 側では次を必須にします。
+
+1. **PITR を有効化する**
+   - `Settings > Add-ons` から有効化
+   - 誤削除や壊れた migration に対する最終保険
+2. **sandbox restore を定期的に試す**
+   - 毎月 1 回、別環境へ restore して戻ることを確認
+3. **backup をダウンロード可能な運用にする**
+   - managed backup だけに依存せず、GitHub Actions / `pg_dump` 系の別系統を持つ
+
+注記:
+
+- Supabase 側の PITR 有効化や project 設定変更は **管理権限付き access token または dashboard 権限** が必要
+- このマシンでは現時点で `SUPABASE_ACCESS_TOKEN` が見えていないため、repo 側自動化までは実装済み、dashboard 側トグルだけは未実行
+
+### 16.4 復旧コマンド
+
+アーカイブ済み生徒の確認:
+
+```bash
+npm run students:archived
+```
+
+アーカイブ済み生徒の復旧:
+
+```bash
+npm run restore:student -- --student-id <studentId>
+```
+
+### 16.5 運用ベストプラクティス
+
+- Supabase は **PITR を有効化** する
+- DB dump は **毎日** 取り、少なくとも 1 つは Supabase / Vercel とは別ベンダへ退避する
+- Blob backup も **毎日** 回す
+- **週 1 回** は restore drill をやる
+  - dump を別 DB に戻せるか
+  - blob backup から対象音声を取り出せるか
+  - archive した生徒を restore script で戻せるか
+- backup 成功だけでは不十分で、**restore できること** を確認する
+
+### 16.6 公式ドキュメント
+
+- Supabase Backups / PITR:
+  - https://supabase.com/docs/guides/platform/backups
+- Supabase CLI `db dump`:
+  - https://supabase.com/docs/reference/cli/supabase-db-dump
+- Vercel Blob:
+  - https://vercel.com/docs/storage/vercel-blob
 
 - 音声は `scripts/faster_whisper_worker.py` の常駐 worker で起こす
 - 同じ `large-v3` モデルを使ったまま transcript を作る

@@ -1,3 +1,5 @@
+import type { ReactElement } from "react";
+
 type IconName =
   | "users"
   | "bolt"
@@ -14,7 +16,7 @@ type IconName =
   | "arrowLeft"
   | "info";
 
-const paths: Record<IconName, JSX.Element> = {
+const paths: Record<IconName, ReactElement> = {
   users: (
     <>
       <path d="M8 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z" />

@@ -1,8 +1,10 @@
+import { revalidatePath, revalidateTag } from "next/cache";
 import { NextResponse } from "next/server";
 import { ReportDeliveryEventType, ReportStatus } from "@prisma/client";
 import { auth } from "@/auth";
 import { writeAuditLog } from "@/lib/audit";
 import { prisma } from "@/lib/db";
+import { getLogListCacheTag } from "@/lib/logs/get-log-list-page-data";
 
 export async function POST(
   request: Request,
@@ -126,6 +128,17 @@ export async function POST(
         deliveryChannel: result.event.deliveryChannel ?? null,
       },
     });
+
+    if (current.organizationId) {
+      revalidateTag(`student-directory:${current.organizationId}`, "max");
+      revalidateTag(`dashboard-snapshot:${current.organizationId}`, "max");
+      revalidateTag(getLogListCacheTag(current.organizationId), "max");
+      revalidatePath("/app/dashboard");
+      revalidatePath("/app/students");
+      revalidatePath("/app/logs");
+      revalidatePath("/app/reports");
+      revalidatePath(`/app/students/${current.studentId}`);
+    }
 
     return NextResponse.json(result);
   } catch (error: any) {

@@ -1,7 +1,7 @@
-﻿import type { Metadata } from "next";
+import { Suspense } from "react";
+import type { Metadata } from "next";
+import { TelemetryBridge } from "./observability/TelemetryBridge";
 import "./globals.css";
-import { AuthProvider } from "@/components/providers/AuthProvider";
-import { ThemeProvider } from "@/components/providers/ThemeProvider";
 
 export const metadata: Metadata = {
   title: "PARARIA AI",
@@ -16,9 +16,10 @@ export default function RootLayout({
   return (
     <html lang="ja" suppressHydrationWarning>
       <body>
-        <ThemeProvider>
-          <AuthProvider>{children}</AuthProvider>
-        </ThemeProvider>
+        <Suspense fallback={null}>
+          <TelemetryBridge />
+        </Suspense>
+        {children}
       </body>
     </html>
   );

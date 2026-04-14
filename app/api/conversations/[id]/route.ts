@@ -1,3 +1,4 @@
+import { revalidatePath, revalidateTag } from "next/cache";
 import { NextResponse } from "next/server";
 import { writeAuditLog } from "@/lib/audit";
 import { processAllConversationJobs } from "@/lib/jobs/conversationJobs";
@@ -14,8 +15,10 @@ import { toPrismaJson } from "@/lib/prisma-json";
 import { syncSessionAfterConversation } from "@/lib/session-service";
 import { sanitizeFormattedTranscript, sanitizeSummaryMarkdown } from "@/lib/user-facing-japanese";
 import { normalizeRawTranscriptText, pickDisplayTranscriptText } from "@/lib/transcript/source";
+import { getLogListCacheTag } from "@/lib/logs/get-log-list-page-data";
 import { maybeStopRunpodWorkerWhenSessionPartQueueIdle } from "@/lib/runpod/idle-stop";
 import { maybeEnsureRunpodWorker } from "@/lib/runpod/worker-control";
+import { normalizeTranscriptReviewMeta } from "@/lib/logs/transcript-review-display";
 
 function toStringArray(value: unknown) {
   if (!Array.isArray(value)) return [];
@@ -175,6 +178,7 @@ export async function GET(
         artifactJson: conversation.artifactJson,
         summaryMarkdown,
         qualityMetaJson: conversation.qualityMetaJson as any,
+        transcriptReview: normalizeTranscriptReviewMeta(conversation.qualityMetaJson),
       },
     });
   } catch (error: any) {
@@ -260,6 +264,15 @@ export async function DELETE(
       },
     });
 
+    revalidateTag(`student-directory:${organizationId}`, "max");
+    revalidateTag(`dashboard-snapshot:${organizationId}`, "max");
+    revalidateTag(getLogListCacheTag(organizationId), "max");
+    revalidatePath("/app/dashboard");
+    revalidatePath("/app/students");
+    revalidatePath("/app/logs");
+    revalidatePath("/app/reports");
+    revalidatePath(`/app/students/${conversation.studentId}`);
+
     return NextResponse.json({
       success: true,
       message: "conversation deleted",
@@ -330,6 +343,14 @@ export async function PATCH(
       data: updateData,
     });
     await syncSessionAfterConversation(updated.id);
+
+    revalidateTag(`student-directory:${organizationId}`, "max");
+    revalidateTag(`dashboard-snapshot:${organizationId}`, "max");
+    revalidateTag(getLogListCacheTag(organizationId), "max");
+    revalidatePath("/app/dashboard");
+    revalidatePath("/app/students");
+    revalidatePath("/app/logs");
+    revalidatePath(`/app/students/${updated.studentId}`);
 
     return NextResponse.json({
       conversation: {

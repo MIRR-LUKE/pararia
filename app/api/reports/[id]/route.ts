@@ -1,11 +1,87 @@
+import { revalidatePath, revalidateTag } from "next/cache";
 import { NextResponse } from "next/server";
 import { writeAuditLog } from "@/lib/audit";
 import { prisma } from "@/lib/db";
+import { buildReportDeliverySummary } from "@/lib/report-delivery";
+import { getLogListCacheTag } from "@/lib/logs/get-log-list-page-data";
 import { requireAuthorizedSession } from "@/lib/server/request-auth";
+import { sanitizeReportMarkdown } from "@/lib/user-facing-japanese";
 
 function toStringArray(value: unknown) {
   if (!Array.isArray(value)) return [];
   return value.filter((entry): entry is string => typeof entry === "string");
+}
+
+export async function GET(
+  _request: Request,
+  { params }: { params: { id: string } }
+) {
+  try {
+    const authResult = await requireAuthorizedSession();
+    if (authResult.response) return authResult.response;
+    const organizationId = authResult.session.user.organizationId;
+
+    const report = await prisma.report.findFirst({
+      where: { id: params.id, organizationId },
+      select: {
+        id: true,
+        status: true,
+        reportMarkdown: true,
+        createdAt: true,
+        sentAt: true,
+        reviewedAt: true,
+        deliveryChannel: true,
+        sourceLogIds: true,
+        deliveryEvents: {
+          orderBy: { createdAt: "asc" },
+          select: {
+            id: true,
+            eventType: true,
+            deliveryChannel: true,
+            note: true,
+            createdAt: true,
+            actor: {
+              select: {
+                id: true,
+                name: true,
+                email: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!report) {
+      return NextResponse.json({ error: "report not found" }, { status: 404 });
+    }
+
+    const mappedReport = {
+      ...report,
+      reportMarkdown: sanitizeReportMarkdown(report.reportMarkdown ?? ""),
+      createdAt: report.createdAt.toISOString(),
+      sentAt: report.sentAt?.toISOString() ?? null,
+      reviewedAt: report.reviewedAt?.toISOString() ?? null,
+      sourceLogIds: toStringArray(report.sourceLogIds),
+      deliveryEvents: report.deliveryEvents.map((event) => ({
+        ...event,
+        createdAt: event.createdAt.toISOString(),
+      })),
+    };
+
+    return NextResponse.json({
+      report: {
+        ...mappedReport,
+        ...buildReportDeliverySummary(mappedReport),
+      },
+    });
+  } catch (error: any) {
+    console.error("[GET /api/reports/[id]] Error:", error);
+    return NextResponse.json(
+      { error: error?.message ?? "Internal Server Error" },
+      { status: 500 }
+    );
+  }
 }
 
 export async function DELETE(
@@ -43,6 +119,15 @@ export async function DELETE(
         sourceLogCount: toStringArray(report.sourceLogIds).length,
       },
     });
+
+    revalidateTag(`student-directory:${organizationId}`, "max");
+    revalidateTag(`dashboard-snapshot:${organizationId}`, "max");
+    revalidateTag(getLogListCacheTag(organizationId), "max");
+    revalidatePath("/app/dashboard");
+    revalidatePath("/app/students");
+    revalidatePath("/app/logs");
+    revalidatePath("/app/reports");
+    revalidatePath(`/app/students/${report.studentId}`);
 
     return NextResponse.json({
       success: true,
