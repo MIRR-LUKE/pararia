@@ -94,17 +94,11 @@ export default function StudentDetailPageClient({
   });
   const [periodFilter, setPeriodFilter] = useState<StudentDetailPeriodFilter>("all");
   const [sortOrder, setSortOrder] = useState<StudentDetailSortOrder>("desc");
-  const [isConsoleOpen, setIsConsoleOpen] = useState(false);
-  const [isWorkspaceOpen, setIsWorkspaceOpen] = useState(false);
 
   const latestConversation = room?.latestConversation ?? null;
   const latestReport = room?.reports[0] ?? null;
   const latestInterviewMemoSession = useMemo(
     () => pickLatestInterviewMemoSession(room?.sessions ?? []),
-    [room?.sessions]
-  );
-  const interviewSessionCount = useMemo(
-    () => (room?.sessions ?? []).filter((session) => session.type === "INTERVIEW").length,
     [room?.sessions]
   );
   const latestNextMeetingMemo = latestInterviewMemoSession?.nextMeetingMemo ?? null;
@@ -129,21 +123,6 @@ export default function StudentDetailPageClient({
           : "前回の面談ログを作ると、次に何を話すかまで短くまとまります。";
   const nextMeetingMemoError =
     nextMeetingMemoStatus === "FAILED" ? latestNextMeetingMemo?.errorMessage?.trim() || "次回の面談メモの作成に失敗しました。" : null;
-  const roomScope = room?.meta?.scope ?? null;
-  const openConsole = () => {
-    setIsConsoleOpen(true);
-    void refresh({ silent: true });
-  };
-  const openWorkspace = () => {
-    setIsWorkspaceOpen(true);
-    void refresh({ silent: true });
-  };
-
-  useEffect(() => {
-    if (roomScope !== "summary") return;
-    if (!isConsoleOpen && !isWorkspaceOpen) return;
-    void refresh({ silent: true });
-  }, [isConsoleOpen, isWorkspaceOpen, refresh, roomScope]);
 
   if (loading) {
     return <div className={styles.loadingState}>生徒詳細を読み込んでいます...</div>;
@@ -189,47 +168,19 @@ export default function StudentDetailPageClient({
 
       <section className={styles.topGrid}>
         <div className={styles.recordCard}>
-          {isConsoleOpen ? (
-            <LazyStudentSessionConsole
-              studentId={room.student.id}
-              studentName={room.student.name}
-              mode={recordingMode}
-              lessonPart={lessonPart}
-              ongoingLessonSession={null}
-              onModeChange={setRecordingMode}
-              onLessonPartChange={setLessonPart}
-              onRefresh={refresh}
-              onOpenLog={openLog}
-              recordingLock={room.recordingLock}
-              showModePicker={false}
-            />
-          ) : (
-            <div className={styles.sectionGate}>
-              <div className={styles.sectionGateHead}>
-                <div>
-                  <div className={styles.cardTitle}>録音パネル</div>
-                  <div className={styles.cardSubtext}>
-                    初回は要点だけ見せて、録音や保存を開く時だけ重いパネルを読み込みます。
-                  </div>
-                </div>
-              </div>
-              <div className={styles.sectionGateBody}>
-                <div className={styles.sectionGateStat}>
-                  <strong>{interviewSessionCount}件</strong>
-                  <span>最近の面談ログ</span>
-                </div>
-                <div className={styles.sectionGateStat}>
-                  <strong>{room.reports.length}件</strong>
-                  <span>保護者レポート</span>
-                </div>
-              </div>
-              <div className={styles.sectionGateActions}>
-                <Button variant="secondary" onClick={openConsole}>
-                  録音パネルを開く
-                </Button>
-              </div>
-            </div>
-          )}
+          <LazyStudentSessionConsole
+            studentId={room.student.id}
+            studentName={room.student.name}
+            mode={recordingMode}
+            lessonPart={lessonPart}
+            ongoingLessonSession={null}
+            onModeChange={setRecordingMode}
+            onLessonPartChange={setLessonPart}
+            onRefresh={refresh}
+            onOpenLog={openLog}
+            recordingLock={room.recordingLock}
+            showModePicker={false}
+          />
         </div>
 
         <div className={styles.memoCard}>
@@ -327,48 +278,20 @@ export default function StudentDetailPageClient({
       </section>
 
       <section className={styles.workspaceSection}>
-        {isWorkspaceOpen ? (
-          <LazyStudentDetailWorkspace
-            sessions={room.sessions}
-            reports={room.reports}
-            activeTab={activeTab}
-            periodFilter={periodFilter}
-            sortOrder={sortOrder}
-            viewerBadge={viewerBadge}
-            viewerName={viewerName ?? null}
-            onActiveTabChange={setActiveTab}
-            onPeriodFilterChange={setPeriodFilter}
-            onSortOrderChange={setSortOrder}
-            onOpenLog={openLog}
-            onOpenParentReport={openParentReport}
-          />
-        ) : (
-          <div className={styles.sectionGate}>
-            <div className={styles.sectionGateHead}>
-              <div>
-                <div className={styles.cardTitle}>履歴とレポート</div>
-                <div className={styles.cardSubtext}>
-                  面談ログと保護者レポートの深い一覧は、必要な時だけ読み込みます。
-                </div>
-              </div>
-            </div>
-            <div className={styles.sectionGateBody}>
-              <div className={styles.sectionGateStat}>
-                <strong>{interviewSessionCount}</strong>
-                <span>面談ログ</span>
-              </div>
-              <div className={styles.sectionGateStat}>
-                <strong>{room.reports.length}</strong>
-                <span>保護者レポート</span>
-              </div>
-            </div>
-            <div className={styles.sectionGateActions}>
-              <Button variant="secondary" onClick={openWorkspace}>
-                履歴を開く
-              </Button>
-            </div>
-          </div>
-        )}
+        <LazyStudentDetailWorkspace
+          sessions={room.sessions}
+          reports={room.reports}
+          activeTab={activeTab}
+          periodFilter={periodFilter}
+          sortOrder={sortOrder}
+          viewerBadge={viewerBadge}
+          viewerName={viewerName ?? null}
+          onActiveTabChange={setActiveTab}
+          onPeriodFilterChange={setPeriodFilter}
+          onSortOrderChange={setSortOrder}
+          onOpenLog={openLog}
+          onOpenParentReport={openParentReport}
+        />
       </section>
 
       {overlay.kind !== "none" ? (
