@@ -41,20 +41,29 @@ async function assertStudentAccess(studentId: string, organizationId: string) {
   return student;
 }
 
-export async function GET(_request: Request, { params }: { params: { id: string } }) {
+async function resolveStudentId(params: { id: string } | Promise<{ id: string }>) {
+  const resolved = await Promise.resolve(params);
+  return typeof resolved?.id === "string" ? resolved.id.trim() : "";
+}
+
+export async function GET(_request: Request, { params }: { params: { id: string } | Promise<{ id: string }> }) {
   try {
+    const studentId = await resolveStudentId(params);
+    if (!studentId) {
+      return NextResponse.json({ error: "studentId が必要です。" }, { status: 400 });
+    }
     const session = await auth();
     if (!session?.user?.id || !session.user.organizationId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    const student = await assertStudentAccess(params.id, session.user.organizationId);
+    const student = await assertStudentAccess(studentId, session.user.organizationId);
     if (!student) {
       return NextResponse.json({ error: "生徒が見つかりません。" }, { status: 404 });
     }
 
     const view = await runWithDatabaseRetry("recording-lock-view", () =>
       getRecordingLockView({
-        studentId: params.id,
+        studentId,
         viewerUserId: session.user.id,
       })
     );
@@ -65,13 +74,17 @@ export async function GET(_request: Request, { params }: { params: { id: string 
   }
 }
 
-export async function POST(request: Request, { params }: { params: { id: string } }) {
+export async function POST(request: Request, { params }: { params: { id: string } | Promise<{ id: string }> }) {
   try {
+    const studentId = await resolveStudentId(params);
+    if (!studentId) {
+      return NextResponse.json({ error: "studentId が必要です。" }, { status: 400 });
+    }
     const session = await auth();
     if (!session?.user?.id || !session.user.organizationId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    const student = await assertStudentAccess(params.id, session.user.organizationId);
+    const student = await assertStudentAccess(studentId, session.user.organizationId);
     if (!student) {
       return NextResponse.json({ error: "生徒が見つかりません。" }, { status: 404 });
     }
@@ -83,13 +96,13 @@ export async function POST(request: Request, { params }: { params: { id: string 
       }
       await runWithDatabaseRetry("recording-lock-force-release", () =>
         forceReleaseRecordingLock({
-          studentId: params.id,
+          studentId,
           actorUserId: session.user.id,
           reason: typeof body?.reason === "string" ? body.reason : undefined,
         })
       );
       const view = await runWithDatabaseRetry("recording-lock-view", () =>
-        getRecordingLockView({ studentId: params.id, viewerUserId: session.user.id })
+        getRecordingLockView({ studentId, viewerUserId: session.user.id })
       );
       return NextResponse.json({ released: true, ...view });
     }
@@ -101,7 +114,7 @@ export async function POST(request: Request, { params }: { params: { id: string 
 
     const result = await runWithDatabaseRetry("recording-lock-acquire", () =>
       acquireRecordingLock({
-        studentId: params.id,
+        studentId,
         userId: session.user.id,
         organizationId: session.user.organizationId,
         mode,
@@ -141,8 +154,12 @@ export async function POST(request: Request, { params }: { params: { id: string 
   }
 }
 
-export async function PATCH(request: Request, { params }: { params: { id: string } }) {
+export async function PATCH(request: Request, { params }: { params: { id: string } | Promise<{ id: string }> }) {
   try {
+    const studentId = await resolveStudentId(params);
+    if (!studentId) {
+      return NextResponse.json({ error: "studentId が必要です。" }, { status: 400 });
+    }
     const session = await auth();
     if (!session?.user?.id || !session.user.organizationId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -155,7 +172,7 @@ export async function PATCH(request: Request, { params }: { params: { id: string
 
     const beat = await runWithDatabaseRetry("recording-lock-heartbeat", () =>
       heartbeatRecordingLock({
-        studentId: params.id,
+        studentId,
         userId: session.user.id,
         plainToken: lockToken,
       })
@@ -170,8 +187,12 @@ export async function PATCH(request: Request, { params }: { params: { id: string
   }
 }
 
-export async function DELETE(request: Request, { params }: { params: { id: string } }) {
+export async function DELETE(request: Request, { params }: { params: { id: string } | Promise<{ id: string }> }) {
   try {
+    const studentId = await resolveStudentId(params);
+    if (!studentId) {
+      return NextResponse.json({ error: "studentId が必要です。" }, { status: 400 });
+    }
     const session = await auth();
     if (!session?.user?.id || !session.user.organizationId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -189,7 +210,7 @@ export async function DELETE(request: Request, { params }: { params: { id: strin
 
     const released = await runWithDatabaseRetry("recording-lock-release", () =>
       releaseRecordingLock({
-        studentId: params.id,
+        studentId,
         userId: session.user.id,
         plainToken: lockToken,
       })
