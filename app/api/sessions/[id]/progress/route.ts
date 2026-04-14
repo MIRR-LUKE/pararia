@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { JobStatus } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { processAllConversationJobs } from "@/lib/jobs/conversationJobs";
 import { processAllSessionPartJobs } from "@/lib/jobs/sessionPartJobs";
@@ -10,6 +11,18 @@ import { pickDisplayTranscriptText } from "@/lib/transcript/source";
 import { shouldRunBackgroundJobsInline } from "@/lib/jobs/execution-mode";
 import { maybeStopRunpodWorkerWhenSessionPartQueueIdle } from "@/lib/runpod/idle-stop";
 import { maybeEnsureRunpodWorker } from "@/lib/runpod/worker-control";
+
+export function shouldWakeExternalSessionWorker(input: {
+  partStatuses: string[];
+  queuedSessionPartJobCount: number;
+  hasPendingConversationWork: boolean;
+}) {
+  return (
+    input.queuedSessionPartJobCount > 0 ||
+    input.partStatuses.some((status) => status === "PENDING" || status === "UPLOADING" || status === "TRANSCRIBING") ||
+    input.hasPendingConversationWork
+  );
+}
 
 export async function GET(
   request: Request,
@@ -81,6 +94,7 @@ export async function GET(
     if (searchParams.get("process") === "1") {
       const needsConversationWork =
         session.conversation?.status === "PROCESSING" ||
+        Boolean(session.conversation?.jobs.some((job) => job.status === "QUEUED" || job.status === "RUNNING")) ||
         session.nextMeetingMemo?.status === "QUEUED" ||
         session.nextMeetingMemo?.status === "GENERATING";
       if (shouldRunBackgroundJobsInline()) {
@@ -94,9 +108,21 @@ export async function GET(
         })();
         await maybeStopRunpodWorkerWhenSessionPartQueueIdle().catch(() => {});
       } else {
-        const needsWorkerWake =
-          session.parts.some((part) => part.status === "PENDING" || part.status === "UPLOADING" || part.status === "TRANSCRIBING") ||
-          needsConversationWork;
+        const queuedSessionPartJobCount = await prisma.sessionPartJob.count({
+          where: {
+            status: {
+              in: [JobStatus.QUEUED, JobStatus.RUNNING],
+            },
+            sessionPart: {
+              sessionId: session.id,
+            },
+          },
+        });
+        const needsWorkerWake = shouldWakeExternalSessionWorker({
+          partStatuses: session.parts.map((part) => part.status),
+          queuedSessionPartJobCount,
+          hasPendingConversationWork: needsConversationWork,
+        });
         if (needsWorkerWake) {
           void maybeEnsureRunpodWorker().catch(() => {});
         }

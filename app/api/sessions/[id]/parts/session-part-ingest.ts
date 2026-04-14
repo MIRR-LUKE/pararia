@@ -43,11 +43,39 @@ async function dispatchAudioSessionPartJobs(sessionId: string, partId: string) {
   return workerWake;
 }
 
-async function dispatchTextSessionPartJobs(sessionId: string, partId: string) {
-  await enqueueSessionPartJob(partId, SessionPartJobType.PROMOTE_SESSION);
-  void processAllSessionPartJobs(sessionId).catch((error) => {
-    console.error("[POST /api/sessions/[id]/parts] Background session part promotion failed:", error);
-  });
+type TextSessionPartDispatchDeps = {
+  enqueueSessionPartJob?: typeof enqueueSessionPartJob;
+  processAllSessionPartJobs?: typeof processAllSessionPartJobs;
+  shouldRunBackgroundJobsInline?: typeof shouldRunBackgroundJobsInline;
+  maybeEnsureRunpodWorker?: typeof maybeEnsureRunpodWorker;
+};
+
+export async function dispatchTextSessionPartJobs(
+  sessionId: string,
+  partId: string,
+  deps: TextSessionPartDispatchDeps = {}
+) {
+  const enqueue = deps.enqueueSessionPartJob ?? enqueueSessionPartJob;
+  const processAll = deps.processAllSessionPartJobs ?? processAllSessionPartJobs;
+  const runInline = deps.shouldRunBackgroundJobsInline ?? shouldRunBackgroundJobsInline;
+  const ensureWorker = deps.maybeEnsureRunpodWorker ?? maybeEnsureRunpodWorker;
+  const inline = runInline();
+
+  await enqueue(partId, SessionPartJobType.PROMOTE_SESSION);
+  const workerWake = inline ? null : await ensureWorker();
+
+  if (inline) {
+    void processAll(sessionId).catch((error) => {
+      console.error("[POST /api/sessions/[id]/parts] Background session part promotion failed:", error);
+    });
+  } else if (workerWake?.attempted && !workerWake.ok) {
+    console.error("[POST /api/sessions/[id]/parts] Runpod worker wake failed for text promotion:", workerWake);
+  }
+
+  return {
+    mode: inline ? "inline" as const : "external" as const,
+    workerWake,
+  };
 }
 
 async function persistAudioSessionPart(input: {
@@ -417,12 +445,13 @@ async function handleTextSessionPartSubmission(input: {
   await ensureSessionPartReviewedTranscript(part.id);
 
   const session = await updateSessionStatusFromParts(access.sessionRow.id);
-  await dispatchTextSessionPartJobs(access.sessionRow.id, part.id);
+  const generationDispatch = await dispatchTextSessionPartJobs(access.sessionRow.id, part.id);
 
   return NextResponse.json({
     part,
     session,
     generationDeferred: true,
+    generationDispatch,
   });
 }
 
