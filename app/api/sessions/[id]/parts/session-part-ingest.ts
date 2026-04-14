@@ -65,11 +65,15 @@ export async function dispatchTextSessionPartJobs(
   const workerWake = inline ? null : await ensureWorker();
 
   if (inline) {
-    void processAll(sessionId).catch((error) => {
-      console.error("[POST /api/sessions/[id]/parts] Background session part promotion failed:", error);
-    });
+    await processAll(sessionId);
   } else if (workerWake?.attempted && !workerWake.ok) {
     console.error("[POST /api/sessions/[id]/parts] Runpod worker wake failed for text promotion:", workerWake);
+  }
+
+  if (!inline) {
+    await processAll(sessionId).catch((error) => {
+      console.error("[POST /api/sessions/[id]/parts] Manual session part promotion failed:", error);
+    });
   }
 
   return {

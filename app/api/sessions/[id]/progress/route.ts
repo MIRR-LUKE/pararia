@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { JobStatus } from "@prisma/client";
+import { ConversationSourceType, JobStatus } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import {
   ensureConversationJobsAvailable,
@@ -14,6 +14,61 @@ import { pickDisplayTranscriptText } from "@/lib/transcript/source";
 import { shouldRunBackgroundJobsInline } from "@/lib/jobs/execution-mode";
 import { maybeStopRunpodWorkerWhenSessionPartQueueIdle } from "@/lib/runpod/idle-stop";
 import { maybeEnsureRunpodWorker } from "@/lib/runpod/worker-control";
+
+async function loadSessionProgressSnapshot(sessionId: string, organizationId: string) {
+  return prisma.session.findFirst({
+    where: {
+      id: sessionId,
+      organizationId,
+    },
+    include: {
+      parts: {
+        orderBy: { createdAt: "asc" },
+        select: {
+          id: true,
+          partType: true,
+          sourceType: true,
+          status: true,
+          fileName: true,
+          rawTextOriginal: true,
+          rawTextCleaned: true,
+          reviewedText: true,
+          reviewState: true,
+          qualityMetaJson: true,
+        },
+      },
+      conversation: {
+        select: {
+          id: true,
+          status: true,
+          summaryMarkdown: true,
+          createdAt: true,
+          jobs: {
+            select: {
+              type: true,
+              status: true,
+              startedAt: true,
+              finishedAt: true,
+            },
+          },
+        },
+      },
+      nextMeetingMemo: {
+        select: {
+          status: true,
+          previousSummary: true,
+          suggestedTopics: true,
+          errorMessage: true,
+          updatedAt: true,
+        },
+      },
+    },
+  });
+}
+
+function hasOnlyManualParts(parts: Array<{ sourceType: ConversationSourceType }>) {
+  return parts.length > 0 && parts.every((part) => part.sourceType === ConversationSourceType.MANUAL);
+}
 
 export function shouldWakeExternalSessionWorker(input: {
   partStatuses: string[];
@@ -97,53 +152,7 @@ export async function GET(
     if (authResult.response) return authResult.response;
     const authSession = authResult.session;
 
-    const session = await prisma.session.findFirst({
-      where: {
-        id: sessionId,
-        organizationId: authSession.user.organizationId,
-      },
-      include: {
-        parts: {
-          orderBy: { createdAt: "asc" },
-          select: {
-            id: true,
-            partType: true,
-            status: true,
-            fileName: true,
-            rawTextOriginal: true,
-            rawTextCleaned: true,
-            reviewedText: true,
-            reviewState: true,
-            qualityMetaJson: true,
-          },
-        },
-        conversation: {
-          select: {
-            id: true,
-            status: true,
-            summaryMarkdown: true,
-            createdAt: true,
-            jobs: {
-              select: {
-                type: true,
-                status: true,
-                startedAt: true,
-                finishedAt: true,
-              },
-            },
-          },
-        },
-        nextMeetingMemo: {
-          select: {
-            status: true,
-            previousSummary: true,
-            suggestedTopics: true,
-            errorMessage: true,
-            updatedAt: true,
-          },
-        },
-      },
-    });
+    let session = await loadSessionProgressSnapshot(sessionId, authSession.user.organizationId);
 
     if (!session) {
       return NextResponse.json({ error: "セッションが見つかりません。" }, { status: 404 });
@@ -151,6 +160,26 @@ export async function GET(
 
     const { searchParams } = new URL(request.url);
     if (searchParams.get("process") === "1") {
+      const manualOnlyParts = hasOnlyManualParts(session.parts);
+      const queuedSessionPartJobCount = await prisma.sessionPartJob.count({
+        where: {
+          status: {
+            in: [JobStatus.QUEUED, JobStatus.RUNNING],
+          },
+          sessionPart: {
+            sessionId: session.id,
+          },
+        },
+      });
+
+      if (manualOnlyParts && queuedSessionPartJobCount > 0) {
+        await processAllSessionPartJobs(session.id).catch(() => {});
+        session = await loadSessionProgressSnapshot(sessionId, authSession.user.organizationId);
+        if (!session) {
+          return NextResponse.json({ error: "セッションが見つかりません。" }, { status: 404 });
+        }
+      }
+
       const recovery = await recoverMissingConversationJobs(session.conversation?.id).catch(() => ({
         healed: false as const,
         reason: "recovery_failed" as const,
@@ -170,24 +199,24 @@ export async function GET(
         }
         await maybeStopRunpodWorkerWhenSessionPartQueueIdle().catch(() => {});
       } else {
-        const queuedSessionPartJobCount = await prisma.sessionPartJob.count({
-          where: {
-            status: {
-              in: [JobStatus.QUEUED, JobStatus.RUNNING],
-            },
-            sessionPart: {
-              sessionId: session.id,
-            },
-          },
-        });
-        const needsWorkerWake = shouldWakeExternalSessionWorker({
-          partStatuses: session.parts.map((part) => part.status),
-          queuedSessionPartJobCount,
-          hasPendingConversationWork: needsConversationWork,
-        });
-        if (needsWorkerWake) {
-          await wakeSessionWorkerOrFallback(session.id, needsConversationWork).catch(() => {});
+        if (manualOnlyParts && session.conversation?.id && needsConversationWork) {
+          await processAllConversationJobs(session.conversation.id).catch(() => {});
+          await maybeStopRunpodWorkerWhenSessionPartQueueIdle().catch(() => {});
+        } else {
+          const needsWorkerWake = shouldWakeExternalSessionWorker({
+            partStatuses: session.parts.map((part) => part.status),
+            queuedSessionPartJobCount,
+            hasPendingConversationWork: needsConversationWork,
+          });
+          if (needsWorkerWake) {
+            await wakeSessionWorkerOrFallback(session.id, needsConversationWork).catch(() => {});
+          }
         }
+      }
+
+      session = await loadSessionProgressSnapshot(sessionId, authSession.user.organizationId);
+      if (!session) {
+        return NextResponse.json({ error: "セッションが見つかりません。" }, { status: 404 });
       }
     }
 
