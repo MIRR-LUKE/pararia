@@ -4,47 +4,36 @@ process.env.OPENAI_API_KEY = process.env.OPENAI_API_KEY || "test-key";
 
 const weakJson = {
   date: "2026-04-08",
-  greeting: "お世話になっております。",
-  introduction: "直近の面談・授業記録をもとに、現在の状況と今後の進め方をご報告いたします。",
-  summary: "現在の状況と次回までの方針を、会話ログの内容に基づいて整理しました。",
-  sections: [
-    { title: "今回の様子", body: "今回の記録から、現在の学習状況と次回に向けた確認事項を整理しています。" },
-    { title: "学習状況の変化", body: "直近のやり取りの中で見えた変化は、次回面談・授業で継続して確認します。" },
-    { title: "講師としての見立て", body: "事実ベースの記録を踏まえ、次回も方針の妥当性を確認していきます。" },
-    { title: "科目別またはテーマ別の具体策", body: "教材・教科・優先順位を具体化し、次回までに何を回すかを明確にします。" },
-    { title: "リスクとその意味", body: "止まりやすいポイントや見落としやすい点を、必要以上に煽らず整理します。" },
-    { title: "次回までの方針", body: "今回整理した確認事項と次の行動をもとに、学習の進め方を具体化していきます。" },
-    { title: "ご家庭で見てほしいこと", body: "課題を終えたかどうかだけでなく、やり直しや定着確認まで進められたかを一言確認いただけると効果的です。" },
+  openingParagraph: "現在の状況をまとめてご報告いたします。",
+  detailParagraphs: [
+    "今回の記録から、学習状況と確認事項を整理しました。",
+    "今後も継続して確認します。",
+    "次回も様子を見ていきます。",
   ],
-  closing: "引き続きよろしくお願いいたします。",
+  closingParagraph: "引き続きよろしくお願いいたします。",
 };
 
 const improvedJson = {
   date: "2026-04-08",
-  greeting: "お世話になっております。",
-  introduction: "今回は4月の面談ログをもとに、国語の語句理解と基礎問の取りこぼしに絞ってご報告します。",
-  summary:
-    "今回の面談では、大問2の基礎問で落とした原因として、語句の意味理解が曖昧なまま解いていた点が見えました。難問で止まったというより、取り切りたい基礎問題の精度を上げることが優先です。",
-  sections: [
-    { title: "今回の様子", body: "面談では、解けないと厳しい問題を複数落としたという本人の認識が共有されました。特に大問2の基礎問に関する発話が中心で、短時間ながら失点箇所の振り返りに話題が集まりました。" },
-    { title: "学習状況の変化", body: "難問そのものより、基礎問で止まったことを本人が自覚し始めている点は前進です。一方で、語句の意味確認を後回しにしたまま解いている様子も残っていました。" },
-    { title: "講師としての見立て", body: "今回の失点は応用不足より、基礎知識の即時想起と確認不足の影響が大きいと見ています。まずは基礎問で落とさない状態を作る方が、得点の安定に直結します。" },
-    { title: "科目別またはテーマ別の具体策", body: "国語では、語句の意味と読みをその場で確認しながら復習する形を優先します。大問2の基礎問で落とした内容を問題番号ベースで洗い出し、類題で取り直せるかまで確認します。" },
-    { title: "リスクとその意味", body: "基礎問の取りこぼしが続くと、難問に時間をかける前に点数が伸びにくくなります。特に意味確認で止まる状態が残ると、模試や本番でも同じ型の失点につながりやすいです。" },
-    { title: "次回までの方針", body: "次回は、大問2の基礎問で落とした箇所を優先して確認し、語句理解の曖昧さが残っていないかを見ます。そのうえで、解く順番と見直し方も合わせて整えます。" },
-    { title: "ご家庭で見てほしいこと", body: "ご家庭では、課題を終えたかだけでなく『間違えた基礎問を解き直したか』『語句の意味を自分の言葉で説明できるか』を一言確認していただけると効果的です。" },
+  openingParagraph:
+    "今月は、国語の基礎問での取りこぼしをどう減らすかを軸にしながら、焦って新しいことを増やすのではなく、いま使っている教材を最後までやり切る方針へ気持ちを整えていく時間になったと感じています。できていないことに目が向きやすい時期だからこそ、まず何を積み上げればよいかを落ち着いて定めることが大事だと共有しました。",
+  detailParagraphs: [
+    "今回の面談では、大問2の基礎問で落とした原因として、語句の意味理解が曖昧なまま解いていた点がはっきり話題になりました。難問で止まったというより、まず取り切りたい問題で失点している状態だからこそ、参考書を次々に変えるより、いま使っている教材の復習精度を上げる方が先だという話をしました。やり方を増やすことより、いまの教材で『分かったつもり』を残さないことの方が、今の段階では大きな意味を持つと見ています。",
+    "また、本人の中でも『できていないこと』に意識が寄りやすい一方で、どこでつまずいたかを以前より言葉にできるようになってきています。ただ落ち込むだけで終わらず、自分の弱さを見つけたうえで立て直そうとしている点に、前向きな変化が出てきているように思います。結果だけを見ると不安が先に立ちやすい時期ですが、気持ちを整えながら次の一手を考えられるようになってきたこと自体が、今月の大きな成長だと感じました。",
+    "今月大きかったのは、基礎問を落とした事実をそのまま受け止めたうえで、次に何を積み上げればよいかを一緒に整理できたことです。来月は、語句の意味を自分の言葉で説明できるか、間違えた基礎問を解き直して取り切れるかを、特に意識して見ていきたいと考えています。ご家庭でも、問題を解いたかどうかだけでなく、基礎問を解き直して自分の言葉で説明できたかを一言確認していただけると、学習の定着が進みやすくなります。",
   ],
-  closing: "引き続き、お子さまが基礎で取りこぼさない状態を作れるよう伴走してまいります。",
+  closingParagraph:
+    "引き続き、太郎さんが焦りに振り回されず、自分に合うやり方で基礎を積み上げていけるよう、丁寧に見てまいります。今後ともどうぞよろしくお願いいたします。",
 };
 
 const responses = [
   {
     choices: [{ message: { content: JSON.stringify(weakJson) } }],
-    usage: { prompt_tokens: 1200, completion_tokens: 500, total_tokens: 1700 },
+    usage: { prompt_tokens: 1200, completion_tokens: 300, total_tokens: 1500 },
   },
   {
     choices: [{ message: { content: JSON.stringify(improvedJson) } }],
-    usage: { prompt_tokens: 900, completion_tokens: 650, total_tokens: 1550 },
+    usage: { prompt_tokens: 900, completion_tokens: 700, total_tokens: 1600 },
   },
 ];
 
@@ -61,7 +50,10 @@ globalThis.fetch = async () => {
 const { generateParentReport } = await import("../lib/ai/parentReport");
 
 const result = await generateParentReport({
-  studentName: "田中太郎",
+  studentName: "太郎",
+  guardianNames: "細井 花子",
+  teacherName: "田中",
+  organizationName: "APS渋谷校",
   periodFrom: "2026-04-01",
   periodTo: "2026-04-08",
   logs: [
@@ -71,15 +63,21 @@ const result = await generateParentReport({
       date: "2026-04-07",
       mode: "INTERVIEW",
       artifactJson: {
+        version: "conversation-artifact/v1",
+        sessionType: "INTERVIEW",
+        generatedAt: "2026-04-07T10:00:00.000Z",
         summary: [{ text: "大問2の基礎問での失点が話題になった。" }],
         claims: [{ text: "語句の意味理解が曖昧なまま解いていた。" }],
-        nextActions: [{ text: "基礎問の解き直しを優先する。" }],
-        nextChecks: [{ text: "語句の意味を説明できるか確認する。" }],
+        nextActions: [{ text: "参考書を変えず、いま使っている教材の復習精度を上げる。", actionType: "assessment" }],
         sharePoints: [{ text: "基礎問の取りこぼしを減らすことが優先。" }],
-        assessment: [{ text: "応用以前に基礎知識の即時想起に課題がある。" }],
+        facts: ["大問2の基礎問での失点が話題になった。"],
+        changes: ["できていないことを言葉にできるようになってきた。"],
+        assessment: ["難問対策より先に、基礎の取りこぼしを減らす必要がある。"],
+        nextChecks: ["語句の意味を自分の言葉で説明できるか確認する。"],
         sections: [],
       },
-      summaryMarkdown: "大問2の基礎問での失点と、語句理解の曖昧さが確認された。",
+      summaryMarkdown:
+        "大問2の基礎問での失点と、語句理解の曖昧さが確認された。いま使っている教材の復習精度を上げる方針を確認した。",
     },
   ],
 });
@@ -87,9 +85,17 @@ const result = await generateParentReport({
 assert.equal(fetchCalls, 2);
 assert.equal(result.generationMeta.apiCalls, 2);
 assert.equal(result.generationMeta.retried, true);
-assert.equal(result.reportJson.summary, improvedJson.summary);
+assert.equal(result.reportJson.salutation, "細井様、いつも大変お世話になっております。");
+assert.equal(result.reportJson.selfIntroduction, "担当講師をさせていただいております、APS渋谷校の田中です。");
+assert.match(result.reportJson.reportLead, /^(今月|4月)の太郎さんのご様子について、ご報告いたします。$/);
+assert.equal(result.reportJson.openingParagraph, improvedJson.openingParagraph);
+assert.equal(result.reportJson.detailParagraphs.length, 3);
+assert.match(result.markdown, /^細井様、いつも大変お世話になっております。/);
+assert.match(result.markdown, /担当講師をさせていただいております、APS渋谷校の田中です。/);
 assert.match(result.markdown, /大問2の基礎問/);
-assert.match(result.markdown, /ご家庭では/);
-assert.ok(result.generationMeta.tokenUsage.totalTokens >= 3250);
+assert.match(result.markdown, /いま使っている教材/);
+assert.match(result.markdown, /担当講師 田中$/m);
+assert.ok(!result.markdown.includes("##"));
+assert.ok(result.generationMeta.tokenUsage.totalTokens >= 3100);
 
 console.log("parent-report generation smoke check passed");

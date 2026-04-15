@@ -42,6 +42,17 @@ export async function POST(request: Request) {
 
     const student = await prisma.student.findFirst({
       where: withActiveStudentWhere({ id: studentId, organizationId: session.user.organizationId }),
+      select: {
+        id: true,
+        name: true,
+        guardianNames: true,
+        organizationId: true,
+        organization: {
+          select: {
+            name: true,
+          },
+        },
+      },
     });
     if (!student) {
       return NextResponse.json({ error: "student not found" }, { status: 404 });
@@ -154,7 +165,9 @@ export async function POST(request: Request) {
 
     const { markdown, reportJson, bundleQualityEval, generationMeta } = await generateParentReport({
       studentName: student.name,
-      organizationName: undefined,
+      guardianNames: student.guardianNames,
+      teacherName: session.user.name,
+      organizationName: student.organization?.name,
       periodFrom: from?.toISOString().slice(0, 10),
       periodTo: (to ?? new Date()).toISOString().slice(0, 10),
       logs: logs.map((log) => ({
