@@ -116,11 +116,15 @@ async function main() {
       (response) =>
         response.url().includes(`/api/students/${studentId}`) &&
         response.request().method() === "PUT" &&
-        response.status() === 200,
+        response.status() >= 200 &&
+        response.status() < 300,
       { timeout: 20_000 }
     );
     await studentRow.getByRole("button", { name: "保存する" }).click();
-    await updateResponsePromise;
+    const updateResponse = await updateResponsePromise;
+    if (!updateResponse.ok()) {
+      throw new Error(`生徒編集 API に失敗しました: ${updateResponse.status()}`);
+    }
 
     await studentRow.getByRole("button", { name: "その場で編集" }).waitFor({ timeout: 20_000 });
     await studentRow.getByRole("button", { name: "その場で編集" }).click();
