@@ -9,10 +9,11 @@ import {
 } from "@/lib/jobs/conversationJobs";
 import { shouldRunBackgroundJobsInline } from "@/lib/jobs/execution-mode";
 import { ensureConversationReviewedTranscript } from "@/lib/transcript/review";
-import { requireAuthorizedSession } from "@/lib/server/request-auth";
+import { requireAuthorizedMutationSession } from "@/lib/server/request-auth";
 import { resolveRouteId, type RouteParams } from "@/lib/server/route-params";
 import { maybeStopRunpodWorkerWhenSessionPartQueueIdle } from "@/lib/runpod/idle-stop";
 import { maybeEnsureRunpodWorker } from "@/lib/runpod/worker-control";
+import { applyLightMutationThrottle } from "@/lib/server/request-throttle";
 
 export async function POST(
   request: Request,
@@ -20,9 +21,16 @@ export async function POST(
 ) {
   try {
     const { id } = await Promise.resolve(params);
-    const authResult = await requireAuthorizedSession();
+    const authResult = await requireAuthorizedMutationSession(request);
     if (authResult.response) return authResult.response;
     const organizationId = authResult.session.user.organizationId;
+    const throttleResponse = await applyLightMutationThrottle({
+      request,
+      scope: "conversations.regenerate",
+      userId: authResult.session.user.id,
+      organizationId,
+    });
+    if (throttleResponse) return throttleResponse;
 
     const { searchParams } = new URL(request.url);
     const includeFormat = searchParams.get("format") === "1";

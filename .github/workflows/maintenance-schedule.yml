@@ -1,0 +1,63 @@
+name: Maintenance Schedule
+
+on:
+  schedule:
+    - cron: "0 2 * * *"
+  workflow_dispatch:
+    inputs:
+      task:
+        description: 実行する保守処理
+        required: true
+        type: choice
+        options:
+          - maintenance-cleanup
+          - jobs-run
+
+jobs:
+  maintenance-cleanup:
+    if: github.event_name == 'schedule' || github.event.inputs.task == 'maintenance-cleanup'
+    runs-on: ubuntu-latest
+    steps:
+      - name: 必須 secret を確認
+        env:
+          MAINTENANCE_SECRET: ${{ secrets.MAINTENANCE_SECRET }}
+        run: |
+          if [ -z "$MAINTENANCE_SECRET" ]; then
+            echo "MAINTENANCE_SECRET が未設定です。" >&2
+            exit 1
+          fi
+
+      - name: cleanup を実行
+        env:
+          APP_BASE_URL: ${{ vars.PARARIA_APP_BASE_URL }}
+          MAINTENANCE_SECRET: ${{ secrets.MAINTENANCE_SECRET }}
+        run: |
+          BASE_URL="${APP_BASE_URL:-https://pararia.vercel.app}"
+          curl --fail-with-body --silent --show-error \
+            -X POST \
+            -H "x-maintenance-secret: $MAINTENANCE_SECRET" \
+            "$BASE_URL/api/maintenance/cleanup"
+
+  jobs-run:
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.task == 'jobs-run'
+    runs-on: ubuntu-latest
+    steps:
+      - name: 必須 secret を確認
+        env:
+          MAINTENANCE_SECRET: ${{ secrets.MAINTENANCE_SECRET }}
+        run: |
+          if [ -z "$MAINTENANCE_SECRET" ]; then
+            echo "MAINTENANCE_SECRET が未設定です。" >&2
+            exit 1
+          fi
+
+      - name: jobs/run を実行
+        env:
+          APP_BASE_URL: ${{ vars.PARARIA_APP_BASE_URL }}
+          MAINTENANCE_SECRET: ${{ secrets.MAINTENANCE_SECRET }}
+        run: |
+          BASE_URL="${APP_BASE_URL:-https://pararia.vercel.app}"
+          curl --fail-with-body --silent --show-error \
+            -X POST \
+            -H "x-maintenance-secret: $MAINTENANCE_SECRET" \
+            "$BASE_URL/api/jobs/run"

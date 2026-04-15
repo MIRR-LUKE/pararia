@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { requireAuthorizedSession } from "@/lib/server/request-auth";
+import { requireAuthorizedMutationSession, requireAuthorizedSession } from "@/lib/server/request-auth";
+import { applyLightMutationThrottle } from "@/lib/server/request-throttle";
 
 export async function GET(
   _request: Request,
@@ -62,8 +63,15 @@ export async function PATCH(
 ) {
   try {
     const { id } = await Promise.resolve(params);
-    const authResult = await requireAuthorizedSession();
+    const authResult = await requireAuthorizedMutationSession(request);
     if (authResult.response) return authResult.response;
+    const throttleResponse = await applyLightMutationThrottle({
+      request,
+      scope: "sessions.update",
+      userId: authResult.session.user.id,
+      organizationId: authResult.session.user.organizationId,
+    });
+    if (throttleResponse) return throttleResponse;
     const body = await request.json();
     const data: Record<string, unknown> = {};
     if (body?.title !== undefined) data.title = body.title || null;

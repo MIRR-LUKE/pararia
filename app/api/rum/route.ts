@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { isRumEvent, type RumEvent } from "@/lib/observability/rum";
+import { applyPublicIpThrottle } from "@/lib/server/request-throttle";
+import { parseJsonWithByteLimit } from "@/lib/server/request-body";
 
 function normalizeEvent(event: RumEvent) {
   if (event.kind === "web-vital") {
@@ -12,7 +14,6 @@ function normalizeEvent(event: RumEvent) {
       rating: event.rating,
       routeKey: event.routeKey,
       pathname: event.pathname,
-      search: event.search,
       navigationType: event.navigationType,
       sentAt: event.sentAt,
     };
@@ -22,7 +23,6 @@ function normalizeEvent(event: RumEvent) {
     kind: event.kind,
     routeKey: event.routeKey,
     pathname: event.pathname,
-    search: event.search,
     durationMs: event.durationMs,
     transitionSource: event.transitionSource,
     navigationType: event.navigationType,
@@ -31,16 +31,28 @@ function normalizeEvent(event: RumEvent) {
 }
 
 export async function POST(request: Request) {
-  const payload = (await request.json().catch(() => null)) as unknown;
-  if (!isRumEvent(payload)) {
-    return new NextResponse(null, { status: 204 });
-  }
+  try {
+    const throttleResponse = await applyPublicIpThrottle({ request, scope: "rum" });
+    if (throttleResponse) return throttleResponse;
 
-  console.info("[rum]", JSON.stringify(normalizeEvent(payload)));
-  return new NextResponse(null, {
-    status: 204,
-    headers: {
-      "Cache-Control": "no-store, max-age=0",
-    },
-  });
+    const payload = (await parseJsonWithByteLimit(request, 16 * 1024, "RUM")) as unknown;
+    if (!isRumEvent(payload)) {
+      return new NextResponse(null, { status: 204 });
+    }
+
+    console.info("[rum]", JSON.stringify(normalizeEvent(payload)));
+    return new NextResponse(null, {
+      status: 204,
+      headers: {
+        "Cache-Control": "no-store, max-age=0",
+      },
+    });
+  } catch (error: any) {
+    if (error?.status === 413) {
+      return NextResponse.json({ error: error.message ?? "本文が大きすぎます。" }, { status: 413 });
+    }
+
+    console.error("[POST /api/rum]", error);
+    return NextResponse.json({ error: error?.message ?? "Internal Server Error" }, { status: 500 });
+  }
 }

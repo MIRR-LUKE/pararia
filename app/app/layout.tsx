@@ -3,6 +3,8 @@ import { Sidebar } from "@/components/layout/Sidebar";
 import { getAppSession } from "@/lib/server/app-session";
 import styles from "./layout.module.css";
 
+export const dynamic = "force-dynamic";
+
 export default async function AppLayout({
   children,
 }: {

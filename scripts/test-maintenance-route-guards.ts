@@ -48,8 +48,16 @@ async function main() {
     const missingOriginRequest = new Request("https://example.com/api/jobs/run", {
       method: "POST",
     });
-    const missingOriginResponse = requireSameOriginRequest(missingOriginRequest);
-    assert.equal(missingOriginResponse?.status, 403, "missing origin request should be blocked");
+    assert.equal(requireSameOriginRequest(missingOriginRequest), null, "server-to-server request without browser headers should pass");
+
+    const crossSiteFetchRequest = new Request("https://example.com/api/jobs/run", {
+      method: "POST",
+      headers: {
+        "sec-fetch-site": "cross-site",
+      },
+    });
+    const crossSiteFetchResponse = requireSameOriginRequest(crossSiteFetchRequest);
+    assert.equal(crossSiteFetchResponse?.status, 403, "cross-site browser request should be blocked");
 
     process.env.MAINTENANCE_SECRET = "maintenance-secret";
     process.env.CRON_SECRET = "";

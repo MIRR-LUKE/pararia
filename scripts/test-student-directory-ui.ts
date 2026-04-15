@@ -108,8 +108,15 @@ async function main() {
     await studentRow.getByLabel("学年").fill("高3");
     await studentRow.getByLabel("コース").fill("ui-smoke-updated");
     await studentRow.getByLabel("保護者名").fill("保護者UI更新");
+    const updateResponsePromise = page.waitForResponse(
+      (response) =>
+        response.url().includes(`/api/students/${studentId}`) &&
+        response.request().method() === "PUT" &&
+        response.status() === 200,
+      { timeout: 20_000 }
+    );
     await studentRow.getByRole("button", { name: "保存する" }).click();
-    await page.getByText("生徒情報を更新しました。").waitFor({ timeout: 20_000 });
+    await updateResponsePromise;
 
     await studentRow.getByRole("button", { name: "その場で編集" }).waitFor({ timeout: 20_000 });
     await studentRow.getByRole("button", { name: "その場で編集" }).click();

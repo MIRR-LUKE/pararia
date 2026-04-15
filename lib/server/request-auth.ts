@@ -124,7 +124,7 @@ export function describeRequestActor(actor: RequestActor) {
 }
 
 export async function resolveAuthorizedSession(session: Awaited<ReturnType<typeof auth>>) {
-  if (!session?.user?.id || !session.user.organizationId) {
+  if (!session?.user?.id) {
     return null;
   }
 

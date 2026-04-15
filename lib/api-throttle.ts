@@ -120,6 +120,26 @@ export async function consumeApiQuota(input: ConsumeApiQuotaInput) {
 }
 
 export const API_THROTTLE_RULES = {
+  publicRumIp: {
+    windowMs: 10 * 60 * 1000,
+    blockMs: 10 * 60 * 1000,
+    maxRequests: 60,
+  },
+  writeUser: {
+    windowMs: 5 * 60 * 1000,
+    blockMs: 10 * 60 * 1000,
+    maxRequests: 30,
+  },
+  writeOrg: {
+    windowMs: 5 * 60 * 1000,
+    blockMs: 10 * 60 * 1000,
+    maxRequests: 120,
+  },
+  writeIp: {
+    windowMs: 5 * 60 * 1000,
+    blockMs: 10 * 60 * 1000,
+    maxRequests: 45,
+  },
   blobUploadUser: {
     windowMs: 15 * 60 * 1000,
     blockMs: 15 * 60 * 1000,

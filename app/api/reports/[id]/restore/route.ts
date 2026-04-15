@@ -5,19 +5,27 @@ import { canManageStaff } from "@/lib/permissions";
 import { withVisibleReportWhere } from "@/lib/content-visibility";
 import { prisma } from "@/lib/db";
 import { getLogListCacheTag } from "@/lib/logs/get-log-list-page-data";
-import { requireAuthorizedSession } from "@/lib/server/request-auth";
+import { requireAuthorizedMutationSession } from "@/lib/server/request-auth";
+import { applyLightMutationThrottle } from "@/lib/server/request-throttle";
 
 export async function POST(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const { id } = await Promise.resolve(params);
-    const authResult = await requireAuthorizedSession();
+    const authResult = await requireAuthorizedMutationSession(request);
     if (authResult.response) return authResult.response;
     if (!canManageStaff(authResult.session.user.role)) {
       return NextResponse.json({ error: "権限がありません。" }, { status: 403 });
     }
+    const throttleResponse = await applyLightMutationThrottle({
+      request,
+      scope: "reports.restore",
+      userId: authResult.session.user.id,
+      organizationId: authResult.session.user.organizationId,
+    });
+    if (throttleResponse) return throttleResponse;
     const organizationId = authResult.session.user.organizationId;
 
     const current = await prisma.report.findFirst({

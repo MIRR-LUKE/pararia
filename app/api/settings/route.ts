@@ -47,12 +47,13 @@ export async function PATCH(request: Request) {
     if (!canManageSettings(session.user.role)) {
       return NextResponse.json({ error: "この操作は管理者または室長のみ可能です。" }, { status: 403 });
     }
-    await applyLightMutationThrottle({
+    const throttleResponse = await applyLightMutationThrottle({
       request,
       scope: "settings.update",
       userId: session.user.id,
       organizationId: session.user.organizationId,
     });
+    if (throttleResponse) return throttleResponse;
 
     const body = await request.json().catch(() => ({}));
     const organizationInput =

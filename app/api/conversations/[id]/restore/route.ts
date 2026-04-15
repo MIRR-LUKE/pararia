@@ -5,12 +5,13 @@ import { canManageStaff } from "@/lib/permissions";
 import { withVisibleConversationWhere } from "@/lib/content-visibility";
 import { getLogListCacheTag } from "@/lib/logs/get-log-list-page-data";
 import { prisma } from "@/lib/db";
-import { requireAuthorizedSession } from "@/lib/server/request-auth";
+import { requireAuthorizedMutationSession } from "@/lib/server/request-auth";
 import { resolveRouteId, type RouteParams } from "@/lib/server/route-params";
+import { applyLightMutationThrottle } from "@/lib/server/request-throttle";
 import { syncSessionAfterConversation } from "@/lib/session-service";
 
 export async function POST(
-  _request: Request,
+  request: Request,
   { params }: { params: RouteParams }
 ) {
   try {
@@ -19,12 +20,19 @@ export async function POST(
       return NextResponse.json({ error: "conversationId is required" }, { status: 400 });
     }
 
-    const authResult = await requireAuthorizedSession();
+    const authResult = await requireAuthorizedMutationSession(request);
     if (authResult.response) return authResult.response;
     if (!canManageStaff(authResult.session.user.role)) {
       return NextResponse.json({ error: "権限がありません。" }, { status: 403 });
     }
     const organizationId = authResult.session.user.organizationId;
+    const throttleResponse = await applyLightMutationThrottle({
+      request,
+      scope: "conversations.restore",
+      userId: authResult.session.user.id,
+      organizationId,
+    });
+    if (throttleResponse) return throttleResponse;
 
     const current = await prisma.conversationLog.findFirst({
       where: {

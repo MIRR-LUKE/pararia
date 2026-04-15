@@ -1,12 +1,1 @@
-{
-  "crons": [
-    {
-      "path": "/api/jobs/run?limit=6&concurrency=3",
-      "schedule": "0 3 * * *"
-    },
-    {
-      "path": "/api/maintenance/cleanup",
-      "schedule": "0 2 * * *"
-    }
-  ]
-}
+{}

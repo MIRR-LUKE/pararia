@@ -66,6 +66,7 @@ npm run backup:db
   - `pararia.dump`
   - `metadata.json`
 - backup 専用の接続先を使えるなら `PARARIA_BACKUP_DATABASE_URL` を最優先にする
+- backup script の接続順は `PARARIA_BACKUP_DATABASE_URL` → `DIRECT_URL` → `DATABASE_URL`
 - `.tmp/vercel.env` と `.tmp/vercel-prod.env` を読むのは `--include-tmp-env` を付けたときだけ
 
 Blob:

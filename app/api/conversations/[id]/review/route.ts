@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 import { withVisibleConversationWhere } from "@/lib/content-visibility";
 import { prisma } from "@/lib/db";
-import { requireAuthorizedSession } from "@/lib/server/request-auth";
+import { requireAuthorizedMutationSession, requireAuthorizedSession } from "@/lib/server/request-auth";
 import { resolveRouteId, type RouteParams } from "@/lib/server/route-params";
+import { applyLightMutationThrottle } from "@/lib/server/request-throttle";
 import {
   ensureConversationReviewedTranscript,
   listConversationProperNounSuggestions,
@@ -42,13 +43,20 @@ export async function GET(
 }
 
 export async function POST(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const { id } = await Promise.resolve(params);
-    const authResult = await requireAuthorizedSession();
+    const authResult = await requireAuthorizedMutationSession(request);
     if (authResult.response) return authResult.response;
+    const throttleResponse = await applyLightMutationThrottle({
+      request,
+      scope: "conversations.review.refresh",
+      userId: authResult.session.user.id,
+      organizationId: authResult.session.user.organizationId,
+    });
+    if (throttleResponse) return throttleResponse;
     await ensureOwnedConversation(id, authResult.session.user.organizationId);
 
     await ensureConversationReviewedTranscript(id);

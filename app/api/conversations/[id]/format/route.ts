@@ -4,20 +4,28 @@ import { prisma } from "@/lib/db";
 import { ConversationJobType, JobStatus } from "@prisma/client";
 import { processAllConversationJobs } from "@/lib/jobs/conversationJobs";
 import { shouldRunBackgroundJobsInline } from "@/lib/jobs/execution-mode";
-import { requireAuthorizedSession } from "@/lib/server/request-auth";
+import { requireAuthorizedMutationSession } from "@/lib/server/request-auth";
 import { resolveRouteId, type RouteParams } from "@/lib/server/route-params";
 import { maybeStopRunpodWorkerWhenSessionPartQueueIdle } from "@/lib/runpod/idle-stop";
 import { maybeEnsureRunpodWorker } from "@/lib/runpod/worker-control";
+import { applyLightMutationThrottle } from "@/lib/server/request-throttle";
 
 export async function POST(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const { id } = await Promise.resolve(params);
-    const authResult = await requireAuthorizedSession();
+    const authResult = await requireAuthorizedMutationSession(request);
     if (authResult.response) return authResult.response;
     const organizationId = authResult.session.user.organizationId;
+    const throttleResponse = await applyLightMutationThrottle({
+      request,
+      scope: "conversations.format",
+      userId: authResult.session.user.id,
+      organizationId,
+    });
+    if (throttleResponse) return throttleResponse;
 
     const conversation = await prisma.conversationLog.findFirst({
       where: withVisibleConversationWhere({ id, organizationId }),

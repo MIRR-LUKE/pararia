@@ -154,12 +154,13 @@ export async function POST(
       });
     }
 
-    await applyLightMutationThrottle({
+    const throttleResponse = await applyLightMutationThrottle({
       request,
       scope: "recording-lock.acquire",
       userId: session.user.id,
       organizationId: session.user.organizationId,
     });
+    if (throttleResponse) return throttleResponse;
 
     const body = await request.json().catch(() => ({}));
     if (body?.forceRelease === true) {
@@ -317,12 +318,13 @@ export async function PATCH(
       });
     }
 
-    await applyLightMutationThrottle({
+    const throttleResponse = await applyLightMutationThrottle({
       request,
       scope: "recording-lock.heartbeat",
       userId: session.user.id,
       organizationId: session.user.organizationId,
     });
+    if (throttleResponse) return throttleResponse;
 
     const body = await request.json().catch(() => ({}));
     const lockToken = typeof body?.lockToken === "string" ? body.lockToken.trim() : "";
@@ -401,12 +403,13 @@ export async function DELETE(
         level: "warn",
       });
     }
-    await applyLightMutationThrottle({
+    const throttleResponse = await applyLightMutationThrottle({
       request,
       scope: "recording-lock.release",
       userId: session.user.id,
       organizationId: session.user.organizationId,
     });
+    if (throttleResponse) return throttleResponse;
 
     let lockToken = "";
     try {

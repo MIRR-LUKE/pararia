@@ -1,11 +1,12 @@
 import { revalidatePath, revalidateTag } from "next/cache";
 import { NextResponse } from "next/server";
 import { writeAuditLog } from "@/lib/audit";
-import { requireAuthorizedSession } from "@/lib/server/request-auth";
+import { requireAuthorizedMutationSession, requireAuthorizedSession } from "@/lib/server/request-auth";
 import { listStudentRows } from "@/lib/students/list-student-rows";
 import { StudentLimitExceededError, assertStudentCapacityAvailable, runStudentCapacityWrite } from "@/lib/students/student-limit";
 import { mapStudentDirectoryRows } from "@/lib/students/student-directory-view";
 import { normalizeStudentCreateInput } from "@/lib/students/student-write";
+import { applyLightMutationThrottle } from "@/lib/server/request-throttle";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -51,8 +52,15 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const authResult = await requireAuthorizedSession();
+    const authResult = await requireAuthorizedMutationSession(request);
     if (authResult.response) return authResult.response;
+    const throttleResponse = await applyLightMutationThrottle({
+      request,
+      scope: "students.create",
+      userId: authResult.session.user.id,
+      organizationId: authResult.session.user.organizationId,
+    });
+    if (throttleResponse) return throttleResponse;
 
     const body = await request.json();
     const { name, nameKana, grade, course, enrollmentDate, birthdate, guardianNames } =

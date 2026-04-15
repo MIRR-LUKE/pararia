@@ -18,6 +18,7 @@ PARARIA は、塾・個別指導・学習コーチング向けの `Teaching OS` 
 - 公開 RUM API は本文上限と軽い回数制限をかけ、ログには検索文字列を残さない
 - 生徒 / 会話 / 設定 / レポート送信 / 招待 / 復元系の書き込み API は軽い回数制限を通す
 - 招待 URL は公開 URL から組み立て、平文 token は API 応答に残さない
+- `jobs/run` と `maintenance/cleanup` の定期実行は Vercel cron に頼らず、GitHub Actions から `POST` で叩く
 - shape guard は `npm run check:code-shape`
 - 最低限の確認は `npm run typecheck && npm run build && npm run check:code-shape`
 
@@ -797,6 +798,7 @@ GPU が強いときの最初の目安:
 - `jobs/run` と `maintenance/cleanup` は、ふつうの画面操作ではなく保守操作として扱う
 - route 側でも止める。通るのは管理者セッションか `x-maintenance-secret` / `Authorization: Bearer` だけ
 - 実行した人や対象は監査ログに残す
+- 定期実行は `.github/workflows/maintenance-schedule.yml` から `POST` で呼ぶ。日次は cleanup、`jobs/run` は必要なときだけ手動実行にする
 - 生徒画面やログ画面の再実行は、それぞれ `POST /api/sessions/[id]/progress` と `POST /api/conversations/[id]` だけを使う
 
 ## 14. 主要ファイル
@@ -963,7 +965,7 @@ npm run backup:db
 - 実行端末には PostgreSQL client (`pg_dump`) が必要
 - `pg_dump` が無い場合は Supabase CLI fallback を試すが、Windows では Docker Desktop が必要
 - metadata と sha256 を同じディレクトリに残す
-- 接続先は `PARARIA_BACKUP_DATABASE_URL` → `DATABASE_URL` の順で解決する
+- 接続先は `PARARIA_BACKUP_DATABASE_URL` → `DIRECT_URL` → `DATABASE_URL` の順で解決する
 - backup 専用の接続先を使えるなら `PARARIA_BACKUP_DATABASE_URL` を先に入れる
 - `.tmp/vercel.env` と `.tmp/vercel-prod.env` を読むのは `--include-tmp-env` を付けたときだけ
 - 本番では Supabase の PITR を有効にした上で、この dump を **別ストレージにも退避** する

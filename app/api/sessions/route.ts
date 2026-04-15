@@ -2,8 +2,9 @@ import { NextResponse } from "next/server";
 import { SessionType } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { pickOngoingLessonReportSession } from "@/lib/lesson-report-flow";
-import { requireAuthorizedSession } from "@/lib/server/request-auth";
+import { requireAuthorizedMutationSession, requireAuthorizedSession } from "@/lib/server/request-auth";
 import { withActiveStudentWhere } from "@/lib/students/student-lifecycle";
+import { applyLightMutationThrottle } from "@/lib/server/request-throttle";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -64,9 +65,16 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const authResult = await requireAuthorizedSession();
+    const authResult = await requireAuthorizedMutationSession(request);
     if (authResult.response) return authResult.response;
     const session = authResult.session;
+    const throttleResponse = await applyLightMutationThrottle({
+      request,
+      scope: "sessions.create",
+      userId: session.user.id,
+      organizationId: session.user.organizationId,
+    });
+    if (throttleResponse) return throttleResponse;
     const body = await request.json();
     const { studentId, type, title, notes, sessionDate } = body ?? {};
 

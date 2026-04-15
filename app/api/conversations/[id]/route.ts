@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
-import { requireAuthorizedSession } from "@/lib/server/request-auth";
+import { requireAuthorizedMutationSession, requireAuthorizedSession } from "@/lib/server/request-auth";
 import { resolveRouteId, type RouteParams } from "@/lib/server/route-params";
+import { applyLightMutationThrottle } from "@/lib/server/request-throttle";
 import {
   buildConversationReadResponse,
   deleteConversation,
@@ -60,9 +61,16 @@ export async function POST(request: Request, { params }: { params: RouteParams }
       return NextResponse.json({ error: "conversationId is required" }, { status: 400 });
     }
 
-    const authResult = await requireAuthorizedSession();
+    const authResult = await requireAuthorizedMutationSession(request);
     if (authResult.response) return authResult.response;
     const organizationId = authResult.session.user.organizationId;
+    const throttleResponse = await applyLightMutationThrottle({
+      request,
+      scope: "conversations.process",
+      userId: authResult.session.user.id,
+      organizationId,
+    });
+    if (throttleResponse) return throttleResponse;
 
     const conversation = await getConversationBrief(conversationId, organizationId);
     if (!conversation) {
@@ -87,9 +95,16 @@ export async function DELETE(request: Request, { params }: { params: RouteParams
       return NextResponse.json({ error: "conversationId is required" }, { status: 400 });
     }
 
-    const authResult = await requireAuthorizedSession();
+    const authResult = await requireAuthorizedMutationSession(request);
     if (authResult.response) return authResult.response;
     const organizationId = authResult.session.user.organizationId;
+    const throttleResponse = await applyLightMutationThrottle({
+      request,
+      scope: "conversations.delete",
+      userId: authResult.session.user.id,
+      organizationId,
+    });
+    if (throttleResponse) return throttleResponse;
 
     const body = await request.json().catch(() => ({}));
     const deleteReason = readDeleteReason(body);
@@ -120,9 +135,16 @@ export async function PATCH(request: Request, { params }: { params: RouteParams 
       return NextResponse.json({ error: "conversationId is required" }, { status: 400 });
     }
 
-    const authResult = await requireAuthorizedSession();
+    const authResult = await requireAuthorizedMutationSession(request);
     if (authResult.response) return authResult.response;
     const organizationId = authResult.session.user.organizationId;
+    const throttleResponse = await applyLightMutationThrottle({
+      request,
+      scope: "conversations.update",
+      userId: authResult.session.user.id,
+      organizationId,
+    });
+    if (throttleResponse) return throttleResponse;
 
     const body = await request.json().catch(() => ({}));
     const result = await patchConversation(conversationId, organizationId, body);

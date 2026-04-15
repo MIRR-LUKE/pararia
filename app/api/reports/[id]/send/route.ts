@@ -17,12 +17,13 @@ export async function POST(
     const sessionResult = await requireAuthorizedMutationSession(request);
     if (sessionResult.response) return sessionResult.response;
     const session = sessionResult.session;
-    await applyLightMutationThrottle({
+    const throttleResponse = await applyLightMutationThrottle({
       request,
       scope: "reports.send",
       userId: session.user.id,
       organizationId: session.user.organizationId,
     });
+    if (throttleResponse) return throttleResponse;
     const body = await request.json().catch(() => ({}));
     const action: "review" | "sent" | "delivered" | "failed" | "bounced" | "manual_share" | "resent" =
       typeof body?.action === "string" && body.action.trim()

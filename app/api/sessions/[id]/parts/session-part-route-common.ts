@@ -4,7 +4,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { extractBlobPathnameFromUrl } from "@/lib/audio-storage-paths";
 import { parseWithSchema } from "@/lib/server/request-validation";
-import { requireAuthorizedSession } from "@/lib/server/request-auth";
+import { requireAuthorizedMutationSession, requireAuthorizedSession } from "@/lib/server/request-auth";
 
 export type SessionPartAuthSession = {
   user: {
@@ -132,11 +132,13 @@ export function parseLiveFinalizeSubmissionBody(body: unknown): LiveFinalizeSubm
   };
 }
 
-export async function loadAuthorizedSessionPartContext(sessionId: string): Promise<
+export async function loadAuthorizedSessionPartContext(sessionId: string, request?: Request): Promise<
   | { response: NextResponse }
   | SessionPartAccessContext
 > {
-  const authResult = await requireAuthorizedSession();
+  const authResult = request
+    ? await requireAuthorizedMutationSession(request)
+    : await requireAuthorizedSession();
   if (authResult.response) return authResult;
 
   const sessionRow = await prisma.session.findUnique({

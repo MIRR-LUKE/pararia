@@ -24,8 +24,13 @@ function readRequestOrigin(request: Request) {
 export function requireSameOriginRequest(request: Request, message = "同じサイトから実行してください。") {
   const expectedOrigin = new URL(request.url).origin;
   const requestOrigin = readRequestOrigin(request);
+  const fetchSite = request.headers.get("sec-fetch-site")?.trim().toLowerCase() ?? "";
 
-  if (!requestOrigin || requestOrigin !== expectedOrigin) {
+  if (requestOrigin && requestOrigin !== expectedOrigin) {
+    return NextResponse.json({ error: message }, { status: 403 });
+  }
+
+  if (fetchSite && !["same-origin", "same-site", "none"].includes(fetchSite)) {
     return NextResponse.json({ error: message }, { status: 403 });
   }
 

@@ -10,14 +10,8 @@ import {
 } from "@/lib/auth-throttle";
 import { requireEnvValue } from "@/lib/env";
 
-const AUTH_SECRET = requireEnvValue(
-  ["AUTH_SECRET", "NEXTAUTH_SECRET"],
-  "ログイン用の秘密鍵"
-);
-
 const config = {
   trustHost: true,
-  secret: AUTH_SECRET,
   session: { strategy: "jwt" },
   pages: { signIn: "/login" },
   providers: [
@@ -89,7 +83,33 @@ const config = {
 
 const nextAuth = NextAuth as unknown as (config: any) => {
   handlers: { GET: (request: Request) => Promise<Response>; POST: (request: Request) => Promise<Response> };
-  auth: () => Promise<any>;
+  auth: (...args: any[]) => Promise<any>;
 };
 
-export const { handlers, auth } = nextAuth(config);
+let nextAuthInstance: ReturnType<typeof nextAuth> | null = null;
+
+function getNextAuthInstance() {
+  if (nextAuthInstance) {
+    return nextAuthInstance;
+  }
+
+  const secret = requireEnvValue(["AUTH_SECRET", "NEXTAUTH_SECRET"], "ログイン用の秘密鍵");
+  nextAuthInstance = nextAuth({
+    ...config,
+    secret,
+  });
+  return nextAuthInstance;
+}
+
+export const handlers = {
+  GET(request: Request) {
+    return getNextAuthInstance().handlers.GET(request);
+  },
+  POST(request: Request) {
+    return getNextAuthInstance().handlers.POST(request);
+  },
+};
+
+export function auth(...args: any[]) {
+  return getNextAuthInstance().auth(...args);
+}

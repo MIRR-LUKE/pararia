@@ -3,21 +3,29 @@ import { NextResponse } from "next/server";
 import { writeAuditLog } from "@/lib/audit";
 import { canRestoreStudent } from "@/lib/permissions";
 import { getLogListCacheTag } from "@/lib/logs/get-log-list-page-data";
-import { requireAuthorizedSession } from "@/lib/server/request-auth";
+import { requireAuthorizedMutationSession } from "@/lib/server/request-auth";
 import { StudentLimitExceededError } from "@/lib/students/student-limit";
 import { restoreArchivedStudent } from "@/lib/students/student-lifecycle";
+import { applyLightMutationThrottle } from "@/lib/server/request-throttle";
 
 const AUDIT_WARNING_MESSAGE = "更新自体は完了しましたが、監査記録の保存に失敗しました。管理者へ連絡してください。";
 
-export async function POST(_request: Request, { params }: { params: Promise<{ id: string }> }) {
+export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await Promise.resolve(params);
-    const authResult = await requireAuthorizedSession();
+    const authResult = await requireAuthorizedMutationSession(request);
     if (authResult.response) return authResult.response;
 
     if (!canRestoreStudent(authResult.session.user.role)) {
       return NextResponse.json({ error: "権限がありません。" }, { status: 403 });
     }
+    const throttleResponse = await applyLightMutationThrottle({
+      request,
+      scope: "students.restore",
+      userId: authResult.session.user.id,
+      organizationId: authResult.session.user.organizationId,
+    });
+    if (throttleResponse) return throttleResponse;
 
     const restored = await restoreArchivedStudent({
       studentId: id,

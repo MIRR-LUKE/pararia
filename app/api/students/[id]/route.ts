@@ -4,10 +4,11 @@ import { writeAuditLog } from "@/lib/audit";
 import { prisma } from "@/lib/db";
 import { getLogListCacheTag } from "@/lib/logs/get-log-list-page-data";
 import { resolveRouteId, type RouteParams } from "@/lib/server/route-params";
-import { requireAuthorizedSession } from "@/lib/server/request-auth";
+import { requireAuthorizedMutationSession, requireAuthorizedSession } from "@/lib/server/request-auth";
 import { archiveStudent, withActiveStudentWhere } from "@/lib/students/student-lifecycle";
 import { normalizeStudentUpdateInput } from "@/lib/students/student-write";
 import { withVisibleConversationWhere, withVisibleReportWhere } from "@/lib/content-visibility";
+import { applyLightMutationThrottle } from "@/lib/server/request-throttle";
 
 const AUDIT_WARNING_MESSAGE = "更新自体は完了しましたが、監査記録の保存に失敗しました。管理者へ連絡してください。";
 
@@ -59,8 +60,15 @@ export async function PUT(
       return NextResponse.json({ error: "studentId is required" }, { status: 400 });
     }
 
-    const authResult = await requireAuthorizedSession();
+    const authResult = await requireAuthorizedMutationSession(request);
     if (authResult.response) return authResult.response;
+    const throttleResponse = await applyLightMutationThrottle({
+      request,
+      scope: "students.update",
+      userId: authResult.session.user.id,
+      organizationId: authResult.session.user.organizationId,
+    });
+    if (throttleResponse) return throttleResponse;
 
     const existing = await prisma.student.findFirst({
       where: withActiveStudentWhere({ id: studentId, organizationId: authResult.session.user.organizationId }),
@@ -133,8 +141,15 @@ export async function DELETE(
       return NextResponse.json({ error: "studentId is required" }, { status: 400 });
     }
 
-    const authResult = await requireAuthorizedSession();
+    const authResult = await requireAuthorizedMutationSession(request);
     if (authResult.response) return authResult.response;
+    const throttleResponse = await applyLightMutationThrottle({
+      request,
+      scope: "students.archive",
+      userId: authResult.session.user.id,
+      organizationId: authResult.session.user.organizationId,
+    });
+    if (throttleResponse) return throttleResponse;
 
     const body = await request.json().catch(() => ({}));
     const archiveReason =

@@ -9,7 +9,8 @@ import { processAllSessionPartJobs } from "@/lib/jobs/sessionPartJobs";
 import { buildSessionProgressState } from "@/lib/session-progress";
 import { buildSummaryPreview } from "@/lib/session-part-meta";
 import { resolveRouteId, type RouteParams } from "@/lib/server/route-params";
-import { requireAuthorizedSession } from "@/lib/server/request-auth";
+import { requireAuthorizedMutationSession, requireAuthorizedSession } from "@/lib/server/request-auth";
+import { applyLightMutationThrottle } from "@/lib/server/request-throttle";
 import { pickDisplayTranscriptText } from "@/lib/transcript/source";
 import { withVisibleConversationWhere } from "@/lib/content-visibility";
 import { shouldRunBackgroundJobsInline } from "@/lib/jobs/execution-mode";
@@ -239,7 +240,7 @@ function buildSessionProgressResponse(session: NonNullable<Awaited<ReturnType<ty
   });
 }
 
-async function loadAuthorizedProgressSession(params: RouteParams) {
+async function loadAuthorizedProgressSession(params: RouteParams, request?: Request) {
   const sessionId = await resolveRouteId(params);
   if (!sessionId) {
     return {
@@ -250,7 +251,9 @@ async function loadAuthorizedProgressSession(params: RouteParams) {
     } as const;
   }
 
-  const authResult = await requireAuthorizedSession();
+  const authResult = request
+    ? await requireAuthorizedMutationSession(request)
+    : await requireAuthorizedSession();
   if (authResult.response) {
     return {
       sessionId,
@@ -289,10 +292,17 @@ export async function GET(_request: Request, { params }: { params: RouteParams }
   }
 }
 
-export async function POST(_request: Request, { params }: { params: RouteParams }) {
+export async function POST(request: Request, { params }: { params: RouteParams }) {
   try {
-    const loaded = await loadAuthorizedProgressSession(params);
+    const loaded = await loadAuthorizedProgressSession(params, request);
     if (loaded.response) return loaded.response;
+    const throttleResponse = await applyLightMutationThrottle({
+      request,
+      scope: "sessions.progress",
+      userId: loaded.authSession!.user.id,
+      organizationId: loaded.authSession!.user.organizationId,
+    });
+    if (throttleResponse) return throttleResponse;
 
     await processSessionProgress(loaded.session);
     const refreshedSession = await loadSessionProgressSnapshot(loaded.sessionId!, loaded.authSession!.user.organizationId);

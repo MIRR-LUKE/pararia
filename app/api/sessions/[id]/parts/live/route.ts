@@ -13,7 +13,7 @@ export async function POST(
 ) {
   try {
     const { id } = await Promise.resolve(params);
-    const access = await loadAuthorizedSessionPartContext(id);
+    const access = await loadAuthorizedSessionPartContext(id, request);
     if ("response" in access) return access.response;
 
     const contentType = request.headers.get("content-type") || "";

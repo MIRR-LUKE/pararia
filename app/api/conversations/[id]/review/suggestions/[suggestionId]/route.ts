@@ -1,12 +1,13 @@
 import { NextResponse } from "next/server";
 import { ProperNounSuggestionStatus } from "@prisma/client";
 import { prisma } from "@/lib/db";
-import { requireAuthorizedSession } from "@/lib/server/request-auth";
+import { requireAuthorizedMutationSession } from "@/lib/server/request-auth";
 import { normalizeRouteParam, resolveRouteParams, type RouteParams } from "@/lib/server/route-params";
 import {
   listConversationProperNounSuggestions,
   updateProperNounSuggestionDecision,
 } from "@/lib/transcript/review";
+import { applyLightMutationThrottle } from "@/lib/server/request-throttle";
 
 function parseSuggestionStatus(value: unknown) {
   if (value === ProperNounSuggestionStatus.CONFIRMED) return ProperNounSuggestionStatus.CONFIRMED;
@@ -55,8 +56,15 @@ export async function PATCH(
 ) {
   try {
     const { id, suggestionId } = await Promise.resolve(params);
-    const authResult = await requireAuthorizedSession();
+    const authResult = await requireAuthorizedMutationSession(request);
     if (authResult.response) return authResult.response;
+    const throttleResponse = await applyLightMutationThrottle({
+      request,
+      scope: "conversations.review.suggestions",
+      userId: authResult.session.user.id,
+      organizationId: authResult.session.user.organizationId,
+    });
+    if (throttleResponse) return throttleResponse;
     await ensureOwnedSuggestion({
       conversationId: id,
       suggestionId,

@@ -5,7 +5,7 @@ import { ConversationSourceType, ConversationStatus } from "@prisma/client";
 import { preprocessTranscript } from "@/lib/transcript/preprocess";
 import { enqueueConversationJobs, processAllConversationJobs } from "@/lib/jobs/conversationJobs";
 import { shouldRunBackgroundJobsInline } from "@/lib/jobs/execution-mode";
-import { requireAuthorizedSession } from "@/lib/server/request-auth";
+import { requireAuthorizedMutationSession, requireAuthorizedSession } from "@/lib/server/request-auth";
 import { renderConversationArtifactOrFallback } from "@/lib/conversation-artifact";
 import { getLogListCacheTag } from "@/lib/logs/get-log-list-page-data";
 import { getTranscriptExpiryDate } from "@/lib/system-config";
@@ -15,6 +15,7 @@ import { withVisibleConversationWhere } from "@/lib/content-visibility";
 import { sanitizeSummaryMarkdown } from "@/lib/user-facing-japanese";
 import { maybeStopRunpodWorkerWhenSessionPartQueueIdle } from "@/lib/runpod/idle-stop";
 import { maybeEnsureRunpodWorker } from "@/lib/runpod/worker-control";
+import { applyLightMutationThrottle } from "@/lib/server/request-throttle";
 
 export async function GET(request: Request) {
   try {
@@ -132,10 +133,17 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const authResult = await requireAuthorizedSession();
+    const authResult = await requireAuthorizedMutationSession(request);
     if (authResult.response) return authResult.response;
     const organizationId = authResult.session.user.organizationId;
     const userId = authResult.session.user.id;
+    const throttleResponse = await applyLightMutationThrottle({
+      request,
+      scope: "conversations.create",
+      userId,
+      organizationId,
+    });
+    if (throttleResponse) return throttleResponse;
 
     const body = await request.json();
     const { studentId, transcript, sourceType } = body ?? {};

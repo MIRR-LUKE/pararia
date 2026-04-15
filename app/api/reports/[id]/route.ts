@@ -5,8 +5,9 @@ import { withVisibleReportWhere } from "@/lib/content-visibility";
 import { prisma } from "@/lib/db";
 import { buildReportDeliverySummary } from "@/lib/report-delivery";
 import { getLogListCacheTag } from "@/lib/logs/get-log-list-page-data";
-import { requireAuthorizedSession } from "@/lib/server/request-auth";
+import { requireAuthorizedMutationSession, requireAuthorizedSession } from "@/lib/server/request-auth";
 import { sanitizeReportMarkdown } from "@/lib/user-facing-japanese";
+import { applyLightMutationThrottle } from "@/lib/server/request-throttle";
 
 function toStringArray(value: unknown) {
   if (!Array.isArray(value)) return [];
@@ -87,14 +88,21 @@ export async function GET(
 }
 
 export async function DELETE(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const { id } = await Promise.resolve(params);
-    const authResult = await requireAuthorizedSession();
+    const authResult = await requireAuthorizedMutationSession(request);
     if (authResult.response) return authResult.response;
     const organizationId = authResult.session.user.organizationId;
+    const throttleResponse = await applyLightMutationThrottle({
+      request,
+      scope: "reports.delete",
+      userId: authResult.session.user.id,
+      organizationId,
+    });
+    if (throttleResponse) return throttleResponse;
 
     const report = await prisma.report.findFirst({
       where: withVisibleReportWhere({ id, organizationId }),
@@ -110,7 +118,7 @@ export async function DELETE(
       return NextResponse.json({ error: "report not found" }, { status: 404 });
     }
 
-    const body = await _request.json().catch(() => ({}));
+    const body = await request.json().catch(() => ({}));
     const deleteReason =
       typeof body?.reason === "string" && body.reason.trim().length > 0
         ? body.reason.trim().slice(0, 500)

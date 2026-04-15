@@ -67,12 +67,13 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "招待を作成する権限がありません。" }, { status: 403 });
     }
 
-    await applyLightMutationThrottle({
+    const throttleResponse = await applyLightMutationThrottle({
       request,
       scope: "invitations.create",
       userId: session.user.id,
       organizationId: session.user.organizationId,
     });
+    if (throttleResponse) return throttleResponse;
 
     const body = await request.json().catch(() => ({}));
     const emailRaw = typeof body?.email === "string" ? body.email.trim().toLowerCase() : "";

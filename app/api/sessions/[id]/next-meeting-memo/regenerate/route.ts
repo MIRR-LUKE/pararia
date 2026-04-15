@@ -9,10 +9,11 @@ import { shouldRunBackgroundJobsInline } from "@/lib/jobs/execution-mode";
 import { createOperationContext, logOperationError, operationErrorResponse, withOperationMeta } from "@/lib/observability/operation-errors";
 import { maybeStopRunpodWorkerWhenSessionPartQueueIdle } from "@/lib/runpod/idle-stop";
 import { maybeEnsureRunpodWorker } from "@/lib/runpod/worker-control";
-import { requireAuthorizedSession } from "@/lib/server/request-auth";
+import { requireAuthorizedMutationSession } from "@/lib/server/request-auth";
+import { applyLightMutationThrottle } from "@/lib/server/request-throttle";
 
 export async function POST(
-  _request: Request,
+  request: Request,
   { params }: { params: { id: string } | Promise<{ id: string }> }
 ) {
   const operation = createOperationContext("POST /api/sessions/[id]/next-meeting-memo/regenerate");
@@ -23,11 +24,18 @@ export async function POST(
       return NextResponse.json(withOperationMeta(operation, "resolve_params", { error: "sessionId が必要です。" }), { status: 400 });
     }
 
-    const authResult = await requireAuthorizedSession();
+    const authResult = await requireAuthorizedMutationSession(request);
     if (authResult.response) {
       return NextResponse.json(withOperationMeta(operation, "authorize", { error: "Unauthorized" }), { status: 401 });
     }
     const organizationId = authResult.session.user.organizationId;
+    const throttleResponse = await applyLightMutationThrottle({
+      request,
+      scope: "next-meeting-memo.regenerate",
+      userId: authResult.session.user.id,
+      organizationId,
+    });
+    if (throttleResponse) return throttleResponse;
 
     const session = await prisma.session.findFirst({
       where: {
