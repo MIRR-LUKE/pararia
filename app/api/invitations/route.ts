@@ -1,9 +1,11 @@
 import { NextResponse } from "next/server";
 import { UserRole } from "@prisma/client";
-import { auth } from "@/auth";
 import { prisma } from "@/lib/db";
 import { generateInvitationPlainToken, hashInvitationToken } from "@/lib/invitations/inviteTokens";
+import { buildInvitationAcceptUrl, resolvePublicAppBaseUrl } from "@/lib/invitations/invite-url";
 import { canManageInvitations, isManagerRole, normalizeUserRole } from "@/lib/permissions";
+import { requireAuthorizedMutationSession, requireAuthorizedSession } from "@/lib/server/request-auth";
+import { applyLightMutationThrottle } from "@/lib/server/request-throttle";
 
 export const dynamic = "force-dynamic";
 
@@ -21,7 +23,10 @@ function parseRole(raw: unknown): UserRole {
 
 export async function GET() {
   try {
-    const session = await auth();
+    const sessionResult = await requireAuthorizedSession();
+    if (sessionResult.response) return sessionResult.response;
+    const session = sessionResult.session;
+
     if (!session?.user?.organizationId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
@@ -55,13 +60,19 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
-    const session = await auth();
-    if (!session?.user?.id || !session?.user?.organizationId) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const sessionResult = await requireAuthorizedMutationSession(request);
+    if (sessionResult.response) return sessionResult.response;
+    const session = sessionResult.session;
     if (!canManageInvitations(session.user.role)) {
       return NextResponse.json({ error: "招待を作成する権限がありません。" }, { status: 403 });
     }
+
+    await applyLightMutationThrottle({
+      request,
+      scope: "invitations.create",
+      userId: session.user.id,
+      organizationId: session.user.organizationId,
+    });
 
     const body = await request.json().catch(() => ({}));
     const emailRaw = typeof body?.email === "string" ? body.email.trim().toLowerCase() : "";
@@ -112,12 +123,7 @@ export async function POST(request: Request) {
       },
     });
 
-    const origin =
-      request.headers.get("x-forwarded-host") && request.headers.get("x-forwarded-proto")
-        ? `${request.headers.get("x-forwarded-proto")}://${request.headers.get("x-forwarded-host")}`
-        : new URL(request.url).origin;
-    const base = process.env.NEXTAUTH_URL?.replace(/\/$/, "") || origin;
-    const inviteUrl = `${base}/invite/accept?token=${encodeURIComponent(plain)}`;
+    const inviteUrl = buildInvitationAcceptUrl(resolvePublicAppBaseUrl(request), plain);
 
     return NextResponse.json(
       {
@@ -125,8 +131,6 @@ export async function POST(request: Request) {
         expiresAt: expiresAt.toISOString(),
         email: emailRaw,
         role: targetRole,
-        /** 平文トークンはこの応答でのみ返します（以降は URL のみ保持）。 */
-        token: plain,
       },
       { status: 201 }
     );

@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { RecordingLockMode } from "@prisma/client";
-import { auth } from "@/auth";
 import { prisma } from "@/lib/db";
 import { runWithDatabaseRetry } from "@/lib/db-retry";
 import {
@@ -18,7 +17,9 @@ import {
 } from "@/lib/recording/lockService";
 import { canForceReleaseRecordingLock } from "@/lib/permissions";
 import { maybeEnsureRunpodWorker } from "@/lib/runpod/worker-control";
+import { requireAuthorizedMutationSession, requireAuthorizedSession } from "@/lib/server/request-auth";
 import { withActiveStudentWhere } from "@/lib/students/student-lifecycle";
+import { applyLightMutationThrottle } from "@/lib/server/request-throttle";
 
 export const dynamic = "force-dynamic";
 
@@ -56,7 +57,11 @@ export async function GET(
   let stage = "auth";
   try {
     const studentId = await resolveStudentId(params);
-    const session = await auth();
+    const sessionResult = await requireAuthorizedSession();
+    if (sessionResult.response) {
+      return sessionResult.response;
+    }
+    const session = sessionResult.session;
     if (!session?.user?.id || !session.user.organizationId) {
       return respondWithOperationError({
         context,
@@ -114,7 +119,11 @@ export async function POST(
   let stage = "auth";
   try {
     const studentId = await resolveStudentId(params);
-    const session = await auth();
+    const sessionResult = await requireAuthorizedMutationSession(request);
+    if (sessionResult.response) {
+      return sessionResult.response;
+    }
+    const session = sessionResult.session;
     if (!session?.user?.id || !session.user.organizationId) {
       return respondWithOperationError({
         context,
@@ -144,6 +153,13 @@ export async function POST(
         level: "warn",
       });
     }
+
+    await applyLightMutationThrottle({
+      request,
+      scope: "recording-lock.acquire",
+      userId: session.user.id,
+      organizationId: session.user.organizationId,
+    });
 
     const body = await request.json().catch(() => ({}));
     if (body?.forceRelease === true) {
@@ -278,7 +294,11 @@ export async function PATCH(
   let stage = "auth";
   try {
     const studentId = await resolveStudentId(params);
-    const session = await auth();
+    const sessionResult = await requireAuthorizedMutationSession(request);
+    if (sessionResult.response) {
+      return sessionResult.response;
+    }
+    const session = sessionResult.session;
     if (!session?.user?.id || !session.user.organizationId) {
       return respondWithOperationError({
         context,
@@ -296,6 +316,13 @@ export async function PATCH(
         level: "warn",
       });
     }
+
+    await applyLightMutationThrottle({
+      request,
+      scope: "recording-lock.heartbeat",
+      userId: session.user.id,
+      organizationId: session.user.organizationId,
+    });
 
     const body = await request.json().catch(() => ({}));
     const lockToken = typeof body?.lockToken === "string" ? body.lockToken.trim() : "";
@@ -352,7 +379,11 @@ export async function DELETE(
   let stage = "auth";
   try {
     const studentId = await resolveStudentId(params);
-    const session = await auth();
+    const sessionResult = await requireAuthorizedMutationSession(request);
+    if (sessionResult.response) {
+      return sessionResult.response;
+    }
+    const session = sessionResult.session;
     if (!session?.user?.id || !session.user.organizationId) {
       return respondWithOperationError({
         context,
@@ -370,6 +401,13 @@ export async function DELETE(
         level: "warn",
       });
     }
+    await applyLightMutationThrottle({
+      request,
+      scope: "recording-lock.release",
+      userId: session.user.id,
+      organizationId: session.user.organizationId,
+    });
+
     let lockToken = "";
     try {
       const body = await request.json();

@@ -1,18 +1,24 @@
 import { revalidatePath, revalidateTag } from "next/cache";
 import { NextResponse } from "next/server";
-import { auth } from "@/auth";
 import { prisma } from "@/lib/db";
 import { writeAuditLog } from "@/lib/audit";
 import { getSettingsSnapshot } from "@/lib/settings/get-settings-snapshot";
 import { withActiveStudentWhere } from "@/lib/students/student-lifecycle";
 import { canManageSettings } from "@/lib/permissions";
+import { applyLightMutationThrottle } from "@/lib/server/request-throttle";
+import { requireAuthorizedMutationSession, requireAuthorizedSession } from "@/lib/server/request-auth";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 export async function GET() {
   try {
-    const session = await auth();
+    const sessionResult = await requireAuthorizedSession();
+    if (sessionResult.response) {
+      return sessionResult.response;
+    }
+    const session = sessionResult.session;
+
     if (!session?.user?.organizationId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
@@ -35,13 +41,18 @@ export async function GET() {
 
 export async function PATCH(request: Request) {
   try {
-    const session = await auth();
-    if (!session?.user?.organizationId) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const sessionResult = await requireAuthorizedMutationSession(request);
+    if (sessionResult.response) return sessionResult.response;
+    const session = sessionResult.session;
     if (!canManageSettings(session.user.role)) {
       return NextResponse.json({ error: "この操作は管理者または室長のみ可能です。" }, { status: 403 });
     }
+    await applyLightMutationThrottle({
+      request,
+      scope: "settings.update",
+      userId: session.user.id,
+      organizationId: session.user.organizationId,
+    });
 
     const body = await request.json().catch(() => ({}));
     const organizationInput =

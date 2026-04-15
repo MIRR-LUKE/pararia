@@ -1,11 +1,12 @@
 import { revalidatePath, revalidateTag } from "next/cache";
 import { NextResponse } from "next/server";
 import { ReportDeliveryEventType, ReportStatus } from "@prisma/client";
-import { auth } from "@/auth";
 import { writeAuditLog } from "@/lib/audit";
 import { withVisibleReportWhere } from "@/lib/content-visibility";
 import { prisma } from "@/lib/db";
 import { getLogListCacheTag } from "@/lib/logs/get-log-list-page-data";
+import { requireAuthorizedMutationSession } from "@/lib/server/request-auth";
+import { applyLightMutationThrottle } from "@/lib/server/request-throttle";
 
 export async function POST(
   request: Request,
@@ -13,10 +14,15 @@ export async function POST(
 ) {
   try {
     const { id } = await Promise.resolve(params);
-    const session = await auth();
-    if (!session?.user?.organizationId) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const sessionResult = await requireAuthorizedMutationSession(request);
+    if (sessionResult.response) return sessionResult.response;
+    const session = sessionResult.session;
+    await applyLightMutationThrottle({
+      request,
+      scope: "reports.send",
+      userId: session.user.id,
+      organizationId: session.user.organizationId,
+    });
     const body = await request.json().catch(() => ({}));
     const action: "review" | "sent" | "delivered" | "failed" | "bounced" | "manual_share" | "resent" =
       typeof body?.action === "string" && body.action.trim()

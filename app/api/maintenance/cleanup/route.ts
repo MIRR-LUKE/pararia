@@ -14,11 +14,17 @@ import {
   getTranscriptRetentionDays,
 } from "@/lib/system-config";
 import { describeRequestActor, requireMaintenanceAccess } from "@/lib/server/request-auth";
+import { methodNotAllowedResponse, requireSameOriginRequest } from "@/lib/server/request-security";
 
 async function handleCleanup(request: Request) {
   const access = await requireMaintenanceAccess(request);
   if (access.response) return access.response;
   const actor = access.actor;
+
+  if (actor?.kind === "session") {
+    const sameOriginResponse = requireSameOriginRequest(request);
+    if (sameOriginResponse) return sameOriginResponse;
+  }
 
   try {
     const now = new Date();
@@ -161,8 +167,8 @@ async function handleCleanup(request: Request) {
   }
 }
 
-export async function GET(request: Request) {
-  return handleCleanup(request);
+export async function GET() {
+  return methodNotAllowedResponse(["POST"]);
 }
 
 export async function POST(request: Request) {

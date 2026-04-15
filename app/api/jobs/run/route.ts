@@ -4,6 +4,7 @@ import { processQueuedJobs } from "@/lib/jobs/conversationJobs";
 import { processQueuedSessionPartJobs } from "@/lib/jobs/sessionPartJobs";
 import { shouldRunBackgroundJobsInline } from "@/lib/jobs/execution-mode";
 import { describeRequestActor, requireMaintenanceAccess } from "@/lib/server/request-auth";
+import { methodNotAllowedResponse, requireSameOriginRequest } from "@/lib/server/request-security";
 
 function clampRouteInt(raw: unknown, fallback: number, min: number, max: number) {
   const value = Number(raw);
@@ -18,6 +19,11 @@ async function handleRequest(request: Request) {
   const access = await requireMaintenanceAccess(request);
   if (access.response) return access.response;
   const actor = access.actor;
+
+  if (actor?.kind === "session") {
+    const sameOriginResponse = requireSameOriginRequest(request);
+    if (sameOriginResponse) return sameOriginResponse;
+  }
 
   try {
     if (!shouldRunBackgroundJobsInline()) {
@@ -44,7 +50,7 @@ async function handleRequest(request: Request) {
     }
 
     const { searchParams } = new URL(request.url);
-    const body = request.method === "POST" ? await request.json().catch(() => ({})) : {};
+    const body = await request.json().catch(() => ({}));
     const limit = clampRouteInt(searchParams.get("limit") ?? (body as any)?.limit, 3, 1, JOB_ROUTE_LIMIT_MAX);
     const rawConcurrency = searchParams.get("concurrency") ?? (body as any)?.concurrency;
     const conversationId =
@@ -116,8 +122,8 @@ async function handleRequest(request: Request) {
   }
 }
 
-export async function GET(request: Request) {
-  return handleRequest(request);
+export async function GET() {
+  return methodNotAllowedResponse(["POST"]);
 }
 
 export async function POST(request: Request) {

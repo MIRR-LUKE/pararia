@@ -2,7 +2,6 @@ import { revalidatePath, revalidateTag } from "next/cache";
 import { NextResponse } from "next/server";
 import { ReportDeliveryEventType } from "@prisma/client";
 import { z } from "zod";
-import { auth } from "@/auth";
 import { writeAuditLog } from "@/lib/audit";
 import { API_THROTTLE_RULES, ApiQuotaExceededError, consumeApiQuota } from "@/lib/api-throttle";
 import { generateParentReport } from "@/lib/ai/parentReport";
@@ -18,6 +17,7 @@ import {
 } from "@/lib/idempotency";
 import { getLogListCacheTag } from "@/lib/logs/get-log-list-page-data";
 import { RequestValidationError, parseJsonWithSchema } from "@/lib/server/request-validation";
+import { requireAuthorizedMutationSession } from "@/lib/server/request-auth";
 import { withActiveStudentWhere } from "@/lib/students/student-lifecycle";
 
 const generateReportBodySchema = z.object({
@@ -33,10 +33,9 @@ export async function POST(request: Request) {
   let idempotencyStarted = false;
 
   try {
-    const session = await auth();
-    if (!session?.user?.id || !session.user.organizationId) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const sessionResult = await requireAuthorizedMutationSession(request);
+    if (sessionResult.response) return sessionResult.response;
+    const session = sessionResult.session;
 
     const body = await parseJsonWithSchema(request, generateReportBodySchema, "レポート生成");
     const studentId = body.studentId;

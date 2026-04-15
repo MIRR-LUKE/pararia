@@ -1,9 +1,11 @@
 import { NextResponse } from "next/server";
 import { UserRole } from "@prisma/client";
 import { auth } from "@/auth";
+import { prisma } from "@/lib/db";
 import { readConfiguredSecretValues } from "@/lib/env";
 import { canRunMaintenanceRoutes, normalizeUserRole, roleLabelJa } from "@/lib/permissions";
 import { isMaintenanceRoutePath, readBearerToken } from "@/lib/server/route-guards";
+import { requireSameOriginRequest } from "@/lib/server/request-security";
 
 export type AuthorizedSession = Awaited<ReturnType<typeof auth>> & {
   user: {
@@ -61,6 +63,11 @@ function readMaintenanceSecretFromRequest(request: Request) {
     return null;
   }
 
+  const maintenanceSecret = request.headers.get("x-maintenance-secret")?.trim();
+  if (maintenanceSecret) {
+    return { secretName: "x-maintenance-secret", secretSource: "header" as const, secretValue: maintenanceSecret };
+  }
+
   const bearerSecret = readBearerToken(request.headers.get("authorization"));
   if (bearerSecret) {
     return { secretName: "authorization", secretSource: "header" as const, secretValue: bearerSecret };
@@ -116,9 +123,42 @@ export function describeRequestActor(actor: RequestActor) {
   };
 }
 
-export async function requireAuthorizedSession() {
-  const session = await auth();
+export async function resolveAuthorizedSession(session: Awaited<ReturnType<typeof auth>>) {
   if (!session?.user?.id || !session.user.organizationId) {
+    return null;
+  }
+
+  const liveUser = await prisma.user.findUnique({
+    where: { id: session.user.id },
+    select: {
+      id: true,
+      organizationId: true,
+      role: true,
+      name: true,
+      email: true,
+    },
+  });
+
+  if (!liveUser) {
+    return null;
+  }
+
+  return {
+    ...session,
+    user: {
+      ...session.user,
+      id: liveUser.id,
+      organizationId: liveUser.organizationId,
+      role: liveUser.role,
+      name: liveUser.name,
+      email: liveUser.email,
+    },
+  } as AuthorizedSession;
+}
+
+export async function requireAuthorizedSession() {
+  const session = await resolveAuthorizedSession(await auth());
+  if (!session) {
     return {
       session: null,
       response: NextResponse.json({ error: "Unauthorized" }, { status: 401 }),
@@ -129,6 +169,23 @@ export async function requireAuthorizedSession() {
     session: session as AuthorizedSession,
     response: null,
   } as const;
+}
+
+export async function requireAuthorizedMutationSession(request: Request) {
+  const sessionResult = await requireAuthorizedSession();
+  if (sessionResult.response) {
+    return sessionResult;
+  }
+
+  const sameOriginResponse = requireSameOriginRequest(request);
+  if (sameOriginResponse) {
+    return {
+      session: null,
+      response: sameOriginResponse,
+    } as const;
+  }
+
+  return sessionResult;
 }
 
 export async function requireMaintenanceAccess(request: Request): Promise<MaintenanceAccessResult> {
