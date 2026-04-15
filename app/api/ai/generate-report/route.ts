@@ -146,8 +146,11 @@ export async function POST(request: Request) {
     });
 
     await writeAuditLog({
+      organizationId: student.organizationId,
       userId: session?.user?.id,
       action: "report.generate",
+      targetType: "report",
+      targetId: report.id,
       detail: {
         reportId: report.id,
         studentId,

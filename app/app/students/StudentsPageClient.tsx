@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useDeferredValue, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useDeferredValue, useEffect, useMemo, useState } from "react";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
@@ -21,8 +21,27 @@ type StudentsPageClientProps = {
   viewerRole?: string | null;
 };
 
-function buildStudentEditHref(href: string) {
-  return href.includes("?") ? `${href}&editStudent=1` : `${href}?editStudent=1`;
+type StudentEditorDraft = {
+  name: string;
+  nameKana: string;
+  grade: string;
+  course: string;
+  guardianNames: string;
+};
+
+type StudentNotice =
+  | { tone: "success"; text: string }
+  | { tone: "error"; text: string }
+  | null;
+
+function createStudentEditorDraft(student: Pick<StudentDirectoryViewRow, "name" | "nameKana" | "grade" | "course" | "guardianNames">): StudentEditorDraft {
+  return {
+    name: student.name ?? "",
+    nameKana: student.nameKana ?? "",
+    grade: student.grade ?? "",
+    course: student.course ?? "",
+    guardianNames: student.guardianNames ?? "",
+  };
 }
 
 function normalizeStudentNameKey(value: string) {
@@ -67,6 +86,16 @@ export default function StudentsPageClient({
     course: "",
     guardianNames: "",
   });
+  const [editingStudentId, setEditingStudentId] = useState<string | null>(null);
+  const [studentDraft, setStudentDraft] = useState<StudentEditorDraft>({
+    name: "",
+    nameKana: "",
+    grade: "",
+    course: "",
+    guardianNames: "",
+  });
+  const [isSavingStudent, setIsSavingStudent] = useState(false);
+  const [studentNotice, setStudentNotice] = useState<StudentNotice>(null);
   const [studentToDelete, setStudentToDelete] = useState<StudentDirectoryViewRow | null>(null);
   const [isDeletingStudent, setIsDeletingStudent] = useState(false);
 
@@ -117,6 +146,77 @@ export default function StudentsPageClient({
     });
   }, [deferredQuery, rows, view]);
 
+  const editingStudent = useMemo(
+    () => rows.find((student) => student.id === editingStudentId) ?? null,
+    [editingStudentId, rows]
+  );
+  const studentDraftFromRow = useMemo(
+    () => (editingStudent ? createStudentEditorDraft(editingStudent) : null),
+    [editingStudent]
+  );
+  const studentDraftChanged =
+    studentDraftFromRow !== null &&
+    (studentDraft.name !== studentDraftFromRow.name ||
+      studentDraft.nameKana !== studentDraftFromRow.nameKana ||
+      studentDraft.grade !== studentDraftFromRow.grade ||
+      studentDraft.course !== studentDraftFromRow.course ||
+      studentDraft.guardianNames !== studentDraftFromRow.guardianNames);
+
+  const openInlineEditor = (student: StudentDirectoryViewRow) => {
+    if (editingStudentId === student.id) {
+      setEditingStudentId(null);
+      setStudentDraft({ name: "", nameKana: "", grade: "", course: "", guardianNames: "" });
+      setStudentNotice(null);
+      return;
+    }
+
+    setEditingStudentId(student.id);
+    setStudentDraft(createStudentEditorDraft(student));
+    setStudentNotice(null);
+  };
+
+  const closeInlineEditor = () => {
+    setEditingStudentId(null);
+    setStudentDraft({ name: "", nameKana: "", grade: "", course: "", guardianNames: "" });
+    setStudentNotice(null);
+  };
+
+  const saveInlineStudent = async () => {
+    if (!editingStudentId) return;
+
+    setIsSavingStudent(true);
+    setStudentNotice(null);
+
+    try {
+      const res = await fetch(`/api/students/${editingStudentId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: studentDraft.name,
+          nameKana: studentDraft.nameKana,
+          grade: studentDraft.grade,
+          course: studentDraft.course,
+          guardianNames: studentDraft.guardianNames,
+        }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(body?.error ?? "生徒情報の更新に失敗しました。");
+      }
+
+      setStudentNotice({ tone: "success", text: "生徒情報を更新しました。" });
+      setEditingStudentId(null);
+      await refresh();
+    } catch (nextError: any) {
+      setStudentNotice({
+        tone: "error",
+        text: nextError?.message ?? "生徒情報の更新に失敗しました。",
+      });
+    } finally {
+      setIsSavingStudent(false);
+    }
+  };
+
   const createStudent = async () => {
     if (!newStudent.name.trim() || !newStudent.nameKana.trim() || !newStudent.grade.trim()) {
       alert("生徒名、フリガナ、学年は必須です。");
@@ -140,6 +240,7 @@ export default function StudentsPageClient({
       return;
     }
 
+    setStudentNotice({ tone: "success", text: "生徒を追加しました。" });
     setShowCreate(false);
     setNewStudent({ name: "", nameKana: "", grade: "", course: "", guardianNames: "" });
     await refresh();
@@ -161,9 +262,16 @@ export default function StudentsPageClient({
 
       setStudents((current) => current.filter((item) => item.id !== studentToDelete.id));
       setStudentToDelete(null);
+      if (editingStudentId === targetStudentId) {
+        closeInlineEditor();
+      }
+      setStudentNotice({ tone: "success", text: "生徒をアーカイブしました。" });
       await refresh();
     } catch (nextError: any) {
-      alert(nextError?.message ?? "生徒のアーカイブに失敗しました。");
+      setStudentNotice({
+        tone: "error",
+        text: nextError?.message ?? "生徒のアーカイブに失敗しました。",
+      });
     } finally {
       setIsDeletingStudent(false);
     }
@@ -249,7 +357,16 @@ export default function StudentsPageClient({
         </Card>
       )}
 
-      <Card title="生徒ディレクトリ" subtitle="一覧では状態だけを見て、操作は生徒詳細ページの中で落ち着いて進めます。">
+      <Card title="生徒ディレクトリ" subtitle="一覧で確認しながら、その場で直して保存できます。詳しい記録だけ詳細ページで見ます。">
+        {studentNotice ? (
+          <div
+            className={`${styles.notice} ${
+              studentNotice.tone === "success" ? styles.noticeSuccess : styles.noticeError
+            }`}
+          >
+            {studentNotice.text}
+          </div>
+        ) : null}
         {error ? (
           <StatePanel
             kind="error"
@@ -284,86 +401,169 @@ export default function StudentsPageClient({
           />
         ) : (
           <div className={styles.list}>
-              {filtered.map((student, index) => (
-                <article key={student.id} className={styles.row} data-student-row="1" data-student-id={student.id}>
-                <div className={styles.rowContent}>
-                  <div className={styles.rowIdentity}>
-                    <div className={styles.rowTop}>
-                      <strong className={styles.rowName}>{student.name}</strong>
-                      {student.grade ? <span className={styles.meta}>{student.grade}</span> : null}
-                      {(duplicateCountByName.get(normalizeStudentNameKey(student.name)) ?? 1) > 1 ? (
-                        <span className={styles.duplicateBadge}>
-                          同名 {duplicateCountByName.get(normalizeStudentNameKey(student.name))}件
-                        </span>
-                      ) : null}
-                      <Badge label={student.state} tone={student.viewKey === "report" ? "high" : "medium"} />
+            {filtered.map((student, index) => {
+              const isEditingThisStudent = editingStudentId === student.id;
+
+              return (
+                <Fragment key={student.id}>
+                  <article className={styles.row} data-student-row="1" data-student-id={student.id}>
+                    <div className={styles.rowContent}>
+                      <div className={styles.rowIdentity}>
+                        <div className={styles.rowTop}>
+                          <strong className={styles.rowName}>{student.name}</strong>
+                          {student.grade ? <span className={styles.meta}>{student.grade}</span> : null}
+                          {(duplicateCountByName.get(normalizeStudentNameKey(student.name)) ?? 1) > 1 ? (
+                            <span className={styles.duplicateBadge}>
+                              同名 {duplicateCountByName.get(normalizeStudentNameKey(student.name))}件
+                            </span>
+                          ) : null}
+                          <Badge label={student.state} tone={student.viewKey === "report" ? "high" : "medium"} />
+                        </div>
+                        <p className={styles.identityMeta}>
+                          {[
+                            student.nameKana ? `フリガナ: ${student.nameKana}` : null,
+                            student.course ? `コース: ${student.course}` : null,
+                            student.guardianNames ? `保護者: ${student.guardianNames}` : null,
+                            `登録: ${formatStudentCreatedAt(student.createdAt)}`,
+                          ]
+                            .filter(isPresent)
+                            .join(" / ")}
+                        </p>
+                        <p className={styles.oneLiner}>{student.oneLiner}</p>
+                      </div>
+
+                      <div className={styles.rowMetaColumn}>
+                        <MetricList
+                          items={[
+                            { label: "次にやること", value: student.nextAction },
+                            { label: "プロフィール", value: `${student.profileCompleteness}%` },
+                          ]}
+                        />
+                      </div>
+
+                      <div className={styles.rowMetaColumn}>
+                        <MetricList
+                          items={[
+                            { label: "セッション", value: `${student.sessionCount} 件` },
+                            { label: "レポート", value: `${student.reportCount} 件` },
+                          ]}
+                        />
+                      </div>
                     </div>
-                    <p className={styles.identityMeta}>
-                      {[
-                        student.nameKana ? `フリガナ: ${student.nameKana}` : null,
-                        student.course ? `コース: ${student.course}` : null,
-                        student.guardianNames ? `保護者: ${student.guardianNames}` : null,
-                        `登録: ${formatStudentCreatedAt(student.createdAt)}`,
-                      ]
-                        .filter(isPresent)
-                        .join(" / ")}
-                    </p>
-                    <p className={styles.oneLiner}>{student.oneLiner}</p>
-                  </div>
 
-                  <div className={styles.rowMetaColumn}>
-                    <MetricList
-                      items={[
-                        { label: "次にやること", value: student.nextAction },
-                        { label: "プロフィール", value: `${student.profileCompleteness}%` },
-                      ]}
-                    />
-                  </div>
-
-                  <div className={styles.rowMetaColumn}>
-                    <MetricList
-                      items={[
-                        { label: "セッション", value: `${student.sessionCount} 件` },
-                        { label: "レポート", value: `${student.reportCount} 件` },
-                      ]}
-                    />
-                  </div>
-                </div>
-
-                <div className={styles.rowAction}>
-                  <div className={styles.rowActionPrimary}>
-                    <IntentLink
-                      href={buildStudentEditHref(student.href)}
-                      prefetchMode={index < 4 ? "mount" : "intent"}
-                      aria-label="生徒情報を編集"
-                      title="生徒情報を編集"
-                      className={styles.editEntryLink}
-                    >
+                    <div className={styles.rowAction}>
+                      <div className={styles.rowActionPrimary}>
+                        <Button
+                          variant="ghost"
+                          size="small"
+                          className={styles.quickEditButton}
+                          aria-expanded={isEditingThisStudent}
+                          onClick={() => openInlineEditor(student)}
+                        >
+                          {isEditingThisStudent ? "閉じる" : "その場で編集"}
+                        </Button>
+                        <IntentLink href={student.href} prefetchMode={index < 4 ? "mount" : "intent"}>
+                          <Button>詳細へ</Button>
+                        </IntentLink>
+                      </div>
                       <Button
                         variant="ghost"
                         size="small"
-                        className={styles.editEntryButton}
-                        aria-label={`${student.name} の生徒情報を編集`}
-                        title="生徒情報を編集"
+                        className={styles.deleteButton}
+                        onClick={() => setStudentToDelete(student)}
                       >
-                        ✎
+                        アーカイブ
                       </Button>
-                    </IntentLink>
-                    <IntentLink href={student.href} prefetchMode={index < 4 ? "mount" : "intent"}>
-                      <Button>詳細へ</Button>
-                    </IntentLink>
-                  </div>
-                  <Button
-                    variant="ghost"
-                    size="small"
-                    className={styles.deleteButton}
-                    onClick={() => setStudentToDelete(student)}
-                  >
-                    アーカイブ
-                  </Button>
-                </div>
-              </article>
-            ))}
+                    </div>
+
+                    {isEditingThisStudent ? (
+                      <section className={styles.rowEditor} aria-label={`${student.name} の生徒情報を編集`}>
+                        <div className={styles.rowEditorHeader}>
+                          <div>
+                            <div className={styles.rowEditorTitle}>その場で編集</div>
+                            <p className={styles.rowEditorText}>
+                              名前、フリガナ、学年、コース、保護者名をこの一覧のまま直せます。
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className={styles.rowEditorGrid}>
+                          <label className={styles.rowEditorField}>
+                            <span>生徒名</span>
+                            <input
+                              value={studentDraft.name}
+                              onChange={(event) =>
+                                setStudentDraft((current) => ({ ...current, name: event.target.value }))
+                              }
+                              placeholder="生徒名"
+                            />
+                          </label>
+                          <label className={styles.rowEditorField}>
+                            <span>フリガナ</span>
+                            <input
+                              value={studentDraft.nameKana}
+                              onChange={(event) =>
+                                setStudentDraft((current) => ({ ...current, nameKana: event.target.value }))
+                              }
+                              placeholder="フリガナ"
+                            />
+                          </label>
+                          <label className={styles.rowEditorField}>
+                            <span>学年</span>
+                            <input
+                              value={studentDraft.grade}
+                              onChange={(event) =>
+                                setStudentDraft((current) => ({ ...current, grade: event.target.value }))
+                              }
+                              placeholder="学年"
+                            />
+                          </label>
+                          <label className={styles.rowEditorField}>
+                            <span>コース</span>
+                            <input
+                              value={studentDraft.course}
+                              onChange={(event) =>
+                                setStudentDraft((current) => ({ ...current, course: event.target.value }))
+                              }
+                              placeholder="コース"
+                            />
+                          </label>
+                          <label className={`${styles.rowEditorField} ${styles.rowEditorFieldWide}`}>
+                            <span>保護者名</span>
+                            <input
+                              value={studentDraft.guardianNames}
+                              onChange={(event) =>
+                                setStudentDraft((current) => ({
+                                  ...current,
+                                  guardianNames: event.target.value,
+                                }))
+                              }
+                              placeholder="保護者名"
+                            />
+                          </label>
+                        </div>
+
+                        <div className={styles.rowEditorActions}>
+                          <Button
+                            variant="secondary"
+                            onClick={closeInlineEditor}
+                            disabled={isSavingStudent}
+                          >
+                            キャンセル
+                          </Button>
+                          <Button
+                            onClick={() => void saveInlineStudent()}
+                            disabled={isSavingStudent || !studentDraft.name.trim() || !studentDraftChanged}
+                          >
+                            {isSavingStudent ? "保存中..." : "保存する"}
+                          </Button>
+                        </div>
+                      </section>
+                    ) : null}
+                  </article>
+                </Fragment>
+              );
+            })}
           </div>
         )}
       </Card>

@@ -16,6 +16,12 @@
   gap: 12px;
 }
 
+.stack,
+.actionGrid {
+  display: grid;
+  gap: 14px;
+}
+
 .policyItem,
 .metricCard,
 .successBox,
@@ -71,8 +77,21 @@
   margin-bottom: 14px;
 }
 
+.miniGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
 .input {
   width: 100%;
+}
+
+.checkboxRow {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  color: var(--text);
 }
 
 .buttonRow {
@@ -128,6 +147,31 @@
   gap: 10px;
 }
 
+.auditItem {
+  padding: 14px 16px;
+  border-radius: var(--card-radius);
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  display: grid;
+  gap: 6px;
+}
+
+.auditTop {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+}
+
+.pill {
+  padding: 4px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
 .studentHeader {
   display: flex;
   justify-content: space-between;
@@ -144,7 +188,16 @@
     grid-template-columns: 1fr;
   }
 
+  .miniGrid {
+    grid-template-columns: 1fr;
+  }
+
   .studentHeader {
+    flex-direction: column;
+  }
+
+  .auditTop,
+  .checkboxRow {
     flex-direction: column;
   }
 }

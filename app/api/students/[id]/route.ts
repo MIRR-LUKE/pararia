@@ -129,8 +129,11 @@ export async function DELETE(
 
     try {
       await writeAuditLog({
+        organizationId: authResult.session.user.organizationId,
         userId: authResult.session.user.id,
         action: "student.archive",
+        targetType: "student",
+        targetId: archived.student.id,
         detail: {
           studentId: archived.student.id,
           studentName: archived.student.name,

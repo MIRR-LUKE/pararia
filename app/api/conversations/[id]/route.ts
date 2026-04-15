@@ -306,8 +306,11 @@ export async function DELETE(
     });
 
     await writeAuditLog({
+      organizationId,
       userId: authResult.session.user.id,
       action: "conversation.delete",
+      targetType: "conversation",
+      targetId: conversationId,
       detail: {
         conversationId,
         studentId: conversation.studentId,

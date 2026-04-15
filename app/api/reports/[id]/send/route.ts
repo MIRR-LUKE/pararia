@@ -121,8 +121,11 @@ export async function POST(
     });
 
     await writeAuditLog({
+      organizationId: current.organizationId,
       userId: sentByUserId ?? session?.user?.id,
       action: "report.delivery_event",
+      targetType: "report",
+      targetId: current.id,
       detail: {
         reportId: current.id,
         eventType,

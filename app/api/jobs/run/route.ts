@@ -1,11 +1,29 @@
 import { NextResponse } from "next/server";
+import { writeAuditLog } from "@/lib/audit";
 import { processQueuedJobs } from "@/lib/jobs/conversationJobs";
 import { processQueuedSessionPartJobs } from "@/lib/jobs/sessionPartJobs";
 import { shouldRunBackgroundJobsInline } from "@/lib/jobs/execution-mode";
+import { describeRequestActor, requireMaintenanceAccess } from "@/lib/server/request-auth";
 
 async function handleRequest(request: Request) {
+  const access = await requireMaintenanceAccess(request);
+  if (access.response) return access.response;
+  const actor = access.actor;
+
   try {
     if (!shouldRunBackgroundJobsInline()) {
+      await writeAuditLog({
+        organizationId: access.session?.user.organizationId ?? null,
+        userId: access.session?.user.id ?? null,
+        action: "maintenance.jobs.run",
+        targetType: "maintenance_job",
+        targetId: "jobs/run",
+        status: "DENIED",
+        detail: {
+          reason: "external_worker_mode_enabled",
+          actor: actor ? describeRequestActor(actor) : null,
+        },
+      });
       return NextResponse.json(
         {
           ok: false,
@@ -40,13 +58,48 @@ async function handleRequest(request: Request) {
       concurrency,
       conversationId ? { conversationId } : undefined
     );
-    return NextResponse.json({
+    const result = {
       sessionPartJobs,
       conversationJobs,
       processed: sessionPartJobs.processed + conversationJobs.processed,
       errors: [...sessionPartJobs.errors, ...conversationJobs.errors],
+    };
+
+    await writeAuditLog({
+      organizationId: access.session?.user.organizationId ?? null,
+      userId: access.session?.user.id ?? null,
+      action: "maintenance.jobs.run",
+      targetType: "maintenance_job",
+      targetId: "jobs/run",
+      status: "SUCCESS",
+      detail: {
+        actor: actor ? describeRequestActor(actor) : null,
+        limit: Number.isFinite(limit) ? limit : 1,
+        concurrency,
+        conversationId: conversationId ?? null,
+        sessionId: sessionId ?? null,
+        processed: result.processed,
+        errorCount: result.errors.length,
+      },
+    });
+
+    return NextResponse.json({
+      ...result,
+      invokedBy: actor ? describeRequestActor(actor) : null,
     });
   } catch (e: any) {
+    await writeAuditLog({
+      organizationId: access.session?.user.organizationId ?? null,
+      userId: access.session?.user.id ?? null,
+      action: "maintenance.jobs.run",
+      targetType: "maintenance_job",
+      targetId: "jobs/run",
+      status: "ERROR",
+      detail: {
+        actor: actor ? describeRequestActor(actor) : null,
+        error: e?.message ?? "Internal Server Error",
+      },
+    });
     console.error("[/api/jobs/run] Error:", {
       error: e?.message,
       stack: e?.stack,

@@ -48,6 +48,26 @@
   flex-wrap: wrap;
 }
 
+.notice {
+  margin-bottom: 12px;
+  padding: 12px 14px;
+  border-radius: var(--card-radius);
+  border: 1px solid var(--border);
+  font-size: 14px;
+}
+
+.noticeSuccess {
+  border-color: rgba(170, 227, 125, 0.28);
+  background: rgba(170, 227, 125, 0.08);
+  color: #d7f5b8;
+}
+
+.noticeError {
+  border-color: rgba(255, 139, 132, 0.36);
+  background: rgba(255, 139, 132, 0.08);
+  color: #ffd2cf;
+}
+
 .list {
   display: grid;
   gap: 12px;
@@ -131,6 +151,62 @@
   gap: 12px;
 }
 
+.rowEditor {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 14px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+.rowEditorHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.rowEditorTitle {
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.rowEditorText {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.rowEditorGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.rowEditorField {
+  display: grid;
+  gap: 6px;
+}
+
+.rowEditorField span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.rowEditorFieldWide {
+  grid-column: 1 / -1;
+}
+
+.rowEditorActions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
 .metaLabel {
   color: var(--muted);
   font-size: 12px;
@@ -158,16 +234,8 @@
   flex-wrap: wrap;
 }
 
-.editEntryLink {
-  display: inline-flex;
-  flex: 0 0 auto;
-}
-
-.editEntryButton {
-  min-width: 35px;
-  padding: 8px 10px;
-  font-size: 16px;
-  line-height: 1;
+.quickEditButton {
+  white-space: nowrap;
 }
 
 .deleteButton {
@@ -216,6 +284,10 @@
     grid-template-columns: 1fr;
   }
 
+  .rowEditorGrid {
+    grid-template-columns: 1fr;
+  }
+
   .page {
     gap: 18px;
   }
@@ -252,11 +324,12 @@
     width: 100%;
   }
 
-  .editEntryLink {
-    width: auto;
+  .formActions {
+    flex-direction: column;
+    align-items: stretch;
   }
 
-  .formActions {
+  .rowEditorActions {
     flex-direction: column;
     align-items: stretch;
   }

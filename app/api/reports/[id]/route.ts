@@ -112,8 +112,11 @@ export async function DELETE(
     await prisma.report.delete({ where: { id: report.id } });
 
     await writeAuditLog({
+      organizationId,
       userId: authResult.session.user.id,
       action: "report.delete",
+      targetType: "report",
+      targetId: report.id,
       detail: {
         reportId: report.id,
         studentId: report.studentId,

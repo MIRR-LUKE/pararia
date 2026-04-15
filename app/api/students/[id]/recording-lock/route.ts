@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { RecordingLockMode, UserRole } from "@prisma/client";
+import { RecordingLockMode } from "@prisma/client";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/db";
 import { runWithDatabaseRetry } from "@/lib/db-retry";
@@ -16,6 +16,7 @@ import {
   heartbeatRecordingLock,
   releaseRecordingLock,
 } from "@/lib/recording/lockService";
+import { canForceReleaseRecordingLock } from "@/lib/permissions";
 import { maybeEnsureRunpodWorker } from "@/lib/runpod/worker-control";
 import { withActiveStudentWhere } from "@/lib/students/student-lifecycle";
 
@@ -27,10 +28,6 @@ function parseMode(raw: unknown): RecordingLockMode | null {
   if (raw === "LESSON_REPORT") return RecordingLockMode.LESSON_REPORT;
   if (raw === "INTERVIEW") return RecordingLockMode.INTERVIEW;
   return null;
-}
-
-function canForceReleaseRole(role: string | undefined) {
-  return role === UserRole.ADMIN || role === UserRole.MANAGER;
 }
 
 async function resolveStudentId(params: { id: string } | Promise<{ id: string }>) {
@@ -151,7 +148,7 @@ export async function POST(
     const body = await request.json().catch(() => ({}));
     if (body?.forceRelease === true) {
       stage = "force_release";
-      if (!canForceReleaseRole(session.user.role)) {
+      if (!canForceReleaseRecordingLock(session.user.role)) {
         return respondWithOperationError({
           context,
           stage,

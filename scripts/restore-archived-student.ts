@@ -58,7 +58,10 @@ async function main() {
   }
 
   await writeAuditLog({
+    organizationId: restored.student.organizationId,
     action: "student.restore.script",
+    targetType: "student",
+    targetId: restored.student.id,
     detail: {
       studentId: restored.student.id,
       studentName: restored.student.name,

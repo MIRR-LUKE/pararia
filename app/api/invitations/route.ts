@@ -3,12 +3,9 @@ import { UserRole } from "@prisma/client";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/db";
 import { generateInvitationPlainToken, hashInvitationToken } from "@/lib/invitations/inviteTokens";
+import { canManageInvitations, isManagerRole, normalizeUserRole } from "@/lib/permissions";
 
 export const dynamic = "force-dynamic";
-
-function canManageInvites(role: string | undefined) {
-  return role === UserRole.ADMIN || role === UserRole.MANAGER || role === "ADMIN" || role === "MANAGER";
-}
 
 function inviteTtlMs() {
   const days = Math.max(1, Math.min(30, Number(process.env.INVITATION_EXPIRES_DAYS ?? 7) || 7));
@@ -28,7 +25,7 @@ export async function GET() {
     if (!session?.user?.organizationId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    if (!canManageInvites(session.user.role)) {
+    if (!canManageInvitations(session.user.role)) {
       return NextResponse.json({ error: "招待の管理権限がありません。" }, { status: 403 });
     }
 
@@ -62,7 +59,7 @@ export async function POST(request: Request) {
     if (!session?.user?.id || !session?.user?.organizationId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    if (!canManageInvites(session.user.role)) {
+    if (!canManageInvitations(session.user.role)) {
       return NextResponse.json({ error: "招待を作成する権限がありません。" }, { status: 403 });
     }
 
@@ -73,7 +70,7 @@ export async function POST(request: Request) {
     }
 
     const targetRole = parseRole(body?.role);
-    if (session.user.role === UserRole.MANAGER || session.user.role === "MANAGER") {
+    if (isManagerRole(normalizeUserRole(session.user.role))) {
       if (targetRole === UserRole.ADMIN || targetRole === UserRole.MANAGER) {
         return NextResponse.json({ error: "室長ロールでは管理者・室長の招待は作成できません。" }, { status: 403 });
       }

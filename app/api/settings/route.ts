@@ -3,8 +3,9 @@ import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/db";
 import { writeAuditLog } from "@/lib/audit";
-import { canManageSettings, getSettingsSnapshot } from "@/lib/settings/get-settings-snapshot";
+import { getSettingsSnapshot } from "@/lib/settings/get-settings-snapshot";
 import { withActiveStudentWhere } from "@/lib/students/student-lifecycle";
+import { canManageSettings } from "@/lib/permissions";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -43,21 +44,103 @@ export async function PATCH(request: Request) {
     }
 
     const body = await request.json().catch(() => ({}));
+    const organizationInput =
+      body?.organization && typeof body.organization === "object" ? body.organization : body;
     const nextOrganizationName =
-      typeof body?.organizationName === "string" ? body.organizationName.trim().slice(0, 120) : "";
+      typeof organizationInput?.organizationName === "string"
+        ? organizationInput.organizationName.trim().slice(0, 120)
+        : "";
+    const nextPlanCode =
+      typeof organizationInput?.planCode === "string" ? organizationInput.planCode.trim().slice(0, 40) : "";
+    const nextDefaultLocale =
+      typeof organizationInput?.defaultLocale === "string"
+        ? organizationInput.defaultLocale.trim().slice(0, 40)
+        : "";
+    const nextDefaultTimeZone =
+      typeof organizationInput?.defaultTimeZone === "string"
+        ? organizationInput.defaultTimeZone.trim().slice(0, 80)
+        : "";
+    const nextConsentVersion =
+      typeof organizationInput?.consentVersion === "string"
+        ? organizationInput.consentVersion.trim().slice(0, 80)
+        : "";
+    const studentLimit =
+      organizationInput?.studentLimit === null || organizationInput?.studentLimit === ""
+        ? null
+        : Number.isFinite(Number(organizationInput?.studentLimit))
+          ? Math.max(0, Math.floor(Number(organizationInput.studentLimit)))
+          : undefined;
+    const guardianConsentRequired =
+      typeof organizationInput?.guardianConsentRequired === "boolean"
+        ? organizationInput.guardianConsentRequired
+        : undefined;
     const studentId = typeof body?.studentId === "string" ? body.studentId.trim() : "";
     const guardianNames = typeof body?.guardianNames === "string" ? body.guardianNames.trim().slice(0, 120) : "";
 
-    if (nextOrganizationName) {
+    if (
+      nextOrganizationName ||
+      nextPlanCode ||
+      nextDefaultLocale ||
+      nextDefaultTimeZone ||
+      nextConsentVersion ||
+      studentLimit !== undefined ||
+      guardianConsentRequired !== undefined
+    ) {
+      const currentOrganization = await prisma.organization.findUnique({
+        where: { id: session.user.organizationId },
+        select: {
+          id: true,
+          name: true,
+          planCode: true,
+          studentLimit: true,
+          defaultLocale: true,
+          defaultTimeZone: true,
+          guardianConsentRequired: true,
+          consentVersion: true,
+        },
+      });
+      if (!currentOrganization) {
+        return NextResponse.json({ error: "organization not found" }, { status: 404 });
+      }
+
+      const organizationData: Record<string, unknown> = {};
+      if (nextOrganizationName) organizationData.name = nextOrganizationName;
+      if (nextPlanCode) organizationData.planCode = nextPlanCode;
+      if (nextDefaultLocale) organizationData.defaultLocale = nextDefaultLocale;
+      if (nextDefaultTimeZone) organizationData.defaultTimeZone = nextDefaultTimeZone;
+      if (studentLimit !== undefined) organizationData.studentLimit = studentLimit;
+      if (guardianConsentRequired !== undefined) organizationData.guardianConsentRequired = guardianConsentRequired;
+      if (nextConsentVersion) organizationData.consentVersion = nextConsentVersion;
+      if (
+        guardianConsentRequired !== undefined ||
+        (nextConsentVersion && nextConsentVersion !== currentOrganization.consentVersion)
+      ) {
+        organizationData.consentUpdatedAt = new Date();
+      }
+
       const organization = await prisma.organization.update({
         where: { id: session.user.organizationId },
-        data: { name: nextOrganizationName },
-        select: { id: true, name: true, updatedAt: true },
+        data: organizationData,
+        select: {
+          id: true,
+          name: true,
+          planCode: true,
+          studentLimit: true,
+          defaultLocale: true,
+          defaultTimeZone: true,
+          guardianConsentRequired: true,
+          consentVersion: true,
+          consentUpdatedAt: true,
+          updatedAt: true,
+        },
       });
 
       await writeAuditLog({
+        organizationId: session.user.organizationId,
         userId: session.user.id,
         action: "settings.organization.update",
+        targetType: "organization",
+        targetId: organization.id,
         detail: { organizationId: organization.id, organizationName: organization.name },
       });
 
@@ -101,8 +184,11 @@ export async function PATCH(request: Request) {
     });
 
     await writeAuditLog({
+      organizationId: session.user.organizationId,
       userId: session.user.id,
       action: "settings.guardian.update",
+      targetType: "student",
+      targetId: updated.id,
       detail: {
         studentId: updated.id,
         studentName: updated.name,

@@ -12,6 +12,13 @@ datasource db {
 model Organization {
   id        String   @id @default(cuid())
   name      String
+  planCode  String   @default("standard")
+  studentLimit Int?
+  defaultLocale String @default("ja-JP")
+  defaultTimeZone String @default("Asia/Tokyo")
+  guardianConsentRequired Boolean @default(true)
+  consentVersion String?
+  consentUpdatedAt DateTime?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -358,10 +365,19 @@ model ReportDeliveryEvent {
 }
 
 model AuditLog {
-  id        String   @id @default(cuid())
-  userId    String?
-  action    String
-  createdAt DateTime @default(now())
+  id             String   @id @default(cuid())
+  organizationId String?
+  userId         String?
+  action         String
+  targetType     String?
+  targetId       String?
+  status         String   @default("SUCCESS")
+  detailJson     Json?
+  createdAt      DateTime @default(now())
+
+  @@index([organizationId, createdAt])
+  @@index([targetType, targetId, createdAt])
+  @@index([userId, createdAt])
 }
 
 model StudentArchiveSnapshot {

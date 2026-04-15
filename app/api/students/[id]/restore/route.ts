@@ -1,14 +1,10 @@
 import { revalidatePath, revalidateTag } from "next/cache";
 import { NextResponse } from "next/server";
-import { UserRole } from "@prisma/client";
 import { writeAuditLog } from "@/lib/audit";
+import { canRestoreStudent } from "@/lib/permissions";
 import { getLogListCacheTag } from "@/lib/logs/get-log-list-page-data";
 import { requireAuthorizedSession } from "@/lib/server/request-auth";
 import { restoreArchivedStudent } from "@/lib/students/student-lifecycle";
-
-function canRestoreStudent(role: string | null | undefined) {
-  return role === UserRole.ADMIN || role === UserRole.MANAGER || role === "ADMIN" || role === "MANAGER";
-}
 
 export async function POST(_request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {

@@ -266,6 +266,8 @@ export async function forceReleaseRecordingLock(opts: {
   await writeAuditLog({
     userId: opts.actorUserId,
     action: "recording_lock_force_release",
+    targetType: "student",
+    targetId: opts.studentId,
     detail: {
       studentId: opts.studentId,
       reason: opts.reason ?? null,

@@ -93,7 +93,10 @@ async function recordWorkerStartupHeartbeat(input: {
   try {
     await prisma.$queryRaw`SELECT 1`;
     await writeAuditLog({
+      organizationId: null,
       action: "runpod_worker_startup",
+      targetType: "worker",
+      targetId: payload.podId,
       detail: {
         podId: payload.podId,
         sessionId: payload.scope.sessionId ?? null,

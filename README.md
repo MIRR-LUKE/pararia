@@ -3,7 +3,7 @@
 PARARIA は、塾・個別指導・学習コーチング向けの `Teaching OS` です。  
 現在の実装は、**録音や会話メモから `面談ログ` または `指導報告ログ` を 1 本生成し、その保存済みログを選んで `保護者レポート` を作る** ことに絞っています。
 
-この README は、**2026-04-08 時点の現行コードと一致する運用仕様書** です。
+この README は、**2026-04-15 時点の現行コードと一致する運用仕様書** です。
 
 ## Engineering
 
@@ -107,6 +107,7 @@ PARARIA は、塾・個別指導・学習コーチング向けの `Teaching OS` 
 
 - 生徒検索
 - 生徒追加
+- 一覧のまま、その場で生徒情報を編集して保存できる
 - Student Room へ移動
 
 ### 4.3 `/app/students/[studentId]`
@@ -147,6 +148,38 @@ PARARIA は、塾・個別指導・学習コーチング向けの `Teaching OS` 
 - 運用設定
 - guardian 情報の補完確認
 - 保存方針の確認
+- 組織名、プラン、人数上限、表示言語、タイムゾーン、同意バージョンの更新
+- 招待の詰まり、権限人数、最近の操作履歴の確認
+- 管理者向けの保守コンソールから `jobs/run` と `maintenance/cleanup` を実行
+- 保守 API は管理者セッション、または `cron_secret` / `x-maintenance-secret` で通す
+- 実行した人、実行方法、対象は監査ログに残す
+
+### 4.7 設定画面でできること
+
+- 組織の土台を持つ
+  - 組織名
+  - プラン名
+  - 生徒上限
+  - 表示言語
+  - タイムゾーン
+  - 同意バージョン
+- 保護者情報の穴埋め
+  - `guardianNames` 未入力の生徒だけを出す
+  - その場で保護者名を保存する
+- 招待とアカウントの確認
+  - 招待中
+  - 期限切れ
+  - 受け入れ済み
+- 権限の考え方の確認
+  - 日常操作
+  - 設定変更と復元
+  - 保守 API と強い管理操作
+- 保守コンソール
+  - 会話ジョブ / 音声ジョブの待ち数
+  - 詰まり疑い件数
+  - 最近の監査ログ
+  - `ジョブを回す`
+  - `保存期限切れを掃除`
 
 ## 5. モード別仕様
 
@@ -544,6 +577,9 @@ GPU が強いときの最初の目安:
 - `AuditLog`
 - `StudentRecordingLock`
 
+`AuditLog` は、`action` だけでなく `organizationId / targetType / targetId / status / detailJson` を持ち、
+だれが何をどこへ行った操作かを後から追える形にする。
+
 ### 9.2 `ConversationLog` の現在の意味
 
 - `artifactJson`
@@ -739,6 +775,12 @@ GPU が強いときの最初の目安:
 - `POST /api/jobs/conversation-logs/process`
 - `POST /api/jobs/session-parts/process`
 - `GET/POST /api/maintenance/cleanup`
+
+補足:
+
+- `jobs/run` と `maintenance/cleanup` は、ふつうの画面操作ではなく保守操作として扱う
+- route 側でも止める。通るのは管理者セッションか `cron_secret` / `x-maintenance-secret` だけ
+- 実行した人や対象は監査ログに残す
 
 ## 14. 主要ファイル
 

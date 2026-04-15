@@ -101,28 +101,29 @@ async function main() {
     await page.getByPlaceholder("名前、フリガナ、学年、コースで検索").fill(studentName);
     await page.getByText(studentName, { exact: true }).waitFor({ timeout: 20_000 });
     const studentRow = page.locator("article", { hasText: studentName }).first();
-    await studentRow.getByRole("link", { name: "生徒情報を編集" }).click();
+    await studentRow.getByRole("button", { name: "その場で編集" }).click();
 
-    await page.getByRole("heading", { name: studentName }).waitFor({ timeout: 20_000 });
-    await page.getByLabel("学年").waitFor({ timeout: 20_000 });
-    await page.getByLabel("学年").fill("高3");
-    await page.getByLabel("コース").fill("ui-smoke-updated");
-    await page.getByLabel("保護者名").fill("保護者UI更新");
-    await page.getByRole("button", { name: "生徒情報を更新" }).click();
+    await page.waitForURL(`${baseUrl}/app/students`, { timeout: 20_000 });
+    await studentRow.getByLabel("学年").waitFor({ timeout: 20_000 });
+    await studentRow.getByLabel("学年").fill("高3");
+    await studentRow.getByLabel("コース").fill("ui-smoke-updated");
+    await studentRow.getByLabel("保護者名").fill("保護者UI更新");
+    await studentRow.getByRole("button", { name: "保存する" }).click();
+    await page.getByText("生徒情報を更新しました。").waitFor({ timeout: 20_000 });
 
-    await page.getByRole("button", { name: "生徒情報を編集" }).waitFor({ timeout: 20_000 });
-    await page.getByRole("button", { name: "生徒情報を編集" }).click();
-    await page.getByLabel("学年").waitFor({ timeout: 20_000 });
-    await page.getByLabel("学年").inputValue().then((value) => {
+    await studentRow.getByRole("button", { name: "その場で編集" }).waitFor({ timeout: 20_000 });
+    await studentRow.getByRole("button", { name: "その場で編集" }).click();
+    await studentRow.getByLabel("学年").waitFor({ timeout: 20_000 });
+    await studentRow.getByLabel("学年").inputValue().then((value) => {
       if (value !== "高3") throw new Error(`学年が更新されていません: ${value}`);
     });
-    await page.getByLabel("コース").inputValue().then((value) => {
+    await studentRow.getByLabel("コース").inputValue().then((value) => {
       if (value !== "ui-smoke-updated") throw new Error(`コースが更新されていません: ${value}`);
     });
-    await page.getByLabel("保護者名").inputValue().then((value) => {
+    await studentRow.getByLabel("保護者名").inputValue().then((value) => {
       if (value !== "保護者UI更新") throw new Error(`保護者名が更新されていません: ${value}`);
     });
-    await page.getByRole("button", { name: "編集を閉じる" }).click();
+    await studentRow.getByRole("button", { name: "閉じる" }).click();
 
     await page.goto(`${baseUrl}/app/students`, { waitUntil: "domcontentloaded" });
     await page.getByPlaceholder("名前、フリガナ、学年、コースで検索").fill(studentName);

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { writeAuditLog } from "@/lib/audit";
 import { prisma } from "@/lib/db";
 import { Prisma } from "@prisma/client";
 import { deleteRuntimeEntries } from "@/lib/runtime-cleanup";
@@ -8,8 +9,13 @@ import {
   getReportDeliveryEventRetentionDays,
   getTranscriptRetentionDays,
 } from "@/lib/system-config";
+import { describeRequestActor, requireMaintenanceAccess } from "@/lib/server/request-auth";
 
-async function handleCleanup() {
+async function handleCleanup(request: Request) {
+  const access = await requireMaintenanceAccess(request);
+  if (access.response) return access.response;
+  const actor = access.actor;
+
   try {
     const now = new Date();
     const expiredSessionParts = await prisma.sessionPart.findMany({
@@ -87,7 +93,7 @@ async function handleCleanup() {
       }),
     ]);
 
-    return NextResponse.json({
+    const response = {
       ok: true,
       clearedConversationRawTextCount: conversationResult.count,
       clearedSessionPartCount: sessionPartResult.count,
@@ -98,8 +104,40 @@ async function handleCleanup() {
       audioRetentionDays: getAudioRetentionDays(),
       reportDeliveryEventRetentionDays: getReportDeliveryEventRetentionDays(),
       ranAt: now.toISOString(),
+      invokedBy: actor ? describeRequestActor(actor) : null,
+    };
+
+    await writeAuditLog({
+      organizationId: access.session?.user.organizationId ?? null,
+      userId: access.session?.user.id ?? null,
+      action: "maintenance.cleanup",
+      targetType: "maintenance_job",
+      targetId: "maintenance/cleanup",
+      status: "SUCCESS",
+      detail: {
+        actor: actor ? describeRequestActor(actor) : null,
+        clearedConversationRawTextCount: conversationResult.count,
+        clearedSessionPartCount: sessionPartResult.count,
+        deletedProperNounSuggestionCount: suggestionResult.count,
+        deletedRuntimeEntryCount: runtimeDeletion.deletedCount,
+        deletedReportDeliveryEventCount: reportDeliveryEventResult.count,
+      },
     });
+
+    return NextResponse.json(response);
   } catch (e: any) {
+    await writeAuditLog({
+      organizationId: access.session?.user.organizationId ?? null,
+      userId: access.session?.user.id ?? null,
+      action: "maintenance.cleanup",
+      targetType: "maintenance_job",
+      targetId: "maintenance/cleanup",
+      status: "ERROR",
+      detail: {
+        actor: actor ? describeRequestActor(actor) : null,
+        error: e?.message ?? "Internal Server Error",
+      },
+    });
     console.error("[/api/maintenance/cleanup] Error:", {
       error: e?.message,
       stack: e?.stack,
@@ -108,10 +146,10 @@ async function handleCleanup() {
   }
 }
 
-export async function GET() {
-  return handleCleanup();
+export async function GET(request: Request) {
+  return handleCleanup(request);
 }
 
-export async function POST() {
-  return handleCleanup();
+export async function POST(request: Request) {
+  return handleCleanup(request);
 }
