@@ -36,6 +36,14 @@ async function main() {
     });
     assert.equal(requireSameOriginRequest(sameOriginRequest), null, "same-origin request should pass");
 
+    const localAliasRequest = new Request("http://localhost:3000/api/jobs/run", {
+      method: "POST",
+      headers: {
+        origin: "http://127.0.0.1:3000",
+      },
+    });
+    assert.equal(requireSameOriginRequest(localAliasRequest), null, "localhost and 127.0.0.1 should pass locally");
+
     const crossOriginRequest = new Request("https://example.com/api/jobs/run", {
       method: "POST",
       headers: {
