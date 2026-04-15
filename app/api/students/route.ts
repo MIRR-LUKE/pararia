@@ -2,7 +2,6 @@ import { revalidatePath, revalidateTag } from "next/cache";
 import { NextResponse } from "next/server";
 import { writeAuditLog } from "@/lib/audit";
 import { requireAuthorizedMutationSession, requireAuthorizedSession } from "@/lib/server/request-auth";
-import { getCachedStudentDirectoryView } from "@/lib/students/get-cached-student-directory-view";
 import { listStudentRows } from "@/lib/students/list-student-rows";
 import { StudentLimitExceededError, assertStudentCapacityAvailable, runStudentCapacityWrite } from "@/lib/students/student-limit";
 import { mapStudentDirectoryRows } from "@/lib/students/student-directory-view";
@@ -28,19 +27,14 @@ export async function GET(request: Request) {
     const effectiveLimit =
       limit && Number.isFinite(limit) ? Math.floor(limit) : DEFAULT_STUDENT_DIRECTORY_LIMIT;
 
-    const studentsOut = includeRecordingLock
-      ? mapStudentDirectoryRows(
-          await listStudentRows({
-            organizationId,
-            limit: effectiveLimit,
-            includeRecordingLock: true,
-            projection: "directory",
-          })
-        )
-      : await getCachedStudentDirectoryView({
-          organizationId,
-          limit: effectiveLimit,
-        });
+    const studentsOut = mapStudentDirectoryRows(
+      await listStudentRows({
+        organizationId,
+        limit: effectiveLimit,
+        includeRecordingLock,
+        projection: "directory",
+      })
+    );
 
     return NextResponse.json(
       { students: studentsOut },

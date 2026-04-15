@@ -51,57 +51,74 @@ jobs:
         id: stamp
         run: echo "stamp=$(date -u +'%Y-%m-%dT%H-%M-%SZ')" >> "$GITHUB_OUTPUT"
 
+      - name: Check backup secrets
+        id: backup_secrets
+        shell: bash
+        run: |
+          if [ -n "$PARARIA_BACKUP_DATABASE_URL" ]; then
+            echo "db_ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::DB backup skipped because PARARIA_BACKUP_DATABASE_URL is not set."
+            echo "db_ready=false" >> "$GITHUB_OUTPUT"
+          fi
+          if [ -n "$SUPABASE_ACCESS_TOKEN" ] && [ -n "$SUPABASE_PROJECT_REF" ]; then
+            echo "status_ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::Supabase status backup skipped because SUPABASE_ACCESS_TOKEN or SUPABASE_PROJECT_REF is not set."
+            echo "status_ready=false" >> "$GITHUB_OUTPUT"
+          fi
+          if [ -n "$PARARIA_BLOB_BACKUP_TOKEN" ]; then
+            echo "blob_ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::Blob backup skipped because PARARIA_BLOB_BACKUP_TOKEN is not set."
+            echo "blob_ready=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Prepare backup status directory
+        if: ${{ steps.backup_secrets.outputs.status_ready == 'true' }}
         run: mkdir -p ".backups/gha-status/${{ steps.stamp.outputs.stamp }}"
 
       - name: Capture Supabase backup status
-        if: ${{ env.SUPABASE_ACCESS_TOKEN != '' && env.SUPABASE_PROJECT_REF != '' }}
+        if: ${{ steps.backup_secrets.outputs.status_ready == 'true' }}
         run: |
           npm run backup:status -- --project-ref "$SUPABASE_PROJECT_REF" --out ".backups/gha-status/${{ steps.stamp.outputs.stamp }}/supabase-backup-status.json"
 
       - name: Backup roles
+        if: ${{ steps.backup_secrets.outputs.db_ready == 'true' }}
         run: |
-          if [ -z "$PARARIA_BACKUP_DATABASE_URL" ]; then
-            echo "PARARIA_BACKUP_DATABASE_URL が必要です"
-            exit 1
-          fi
           mkdir -p ".backups/gha-db/${{ steps.stamp.outputs.stamp }}"
           supabase db dump --db-url "$PARARIA_BACKUP_DATABASE_URL" -f ".backups/gha-db/${{ steps.stamp.outputs.stamp }}/roles.sql" --role-only
 
       - name: Backup schema
+        if: ${{ steps.backup_secrets.outputs.db_ready == 'true' }}
         run: |
-          if [ -z "$PARARIA_BACKUP_DATABASE_URL" ]; then
-            echo "PARARIA_BACKUP_DATABASE_URL が必要です"
-            exit 1
-          fi
           supabase db dump --db-url "$PARARIA_BACKUP_DATABASE_URL" -f ".backups/gha-db/${{ steps.stamp.outputs.stamp }}/schema.sql"
 
       - name: Backup data
+        if: ${{ steps.backup_secrets.outputs.db_ready == 'true' }}
         run: |
-          if [ -z "$PARARIA_BACKUP_DATABASE_URL" ]; then
-            echo "PARARIA_BACKUP_DATABASE_URL が必要です"
-            exit 1
-          fi
           supabase db dump --db-url "$PARARIA_BACKUP_DATABASE_URL" -f ".backups/gha-db/${{ steps.stamp.outputs.stamp }}/data.sql" --data-only --use-copy
 
       - name: Checksum DB dumps
+        if: ${{ steps.backup_secrets.outputs.db_ready == 'true' }}
         run: |
           cd ".backups/gha-db/${{ steps.stamp.outputs.stamp }}"
           sha256sum roles.sql schema.sql data.sql > SHA256SUMS
 
       - name: Backup blob manifest
-        if: ${{ env.PARARIA_BLOB_BACKUP_TOKEN != '' && (github.event_name != 'workflow_dispatch' || github.event.inputs.blob_mode != 'full') }}
+        if: ${{ steps.backup_secrets.outputs.blob_ready == 'true' && (github.event_name != 'workflow_dispatch' || github.event.inputs.blob_mode != 'full') }}
         run: npm run backup:blob -- --manifest-only --prefix "${{ github.event.inputs.blob_prefix || 'session-audio/' }}" --output-dir ".backups/gha-blob"
 
       - name: Backup blob full export
-        if: ${{ env.PARARIA_BLOB_BACKUP_TOKEN != '' && github.event_name == 'workflow_dispatch' && github.event.inputs.blob_mode == 'full' }}
+        if: ${{ steps.backup_secrets.outputs.blob_ready == 'true' && github.event_name == 'workflow_dispatch' && github.event.inputs.blob_mode == 'full' }}
         run: npm run backup:blob -- --prefix "${{ github.event.inputs.blob_prefix || 'session-audio/' }}" --output-dir ".backups/gha-blob"
 
       - name: Note blob backup skip
-        if: ${{ env.PARARIA_BLOB_BACKUP_TOKEN == '' }}
+        if: ${{ steps.backup_secrets.outputs.blob_ready != 'true' }}
         run: echo "PARARIA_BLOB_BACKUP_TOKEN がないため Blob backup はスキップします。"
 
       - name: Upload DB backup artifact
+        if: ${{ steps.backup_secrets.outputs.db_ready == 'true' }}
         uses: actions/upload-artifact@v4
         with:
           name: pararia-db-backup-${{ steps.stamp.outputs.stamp }}
@@ -109,7 +126,7 @@ jobs:
           retention-days: 14
 
       - name: Upload Supabase status artifact
-        if: ${{ env.SUPABASE_ACCESS_TOKEN != '' && env.SUPABASE_PROJECT_REF != '' }}
+        if: ${{ steps.backup_secrets.outputs.status_ready == 'true' }}
         uses: actions/upload-artifact@v4
         with:
           name: pararia-supabase-status-${{ steps.stamp.outputs.stamp }}
@@ -117,7 +134,7 @@ jobs:
           retention-days: 14
 
       - name: Upload blob backup artifact
-        if: ${{ env.PARARIA_BLOB_BACKUP_TOKEN != '' }}
+        if: ${{ steps.backup_secrets.outputs.blob_ready == 'true' }}
         uses: actions/upload-artifact@v4
         with:
           name: pararia-blob-backup-${{ steps.stamp.outputs.stamp }}
