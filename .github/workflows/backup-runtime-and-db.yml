@@ -24,10 +24,10 @@ jobs:
     permissions:
       contents: read
     env:
-      SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+      PARARIA_BACKUP_DATABASE_URL: ${{ secrets.PARARIA_BACKUP_DATABASE_URL }}
       SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
       SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
-      BLOB_READ_WRITE_TOKEN: ${{ secrets.BLOB_READ_WRITE_TOKEN }}
+      PARARIA_BLOB_BACKUP_TOKEN: ${{ secrets.PARARIA_BLOB_BACKUP_TOKEN }}
       PARARIA_AUDIO_BLOB_ACCESS: private
     steps:
       - name: Checkout
@@ -61,16 +61,28 @@ jobs:
 
       - name: Backup roles
         run: |
+          if [ -z "$PARARIA_BACKUP_DATABASE_URL" ]; then
+            echo "PARARIA_BACKUP_DATABASE_URL が必要です"
+            exit 1
+          fi
           mkdir -p ".backups/gha-db/${{ steps.stamp.outputs.stamp }}"
-          supabase db dump --db-url "$SUPABASE_DB_URL" -f ".backups/gha-db/${{ steps.stamp.outputs.stamp }}/roles.sql" --role-only
+          supabase db dump --db-url "$PARARIA_BACKUP_DATABASE_URL" -f ".backups/gha-db/${{ steps.stamp.outputs.stamp }}/roles.sql" --role-only
 
       - name: Backup schema
         run: |
-          supabase db dump --db-url "$SUPABASE_DB_URL" -f ".backups/gha-db/${{ steps.stamp.outputs.stamp }}/schema.sql"
+          if [ -z "$PARARIA_BACKUP_DATABASE_URL" ]; then
+            echo "PARARIA_BACKUP_DATABASE_URL が必要です"
+            exit 1
+          fi
+          supabase db dump --db-url "$PARARIA_BACKUP_DATABASE_URL" -f ".backups/gha-db/${{ steps.stamp.outputs.stamp }}/schema.sql"
 
       - name: Backup data
         run: |
-          supabase db dump --db-url "$SUPABASE_DB_URL" -f ".backups/gha-db/${{ steps.stamp.outputs.stamp }}/data.sql" --data-only --use-copy
+          if [ -z "$PARARIA_BACKUP_DATABASE_URL" ]; then
+            echo "PARARIA_BACKUP_DATABASE_URL が必要です"
+            exit 1
+          fi
+          supabase db dump --db-url "$PARARIA_BACKUP_DATABASE_URL" -f ".backups/gha-db/${{ steps.stamp.outputs.stamp }}/data.sql" --data-only --use-copy
 
       - name: Checksum DB dumps
         run: |
@@ -78,12 +90,16 @@ jobs:
           sha256sum roles.sql schema.sql data.sql > SHA256SUMS
 
       - name: Backup blob manifest
-        if: ${{ env.BLOB_READ_WRITE_TOKEN != '' && (github.event_name != 'workflow_dispatch' || github.event.inputs.blob_mode != 'full') }}
+        if: ${{ env.PARARIA_BLOB_BACKUP_TOKEN != '' && (github.event_name != 'workflow_dispatch' || github.event.inputs.blob_mode != 'full') }}
         run: npm run backup:blob -- --manifest-only --prefix "${{ github.event.inputs.blob_prefix || 'session-audio/' }}" --output-dir ".backups/gha-blob"
 
       - name: Backup blob full export
-        if: ${{ env.BLOB_READ_WRITE_TOKEN != '' && github.event_name == 'workflow_dispatch' && github.event.inputs.blob_mode == 'full' }}
+        if: ${{ env.PARARIA_BLOB_BACKUP_TOKEN != '' && github.event_name == 'workflow_dispatch' && github.event.inputs.blob_mode == 'full' }}
         run: npm run backup:blob -- --prefix "${{ github.event.inputs.blob_prefix || 'session-audio/' }}" --output-dir ".backups/gha-blob"
+
+      - name: Note blob backup skip
+        if: ${{ env.PARARIA_BLOB_BACKUP_TOKEN == '' }}
+        run: echo "PARARIA_BLOB_BACKUP_TOKEN がないため Blob backup はスキップします。"
 
       - name: Upload DB backup artifact
         uses: actions/upload-artifact@v4
@@ -101,7 +117,7 @@ jobs:
           retention-days: 14
 
       - name: Upload blob backup artifact
-        if: ${{ env.BLOB_READ_WRITE_TOKEN != '' }}
+        if: ${{ env.PARARIA_BLOB_BACKUP_TOKEN != '' }}
         uses: actions/upload-artifact@v4
         with:
           name: pararia-blob-backup-${{ steps.stamp.outputs.stamp }}

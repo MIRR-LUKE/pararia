@@ -65,6 +65,7 @@ npm run backup:db
 - 生成物:
   - `pararia.dump`
   - `metadata.json`
+- backup 専用の接続先を使えるなら `PARARIA_BACKUP_DATABASE_URL` を最優先にする
 
 Blob:
 
@@ -77,6 +78,7 @@ npm run backup:blob
 - 生成物:
   - `files/...`
   - `manifest.json`
+- backup は `PARARIA_BLOB_BACKUP_TOKEN` を使い、`BLOB_READ_WRITE_TOKEN` は runtime / upload 用として分けておく
 
 manifest のみ:
 
@@ -95,10 +97,10 @@ GitHub Actions:
 - workflow: `.github/workflows/backup-runtime-and-db.yml`
 - schedule: 6 時間ごと
 - secret:
-  - `SUPABASE_DB_URL`
+  - `PARARIA_BACKUP_DATABASE_URL`
   - `SUPABASE_PROJECT_REF`
   - `SUPABASE_ACCESS_TOKEN`
-  - `BLOB_READ_WRITE_TOKEN` (Blob backup を含める場合)
+  - `PARARIA_BLOB_BACKUP_TOKEN` (Blob backup を含める場合)
 - artifact:
   - DB dump: 14 日保持
   - Supabase backup status: 14 日保持
@@ -118,6 +120,7 @@ npm run backup:sync-github-secrets
 ```
 
 ただし `gh` token に Actions secrets の write 権限が必要です。
+backup 用の Blob secret は `PARARIA_BLOB_BACKUP_TOKEN` だけを同期します。
 
 ## 3.2.1 Supabase 側の one-time 設定
 
@@ -159,9 +162,9 @@ npm run restore:student -- --student-id <studentId>
 ### 4.2 Blob
 
 - `BLOB_READ_WRITE_TOKEN`
-  - Blob backup の基本 token
+  - runtime / upload 用。backup に流用しない
 - `PARARIA_BLOB_BACKUP_TOKEN`
-  - backup 専用 token を分けたいときに使う
+  - backup 専用 token
 - `PARARIA_AUDIO_BLOB_ACCESS`
   - 通常は `private`
 - `PARARIA_BLOB_BACKUP_ACCESS`

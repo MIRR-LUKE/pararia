@@ -103,16 +103,20 @@ export function useReportStudioController({
     setError(null);
     setGenerationStage("validating");
     try {
+      const normalizedSessionIds = Array.from(new Set(selectedSessionIds)).sort();
       const payload = {
         studentId,
-        sessionIds: selectedSessionIds,
+        sessionIds: normalizedSessionIds,
       };
       setGenerationStage("gathering");
       await Promise.resolve();
       setGenerationStage("drafting");
       const res = await fetch("/api/ai/generate-report", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "Idempotency-Key": `report:${studentId}:${normalizedSessionIds.join(",")}`,
+        },
         body: JSON.stringify(payload),
       });
       const body = await res.json().catch(() => ({}));

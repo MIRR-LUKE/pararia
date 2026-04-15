@@ -46,7 +46,7 @@ async function main() {
 
   const prefix = getArgValue("--prefix") ?? "session-audio/";
   const outputRoot = getArgValue("--output-dir") ?? path.join(ROOT, ".backups", "blob");
-  const token = process.env.PARARIA_BLOB_BACKUP_TOKEN?.trim() || process.env.BLOB_READ_WRITE_TOKEN?.trim();
+  const token = process.env.PARARIA_BLOB_BACKUP_TOKEN?.trim();
   const access = ((process.env.PARARIA_BLOB_BACKUP_ACCESS ?? process.env.PARARIA_AUDIO_BLOB_ACCESS ?? "private").trim()
     .toLowerCase() === "public"
       ? "public"
@@ -54,7 +54,7 @@ async function main() {
   const manifestOnly = hasFlag("--manifest-only");
 
   if (!token) {
-    throw new Error("PARARIA_BLOB_BACKUP_TOKEN または BLOB_READ_WRITE_TOKEN が必要です。");
+    throw new Error("PARARIA_BLOB_BACKUP_TOKEN が必要です。BLOB_READ_WRITE_TOKEN は backup には流用せず、専用 token を設定してください。");
   }
 
   const stamp = timestampLabel(new Date());

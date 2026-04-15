@@ -1,9 +1,28 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
+import { isMaintenanceRoutePath, readBearerToken } from "@/lib/server/route-guards";
 
 const USER = process.env.BASIC_AUTH_USER;
 const PASS = process.env.BASIC_AUTH_PASS;
-const CRON_SECRET = process.env.CRON_SECRET;
+const MAINTENANCE_SECRETS = [
+  process.env.CRON_SECRET?.trim(),
+  process.env.MAINTENANCE_SECRET?.trim(),
+  process.env.MAINTENANCE_CRON_SECRET?.trim(),
+].filter((secret): secret is string => Boolean(secret));
+
+function hasMaintenanceAuthorization(request: NextRequest) {
+  const pathname = request.nextUrl.pathname;
+  if (!isMaintenanceRoutePath(pathname)) {
+    return false;
+  }
+
+  const bearerToken = readBearerToken(request.headers.get("authorization"));
+  if (!bearerToken) {
+    return false;
+  }
+
+  return MAINTENANCE_SECRETS.some((secret) => bearerToken === secret);
+}
 
 export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
@@ -11,15 +30,8 @@ export function proxy(request: NextRequest) {
     return NextResponse.next();
   }
 
-  if (CRON_SECRET) {
-    const cronHeader = request.headers.get("x-cron-secret");
-    if (cronHeader && cronHeader === CRON_SECRET) {
-      return NextResponse.next();
-    }
-    const cronQuery = request.nextUrl.searchParams.get("cron_secret");
-    if (cronQuery && cronQuery === CRON_SECRET) {
-      return NextResponse.next();
-    }
+  if (hasMaintenanceAuthorization(request)) {
+    return NextResponse.next();
   }
 
   if (!USER || !PASS) {

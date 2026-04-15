@@ -10,6 +10,8 @@ import { normalizeStudentCreateInput } from "@/lib/students/student-write";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
+const AUDIT_WARNING_MESSAGE = "更新自体は完了しましたが、監査記録の保存に失敗しました。管理者へ連絡してください。";
+
 export async function GET(request: Request) {
   try {
     const authResult = await requireAuthorizedSession();
@@ -72,7 +74,7 @@ export async function POST(request: Request) {
       });
     });
 
-    await writeAuditLog({
+    const auditLogged = await writeAuditLog({
       organizationId: authResult.session.user.organizationId,
       userId: authResult.session.user.id,
       action: "student.create",
@@ -85,13 +87,19 @@ export async function POST(request: Request) {
         course: student.course,
       },
     });
-
     revalidateTag(`student-directory:${authResult.session.user.organizationId}`, "max");
     revalidateTag(`dashboard-snapshot:${authResult.session.user.organizationId}`, "max");
     revalidatePath("/app/students");
     revalidatePath("/app/dashboard");
     revalidatePath("/app/reports");
     revalidatePath("/app/settings");
+
+    if (!auditLogged) {
+      return NextResponse.json(
+        { student, auditWarning: AUDIT_WARNING_MESSAGE },
+        { status: 202, headers: { "X-Pararia-Audit-Warning": "1" } }
+      );
+    }
 
     return NextResponse.json({ student }, { status: 201 });
   } catch (e: any) {

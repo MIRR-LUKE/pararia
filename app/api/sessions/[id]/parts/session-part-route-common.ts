@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import { SessionPartType, SessionType } from "@prisma/client";
+import { z } from "zod";
 import { prisma } from "@/lib/db";
+import { extractBlobPathnameFromUrl } from "@/lib/audio-storage-paths";
+import { parseWithSchema } from "@/lib/server/request-validation";
 import { requireAuthorizedSession } from "@/lib/server/request-auth";
 
 export type SessionPartAuthSession = {
@@ -28,6 +31,7 @@ export type SessionPartSubmissionFormData = {
   transcript: string;
   file: File | null;
   blobUrl: string;
+  blobPathname: string;
   uploadedFileName: string;
   uploadedMimeType: string;
   uploadedByteSize: number | null;
@@ -59,29 +63,53 @@ export function parsePartType(raw: string | null) {
 }
 
 export function parseSessionPartSubmissionFormData(formData: FormData): SessionPartSubmissionFormData {
+  const rawFile = formData.get("file");
+  const file = rawFile instanceof File ? rawFile : null;
   const blobUrl = (formData.get("blobUrl") as string | null)?.trim() ?? "";
+  const blobPathname = (formData.get("blobPathname") as string | null)?.trim() || extractBlobPathnameFromUrl(blobUrl);
   const uploadedFileName = (formData.get("fileName") as string | null)?.trim() ?? "";
   const uploadedMimeType = (formData.get("blobContentType") as string | null)?.trim() ?? "";
-  const uploadedByteSize = Number(formData.get("blobSize") ?? NaN);
-  const durationSecondsHintRaw = Number(formData.get("durationSecondsHint") ?? NaN);
-  const durationSecondsHint =
-    Number.isFinite(durationSecondsHintRaw) && durationSecondsHintRaw >= 0 ? durationSecondsHintRaw : null;
-  const uploadSource = ((formData.get("uploadSource") as string | null)?.trim() || "file_upload") as
-    | "file_upload"
-    | "direct_recording";
+  const parsed = parseWithSchema(
+    z.object({
+      partType: z.nativeEnum(SessionPartType),
+      transcript: z.string(),
+      blobUrl: z.string(),
+      blobPathname: z.string(),
+      uploadedFileName: z.string(),
+      uploadedMimeType: z.string(),
+      uploadedByteSize: z.number().int().nonnegative().nullable(),
+      durationSecondsHint: z.number().nonnegative().nullable(),
+      lockToken: z.string(),
+      uploadSource: z.enum(["file_upload", "direct_recording"]),
+    }),
+    {
+      partType: parsePartType((formData.get("partType") as string | null) ?? null),
+      transcript: (formData.get("transcript") as string | null)?.trim() ?? "",
+      blobUrl,
+      blobPathname,
+      uploadedFileName,
+      uploadedMimeType,
+      uploadedByteSize: (() => {
+        const value = Number(formData.get("blobSize") ?? NaN);
+        return Number.isFinite(value) && value >= 0 ? Math.floor(value) : null;
+      })(),
+      durationSecondsHint: (() => {
+        const value = Number(formData.get("durationSecondsHint") ?? NaN);
+        return Number.isFinite(value) && value >= 0 ? value : null;
+      })(),
+      lockToken: (formData.get("lockToken") as string | null)?.trim() ?? "",
+      uploadSource:
+        ((formData.get("uploadSource") as string | null)?.trim() || "file_upload") === "direct_recording"
+          ? "direct_recording"
+          : "file_upload",
+    },
+    "セッション音声"
+  );
 
   return {
-    partType: parsePartType((formData.get("partType") as string | null) ?? null),
-    transcript: (formData.get("transcript") as string | null)?.trim() ?? "",
-    file: formData.get("file") as File | null,
-    blobUrl,
-    uploadedFileName,
-    uploadedMimeType,
-    uploadedByteSize: Number.isFinite(uploadedByteSize) && uploadedByteSize >= 0 ? uploadedByteSize : null,
-    durationSecondsHint,
-    lockToken: (formData.get("lockToken") as string | null)?.trim() ?? "",
-    uploadSource,
-    hasBlobUpload: Boolean(blobUrl),
+    ...parsed,
+    file,
+    hasBlobUpload: Boolean(parsed.blobUrl || parsed.blobPathname),
   };
 }
 

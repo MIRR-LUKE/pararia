@@ -7,6 +7,8 @@ import { requireAuthorizedSession } from "@/lib/server/request-auth";
 import { StudentLimitExceededError } from "@/lib/students/student-limit";
 import { restoreArchivedStudent } from "@/lib/students/student-lifecycle";
 
+const AUDIT_WARNING_MESSAGE = "更新自体は完了しましたが、監査記録の保存に失敗しました。管理者へ連絡してください。";
+
 export async function POST(_request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await Promise.resolve(params);
@@ -26,7 +28,7 @@ export async function POST(_request: Request, { params }: { params: Promise<{ id
       return NextResponse.json({ error: "archived student not found" }, { status: 404 });
     }
 
-    await writeAuditLog({
+    const auditLogged = await writeAuditLog({
       organizationId: authResult.session.user.organizationId,
       userId: authResult.session.user.id,
       action: "student.restore",
@@ -49,11 +51,15 @@ export async function POST(_request: Request, { params }: { params: Promise<{ id
     revalidatePath("/app/logs");
     revalidatePath(`/app/students/${restored.student.id}`);
 
-    return NextResponse.json({
-      success: true,
-      studentId: restored.student.id,
-      archiveSnapshotId: restored.latestSnapshotId,
-    });
+    return NextResponse.json(
+      {
+        success: true,
+        studentId: restored.student.id,
+        archiveSnapshotId: restored.latestSnapshotId,
+        auditWarning: auditLogged ? null : AUDIT_WARNING_MESSAGE,
+      },
+      auditLogged ? undefined : { status: 202, headers: { "X-Pararia-Audit-Warning": "1" } }
+    );
   } catch (error: any) {
     if (error instanceof StudentLimitExceededError) {
       return NextResponse.json({ error: error.message }, { status: 409 });

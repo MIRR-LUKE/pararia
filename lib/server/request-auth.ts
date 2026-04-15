@@ -3,6 +3,7 @@ import { UserRole } from "@prisma/client";
 import { auth } from "@/auth";
 import { readConfiguredSecretValues } from "@/lib/env";
 import { canRunMaintenanceRoutes, normalizeUserRole, roleLabelJa } from "@/lib/permissions";
+import { isMaintenanceRoutePath, readBearerToken } from "@/lib/server/route-guards";
 
 export type AuthorizedSession = Awaited<ReturnType<typeof auth>> & {
   user: {
@@ -29,7 +30,7 @@ export type RequestActor =
       kind: "maintenance_secret";
       authMethod: "secret";
       secretName: string;
-      secretSource: "query" | "header";
+      secretSource: "header";
       secretConfigName: string;
       userId: null;
       organizationId: null;
@@ -56,18 +57,13 @@ function readMaintenanceSecretCandidates() {
 
 function readMaintenanceSecretFromRequest(request: Request) {
   const url = new URL(request.url);
-  const querySecret = url.searchParams.get("cron_secret")?.trim() ?? url.searchParams.get("maintenance_secret")?.trim() ?? "";
-  if (querySecret) {
-    return { secretName: "cron_secret", secretSource: "query" as const, secretValue: querySecret };
+  if (!isMaintenanceRoutePath(url.pathname)) {
+    return null;
   }
 
-  const headerSecret =
-    request.headers.get("x-maintenance-secret")?.trim() ??
-    request.headers.get("x-cron-secret")?.trim() ??
-    request.headers.get("x-pararia-maintenance-secret")?.trim() ??
-    "";
-  if (headerSecret) {
-    return { secretName: "x-maintenance-secret", secretSource: "header" as const, secretValue: headerSecret };
+  const bearerSecret = readBearerToken(request.headers.get("authorization"));
+  if (bearerSecret) {
+    return { secretName: "authorization", secretSource: "header" as const, secretValue: bearerSecret };
   }
 
   return null;

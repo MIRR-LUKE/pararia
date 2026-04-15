@@ -148,20 +148,32 @@ export async function materializeStorageFile(
 }
 
 export async function deleteStorageEntry(storageUrl: string) {
-  if (!storageUrl) return false;
+  return (await deleteStorageEntryDetailed(storageUrl)).ok;
+}
+
+export async function deleteStorageEntryDetailed(storageUrl: string): Promise<{ ok: boolean; error?: string }> {
+  if (!storageUrl) return { ok: false, error: "empty storage target" };
 
   if ((getAudioStorageMode() === "blob" && !path.isAbsolute(storageUrl)) || isRemoteStorageUrl(storageUrl)) {
     const { del } = await getBlobSdk();
-    await del(storageUrl).catch(() => {});
-    return true;
+    try {
+      await del(storageUrl);
+      return { ok: true };
+    } catch (error: any) {
+      return { ok: false, error: error?.message ?? "blob deletion failed" };
+    }
   }
 
   const localPath = path.isAbsolute(storageUrl) ? storageUrl : toLocalRuntimePath(storageUrl);
   const runtimeRoot = path.resolve(getRuntimeRootDir()).toLowerCase();
   const target = path.resolve(localPath).toLowerCase();
   if (!(target === runtimeRoot || target.startsWith(`${runtimeRoot}${path.sep}`))) {
-    return false;
+    return { ok: false, error: "runtime root 外のパスは削除できません。" };
   }
-  await rm(localPath, { recursive: true, force: true }).catch(() => {});
-  return true;
+  try {
+    await rm(localPath, { recursive: true, force: true });
+    return { ok: true };
+  } catch (error: any) {
+    return { ok: false, error: error?.message ?? "local deletion failed" };
+  }
 }

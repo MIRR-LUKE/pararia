@@ -1,28 +1,45 @@
 import { revalidatePath, revalidateTag } from "next/cache";
 import { NextResponse } from "next/server";
 import { ReportDeliveryEventType } from "@prisma/client";
+import { z } from "zod";
 import { auth } from "@/auth";
 import { writeAuditLog } from "@/lib/audit";
-import { prisma } from "@/lib/db";
+import { API_THROTTLE_RULES, ApiQuotaExceededError, consumeApiQuota } from "@/lib/api-throttle";
 import { generateParentReport } from "@/lib/ai/parentReport";
 import { renderConversationArtifactOrFallback } from "@/lib/conversation-artifact";
 import { withVisibleConversationWhere } from "@/lib/content-visibility";
+import { prisma } from "@/lib/db";
+import {
+  beginIdempotency,
+  buildStableRequestHash,
+  completeIdempotency,
+  failIdempotency,
+  IdempotencyConflictError,
+} from "@/lib/idempotency";
 import { getLogListCacheTag } from "@/lib/logs/get-log-list-page-data";
+import { RequestValidationError, parseJsonWithSchema } from "@/lib/server/request-validation";
 import { withActiveStudentWhere } from "@/lib/students/student-lifecycle";
 
+const generateReportBodySchema = z.object({
+  studentId: z.string().trim().min(1),
+  fromDate: z.string().trim().min(1).optional().nullable(),
+  toDate: z.string().trim().min(1).optional().nullable(),
+  logIds: z.array(z.string().trim().min(1)).optional(),
+  sessionIds: z.array(z.string().trim().min(1)).optional(),
+});
+
 export async function POST(request: Request) {
+  let idempotencyKey: string | null = null;
+  let idempotencyStarted = false;
+
   try {
     const session = await auth();
     if (!session?.user?.id || !session.user.organizationId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const body = await request.json();
-    const { studentId, fromDate, toDate, logIds, sessionIds } = body ?? {};
-
-    if (!studentId) {
-      return NextResponse.json({ error: "studentId is required" }, { status: 400 });
-    }
+    const body = await parseJsonWithSchema(request, generateReportBodySchema, "レポート生成");
+    const studentId = body.studentId;
 
     const student = await prisma.student.findFirst({
       where: withActiveStudentWhere({ id: studentId, organizationId: session.user.organizationId }),
@@ -31,8 +48,8 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "student not found" }, { status: 404 });
     }
 
-    const resolvedLogIds = Array.isArray(logIds) ? logIds.filter(Boolean) : [];
-    const resolvedSessionIds = Array.isArray(sessionIds) ? sessionIds.filter(Boolean) : [];
+    const resolvedLogIds = Array.from(new Set((body.logIds ?? []).filter(Boolean))).sort();
+    const resolvedSessionIds = Array.from(new Set((body.sessionIds ?? []).filter(Boolean))).sort();
 
     if (resolvedLogIds.length === 0 && resolvedSessionIds.length === 0) {
       return NextResponse.json(
@@ -41,8 +58,52 @@ export async function POST(request: Request) {
       );
     }
 
-    const from = fromDate ? new Date(fromDate) : undefined;
-    const to = toDate ? new Date(toDate) : undefined;
+    const from = body.fromDate ? new Date(body.fromDate) : undefined;
+    const to = body.toDate ? new Date(body.toDate) : undefined;
+    if (from && Number.isNaN(from.getTime())) {
+      throw new RequestValidationError("fromDate の形式が不正です。");
+    }
+    if (to && Number.isNaN(to.getTime())) {
+      throw new RequestValidationError("toDate の形式が不正です。");
+    }
+    const normalizedRequest = {
+      studentId,
+      fromDate: from ? from.toISOString() : null,
+      toDate: to ? to.toISOString() : null,
+      logIds: resolvedLogIds,
+      sessionIds: resolvedSessionIds,
+    };
+
+    await consumeApiQuota({
+      scope: "report_generate:user",
+      rawKey: session.user.id,
+      rule: API_THROTTLE_RULES.reportGenerateUser,
+    });
+    await consumeApiQuota({
+      scope: "report_generate:org",
+      rawKey: session.user.organizationId,
+      rule: API_THROTTLE_RULES.reportGenerateOrg,
+    });
+
+    idempotencyKey = request.headers.get("Idempotency-Key")?.trim() || buildStableRequestHash(normalizedRequest);
+    const idempotency = await beginIdempotency({
+      scope: "report_generate",
+      idempotencyKey,
+      requestBody: normalizedRequest,
+      organizationId: session.user.organizationId,
+      userId: session.user.id,
+      ttlMs: 24 * 60 * 60 * 1000,
+    });
+    if (idempotency.state === "completed") {
+      return NextResponse.json(idempotency.responseBody ?? {}, { status: idempotency.responseStatus ?? 200 });
+    }
+    if (idempotency.state === "pending") {
+      return NextResponse.json(
+        { error: "同じレポート生成がまだ進行中です。少し待ってから再読み込みしてください。" },
+        { status: 409 }
+      );
+    }
+    idempotencyStarted = true;
 
     const selectedLogs = await prisma.conversationLog.findMany({
       where: withVisibleConversationWhere({
@@ -134,7 +195,7 @@ export async function POST(request: Request) {
           reportId: created.id,
           organizationId: student.organizationId,
           studentId,
-          actorUserId: session?.user?.id ?? undefined,
+          actorUserId: session.user.id ?? undefined,
           eventType: ReportDeliveryEventType.DRAFT_CREATED,
           eventMetaJson: {
             sourceLogIds: logs.map((log) => log.id),
@@ -148,7 +209,7 @@ export async function POST(request: Request) {
 
     await writeAuditLog({
       organizationId: student.organizationId,
-      userId: session?.user?.id,
+      userId: session.user.id,
       action: "report.generate",
       targetType: "report",
       targetId: report.id,
@@ -168,12 +229,51 @@ export async function POST(request: Request) {
     revalidatePath("/app/reports");
     revalidatePath(`/app/students/${studentId}`);
 
-    return NextResponse.json({ report });
+    const responseBody = JSON.parse(JSON.stringify({ report }));
+    await completeIdempotency({
+      scope: "report_generate",
+      idempotencyKey,
+      responseStatus: 200,
+      responseBody,
+    });
+
+    return NextResponse.json(responseBody);
   } catch (error: any) {
+    if (idempotencyStarted && idempotencyKey) {
+      await failIdempotency({
+        scope: "report_generate",
+        idempotencyKey,
+      }).catch(() => {});
+    }
+
     console.error("[POST /api/ai/generate-report] Error:", {
       error: error?.message,
       stack: error?.stack,
     });
+
+    if (error instanceof RequestValidationError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
+
+    if (error instanceof ApiQuotaExceededError) {
+      return NextResponse.json(
+        {
+          error: error.message,
+          retryAfterSeconds: error.retryAfterSeconds,
+        },
+        {
+          status: 429,
+          headers: {
+            "Retry-After": String(error.retryAfterSeconds),
+          },
+        }
+      );
+    }
+
+    if (error instanceof IdempotencyConflictError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
+
     return NextResponse.json(
       { error: error?.message ?? "Internal Server Error" },
       { status: 500 }

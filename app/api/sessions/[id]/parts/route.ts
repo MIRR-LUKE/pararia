@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { RequestValidationError } from "@/lib/server/request-validation";
 import {
   loadAuthorizedSessionPartContext,
   parseSessionPartSubmissionFormData,
@@ -17,6 +18,9 @@ export async function POST(
     const submission = parseSessionPartSubmissionFormData(await request.formData());
     return await handleSessionPartSubmission({ access, submission });
   } catch (error: any) {
+    if (error instanceof RequestValidationError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     console.error("[POST /api/sessions/[id]/parts] Error:", error);
     return NextResponse.json({ error: error?.message ?? "Internal Server Error" }, { status: 500 });
   }

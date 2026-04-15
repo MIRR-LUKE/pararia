@@ -958,6 +958,7 @@ npm run backup:db
 - `pg_dump` が無い場合は Supabase CLI fallback を試すが、Windows では Docker Desktop が必要
 - metadata と sha256 を同じディレクトリに残す
 - 接続先は `PARARIA_BACKUP_DATABASE_URL` → `DIRECT_URL` → `DATABASE_URL` の順で解決する
+- backup 専用の接続先を使えるなら `PARARIA_BACKUP_DATABASE_URL` を先に入れる
 - 本番では Supabase の PITR を有効にした上で、この dump を **別ストレージにも退避** する
 
 Blob runtime backup:
@@ -969,6 +970,8 @@ npm run backup:blob
 - 既定では `session-audio/` prefix を列挙し、`.backups/blob/<timestamp>/files/` にダウンロードする
 - `manifest.json` に pathname / uploadedAt / size / etag / localSha256 を残す
 - inventory だけ欲しい場合は `npm run backup:blob -- --manifest-only`
+- backup は `PARARIA_BLOB_BACKUP_TOKEN` を使う
+- `BLOB_READ_WRITE_TOKEN` は runtime / upload 用として分けておく
 
 両方まとめて回す:
 
@@ -981,10 +984,10 @@ GitHub Actions でも同じ思想で回す:
 - workflow: `.github/workflows/backup-runtime-and-db.yml`
 - cadence: 6 時間ごと
 - secrets:
-  - `SUPABASE_DB_URL`
+  - `PARARIA_BACKUP_DATABASE_URL`
   - `SUPABASE_PROJECT_REF`
   - `SUPABASE_ACCESS_TOKEN` (status 取得用)
-  - `BLOB_READ_WRITE_TOKEN` (Blob manifest も保全したい場合)
+  - `PARARIA_BLOB_BACKUP_TOKEN` (Blob manifest も保全したい場合)
 - 出力:
   - DB: roles / schema / data dump + sha256
   - Supabase: PITR / backup 状態 JSON
@@ -1013,6 +1016,7 @@ npm run backup:sync-github-secrets
 注意:
 
 - `gh auth status` が通っても、token に **Actions secrets write 権限** がないと同期は 403 で失敗する
+- backup 用の Blob secret は `PARARIA_BLOB_BACKUP_TOKEN` だけを同期する
 
 ### 16.3.1 Supabase 側で必ずやること
 

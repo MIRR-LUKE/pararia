@@ -1,18 +1,11 @@
 "use client";
 
-import { Fragment, useCallback, useDeferredValue, useEffect, useMemo, useState } from "react";
 import { AppHeader } from "@/components/layout/AppHeader";
-import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
-import { Card } from "@/components/ui/Card";
-import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
-import { IntentLink } from "@/components/ui/IntentLink";
-import { MetricList } from "@/components/ui/MetricList";
-import { StatePanel } from "@/components/ui/StatePanel";
 import type { StudentDirectoryViewRow } from "@/lib/students/student-directory-view";
+import { StudentsCreateSection, StudentsDeleteDialog, StudentsDirectorySection, StudentsToolbarSection } from "./StudentsPageSections";
+import { useStudentsPageController } from "./useStudentsPageController";
 import styles from "./students.module.css";
-
-type ViewKey = "all" | "interview" | "report" | "review" | "share" | "sent";
 
 type StudentsPageClientProps = {
   initialStudents: StudentDirectoryViewRow[];
@@ -21,261 +14,42 @@ type StudentsPageClientProps = {
   viewerRole?: string | null;
 };
 
-type StudentEditorDraft = {
-  name: string;
-  nameKana: string;
-  grade: string;
-  course: string;
-  guardianNames: string;
-};
-
-type StudentNotice =
-  | { tone: "success"; text: string }
-  | { tone: "error"; text: string }
-  | null;
-
-function createStudentEditorDraft(student: Pick<StudentDirectoryViewRow, "name" | "nameKana" | "grade" | "course" | "guardianNames">): StudentEditorDraft {
-  return {
-    name: student.name ?? "",
-    nameKana: student.nameKana ?? "",
-    grade: student.grade ?? "",
-    course: student.course ?? "",
-    guardianNames: student.guardianNames ?? "",
-  };
-}
-
-function normalizeStudentNameKey(value: string) {
-  return value.normalize("NFKC").replace(/\s+/g, " ").trim().toLowerCase();
-}
-
-function formatStudentCreatedAt(value: string) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return "登録日時不明";
-  }
-
-  return new Intl.DateTimeFormat("ja-JP", {
-    month: "numeric",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(date);
-}
-
-function isPresent(value: string | null): value is string {
-  return Boolean(value);
-}
-
 export default function StudentsPageClient({
   initialStudents,
   initialLimit,
   viewerName,
   viewerRole,
 }: StudentsPageClientProps) {
-  const [students, setStudents] = useState<StudentDirectoryViewRow[]>(initialStudents);
-  const [loading, setLoading] = useState(initialStudents.length === 0);
-  const [error, setError] = useState<string | null>(null);
-  const [query, setQuery] = useState("");
-  const deferredQuery = useDeferredValue(query);
-  const [view, setView] = useState<ViewKey>("all");
-  const [showCreate, setShowCreate] = useState(false);
-  const [newStudent, setNewStudent] = useState({
-    name: "",
-    nameKana: "",
-    grade: "",
-    course: "",
-    guardianNames: "",
-  });
-  const [editingStudentId, setEditingStudentId] = useState<string | null>(null);
-  const [studentDraft, setStudentDraft] = useState<StudentEditorDraft>({
-    name: "",
-    nameKana: "",
-    grade: "",
-    course: "",
-    guardianNames: "",
-  });
-  const [isSavingStudent, setIsSavingStudent] = useState(false);
-  const [studentNotice, setStudentNotice] = useState<StudentNotice>(null);
-  const [studentToDelete, setStudentToDelete] = useState<StudentDirectoryViewRow | null>(null);
-  const [isDeletingStudent, setIsDeletingStudent] = useState(false);
-
-  const refresh = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await fetch(`/api/students?limit=${initialLimit}`, { cache: "no-store" });
-      const body = await res.json();
-      if (!res.ok) throw new Error(body?.error ?? "生徒一覧の取得に失敗しました。");
-      setStudents(body.students ?? []);
-    } catch (err: any) {
-      setError(err?.message ?? "生徒一覧の取得に失敗しました。");
-    } finally {
-      setLoading(false);
-    }
-  }, [initialLimit]);
-
-  useEffect(() => {
-    setStudents(initialStudents);
-    if (initialStudents.length > 0) {
-      setLoading(false);
-      return;
-    }
-    void refresh();
-  }, [initialStudents, refresh]);
-
-  const rows = useMemo(() => students, [students]);
-  const canShowCreateAction = !showCreate;
-  const duplicateCountByName = useMemo(() => {
-    const counts = new Map<string, number>();
-    for (const student of rows) {
-      const key = normalizeStudentNameKey(student.name);
-      counts.set(key, (counts.get(key) ?? 0) + 1);
-    }
-    return counts;
-  }, [rows]);
-
-  const filtered = useMemo(() => {
-    const lowered = deferredQuery.trim().toLowerCase();
-    return rows.filter((student) => {
-      const matchesView = view === "all" ? true : student.viewKey === view;
-      if (!matchesView) return false;
-      if (!lowered) return true;
-      return [student.name, student.nameKana, student.grade, student.course]
-        .filter(Boolean)
-        .some((value) => String(value).toLowerCase().includes(lowered));
-    });
-  }, [deferredQuery, rows, view]);
-
-  const editingStudent = useMemo(
-    () => rows.find((student) => student.id === editingStudentId) ?? null,
-    [editingStudentId, rows]
-  );
-  const studentDraftFromRow = useMemo(
-    () => (editingStudent ? createStudentEditorDraft(editingStudent) : null),
-    [editingStudent]
-  );
-  const studentDraftChanged =
-    studentDraftFromRow !== null &&
-    (studentDraft.name !== studentDraftFromRow.name ||
-      studentDraft.nameKana !== studentDraftFromRow.nameKana ||
-      studentDraft.grade !== studentDraftFromRow.grade ||
-      studentDraft.course !== studentDraftFromRow.course ||
-      studentDraft.guardianNames !== studentDraftFromRow.guardianNames);
-
-  const openInlineEditor = (student: StudentDirectoryViewRow) => {
-    if (editingStudentId === student.id) {
-      setEditingStudentId(null);
-      setStudentDraft({ name: "", nameKana: "", grade: "", course: "", guardianNames: "" });
-      setStudentNotice(null);
-      return;
-    }
-
-    setEditingStudentId(student.id);
-    setStudentDraft(createStudentEditorDraft(student));
-    setStudentNotice(null);
-  };
-
-  const closeInlineEditor = () => {
-    setEditingStudentId(null);
-    setStudentDraft({ name: "", nameKana: "", grade: "", course: "", guardianNames: "" });
-    setStudentNotice(null);
-  };
-
-  const saveInlineStudent = async () => {
-    if (!editingStudentId) return;
-
-    setIsSavingStudent(true);
-    setStudentNotice(null);
-
-    try {
-      const res = await fetch(`/api/students/${editingStudentId}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: studentDraft.name,
-          nameKana: studentDraft.nameKana,
-          grade: studentDraft.grade,
-          course: studentDraft.course,
-          guardianNames: studentDraft.guardianNames,
-        }),
-      });
-      const body = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        throw new Error(body?.error ?? "生徒情報の更新に失敗しました。");
-      }
-
-      setStudentNotice({ tone: "success", text: "生徒情報を更新しました。" });
-      setEditingStudentId(null);
-      await refresh();
-    } catch (nextError: any) {
-      setStudentNotice({
-        tone: "error",
-        text: nextError?.message ?? "生徒情報の更新に失敗しました。",
-      });
-    } finally {
-      setIsSavingStudent(false);
-    }
-  };
-
-  const createStudent = async () => {
-    if (!newStudent.name.trim() || !newStudent.nameKana.trim() || !newStudent.grade.trim()) {
-      alert("生徒名、フリガナ、学年は必須です。");
-      return;
-    }
-
-    const res = await fetch("/api/students", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        name: newStudent.name.trim(),
-        nameKana: newStudent.nameKana.trim(),
-        grade: newStudent.grade.trim(),
-        course: newStudent.course.trim() || undefined,
-        guardianNames: newStudent.guardianNames.trim() || undefined,
-      }),
-    });
-    const body = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      alert(body?.error ?? "生徒の作成に失敗しました。");
-      return;
-    }
-
-    setStudentNotice({ tone: "success", text: "生徒を追加しました。" });
-    setShowCreate(false);
-    setNewStudent({ name: "", nameKana: "", grade: "", course: "", guardianNames: "" });
-    await refresh();
-  };
-
-  const archiveStudent = async () => {
-    if (!studentToDelete) return;
-
-    const targetStudentId = studentToDelete.id;
-    setIsDeletingStudent(true);
-    try {
-      const res = await fetch(`/api/students/${studentToDelete.id}`, {
-        method: "DELETE",
-      });
-      const body = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        throw new Error(body?.error ?? "生徒のアーカイブに失敗しました。");
-      }
-
-      setStudents((current) => current.filter((item) => item.id !== studentToDelete.id));
-      setStudentToDelete(null);
-      if (editingStudentId === targetStudentId) {
-        closeInlineEditor();
-      }
-      setStudentNotice({ tone: "success", text: "生徒をアーカイブしました。" });
-      await refresh();
-    } catch (nextError: any) {
-      setStudentNotice({
-        tone: "error",
-        text: nextError?.message ?? "生徒のアーカイブに失敗しました。",
-      });
-    } finally {
-      setIsDeletingStudent(false);
-    }
-  };
+  const {
+    archiveStudent,
+    canShowCreateAction,
+    closeInlineEditor,
+    createStudent,
+    duplicateCountByName,
+    editingStudentId,
+    error,
+    filtered,
+    isDeletingStudent,
+    isSavingStudent,
+    loading,
+    newStudent,
+    openInlineEditor,
+    query,
+    refresh,
+    setNewStudent,
+    setQuery,
+    setShowCreate,
+    setStudentDraft,
+    setStudentToDelete,
+    setView,
+    showCreate,
+    saveInlineStudent,
+    studentDraft,
+    studentDraftChanged,
+    studentNotice,
+    studentToDelete,
+    view,
+  } = useStudentsPageController({ initialStudents, initialLimit });
 
   return (
     <div className={styles.page}>
@@ -291,300 +65,44 @@ export default function StudentsPageClient({
         }
       />
 
-      <section className={styles.toolbar}>
-        <input
-          className={styles.search}
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          placeholder="名前、フリガナ、学年、コースで検索"
-        />
-        <div className={styles.filters}>
-          {[
-            { key: "all", label: "すべて" },
-            { key: "interview", label: "面談待ち" },
-            { key: "report", label: "ログあり" },
-            { key: "review", label: "レビュー待ち" },
-            { key: "share", label: "共有待ち" },
-            { key: "sent", label: "送付済み" },
-          ].map((item) => (
-            <button
-              key={item.key}
-              type="button"
-              className={`${styles.filterChip} ${view === item.key ? styles.filterChipActive : ""}`}
-              onClick={() => setView(item.key as ViewKey)}
-            >
-              {item.label}
-            </button>
-          ))}
-        </div>
-      </section>
+      <StudentsToolbarSection query={query} view={view} onQueryChange={setQuery} onViewChange={setView} />
 
-      {showCreate && (
-        <Card title="新しい生徒を追加" subtitle="最小限の情報だけ入れて、あとの理解は会話の中で育てます。">
-          <div className={styles.formGrid}>
-            <input
-              value={newStudent.name}
-              onChange={(event) => setNewStudent((prev) => ({ ...prev, name: event.target.value }))}
-              placeholder="生徒名"
-            />
-            <input
-              value={newStudent.nameKana}
-              onChange={(event) => setNewStudent((prev) => ({ ...prev, nameKana: event.target.value }))}
-              placeholder="フリガナ"
-            />
-            <input
-              value={newStudent.grade}
-              onChange={(event) => setNewStudent((prev) => ({ ...prev, grade: event.target.value }))}
-              placeholder="学年"
-            />
-            <input
-              value={newStudent.course}
-              onChange={(event) => setNewStudent((prev) => ({ ...prev, course: event.target.value }))}
-              placeholder="コース"
-            />
-            <input
-              value={newStudent.guardianNames}
-              onChange={(event) => setNewStudent((prev) => ({ ...prev, guardianNames: event.target.value }))}
-              placeholder="保護者名"
-            />
-          </div>
-          <div className={styles.formActions}>
-            <Button variant="secondary" onClick={() => setShowCreate(false)}>
-              閉じる
-            </Button>
-            <Button onClick={createStudent}>追加する</Button>
-          </div>
-        </Card>
-      )}
+      <StudentsCreateSection
+        canShowCreateAction={canShowCreateAction}
+        newStudent={newStudent}
+        onClose={() => setShowCreate(false)}
+        onCreate={() => void createStudent()}
+        onFieldChange={setNewStudent}
+        showCreate={showCreate}
+      />
 
-      <Card title="生徒ディレクトリ" subtitle="一覧で確認しながら、その場で直して保存できます。詳しい記録だけ詳細ページで見ます。">
-        {studentNotice ? (
-          <div
-            className={`${styles.notice} ${
-              studentNotice.tone === "success" ? styles.noticeSuccess : styles.noticeError
-            }`}
-          >
-            {studentNotice.text}
-          </div>
-        ) : null}
-        {error ? (
-          <StatePanel
-            kind="error"
-            compact
-            title="生徒一覧を更新できませんでした"
-            subtitle={error}
-            action={
-              <Button variant="secondary" onClick={() => void refresh()}>
-                もう一度読む
-              </Button>
-            }
-          />
-        ) : loading ? (
-          <StatePanel
-            kind="processing"
-            compact
-            title="生徒一覧を更新しています"
-            subtitle="必要な生徒だけを先に並べ直しています。"
-          />
-        ) : filtered.length === 0 ? (
-          <StatePanel
-            kind="empty"
-            title="条件に合う生徒がいません"
-            subtitle="検索条件を変えるか、新しい生徒を追加してください。"
-            action={
-              canShowCreateAction ? (
-                <Button variant="secondary" onClick={() => setShowCreate(true)}>
-                  生徒を追加
-                </Button>
-              ) : null
-            }
-          />
-        ) : (
-          <div className={styles.list}>
-            {filtered.map((student, index) => {
-              const isEditingThisStudent = editingStudentId === student.id;
+      <StudentsDirectorySection
+        filtered={filtered}
+        duplicateCountByName={duplicateCountByName}
+        editingStudentId={editingStudentId}
+        studentDraft={studentDraft}
+        studentDraftChanged={studentDraftChanged}
+        studentNotice={studentNotice}
+        studentToDelete={studentToDelete}
+        loading={loading}
+        error={error}
+        canShowCreateAction={canShowCreateAction}
+        isDeletingStudent={isDeletingStudent}
+        isSavingStudent={isSavingStudent}
+        onOpenInlineEditor={openInlineEditor}
+        onCloseInlineEditor={closeInlineEditor}
+        onStudentDraftChange={setStudentDraft}
+        onSaveInlineStudent={() => void saveInlineStudent()}
+        onRefresh={() => void refresh()}
+        onSetStudentToDelete={setStudentToDelete}
+        onOpenCreate={() => setShowCreate(true)}
+      />
 
-              return (
-                <Fragment key={student.id}>
-                  <article className={styles.row} data-student-row="1" data-student-id={student.id}>
-                    <div className={styles.rowContent}>
-                      <div className={styles.rowIdentity}>
-                        <div className={styles.rowTop}>
-                          <strong className={styles.rowName}>{student.name}</strong>
-                          {student.grade ? <span className={styles.meta}>{student.grade}</span> : null}
-                          {(duplicateCountByName.get(normalizeStudentNameKey(student.name)) ?? 1) > 1 ? (
-                            <span className={styles.duplicateBadge}>
-                              同名 {duplicateCountByName.get(normalizeStudentNameKey(student.name))}件
-                            </span>
-                          ) : null}
-                          <Badge label={student.state} tone={student.viewKey === "report" ? "high" : "medium"} />
-                        </div>
-                        <p className={styles.identityMeta}>
-                          {[
-                            student.nameKana ? `フリガナ: ${student.nameKana}` : null,
-                            student.course ? `コース: ${student.course}` : null,
-                            student.guardianNames ? `保護者: ${student.guardianNames}` : null,
-                            `登録: ${formatStudentCreatedAt(student.createdAt)}`,
-                          ]
-                            .filter(isPresent)
-                            .join(" / ")}
-                        </p>
-                        <p className={styles.oneLiner}>{student.oneLiner}</p>
-                      </div>
-
-                      <div className={styles.rowMetaColumn}>
-                        <MetricList
-                          items={[
-                            { label: "次にやること", value: student.nextAction },
-                            { label: "プロフィール", value: `${student.profileCompleteness}%` },
-                          ]}
-                        />
-                      </div>
-
-                      <div className={styles.rowMetaColumn}>
-                        <MetricList
-                          items={[
-                            { label: "セッション", value: `${student.sessionCount} 件` },
-                            { label: "レポート", value: `${student.reportCount} 件` },
-                          ]}
-                        />
-                      </div>
-                    </div>
-
-                    <div className={styles.rowAction}>
-                      <div className={styles.rowActionPrimary}>
-                        <Button
-                          variant="ghost"
-                          size="small"
-                          className={styles.quickEditButton}
-                          aria-expanded={isEditingThisStudent}
-                          onClick={() => openInlineEditor(student)}
-                        >
-                          {isEditingThisStudent ? "閉じる" : "その場で編集"}
-                        </Button>
-                        <IntentLink href={student.href} prefetchMode={index < 4 ? "mount" : "intent"}>
-                          <Button>詳細へ</Button>
-                        </IntentLink>
-                      </div>
-                      <Button
-                        variant="ghost"
-                        size="small"
-                        className={styles.deleteButton}
-                        onClick={() => setStudentToDelete(student)}
-                      >
-                        アーカイブ
-                      </Button>
-                    </div>
-
-                    {isEditingThisStudent ? (
-                      <section className={styles.rowEditor} aria-label={`${student.name} の生徒情報を編集`}>
-                        <div className={styles.rowEditorHeader}>
-                          <div>
-                            <div className={styles.rowEditorTitle}>その場で編集</div>
-                            <p className={styles.rowEditorText}>
-                              名前、フリガナ、学年、コース、保護者名をこの一覧のまま直せます。
-                            </p>
-                          </div>
-                        </div>
-
-                        <div className={styles.rowEditorGrid}>
-                          <label className={styles.rowEditorField}>
-                            <span>生徒名</span>
-                            <input
-                              value={studentDraft.name}
-                              onChange={(event) =>
-                                setStudentDraft((current) => ({ ...current, name: event.target.value }))
-                              }
-                              placeholder="生徒名"
-                            />
-                          </label>
-                          <label className={styles.rowEditorField}>
-                            <span>フリガナ</span>
-                            <input
-                              value={studentDraft.nameKana}
-                              onChange={(event) =>
-                                setStudentDraft((current) => ({ ...current, nameKana: event.target.value }))
-                              }
-                              placeholder="フリガナ"
-                            />
-                          </label>
-                          <label className={styles.rowEditorField}>
-                            <span>学年</span>
-                            <input
-                              value={studentDraft.grade}
-                              onChange={(event) =>
-                                setStudentDraft((current) => ({ ...current, grade: event.target.value }))
-                              }
-                              placeholder="学年"
-                            />
-                          </label>
-                          <label className={styles.rowEditorField}>
-                            <span>コース</span>
-                            <input
-                              value={studentDraft.course}
-                              onChange={(event) =>
-                                setStudentDraft((current) => ({ ...current, course: event.target.value }))
-                              }
-                              placeholder="コース"
-                            />
-                          </label>
-                          <label className={`${styles.rowEditorField} ${styles.rowEditorFieldWide}`}>
-                            <span>保護者名</span>
-                            <input
-                              value={studentDraft.guardianNames}
-                              onChange={(event) =>
-                                setStudentDraft((current) => ({
-                                  ...current,
-                                  guardianNames: event.target.value,
-                                }))
-                              }
-                              placeholder="保護者名"
-                            />
-                          </label>
-                        </div>
-
-                        <div className={styles.rowEditorActions}>
-                          <Button
-                            variant="secondary"
-                            onClick={closeInlineEditor}
-                            disabled={isSavingStudent}
-                          >
-                            キャンセル
-                          </Button>
-                          <Button
-                            onClick={() => void saveInlineStudent()}
-                            disabled={isSavingStudent || !studentDraft.name.trim() || !studentDraftChanged}
-                          >
-                            {isSavingStudent ? "保存中..." : "保存する"}
-                          </Button>
-                        </div>
-                      </section>
-                    ) : null}
-                  </article>
-                </Fragment>
-              );
-            })}
-          </div>
-        )}
-      </Card>
-
-      <ConfirmDialog
-        open={Boolean(studentToDelete)}
-        title={studentToDelete ? `${studentToDelete.name} をアーカイブしますか？` : ""}
-        description="一覧からは外れますが、関連する面談ログ・指導報告ログ・保護者レポートは保持され、管理者が復旧できます。"
-        details={[
-          "runtime 音声と DB データは保持されます。",
-          "一覧・ダッシュボード・通常の導線からは即時に外れます。",
-        ]}
-        confirmLabel="アーカイブする"
-        cancelLabel="戻る"
-        tone="danger"
-        pending={isDeletingStudent}
+      <StudentsDeleteDialog
+        studentToDelete={studentToDelete}
+        isDeletingStudent={isDeletingStudent}
         onConfirm={() => void archiveStudent()}
-        onCancel={() => {
-          if (isDeletingStudent) return;
-          setStudentToDelete(null);
-        }}
+        onCancel={() => setStudentToDelete(null)}
       />
     </div>
   );

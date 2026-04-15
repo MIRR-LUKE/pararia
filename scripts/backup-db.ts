@@ -101,6 +101,8 @@ type BackupResult =
       sha256: string;
     };
 
+type DatabaseSource = "PARARIA_BACKUP_DATABASE_URL" | "DIRECT_URL" | "DATABASE_URL";
+
 async function runSupabaseDbDump(outputDir: string, databaseUrl: string) {
   const rolesPath = path.join(outputDir, "roles.sql");
   const schemaPath = path.join(outputDir, "schema.sql");
@@ -172,12 +174,29 @@ async function main() {
   const backupDir = path.join(outputRoot, stamp);
   const metadataPath = path.join(backupDir, "metadata.json");
 
+  const databaseSource: DatabaseSource | null = process.env.PARARIA_BACKUP_DATABASE_URL?.trim()
+    ? "PARARIA_BACKUP_DATABASE_URL"
+    : process.env.DIRECT_URL?.trim()
+      ? "DIRECT_URL"
+      : process.env.DATABASE_URL?.trim()
+        ? "DATABASE_URL"
+        : null;
   const databaseUrl =
-    process.env.PARARIA_BACKUP_DATABASE_URL?.trim() ||
-    process.env.DIRECT_URL?.trim() ||
-    process.env.DATABASE_URL?.trim();
+    databaseSource === "PARARIA_BACKUP_DATABASE_URL"
+      ? process.env.PARARIA_BACKUP_DATABASE_URL?.trim()
+      : databaseSource === "DIRECT_URL"
+        ? process.env.DIRECT_URL?.trim()
+        : databaseSource === "DATABASE_URL"
+          ? process.env.DATABASE_URL?.trim()
+          : "";
   if (!databaseUrl) {
     throw new Error("PARARIA_BACKUP_DATABASE_URL, DIRECT_URL, DATABASE_URL のいずれかが必要です。");
+  }
+
+  if (databaseSource !== "PARARIA_BACKUP_DATABASE_URL") {
+    console.warn(
+      `[backup-db] backup 専用の PARARIA_BACKUP_DATABASE_URL が未設定です。いまは ${databaseSource} を使っています。`
+    );
   }
 
   await mkdir(backupDir, { recursive: true });
@@ -211,6 +230,7 @@ async function main() {
     dumpFormat: result.dumpFormat,
     dumpFiles: result.files,
     metadataFile: path.relative(ROOT, metadataPath),
+    databaseSource,
     ...("bytes" in result ? { bytes: result.bytes } : {}),
     ...("sha256" in result ? { sha256: result.sha256 } : {}),
     database: maskDatabaseUrl(databaseUrl),

@@ -2,7 +2,11 @@ import { NextResponse } from "next/server";
 import { writeAuditLog } from "@/lib/audit";
 import { prisma } from "@/lib/db";
 import { Prisma } from "@prisma/client";
-import { deleteRuntimeEntries } from "@/lib/runtime-cleanup";
+import {
+  enqueueRuntimeDeletionTargets,
+  processPendingStorageDeletionRequests,
+  queueExpiredBlobUploadReservationsForDeletion,
+} from "@/lib/storage-deletion-queue";
 import {
   buildRetentionExpiryDate,
   getAudioRetentionDays,
@@ -29,7 +33,12 @@ async function handleCleanup(request: Request) {
         storageUrl: true,
       },
     });
-    const runtimeDeletion = await deleteRuntimeEntries(expiredSessionParts.map((part) => part.storageUrl));
+    const runtimeDeletionQueue = await enqueueRuntimeDeletionTargets({
+      filePaths: expiredSessionParts.map((part) => part.storageUrl),
+      reason: "session_part_retention_expired",
+    });
+    const expiredBlobReservationCleanup = await queueExpiredBlobUploadReservationsForDeletion(now);
+    const runtimeDeletion = await processPendingStorageDeletionRequests();
     const reportEventCutoff = buildRetentionExpiryDate(-getReportDeliveryEventRetentionDays(), now);
 
     const [conversationResult, sessionPartResult, suggestionResult, reportDeliveryEventResult] = await prisma.$transaction([
@@ -98,7 +107,10 @@ async function handleCleanup(request: Request) {
       clearedConversationRawTextCount: conversationResult.count,
       clearedSessionPartCount: sessionPartResult.count,
       deletedProperNounSuggestionCount: suggestionResult.count,
+      queuedRuntimeEntryCount: runtimeDeletionQueue.queued.length,
       deletedRuntimeEntryCount: runtimeDeletion.deletedCount,
+      failedRuntimeEntryCount: runtimeDeletion.failedCount,
+      expiredBlobUploadReservationCount: expiredBlobReservationCleanup.expiredCount,
       deletedReportDeliveryEventCount: reportDeliveryEventResult.count,
       transcriptRetentionDays: getTranscriptRetentionDays(),
       audioRetentionDays: getAudioRetentionDays(),
@@ -119,7 +131,10 @@ async function handleCleanup(request: Request) {
         clearedConversationRawTextCount: conversationResult.count,
         clearedSessionPartCount: sessionPartResult.count,
         deletedProperNounSuggestionCount: suggestionResult.count,
+        queuedRuntimeEntryCount: runtimeDeletionQueue.queued.length,
         deletedRuntimeEntryCount: runtimeDeletion.deletedCount,
+        failedRuntimeEntryCount: runtimeDeletion.failedCount,
+        expiredBlobUploadReservationCount: expiredBlobReservationCleanup.expiredCount,
         deletedReportDeliveryEventCount: reportDeliveryEventResult.count,
       },
     });

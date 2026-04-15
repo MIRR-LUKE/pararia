@@ -11,11 +11,14 @@ import { verifyRecordingLockForAudioUpload, releaseRecordingLock } from "@/lib/r
 import { getExternalWorkerAudioStorageError, shouldRunBackgroundJobsInline } from "@/lib/jobs/execution-mode";
 import { enqueueSessionPartJob, processAllSessionPartJobs } from "@/lib/jobs/sessionPartJobs";
 import { maybeEnsureRunpodWorker } from "@/lib/runpod/worker-control";
+import { API_THROTTLE_RULES, ApiQuotaExceededError, consumeApiQuota } from "@/lib/api-throttle";
+import { consumeCompletedBlobUploadReservation } from "@/lib/blob-upload-reservations";
 import { saveSessionPartUpload } from "@/lib/session-part-storage";
 import { buildSummaryPreview, toSessionPartMetaJson } from "@/lib/session-part-meta";
 import { preprocessTranscript } from "@/lib/transcript/preprocess";
 import { ensureSessionPartReviewedTranscript } from "@/lib/transcript/review";
 import { getAudioExpiryDate, getTranscriptExpiryDate } from "@/lib/system-config";
+import { enqueueStorageDeletions } from "@/lib/storage-deletion-queue";
 import { updateSessionStatusFromParts } from "@/lib/session-service";
 import { toPrismaJson } from "@/lib/prisma-json";
 import type { SessionPartAccessContext, SessionPartSubmissionFormData } from "./session-part-route-common";
@@ -93,14 +96,21 @@ async function persistAudioSessionPart(input: {
   qualityMeta: Record<string, unknown>;
   transcriptExpiresAt: Date;
 }) {
-  return prisma.sessionPart.upsert({
-    where: {
-      sessionId_partType: {
-        sessionId: input.sessionId,
-        partType: input.partType,
+  return prisma.$transaction(async (tx) => {
+    const existing = await tx.sessionPart.findUnique({
+      where: {
+        sessionId_partType: {
+          sessionId: input.sessionId,
+          partType: input.partType,
+        },
       },
-    },
-    update: {
+      select: {
+        id: true,
+        storageUrl: true,
+      },
+    });
+
+    const data = {
       sourceType: input.sourceType,
       status: SessionPartStatus.TRANSCRIBING,
       fileName: input.fileName,
@@ -110,28 +120,30 @@ async function persistAudioSessionPart(input: {
       rawTextOriginal: "",
       rawTextCleaned: "",
       reviewedText: null,
-      reviewState: "NONE",
+      reviewState: "NONE" as const,
       rawSegments: toPrismaJson([]),
       qualityMetaJson: toSessionPartMetaJson({}, input.qualityMeta as any),
       transcriptExpiresAt: input.transcriptExpiresAt,
-    },
-    create: {
-      sessionId: input.sessionId,
-      partType: input.partType,
-      sourceType: input.sourceType,
-      status: SessionPartStatus.TRANSCRIBING,
-      fileName: input.fileName,
-      mimeType: input.mimeType || null,
-      byteSize: input.byteSize,
-      storageUrl: input.storageUrl,
-      rawTextOriginal: "",
-      rawTextCleaned: "",
-      reviewedText: null,
-      reviewState: "NONE",
-      rawSegments: toPrismaJson([]),
-      qualityMetaJson: toSessionPartMetaJson({}, input.qualityMeta as any),
-      transcriptExpiresAt: input.transcriptExpiresAt,
-    },
+    };
+
+    const part = existing
+      ? await tx.sessionPart.update({
+          where: { id: existing.id },
+          data,
+        })
+      : await tx.sessionPart.create({
+          data: {
+            sessionId: input.sessionId,
+            partType: input.partType,
+            ...data,
+          },
+        });
+
+    return {
+      part,
+      replacedStorageUrls:
+        existing?.storageUrl && existing.storageUrl !== input.storageUrl ? [existing.storageUrl] : [],
+    };
   });
 }
 
@@ -148,19 +160,27 @@ async function persistTextSessionPart(input: {
   transcriptExpiresAt: Date;
   status: "READY" | "ERROR";
 }) {
-  return prisma.sessionPart.upsert({
-    where: {
-      sessionId_partType: {
-        sessionId: input.sessionId,
-        partType: input.partType,
+  return prisma.$transaction(async (tx) => {
+    const existing = await tx.sessionPart.findUnique({
+      where: {
+        sessionId_partType: {
+          sessionId: input.sessionId,
+          partType: input.partType,
+        },
       },
-    },
-    update: {
+      select: {
+        id: true,
+        storageUrl: true,
+      },
+    });
+
+    const data = {
       sourceType: input.sourceType,
       status: input.status,
       fileName: null,
       mimeType: null,
       byteSize: null,
+      storageUrl: null,
       rawTextOriginal: input.rawTextOriginal,
       rawTextCleaned: input.rawTextCleaned,
       reviewedText: input.reviewedText,
@@ -168,23 +188,25 @@ async function persistTextSessionPart(input: {
       rawSegments: toPrismaJson(input.rawSegments),
       qualityMetaJson: toSessionPartMetaJson({}, input.qualityMeta as any),
       transcriptExpiresAt: input.transcriptExpiresAt,
-    },
-    create: {
-      sessionId: input.sessionId,
-      partType: input.partType,
-      sourceType: input.sourceType,
-      status: input.status,
-      fileName: null,
-      mimeType: null,
-      byteSize: null,
-      rawTextOriginal: input.rawTextOriginal,
-      rawTextCleaned: input.rawTextCleaned,
-      reviewedText: input.reviewedText,
-      reviewState: input.reviewState,
-      rawSegments: toPrismaJson(input.rawSegments),
-      qualityMetaJson: toSessionPartMetaJson({}, input.qualityMeta as any),
-      transcriptExpiresAt: input.transcriptExpiresAt,
-    },
+    };
+
+    const part = existing
+      ? await tx.sessionPart.update({
+          where: { id: existing.id },
+          data,
+        })
+      : await tx.sessionPart.create({
+          data: {
+            sessionId: input.sessionId,
+            partType: input.partType,
+            ...data,
+          },
+        });
+
+    return {
+      part,
+      replacedStorageUrls: existing?.storageUrl ? [existing.storageUrl] : [],
+    };
   });
 }
 
@@ -308,14 +330,32 @@ async function handleAudioSessionPartSubmission(input: {
         contentType: audioMimeType,
       });
     } else {
+      let reservation;
+      try {
+        reservation = await consumeCompletedBlobUploadReservation({
+          organizationId: access.sessionAuth.user.organizationId,
+          sessionId: access.sessionRow.id,
+          partType: submission.partType,
+          pathname: submission.blobPathname,
+        });
+      } catch (error: any) {
+        return NextResponse.json(
+          { error: error?.message ?? "アップロード済み音声の予約確認に失敗しました。" },
+          { status: 409 }
+        );
+      }
+
       stored = {
-        storageUrl: submission.blobUrl,
-        fileName: audioFileName,
+        storageUrl: reservation.blobUrl!,
+        fileName: reservation.expectedFileName || audioFileName,
         byteSize:
-          Number.isFinite(submission.uploadedByteSize ?? NaN) && (submission.uploadedByteSize ?? 0) > 0
-            ? submission.uploadedByteSize
-            : null,
+          Number.isFinite(reservation.blobByteSize ?? NaN) && (reservation.blobByteSize ?? 0) > 0
+            ? reservation.blobByteSize
+            : submission.uploadedByteSize,
       };
+      if (reservation.blobContentType?.trim()) {
+        submission.uploadedMimeType = reservation.blobContentType.trim();
+      }
       durationSeconds = submission.durationSecondsHint;
       durationGateSkipped = "blob_client_upload_pending_worker_validation";
     }
@@ -326,8 +366,8 @@ async function handleAudioSessionPartSubmission(input: {
       captureSource: submission.uploadSource,
       lastAcceptedAt: new Date().toISOString(),
       lastQueuedAt: new Date().toISOString(),
-      uploadedFileName: audioFileName,
-      uploadedMimeType: audioMimeType,
+      uploadedFileName: stored.fileName || audioFileName,
+      uploadedMimeType: submission.file ? audioMimeType : submission.uploadedMimeType || audioMimeType,
       uploadedBytes: stored.byteSize,
       audioDurationSeconds: durationSeconds,
       audioDurationSecondsSource:
@@ -340,26 +380,33 @@ async function handleAudioSessionPartSubmission(input: {
       sttEngine: "faster-whisper",
     };
 
-    const part = await persistAudioSessionPart({
+    const persisted = await persistAudioSessionPart({
       sessionId: access.sessionRow.id,
       partType: submission.partType,
       sourceType: ConversationSourceType.AUDIO,
-      fileName: audioFileName,
-      mimeType: audioMimeType,
+      fileName: stored.fileName || audioFileName,
+      mimeType: submission.file ? audioMimeType : submission.uploadedMimeType || audioMimeType,
       storageUrl: stored.storageUrl,
       byteSize: stored.byteSize,
       qualityMeta,
       transcriptExpiresAt: expiresAt,
     });
+    if (persisted.replacedStorageUrls.length > 0) {
+      await enqueueStorageDeletions({
+        storageUrls: persisted.replacedStorageUrls,
+        organizationId: access.sessionAuth.user.organizationId,
+        reason: "session_part_replaced",
+      });
+    }
 
     const session = await updateSessionStatusFromParts(access.sessionRow.id);
-    const workerWake = await dispatchAudioSessionPartJobs(access.sessionRow.id, part.id);
+    const workerWake = await dispatchAudioSessionPartJobs(access.sessionRow.id, persisted.part.id);
 
     return NextResponse.json({
       ok: true,
       accepted: true,
       generationDeferred: true,
-      part,
+      part: persisted.part,
       session,
       workerWake,
     });
@@ -414,6 +461,13 @@ async function handleTextSessionPartSubmission(input: {
       transcriptExpiresAt: getTranscriptExpiryDate(),
       status: SessionPartStatus.ERROR,
     });
+    if (rejectedPart.replacedStorageUrls.length > 0) {
+      await enqueueStorageDeletions({
+        storageUrls: rejectedPart.replacedStorageUrls,
+        organizationId: access.sessionAuth.user.organizationId,
+        reason: "session_part_replaced_with_invalid_text",
+      });
+    }
 
     await updateSessionStatusFromParts(access.sessionRow.id);
 
@@ -421,14 +475,14 @@ async function handleTextSessionPartSubmission(input: {
       {
         error: substance.messageJa,
         code: substance.code,
-        part: rejectedPart,
+        part: rejectedPart.part,
         metrics: substance.metrics,
       },
       { status: 422 }
     );
   }
 
-  const part = await persistTextSessionPart({
+  const persisted = await persistTextSessionPart({
     sessionId: access.sessionRow.id,
     partType: submission.partType,
     sourceType: ConversationSourceType.MANUAL,
@@ -445,14 +499,21 @@ async function handleTextSessionPartSubmission(input: {
     transcriptExpiresAt: getTranscriptExpiryDate(),
     status: SessionPartStatus.READY,
   });
+  if (persisted.replacedStorageUrls.length > 0) {
+    await enqueueStorageDeletions({
+      storageUrls: persisted.replacedStorageUrls,
+      organizationId: access.sessionAuth.user.organizationId,
+      reason: "session_part_replaced_with_text",
+    });
+  }
 
-  await ensureSessionPartReviewedTranscript(part.id);
+  await ensureSessionPartReviewedTranscript(persisted.part.id);
 
   const session = await updateSessionStatusFromParts(access.sessionRow.id);
-  const generationDispatch = await dispatchTextSessionPartJobs(access.sessionRow.id, part.id);
+  const generationDispatch = await dispatchTextSessionPartJobs(access.sessionRow.id, persisted.part.id);
 
   return NextResponse.json({
-    part,
+    part: persisted.part,
     session,
     generationDeferred: true,
     generationDispatch,
@@ -463,13 +524,49 @@ export async function handleSessionPartSubmission(input: {
   access: SessionPartAccessContext;
   submission: SessionPartSubmissionFormData;
 }) {
-  const { submission } = input;
+  const { access, submission } = input;
 
   if (!submission.file && !submission.hasBlobUpload && !submission.transcript) {
     return NextResponse.json({ error: "file or transcript is required" }, { status: 400 });
   }
   if (submission.file && submission.hasBlobUpload) {
-    return NextResponse.json({ error: "file and blobUrl cannot be sent together" }, { status: 400 });
+    return NextResponse.json({ error: "file and blob upload cannot be sent together" }, { status: 400 });
+  }
+
+  if (submission.file || submission.hasBlobUpload) {
+    try {
+      const byteSize =
+        submission.file?.size ??
+        (Number.isFinite(submission.uploadedByteSize ?? NaN) ? Math.max(0, submission.uploadedByteSize ?? 0) : 0);
+      await consumeApiQuota({
+        scope: "session_part:user",
+        rawKey: access.sessionAuth.user.id,
+        bytes: byteSize,
+        rule: API_THROTTLE_RULES.sessionPartUser,
+      });
+      await consumeApiQuota({
+        scope: "session_part:org",
+        rawKey: access.sessionAuth.user.organizationId,
+        bytes: byteSize,
+        rule: API_THROTTLE_RULES.sessionPartOrg,
+      });
+    } catch (error) {
+      if (error instanceof ApiQuotaExceededError) {
+        return NextResponse.json(
+          {
+            error: error.message,
+            retryAfterSeconds: error.retryAfterSeconds,
+          },
+          {
+            status: 429,
+            headers: {
+              "Retry-After": String(error.retryAfterSeconds),
+            },
+          }
+        );
+      }
+      throw error;
+    }
   }
 
   if (submission.file || submission.hasBlobUpload) {

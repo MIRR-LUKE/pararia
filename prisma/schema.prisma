@@ -416,6 +416,86 @@ model AuthThrottle {
   @@index([scope, blockedUntil])
 }
 
+model BlobUploadReservation {
+  id               String   @id @default(cuid())
+  organizationId   String
+  studentId        String
+  sessionId        String
+  partType         SessionPartType
+  uploadedByUserId String
+  uploadSource     String   @default("file_upload")
+  pathname         String   @unique
+  expectedFileName String?
+  expectedMimeType String?
+  expectedByteSize Int?
+  blobUrl          String?
+  blobDownloadUrl  String?
+  blobContentType  String?
+  blobByteSize     Int?
+  status           String   @default("PENDING")
+  completedAt      DateTime?
+  consumedAt       DateTime?
+  expiresAt        DateTime
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([organizationId, status, expiresAt])
+  @@index([sessionId, partType, status])
+  @@index([uploadedByUserId, status])
+}
+
+model StorageDeletionRequest {
+  id            String   @id @default(cuid())
+  organizationId String?
+  storageUrl    String   @unique
+  reason        String
+  status        String   @default("PENDING")
+  attempts      Int      @default(0)
+  lastError     String?
+  lastAttemptAt DateTime?
+  completedAt   DateTime?
+  nextAttemptAt DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([status, nextAttemptAt])
+  @@index([organizationId, createdAt])
+}
+
+model ApiThrottleBucket {
+  id              String   @id @default(cuid())
+  scope           String
+  keyHash         String
+  requestCount    Int      @default(0)
+  byteCount       Int      @default(0)
+  windowStartedAt DateTime
+  blockedUntil    DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([scope, keyHash])
+  @@index([scope, blockedUntil])
+}
+
+model IdempotencyRequest {
+  id             String   @id @default(cuid())
+  scope          String
+  keyHash        String
+  requestHash    String
+  organizationId String?
+  userId         String?
+  status         String   @default("PENDING")
+  responseStatus Int?
+  responseBody   Json?
+  completedAt    DateTime?
+  expiresAt      DateTime
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([scope, keyHash])
+  @@index([status, expiresAt])
+}
+
 model StudentArchiveSnapshot {
   id               String   @id @default(cuid())
   organizationId   String

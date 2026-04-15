@@ -38,7 +38,6 @@
     "test:conversation-route": "tsx scripts/test-conversation-route.ts",
     "test:recording-policy": "tsx scripts/test-recording-policy.ts",
     "test:recording-ui": "tsx scripts/test-recording-ui.ts",
-    "test:critical-path-smoke": "tsx scripts/test-critical-path-smoke.ts",
     "test:backend-scope-guard": "tsx scripts/test-backend-scope-guard.ts",
     "test:session-progress-route": "tsx scripts/test-session-progress-route.ts",
     "test:student-integrity-audit": "tsx scripts/test-student-integrity-audit.ts",
@@ -90,7 +89,9 @@
     "next": "^16.2.3",
     "next-auth": "^5.0.0-beta.30",
     "react": "^19.2.5",
-    "react-dom": "^19.2.5"
+    "react-dom": "^19.2.5",
+    "zod": "^4.3.6",
+    "zod-validation-error": "^5.0.0"
   },
   "devDependencies": {
     "@types/node": "^20.10.5",

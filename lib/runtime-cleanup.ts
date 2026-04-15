@@ -1,6 +1,6 @@
 import path from "node:path";
 import {
-  deleteStorageEntry,
+  deleteStorageEntryDetailed,
   getAudioStorageMode,
   isRemoteStorageUrl,
   resolveStorageReference,
@@ -18,12 +18,18 @@ export function isWithinRuntimeRoot(filePath: string) {
 }
 
 export async function deleteRuntimeEntry(filePath: string) {
-  if (!filePath) return false;
+  return (await deleteRuntimeEntryDetailed(filePath)).ok;
+}
+
+export async function deleteRuntimeEntryDetailed(filePath: string): Promise<{ ok: boolean; error?: string }> {
+  if (!filePath) return { ok: false, error: "empty runtime target" };
   if (getAudioStorageMode() === "blob" || isRemoteStorageUrl(filePath)) {
-    return deleteStorageEntry(filePath);
+    return deleteStorageEntryDetailed(filePath);
   }
-  if (!isWithinRuntimeRoot(filePath)) return false;
-  return deleteStorageEntry(filePath);
+  if (!isWithinRuntimeRoot(filePath)) {
+    return { ok: false, error: "runtime root 外の削除は拒否しました。" };
+  }
+  return deleteStorageEntryDetailed(filePath);
 }
 
 export function getRuntimeDeletionTargets(filePath: string | null | undefined) {
@@ -61,12 +67,19 @@ export async function deleteRuntimeEntries(filePaths: Array<string | null | unde
   );
 
   let deletedCount = 0;
+  const failures: Array<{ target: string; error: string }> = [];
   for (const target of targets) {
-    const deleted = await deleteRuntimeEntry(target);
-    if (deleted) deletedCount += 1;
+    const result = await deleteRuntimeEntryDetailed(target);
+    if (result.ok) {
+      deletedCount += 1;
+      continue;
+    }
+    failures.push({ target, error: result.error ?? "runtime deletion failed" });
   }
   return {
     deletedCount,
+    failedCount: failures.length,
+    failures,
     targets,
   };
 }

@@ -9,6 +9,8 @@ import { archiveStudent, withActiveStudentWhere } from "@/lib/students/student-l
 import { normalizeStudentUpdateInput } from "@/lib/students/student-write";
 import { withVisibleConversationWhere, withVisibleReportWhere } from "@/lib/content-visibility";
 
+const AUDIT_WARNING_MESSAGE = "更新自体は完了しましたが、監査記録の保存に失敗しました。管理者へ連絡してください。";
+
 export async function GET(
   _request: Request,
   { params }: { params: RouteParams }
@@ -76,7 +78,7 @@ export async function PUT(
       data,
     });
 
-    await writeAuditLog({
+    const auditLogged = await writeAuditLog({
       organizationId: authResult.session.user.organizationId,
       userId: authResult.session.user.id,
       action: "student.update",
@@ -89,7 +91,6 @@ export async function PUT(
         course: student.course,
       },
     });
-
     revalidateTag(`student-directory:${authResult.session.user.organizationId}`, "max");
     revalidateTag(`dashboard-snapshot:${authResult.session.user.organizationId}`, "max");
     revalidateTag(getLogListCacheTag(authResult.session.user.organizationId), "max");
@@ -98,6 +99,13 @@ export async function PUT(
     revalidatePath("/app/reports");
     revalidatePath("/app/settings");
     revalidatePath(`/app/students/${student.id}`);
+
+    if (!auditLogged) {
+      return NextResponse.json(
+        { student, auditWarning: AUDIT_WARNING_MESSAGE },
+        { status: 202, headers: { "X-Pararia-Audit-Warning": "1" } }
+      );
+    }
 
     return NextResponse.json({ student });
   } catch (e: any) {
@@ -144,32 +152,24 @@ export async function DELETE(
       return NextResponse.json({ error: "not found" }, { status: 404 });
     }
 
-    try {
-      await writeAuditLog({
-        organizationId: authResult.session.user.organizationId,
-        userId: authResult.session.user.id,
-        action: "student.archive",
-        targetType: "student",
-        targetId: archived.student.id,
-        detail: {
-          studentId: archived.student.id,
-          studentName: archived.student.name,
-          archiveReason,
-          archiveSnapshotId: archived.snapshotId,
-          conversationCount: archived.counts.conversations,
-          sessionCount: archived.counts.sessions,
-          reportCount: archived.counts.reports,
-          profileCount: archived.counts.profiles,
-          preservedRuntimeEntryCount: archived.runtimePaths.length,
-        },
-      });
-    } catch (auditError: any) {
-      console.error("[DELETE /api/students/[id]] audit log failed:", {
-        error: auditError?.message,
-        stack: auditError?.stack,
+    const auditLogged = await writeAuditLog({
+      organizationId: authResult.session.user.organizationId,
+      userId: authResult.session.user.id,
+      action: "student.archive",
+      targetType: "student",
+      targetId: archived.student.id,
+      detail: {
         studentId: archived.student.id,
-      });
-    }
+        studentName: archived.student.name,
+        archiveReason,
+        archiveSnapshotId: archived.snapshotId,
+        conversationCount: archived.counts.conversations,
+        sessionCount: archived.counts.sessions,
+        reportCount: archived.counts.reports,
+        profileCount: archived.counts.profiles,
+        preservedRuntimeEntryCount: archived.runtimePaths.length,
+      },
+    });
 
     revalidateTag(`student-directory:${authResult.session.user.organizationId}`, "max");
     revalidateTag(`dashboard-snapshot:${authResult.session.user.organizationId}`, "max");
@@ -187,7 +187,8 @@ export async function DELETE(
       studentId: archived.student.id,
       archiveSnapshotId: archived.snapshotId,
       preservedRuntimeEntryCount: archived.runtimePaths.length,
-    });
+      auditWarning: auditLogged ? null : AUDIT_WARNING_MESSAGE,
+    }, auditLogged ? undefined : { status: 202, headers: { "X-Pararia-Audit-Warning": "1" } });
   } catch (e: any) {
     console.error("[DELETE /api/students/[id]] Error:", {
       error: e?.message,

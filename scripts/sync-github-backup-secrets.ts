@@ -48,28 +48,48 @@ async function main() {
   await loadEnvFile(path.join(ROOT, ".tmp", "vercel-prod.env"), { optional: true, overrideExisting: true });
 
   const repo = process.argv[2] || "MIRR-LUKE/pararia";
+  const databaseSource: "PARARIA_BACKUP_DATABASE_URL" | "DIRECT_URL" | "DATABASE_URL" | null = process.env.PARARIA_BACKUP_DATABASE_URL?.trim()
+    ? "PARARIA_BACKUP_DATABASE_URL"
+    : process.env.DIRECT_URL?.trim()
+      ? "DIRECT_URL"
+      : process.env.DATABASE_URL?.trim()
+        ? "DATABASE_URL"
+        : null;
   const supabaseDbUrl =
     process.env.PARARIA_BACKUP_DATABASE_URL?.trim() ||
     process.env.DIRECT_URL?.trim() ||
     process.env.DATABASE_URL?.trim();
   const supabaseAccessToken = process.env.SUPABASE_ACCESS_TOKEN?.trim();
-  const blobToken = process.env.PARARIA_BLOB_BACKUP_TOKEN?.trim() || process.env.BLOB_READ_WRITE_TOKEN?.trim();
+  const backupBlobToken = process.env.PARARIA_BLOB_BACKUP_TOKEN?.trim();
+  const sharedBlobToken = process.env.BLOB_READ_WRITE_TOKEN?.trim();
   const projectRef =
     process.env.SUPABASE_PROJECT_REF?.trim() ||
     inferProjectRefFromUrl(supabaseDbUrl) ||
     inferProjectRefFromUrl(process.env.DATABASE_URL);
 
   const required = [
-    ["SUPABASE_DB_URL", supabaseDbUrl],
+    ["PARARIA_BACKUP_DATABASE_URL", supabaseDbUrl],
     ["SUPABASE_ACCESS_TOKEN", supabaseAccessToken],
     ["SUPABASE_PROJECT_REF", projectRef],
   ].filter(([, value]) => Boolean(value)) as Array<[string, string]>;
 
   if (required.length < 3) {
-    throw new Error("SUPABASE_DB_URL / SUPABASE_ACCESS_TOKEN / SUPABASE_PROJECT_REF を解決できませんでした。");
+    throw new Error("PARARIA_BACKUP_DATABASE_URL / SUPABASE_ACCESS_TOKEN / SUPABASE_PROJECT_REF を解決できませんでした。");
   }
 
-  const optional = blobToken ? [["BLOB_READ_WRITE_TOKEN", blobToken] as [string, string]] : [];
+  if (databaseSource && databaseSource !== "PARARIA_BACKUP_DATABASE_URL") {
+    console.warn(
+      `[sync-github-backup-secrets] backup 専用の PARARIA_BACKUP_DATABASE_URL が未設定です。いまは ${databaseSource} を使って GitHub secret を作っています。`
+    );
+  }
+
+  if (!backupBlobToken && sharedBlobToken) {
+    console.warn(
+      "[sync-github-backup-secrets] BLOB_READ_WRITE_TOKEN は backup には流用しません。PARARIA_BLOB_BACKUP_TOKEN を別で用意してください。"
+    );
+  }
+
+  const optional = backupBlobToken ? [["PARARIA_BLOB_BACKUP_TOKEN", backupBlobToken] as [string, string]] : [];
   const secrets = [...required, ...optional];
 
   for (const [name, value] of secrets) {
