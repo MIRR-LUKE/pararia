@@ -14,6 +14,11 @@ type SessionSummary = {
   conversation?: { id: string } | null;
 };
 
+type SessionConversationPreview = {
+  id: string;
+  deletedAt?: Date | null;
+} | null;
+
 type ReportSummary = {
   id: string;
   status: "DRAFT" | "REVIEWED" | "SENT" | string;
@@ -115,10 +120,17 @@ export async function listStudentRows(options: ListStudentRowsOptions): Promise<
     profileCompleteness:
       projection === "report" ? 0 : computeProfileCompleteness(student.profiles?.[0]?.profileData),
     profiles: projection === "report" ? undefined : student.profiles,
-    sessions: student.sessions.map((session) => ({
-      ...session,
-      sessionDate: session.sessionDate.toISOString(),
-    })),
+    sessions: student.sessions.map((session) => {
+      const sessionConversation =
+        ("conversation" in session ? (session.conversation as SessionConversationPreview | undefined) : null) ?? null;
+      const conversation = sessionConversation && !sessionConversation.deletedAt ? { id: sessionConversation.id } : null;
+
+      return {
+        ...session,
+        sessionDate: session.sessionDate.toISOString(),
+        conversation,
+      };
+    }),
     reports: (student.reports as StudentReportRecord[]).map((report) => ({
       ...report,
       createdAt: report.createdAt.toISOString(),

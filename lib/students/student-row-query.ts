@@ -26,6 +26,7 @@ const studentCoreSelect = {
       conversation: {
         select: {
           id: true,
+          deletedAt: true,
         },
       },
     },

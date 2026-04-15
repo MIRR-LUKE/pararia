@@ -21,6 +21,7 @@ const original = {
   create: prisma.apiThrottleBucket.create.bind(prisma.apiThrottleBucket),
   update: prisma.apiThrottleBucket.update.bind(prisma.apiThrottleBucket),
 };
+const originalWarn = console.warn;
 
 let idCounter = 0;
 
@@ -59,6 +60,11 @@ function bucketKey(scope: string, keyHash: string) {
 };
 
 try {
+  const warningMessages: string[] = [];
+  console.warn = (...args: unknown[]) => {
+    warningMessages.push(args.map((value) => String(value)).join(" "));
+  };
+
   const request = new Request("https://example.com/api/test", {
     headers: {
       "x-forwarded-for": "203.0.113.10, 10.0.0.1",
@@ -94,8 +100,29 @@ try {
   assert.equal(blockedResponse?.status, 429, "over-limit write should return 429");
   assert.ok(blockedResponse?.headers.get("Retry-After"), "429 response should include Retry-After");
 
+  (prisma.apiThrottleBucket.findUnique as any) = async () => {
+    throw {
+      code: "P2021",
+      meta: { table: "public.ApiThrottleBucket" },
+    };
+  };
+
+  const fallbackResponse = await applyLightMutationThrottle({
+    request,
+    scope: "students.update",
+    userId: "teacher-2",
+    organizationId: "org-1",
+  });
+  assert.equal(fallbackResponse, null, "missing throttle table should not break writes");
+  assert.equal(
+    warningMessages.filter((message) => message.includes("ApiThrottleBucket table is missing")).length,
+    1,
+    "missing throttle table warning should be emitted once"
+  );
+
   console.log("write throttle regression checks passed");
 } finally {
+  console.warn = originalWarn;
   (prisma.apiThrottleBucket.findUnique as any) = original.findUnique;
   (prisma.apiThrottleBucket.create as any) = original.create;
   (prisma.apiThrottleBucket.update as any) = original.update;

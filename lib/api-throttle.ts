@@ -15,6 +15,13 @@ type ConsumeApiQuotaInput = {
   rule: ApiThrottleRule;
 };
 
+type PrismaMissingTableMeta = {
+  table?: unknown;
+  modelName?: unknown;
+};
+
+let missingApiThrottleBucketWarningShown = false;
+
 export class ApiQuotaExceededError extends Error {
   retryAfterSeconds: number;
 
@@ -47,76 +54,105 @@ function buildBlockedError(scope: string, blockedUntil: Date, rule: ApiThrottleR
   return new ApiQuotaExceededError(message, Math.max(1, Math.min(retryAfterSeconds, Math.ceil(rule.blockMs / 1000))));
 }
 
+function isMissingApiThrottleBucketTableError(error: unknown) {
+  if (!error || typeof error !== "object") return false;
+  const candidate = error as { code?: unknown; meta?: PrismaMissingTableMeta };
+  if (candidate.code !== "P2021") return false;
+
+  const metaValues = [candidate.meta?.table, candidate.meta?.modelName]
+    .filter((value): value is string => typeof value === "string")
+    .map((value) => value.toLowerCase());
+
+  return metaValues.some((value) => value.includes("apithrottlebucket"));
+}
+
+function warnMissingApiThrottleBucketTable() {
+  if (missingApiThrottleBucketWarningShown) return;
+  missingApiThrottleBucketWarningShown = true;
+  console.warn("[api-throttle] ApiThrottleBucket table is missing. Throttling is temporarily bypassed until migrations are applied.");
+}
+
 export async function consumeApiQuota(input: ConsumeApiQuotaInput) {
   const rawKey = input.rawKey.trim();
   if (!rawKey) return;
 
-  const now = new Date();
-  const keyHash = hashApiThrottleKey(input.scope, rawKey);
-  const current = await prisma.apiThrottleBucket.findUnique({
-    where: {
-      scope_keyHash: {
-        scope: input.scope,
-        keyHash,
-      },
-    },
-  });
-
-  if (!current) {
-    const nextBytes = clampNonNegativeInt(input.bytes);
-    if (
-      1 > input.rule.maxRequests ||
-      (typeof input.rule.maxBytes === "number" && nextBytes > input.rule.maxBytes)
-    ) {
-      throw buildBlockedError(input.scope, new Date(now.getTime() + input.rule.blockMs), input.rule);
-    }
-
-    await prisma.apiThrottleBucket.create({
-      data: {
-        scope: input.scope,
-        keyHash,
-        requestCount: 1,
-        byteCount: nextBytes,
-        windowStartedAt: now,
+  try {
+    const now = new Date();
+    const keyHash = hashApiThrottleKey(input.scope, rawKey);
+    const current = await prisma.apiThrottleBucket.findUnique({
+      where: {
+        scope_keyHash: {
+          scope: input.scope,
+          keyHash,
+        },
       },
     });
-    return;
-  }
 
-  if (current.blockedUntil && current.blockedUntil > now) {
-    throw buildBlockedError(input.scope, current.blockedUntil, input.rule);
-  }
+    if (!current) {
+      const nextBytes = clampNonNegativeInt(input.bytes);
+      if (
+        1 > input.rule.maxRequests ||
+        (typeof input.rule.maxBytes === "number" && nextBytes > input.rule.maxBytes)
+      ) {
+        throw buildBlockedError(input.scope, new Date(now.getTime() + input.rule.blockMs), input.rule);
+      }
 
-  const windowExpired = now.getTime() - current.windowStartedAt.getTime() > input.rule.windowMs;
-  const nextRequestCount = windowExpired ? 1 : current.requestCount + 1;
-  const nextByteCount = (windowExpired ? 0 : current.byteCount) + clampNonNegativeInt(input.bytes);
+      await prisma.apiThrottleBucket.create({
+        data: {
+          scope: input.scope,
+          keyHash,
+          requestCount: 1,
+          byteCount: nextBytes,
+          windowStartedAt: now,
+        },
+      });
+      return;
+    }
 
-  if (
-    nextRequestCount > input.rule.maxRequests ||
-    (typeof input.rule.maxBytes === "number" && nextByteCount > input.rule.maxBytes)
-  ) {
-    const blockedUntil = new Date(now.getTime() + input.rule.blockMs);
+    if (current.blockedUntil && current.blockedUntil > now) {
+      throw buildBlockedError(input.scope, current.blockedUntil, input.rule);
+    }
+
+    const windowExpired = now.getTime() - current.windowStartedAt.getTime() > input.rule.windowMs;
+    const nextRequestCount = windowExpired ? 1 : current.requestCount + 1;
+    const nextByteCount = (windowExpired ? 0 : current.byteCount) + clampNonNegativeInt(input.bytes);
+
+    if (
+      nextRequestCount > input.rule.maxRequests ||
+      (typeof input.rule.maxBytes === "number" && nextByteCount > input.rule.maxBytes)
+    ) {
+      const blockedUntil = new Date(now.getTime() + input.rule.blockMs);
+      await prisma.apiThrottleBucket.update({
+        where: { id: current.id },
+        data: {
+          requestCount: nextRequestCount,
+          byteCount: nextByteCount,
+          windowStartedAt: windowExpired ? now : current.windowStartedAt,
+          blockedUntil,
+        },
+      });
+      throw buildBlockedError(input.scope, blockedUntil, input.rule);
+    }
+
     await prisma.apiThrottleBucket.update({
       where: { id: current.id },
       data: {
         requestCount: nextRequestCount,
         byteCount: nextByteCount,
         windowStartedAt: windowExpired ? now : current.windowStartedAt,
-        blockedUntil,
+        blockedUntil: null,
       },
     });
-    throw buildBlockedError(input.scope, blockedUntil, input.rule);
+  } catch (error) {
+    if (error instanceof ApiQuotaExceededError) {
+      throw error;
+    }
+    if (isMissingApiThrottleBucketTableError(error)) {
+      warnMissingApiThrottleBucketTable();
+      return;
+    }
+    throw error;
   }
-
-  await prisma.apiThrottleBucket.update({
-    where: { id: current.id },
-    data: {
-      requestCount: nextRequestCount,
-      byteCount: nextByteCount,
-      windowStartedAt: windowExpired ? now : current.windowStartedAt,
-      blockedUntil: null,
-    },
-  });
 }
 
 export const API_THROTTLE_RULES = {

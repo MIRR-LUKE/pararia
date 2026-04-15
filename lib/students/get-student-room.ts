@@ -38,6 +38,10 @@ type StudioConversationDetail = {
   summaryMarkdown: string | null;
 };
 
+type StudioConversationRecord = StudioConversationDetail & {
+  deletedAt: Date | null;
+};
+
 function normalizeSourceLogIds(sourceLogIds: unknown): string[] | null {
   if (!Array.isArray(sourceLogIds)) return null;
   const normalized = sourceLogIds.filter((value): value is string => typeof value === "string" && value.length > 0);
@@ -71,6 +75,7 @@ function buildStudentRoomSelect(scope: StudentRoomScope) {
               id: true,
               status: true,
               createdAt: true,
+              deletedAt: true,
               reviewState: true,
               summaryMarkdown: true,
             },
@@ -156,6 +161,7 @@ function buildStudentRoomSelect(scope: StudentRoomScope) {
             id: true,
             status: true,
             createdAt: true,
+            deletedAt: true,
             reviewState: true,
             qualityMetaJson: true,
             jobs: {
@@ -261,18 +267,25 @@ async function getStudioConversationDetails(sessionIds: string[], organizationId
         id: true,
         conversation: {
           select: {
+            deletedAt: true,
             artifactJson: true,
             summaryMarkdown: true,
           },
         },
       },
     })
-  )) as Array<{ id: string; conversation: StudioConversationDetail | null }>;
+  )) as Array<{ id: string; conversation: StudioConversationRecord | null }>;
 
   return new Map(
     sessions
-      .filter((session) => Boolean(session.conversation))
-      .map((session) => [session.id, session.conversation as StudioConversationDetail])
+      .filter((session) => session.conversation && !session.conversation.deletedAt)
+      .map((session) => [
+        session.id,
+        {
+          artifactJson: session.conversation!.artifactJson,
+          summaryMarkdown: session.conversation!.summaryMarkdown,
+        },
+      ])
   );
 }
 
@@ -298,7 +311,12 @@ export async function getStudentRoomData({
 
   const detailedSessionIds = isFullRoom
     ? (student.sessions ?? [])
-        .filter((session: any) => session.type === "INTERVIEW" && session.conversation?.status === "DONE")
+        .filter(
+          (session: any) =>
+            session.type === "INTERVIEW" &&
+            session.conversation?.status === "DONE" &&
+            !session.conversation?.deletedAt
+        )
         .slice(0, 4)
         .map((session: any) => session.id)
     : [];
@@ -319,18 +337,19 @@ export async function getStudentRoomData({
     : [null, new Map<string, StudioConversationDetail>(), null];
 
   const sessions = (student.sessions ?? []).map((session: any) => {
-    const studioConversation = studioConversationDetails.get(session.id) ?? null;
+    const visibleConversation = session.conversation && !session.conversation.deletedAt ? session.conversation : null;
+    const studioConversation = visibleConversation ? (studioConversationDetails.get(session.id) ?? null) : null;
 
-    const conversation = session.conversation
+    const conversation = visibleConversation
       ? {
-          id: session.conversation.id,
-          status: session.conversation.status,
-          createdAt: session.conversation.createdAt.toISOString(),
-          reviewState: session.conversation.reviewState ?? null,
-          qualityMetaJson: session.conversation.qualityMetaJson ?? null,
-          summaryMarkdown: session.conversation.summaryMarkdown ?? studioConversation?.summaryMarkdown ?? null,
+          id: visibleConversation.id,
+          status: visibleConversation.status,
+          createdAt: visibleConversation.createdAt.toISOString(),
+          reviewState: visibleConversation.reviewState ?? null,
+          qualityMetaJson: visibleConversation.qualityMetaJson ?? null,
+          summaryMarkdown: visibleConversation.summaryMarkdown ?? studioConversation?.summaryMarkdown ?? null,
           ...(isFullRoom ? { artifactJson: studioConversation?.artifactJson ?? null } : {}),
-          jobs: session.conversation.jobs ?? [],
+          jobs: visibleConversation.jobs ?? [],
         }
       : null;
 
@@ -339,7 +358,7 @@ export async function getStudentRoomData({
           sessionId: session.id,
           type: session.type,
           parts: session.parts ?? [],
-          conversation: session.conversation,
+          conversation: visibleConversation,
         })
       : undefined;
 
