@@ -76,6 +76,20 @@ export async function PUT(
       data,
     });
 
+    await writeAuditLog({
+      organizationId: authResult.session.user.organizationId,
+      userId: authResult.session.user.id,
+      action: "student.update",
+      targetType: "student",
+      targetId: student.id,
+      detail: {
+        studentId: student.id,
+        studentName: student.name,
+        grade: student.grade,
+        course: student.course,
+      },
+    });
+
     revalidateTag(`student-directory:${authResult.session.user.organizationId}`, "max");
     revalidateTag(`dashboard-snapshot:${authResult.session.user.organizationId}`, "max");
     revalidateTag(getLogListCacheTag(authResult.session.user.organizationId), "max");

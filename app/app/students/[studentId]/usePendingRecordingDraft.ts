@@ -68,8 +68,20 @@ export function usePendingRecordingDraft({ studentId, mode, lessonPart }: Params
   }, [lessonPart, mode, studentId]);
 
   useEffect(() => {
-    void loadPendingDraftState();
-  }, [loadPendingDraftState]);
+    let cancelled = false;
+
+    void (async () => {
+      const { loadPendingRecordingDraft } = await loadPendingRecordingStoreModule();
+      const record = await loadPendingRecordingDraft({ studentId, mode, lessonPart }).catch(() => null);
+      if (cancelled) return;
+      setPendingDraft(record ? toPendingDraft(record) : null);
+      setPendingDraftPersistence(record ? "durable" : null);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [lessonPart, mode, studentId]);
 
   return {
     clearPendingDraftState,

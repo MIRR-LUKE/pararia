@@ -89,8 +89,11 @@ async function main() {
     let lastProgress: ProgressResponse | null = null;
 
     while (Date.now() < deadline) {
+      await client.requestJson(`/api/sessions/${sessionId}/progress`, {
+        method: "POST",
+      });
       const progressResult = (await client.requestJson(
-        `/api/sessions/${sessionId}/progress?process=1`
+        `/api/sessions/${sessionId}/progress`
       )) as {
         response: Response;
         body: ProgressResponse;

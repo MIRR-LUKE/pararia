@@ -24,6 +24,7 @@ export async function writeAuditLog(input: AuditLogInput) {
         detailJson: toPrismaJson(input.detail),
       },
     });
+    return true;
   } catch (error) {
     console.error("[audit] failed to write audit log", {
       error,
@@ -33,5 +34,6 @@ export async function writeAuditLog(input: AuditLogInput) {
       targetId: input.targetId ?? null,
       userId: input.userId ?? null,
     });
+    return false;
   }
 }

@@ -44,7 +44,6 @@ declare global {
     __parariaRum?: RumWindowState;
   }
 
-  // eslint-disable-next-line no-var
   var __parariaRumServerConfig: RumServerConfig | undefined;
 }
 

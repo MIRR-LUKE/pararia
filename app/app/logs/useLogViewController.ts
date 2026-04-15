@@ -51,16 +51,28 @@ export function useLogViewController({ logId, onSaved, onDirtyChange }: UseLogVi
     typeof document === "undefined" ? true : document.visibilityState === "visible"
   );
   const latestLocationRef = useRef("");
+  const lastKickAtRef = useRef(0);
 
   const fetchLog = useCallback(
-    async (opts?: { silent?: boolean }) => {
+    async (opts?: { silent?: boolean; kickProcessing?: boolean }) => {
       const silent = opts?.silent ?? false;
+      const kickProcessing = opts?.kickProcessing ?? false;
       if (!silent) {
         setLoading(true);
         setError(null);
       }
       try {
-        const res = await fetch(`/api/conversations/${logId}?process=1`, { cache: "no-store" });
+        if (kickProcessing) {
+          const now = Date.now();
+          if (now - lastKickAtRef.current >= 3000) {
+            lastKickAtRef.current = now;
+            void fetch(`/api/conversations/${logId}`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+            }).catch(() => {});
+          }
+        }
+        const res = await fetch(`/api/conversations/${logId}`, { cache: "no-store" });
         const body = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(body?.error ?? "ログの取得に失敗しました。");
         setLog(body?.conversation as ConversationLog);
@@ -93,14 +105,14 @@ export function useLogViewController({ logId, onSaved, onDirtyChange }: UseLogVi
   useEffect(() => {
     if (!log || log.status !== "PROCESSING" || !pageVisible) return;
     const timer = window.setTimeout(() => {
-      void fetchLog({ silent: true });
+      void fetchLog({ silent: true, kickProcessing: true });
     }, 3000);
     return () => window.clearTimeout(timer);
   }, [fetchLog, log, pageVisible]);
 
   useEffect(() => {
     if (!pageVisible || log?.status !== "PROCESSING") return;
-    void fetchLog({ silent: true });
+    void fetchLog({ silent: true, kickProcessing: true });
   }, [fetchLog, log?.status, pageVisible]);
 
   const summaryMarkdown = useMemo(

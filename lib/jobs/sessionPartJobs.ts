@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { JobStatus, Prisma, SessionPartJobType } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { executeFinalizeLivePartJob } from "@/lib/jobs/session-part-jobs/finalize-live-part";
@@ -20,7 +21,19 @@ import {
 } from "@/lib/jobs/session-part-jobs/shared";
 
 const JOB_EXECUTION_RETRIES = 2;
-const activeSessionRuns = new Set<string>();
+const SESSION_PART_LEASE_MS = readClampedEnvInt("SESSION_PART_JOB_LEASE_MS", 5 * 60 * 1000, 30_000, 15 * 60 * 1000);
+
+type SessionPartJobRunResult = {
+  attempted: number;
+  processed: number;
+  errors: string[];
+};
+
+function readClampedEnvInt(name: string, fallback: number, min: number, max: number) {
+  const value = Number(process.env[name] ?? fallback);
+  if (!Number.isFinite(value)) return fallback;
+  return Math.max(min, Math.min(max, Math.floor(value)));
+}
 
 async function executeJob(job: SessionPartJobPayload) {
   const part = await loadSessionPart(job);
@@ -45,18 +58,14 @@ async function requeueRecoverableJobs(opts?: ProcessSessionPartJobsOptions) {
   await requeueRecoverablePromotionJobs(opts);
 }
 
-async function claimNextJob(opts?: ProcessSessionPartJobsOptions): Promise<SessionPartJobPayload | null> {
+async function claimNextJobForSession(sessionId: string): Promise<SessionPartJobPayload | null> {
   while (true) {
     const next = await prisma.sessionPartJob.findFirst({
       where: {
         status: JobStatus.QUEUED,
-        ...(opts?.sessionId
-          ? {
-              sessionPart: {
-                sessionId: opts.sessionId,
-              },
-            }
-          : {}),
+        sessionPart: {
+          sessionId,
+        },
       },
       orderBy: [{ updatedAt: "asc" }, { createdAt: "asc" }],
       select: {
@@ -109,17 +118,101 @@ export async function enqueueSessionPartJob(sessionPartId: string, type: Session
   });
 }
 
-export async function processQueuedSessionPartJobs(
-  limit = 1,
-  concurrency = 1,
-  opts?: ProcessSessionPartJobsOptions
-): Promise<{ processed: number; errors: string[] }> {
-  await requeueRecoverableJobs(opts);
+async function acquireSessionPartProcessingLease(sessionId: string, executionId: string) {
+  const now = new Date();
+  const leaseExpiresAt = new Date(now.getTime() + SESSION_PART_LEASE_MS);
+  const claimed = await prisma.session.updateMany({
+    where: {
+      id: sessionId,
+      OR: [
+        { sessionPartLeaseExecutionId: null },
+        { sessionPartLeaseExpiresAt: null },
+        { sessionPartLeaseExpiresAt: { lt: now } },
+        { sessionPartLeaseExecutionId: executionId },
+      ],
+    },
+    data: {
+      sessionPartLeaseExecutionId: executionId,
+      sessionPartLeaseStartedAt: now,
+      sessionPartLeaseHeartbeatAt: now,
+      sessionPartLeaseExpiresAt: leaseExpiresAt,
+    },
+  });
+  return claimed.count > 0;
+}
 
-  const maxLimit = Math.max(1, Math.floor(limit));
-  const maxConcurrency = Math.max(1, Math.floor(concurrency));
+async function renewSessionPartProcessingLease(sessionId: string, executionId: string) {
+  await prisma.session.updateMany({
+    where: {
+      id: sessionId,
+      sessionPartLeaseExecutionId: executionId,
+    },
+    data: {
+      sessionPartLeaseHeartbeatAt: new Date(),
+      sessionPartLeaseExpiresAt: new Date(Date.now() + SESSION_PART_LEASE_MS),
+    },
+  });
+}
+
+async function releaseSessionPartProcessingLease(sessionId: string, executionId: string) {
+  await prisma.session.updateMany({
+    where: {
+      id: sessionId,
+      sessionPartLeaseExecutionId: executionId,
+    },
+    data: {
+      sessionPartLeaseExecutionId: null,
+      sessionPartLeaseStartedAt: null,
+      sessionPartLeaseHeartbeatAt: null,
+      sessionPartLeaseExpiresAt: null,
+    },
+  });
+}
+
+async function claimNextLeasableSession(executionId: string): Promise<string | null> {
+  while (true) {
+    const now = new Date();
+    const next = await prisma.sessionPartJob.findFirst({
+      where: {
+        status: JobStatus.QUEUED,
+        sessionPart: {
+          session: {
+            OR: [
+              { sessionPartLeaseExecutionId: null },
+              { sessionPartLeaseExpiresAt: null },
+              { sessionPartLeaseExpiresAt: { lt: now } },
+              { sessionPartLeaseExecutionId: executionId },
+            ],
+          },
+        },
+      },
+      orderBy: [{ updatedAt: "asc" }, { createdAt: "asc" }],
+      select: {
+        sessionPart: {
+          select: {
+            sessionId: true,
+          },
+        },
+      },
+    });
+    const sessionId = next?.sessionPart.sessionId;
+    if (!sessionId) return null;
+    const leaseAcquired = await acquireSessionPartProcessingLease(sessionId, executionId);
+    if (leaseAcquired) {
+      return sessionId;
+    }
+  }
+}
+
+async function processLeasedSessionPartJobs(
+  sessionId: string,
+  executionId: string,
+  maxLimit: number,
+  maxConcurrency: number
+): Promise<SessionPartJobRunResult> {
   const workerCount = Math.min(maxLimit, maxConcurrency);
   let remaining = maxLimit;
+  let attempted = 0;
   let processed = 0;
   const errors: string[] = [];
 
@@ -131,8 +224,10 @@ export async function processQueuedSessionPartJobs(
 
   const runWorker = async () => {
     while (reserveSlot()) {
-      const job = await claimNextJob(opts);
+      await renewSessionPartProcessingLease(sessionId, executionId);
+      const job = await claimNextJobForSession(sessionId);
       if (!job) break;
+      attempted += 1;
       try {
         await executeJobWithSessionRetry(job);
         processed += 1;
@@ -163,35 +258,85 @@ export async function processQueuedSessionPartJobs(
             await markPartExecutionError(part, message).catch(() => {});
           }
         }
+      } finally {
+        await renewSessionPartProcessingLease(sessionId, executionId);
       }
     }
   };
 
   await Promise.all(Array.from({ length: workerCount }, () => runWorker()));
+  return { attempted, processed, errors };
+}
+
+async function processSessionPartJobsForSession(
+  sessionId: string,
+  maxLimit: number,
+  maxConcurrency: number
+): Promise<SessionPartJobRunResult> {
+  const executionId = randomUUID();
+  const leaseAcquired = await acquireSessionPartProcessingLease(sessionId, executionId);
+  if (!leaseAcquired) {
+    return { attempted: 0, processed: 0, errors: [] };
+  }
+  try {
+    return await processLeasedSessionPartJobs(sessionId, executionId, maxLimit, maxConcurrency);
+  } finally {
+    await releaseSessionPartProcessingLease(sessionId, executionId);
+  }
+}
+
+export async function processQueuedSessionPartJobs(
+  limit = 1,
+  concurrency = 1,
+  opts?: ProcessSessionPartJobsOptions
+): Promise<{ processed: number; errors: string[] }> {
+  await requeueRecoverableJobs(opts);
+
+  const maxLimit = Math.max(1, Math.floor(limit));
+  const maxConcurrency = Math.max(1, Math.floor(concurrency));
+  if (opts?.sessionId) {
+    const result = await processSessionPartJobsForSession(opts.sessionId, maxLimit, maxConcurrency);
+    return { processed: result.processed, errors: result.errors };
+  }
+
+  let remaining = maxLimit;
+  let processed = 0;
+  const errors: string[] = [];
+
+  while (remaining > 0) {
+    const executionId = randomUUID();
+    const sessionId = await claimNextLeasableSession(executionId);
+    if (!sessionId) break;
+    try {
+      const batch = await processLeasedSessionPartJobs(sessionId, executionId, remaining, maxConcurrency);
+      processed += batch.processed;
+      errors.push(...batch.errors);
+      remaining -= batch.attempted;
+      if (batch.attempted <= 0) {
+        break;
+      }
+    } finally {
+      await releaseSessionPartProcessingLease(sessionId, executionId);
+    }
+  }
+
   return { processed, errors };
 }
 
 export async function processAllSessionPartJobs(sessionId: string) {
-  if (activeSessionRuns.has(sessionId)) {
-    return { processed: 0, errors: [] };
-  }
-  activeSessionRuns.add(sessionId);
-  try {
-    const pending = await prisma.sessionPartJob.count({
-      where: {
-        sessionPart: {
-          sessionId,
-        },
-        status: {
-          in: [JobStatus.QUEUED, JobStatus.RUNNING],
-        },
+  const pending = await prisma.sessionPartJob.count({
+    where: {
+      sessionPart: {
+        sessionId,
       },
-    });
-    const envConcurrency = Number(process.env.SESSION_PART_JOB_CONCURRENCY ?? 2);
-    const concurrency = Number.isFinite(envConcurrency) ? Math.max(1, Math.floor(envConcurrency)) : 1;
-    const limit = Math.max(4, pending * 2, 2);
-    return processQueuedSessionPartJobs(limit, concurrency, { sessionId });
-  } finally {
-    activeSessionRuns.delete(sessionId);
-  }
+      status: {
+        in: [JobStatus.QUEUED, JobStatus.RUNNING],
+      },
+    },
+  });
+  const envConcurrency = Number(process.env.SESSION_PART_JOB_CONCURRENCY ?? 2);
+  const concurrency = Number.isFinite(envConcurrency) ? Math.max(1, Math.floor(envConcurrency)) : 1;
+  const limit = Math.max(4, pending * 2, 2);
+  const result = await processSessionPartJobsForSession(sessionId, limit, concurrency);
+  return { processed: result.processed, errors: result.errors };
 }

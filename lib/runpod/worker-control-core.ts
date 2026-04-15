@@ -79,6 +79,18 @@ function readStringEnv(name: string, fallback = "") {
   return process.env[name]?.trim() || fallback;
 }
 
+function resolveDefaultWorkerImage() {
+  const explicitImage = readStringEnv("RUNPOD_WORKER_IMAGE");
+  if (explicitImage) return explicitImage;
+
+  const commitSha = readStringEnv("VERCEL_GIT_COMMIT_SHA");
+  if (commitSha) {
+    return `ghcr.io/mirr-luke/pararia-runpod-worker:sha-${commitSha}`;
+  }
+
+  return DEFAULT_WORKER_IMAGE;
+}
+
 function readStringEnvWithLegacy(name: string, legacyName: string, fallback = "") {
   return readStringEnv(name, readStringEnv(legacyName, fallback));
 }
@@ -252,7 +264,7 @@ export function getRunpodWorkerConfig(): RunpodWorkerConfig | null {
   const config = {
     apiKey,
     name: readStringEnv("RUNPOD_WORKER_NAME", DEFAULT_WORKER_NAME),
-    image: readStringEnv("RUNPOD_WORKER_IMAGE", DEFAULT_WORKER_IMAGE),
+    image: resolveDefaultWorkerImage(),
     containerRegistryAuthId: readStringEnv("RUNPOD_WORKER_CONTAINER_REGISTRY_AUTH_ID", "") || null,
     gpu: gpuCandidates[0] || DEFAULT_WORKER_GPU,
     gpuCandidates,

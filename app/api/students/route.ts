@@ -1,8 +1,9 @@
 import { revalidatePath, revalidateTag } from "next/cache";
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/db";
+import { writeAuditLog } from "@/lib/audit";
 import { requireAuthorizedSession } from "@/lib/server/request-auth";
 import { listStudentRows } from "@/lib/students/list-student-rows";
+import { StudentLimitExceededError, assertStudentCapacityAvailable, runStudentCapacityWrite } from "@/lib/students/student-limit";
 import { mapStudentDirectoryRows } from "@/lib/students/student-directory-view";
 import { normalizeStudentCreateInput } from "@/lib/students/student-write";
 
@@ -55,16 +56,33 @@ export async function POST(request: Request) {
     const { name, nameKana, grade, course, enrollmentDate, birthdate, guardianNames } =
       normalizeStudentCreateInput(body);
 
-    const student = await prisma.student.create({
-      data: {
-        organizationId: authResult.session.user.organizationId,
-        name,
-        nameKana,
-        grade,
-        course,
-        enrollmentDate,
-        birthdate,
-        guardianNames,
+    const student = await runStudentCapacityWrite("student-create", async (tx) => {
+      await assertStudentCapacityAvailable(tx, authResult.session.user.organizationId);
+      return tx.student.create({
+        data: {
+          organizationId: authResult.session.user.organizationId,
+          name,
+          nameKana,
+          grade,
+          course,
+          enrollmentDate,
+          birthdate,
+          guardianNames,
+        },
+      });
+    });
+
+    await writeAuditLog({
+      organizationId: authResult.session.user.organizationId,
+      userId: authResult.session.user.id,
+      action: "student.create",
+      targetType: "student",
+      targetId: student.id,
+      detail: {
+        studentId: student.id,
+        studentName: student.name,
+        grade: student.grade,
+        course: student.course,
       },
     });
 
@@ -77,6 +95,9 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ student }, { status: 201 });
   } catch (e: any) {
+    if (e instanceof StudentLimitExceededError) {
+      return NextResponse.json({ error: e.message }, { status: 409 });
+    }
     if (e instanceof TypeError) {
       return NextResponse.json({ error: e.message }, { status: 400 });
     }

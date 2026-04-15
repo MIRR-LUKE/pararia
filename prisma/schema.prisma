@@ -401,6 +401,21 @@ model AuditLog {
   @@index([userId, createdAt])
 }
 
+model AuthThrottle {
+  id             String   @id @default(cuid())
+  scope          String
+  keyHash        String
+  failureCount   Int      @default(0)
+  windowStartedAt DateTime
+  lastFailureAt  DateTime?
+  blockedUntil   DateTime?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([scope, keyHash])
+  @@index([scope, blockedUntil])
+}
+
 model StudentArchiveSnapshot {
   id               String   @id @default(cuid())
   organizationId   String
@@ -430,6 +445,10 @@ model Session {
   heroOneLiner       String?
   latestSummary      String?
   completedAt        DateTime?
+  sessionPartLeaseExecutionId String?
+  sessionPartLeaseExpiresAt DateTime?
+  sessionPartLeaseStartedAt DateTime?
+  sessionPartLeaseHeartbeatAt DateTime?
   createdAt          DateTime      @default(now())
   updatedAt          DateTime      @updatedAt
 
@@ -444,6 +463,7 @@ model Session {
   @@index([studentId, sessionDate])
   @@index([organizationId, sessionDate])
   @@index([status, type])
+  @@index([sessionPartLeaseExpiresAt])
 }
 
 model SessionPart {

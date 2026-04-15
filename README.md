@@ -323,7 +323,7 @@ PARARIA は、塾・個別指導・学習コーチング向けの `Teaching OS` 
 
 補足:
 
-- `external` では web 側の `?process=1` や `/api/jobs/run` は job 実行に使わない
+- `external` では web 側の `POST /api/sessions/[id]/progress` / `POST /api/conversations/[id]` や `/api/jobs/run` は job 実行に使わない
 - 60分級の音声 file upload は browser から blob へ直接送り、Runpod worker から同じ参照を読む
 - live 録音 chunk も blob を共有保存に使う
 - `external + local storage` は Runpod worker が音声を読めないので許可しない
@@ -376,7 +376,7 @@ GitHub Actions の `Publish Runpod Worker Image` が通ると、GHCR に worker 
 
 - `ghcr.io/<GitHub owner>/pararia-runpod-worker:latest`
 - `ghcr.io/<GitHub owner>/pararia-runpod-worker:sha-...`
-- `RUNPOD_WORKER_IMAGE` を未設定にすると `ghcr.io/mirr-luke/pararia-runpod-worker:latest` を使う
+- `RUNPOD_WORKER_IMAGE` を未設定にしたときは、Vercel 上なら現在の commit sha、ローカルでは `ghcr.io/mirr-luke/pararia-runpod-worker:latest` を使う
 - sha 固定で厳密に運用したい場合は、`RUNPOD_WORKER_IMAGE` を明示的に `:sha-...` で設定する
 
 Runpod REST API で Pod を作る / 起こす / 止めるスクリプトも入れています。
@@ -709,7 +709,6 @@ GPU が強いときの最初の目安:
 
 ### 13.1 認証
 
-- `POST /api/auth/login`
 - `GET/POST /api/auth/[...nextauth]`
 
 ### 13.2 生徒
@@ -742,8 +741,10 @@ GPU が強いときの最初の目安:
 
 - `POST /api/conversations`
   - transcript 直入力を受けて background worker を起動する
-- `GET /api/conversations/[id]?brief=1&process=1`
-  - 軽量取得 + worker 再キック
+- `GET /api/conversations/[id]?brief=1`
+  - 軽量取得だけを行う
+- `POST /api/conversations/[id]`
+  - 進行中ログの worker 再キックに使う
 - `PATCH /api/conversations/[id]`
   - ログ本文の手動編集保存に使う
   - `summaryMarkdown` を保存すると `artifactJson` も同時に更新する
@@ -784,8 +785,6 @@ GPU が強いときの最初の目安:
 ### 13.6 ジョブ / メンテナンス
 
 - `GET/POST /api/jobs/run`
-- `POST /api/jobs/conversation-logs/process`
-- `POST /api/jobs/session-parts/process`
 - `GET/POST /api/maintenance/cleanup`
 
 補足:
@@ -793,6 +792,7 @@ GPU が強いときの最初の目安:
 - `jobs/run` と `maintenance/cleanup` は、ふつうの画面操作ではなく保守操作として扱う
 - route 側でも止める。通るのは管理者セッションか `cron_secret` / `x-maintenance-secret` だけ
 - 実行した人や対象は監査ログに残す
+- 生徒画面やログ画面の再実行は、それぞれ `POST /api/sessions/[id]/progress` と `POST /api/conversations/[id]` だけを使う
 
 ## 14. 主要ファイル
 

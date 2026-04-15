@@ -139,130 +139,169 @@ async function recoverMissingConversationJobs(conversationId: string | null | un
   return recovery;
 }
 
-export async function GET(
-  request: Request,
-  { params }: { params: RouteParams }
-) {
-  try {
-    const sessionId = await resolveRouteId(params);
-    if (!sessionId) {
-      return NextResponse.json({ error: "sessionId が必要です。" }, { status: 400 });
-    }
-
-    const authResult = await requireAuthorizedSession();
-    if (authResult.response) return authResult.response;
-    const authSession = authResult.session;
-
-    let session = await loadSessionProgressSnapshot(sessionId, authSession.user.organizationId);
-
-    if (!session) {
-      return NextResponse.json({ error: "セッションが見つかりません。" }, { status: 404 });
-    }
-
-    const { searchParams } = new URL(request.url);
-    if (searchParams.get("process") === "1") {
-      const manualOnlyParts = hasOnlyManualParts(session.parts);
-      const queuedSessionPartJobCount = await prisma.sessionPartJob.count({
-        where: {
-          status: {
-            in: [JobStatus.QUEUED, JobStatus.RUNNING],
-          },
-          sessionPart: {
-            sessionId: session.id,
-          },
-        },
-      });
-
-      if (manualOnlyParts && queuedSessionPartJobCount > 0) {
-        await processAllSessionPartJobs(session.id).catch(() => {});
-        session = await loadSessionProgressSnapshot(sessionId, authSession.user.organizationId);
-        if (!session) {
-          return NextResponse.json({ error: "セッションが見つかりません。" }, { status: 404 });
-        }
-      }
-
-      const recovery = await recoverMissingConversationJobs(session.conversation?.id).catch(() => ({
-        healed: false as const,
-        reason: "recovery_failed" as const,
-      }));
-      const needsConversationWork =
-        recovery.healed ||
-        session.conversation?.status === "PROCESSING" ||
-        Boolean(session.conversation?.jobs.some((job) => job.status === "QUEUED" || job.status === "RUNNING")) ||
-        session.nextMeetingMemo?.status === "QUEUED" ||
-        session.nextMeetingMemo?.status === "GENERATING";
-      if (recovery.healed) {
-        await maybeStopRunpodWorkerWhenSessionPartQueueIdle().catch(() => {});
-      } else if (shouldRunBackgroundJobsInline()) {
-        void processAllSessionPartJobs(session.id).catch(() => {});
-        if (session.conversation?.id && needsConversationWork) {
-          await processAllConversationJobs(session.conversation.id).catch(() => {});
-        }
-        await maybeStopRunpodWorkerWhenSessionPartQueueIdle().catch(() => {});
-      } else {
-        if (manualOnlyParts && session.conversation?.id && needsConversationWork) {
-          await processAllConversationJobs(session.conversation.id).catch(() => {});
-          await maybeStopRunpodWorkerWhenSessionPartQueueIdle().catch(() => {});
-        } else {
-          const needsWorkerWake = shouldWakeExternalSessionWorker({
-            partStatuses: session.parts.map((part) => part.status),
-            queuedSessionPartJobCount,
-            hasPendingConversationWork: needsConversationWork,
-          });
-          if (needsWorkerWake) {
-            await wakeSessionWorkerOrFallback(session.id, needsConversationWork).catch(() => {});
-          }
-        }
-      }
-
-      session = await loadSessionProgressSnapshot(sessionId, authSession.user.organizationId);
-      if (!session) {
-        return NextResponse.json({ error: "セッションが見つかりません。" }, { status: 404 });
-      }
-    }
-
-    const progress = buildSessionProgressState({
-      sessionId: session.id,
-      type: session.type,
-      parts: session.parts,
-      conversation: session.conversation,
-    });
-
-    return NextResponse.json({
-      session: {
-        id: session.id,
-        type: session.type,
-        status: session.status,
+async function processSessionProgress(session: NonNullable<Awaited<ReturnType<typeof loadSessionProgressSnapshot>>>) {
+  const manualOnlyParts = hasOnlyManualParts(session.parts);
+  const queuedSessionPartJobCount = await prisma.sessionPartJob.count({
+    where: {
+      status: {
+        in: [JobStatus.QUEUED, JobStatus.RUNNING],
       },
-      conversation: session.conversation,
-      nextMeetingMemo: session.nextMeetingMemo
-        ? {
-            status: session.nextMeetingMemo.status,
-            previousSummary: session.nextMeetingMemo.previousSummary,
-            suggestedTopics: session.nextMeetingMemo.suggestedTopics,
-            errorMessage: session.nextMeetingMemo.errorMessage,
-            updatedAt: session.nextMeetingMemo.updatedAt,
-          }
-        : null,
-      parts: session.parts.map((part) => ({
-        id: part.id,
-        partType: part.partType,
-        status: part.status,
-        fileName: part.fileName,
-        previewText: buildSummaryPreview(
-          pickDisplayTranscriptText({
-            rawTextCleaned: part.rawTextCleaned,
-            reviewedText: part.reviewedText,
-            rawTextOriginal: part.rawTextOriginal,
-          })
-        ),
-        reviewState: part.reviewState,
-        qualityMetaJson: part.qualityMetaJson,
-      })),
-      progress,
-    });
+      sessionPart: {
+        sessionId: session.id,
+      },
+    },
+  });
+
+  if (manualOnlyParts && queuedSessionPartJobCount > 0) {
+    await processAllSessionPartJobs(session.id).catch(() => {});
+  }
+
+  const recovery = await recoverMissingConversationJobs(session.conversation?.id).catch(() => ({
+    healed: false as const,
+    reason: "recovery_failed" as const,
+  }));
+  const needsConversationWork =
+    recovery.healed ||
+    session.conversation?.status === "PROCESSING" ||
+    Boolean(session.conversation?.jobs.some((job) => job.status === "QUEUED" || job.status === "RUNNING")) ||
+    session.nextMeetingMemo?.status === "QUEUED" ||
+    session.nextMeetingMemo?.status === "GENERATING";
+  if (recovery.healed) {
+    await maybeStopRunpodWorkerWhenSessionPartQueueIdle().catch(() => {});
+    return;
+  }
+
+  if (shouldRunBackgroundJobsInline()) {
+    void processAllSessionPartJobs(session.id).catch(() => {});
+    if (session.conversation?.id && needsConversationWork) {
+      await processAllConversationJobs(session.conversation.id).catch(() => {});
+    }
+    await maybeStopRunpodWorkerWhenSessionPartQueueIdle().catch(() => {});
+    return;
+  }
+
+  if (manualOnlyParts && session.conversation?.id && needsConversationWork) {
+    await processAllConversationJobs(session.conversation.id).catch(() => {});
+    await maybeStopRunpodWorkerWhenSessionPartQueueIdle().catch(() => {});
+    return;
+  }
+
+  const needsWorkerWake = shouldWakeExternalSessionWorker({
+    partStatuses: session.parts.map((part) => part.status),
+    queuedSessionPartJobCount,
+    hasPendingConversationWork: needsConversationWork,
+  });
+  if (needsWorkerWake) {
+    await wakeSessionWorkerOrFallback(session.id, needsConversationWork).catch(() => {});
+  }
+}
+
+function buildSessionProgressResponse(session: NonNullable<Awaited<ReturnType<typeof loadSessionProgressSnapshot>>>) {
+  const progress = buildSessionProgressState({
+    sessionId: session.id,
+    type: session.type,
+    parts: session.parts,
+    conversation: session.conversation,
+  });
+
+  return NextResponse.json({
+    session: {
+      id: session.id,
+      type: session.type,
+      status: session.status,
+    },
+    conversation: session.conversation,
+    nextMeetingMemo: session.nextMeetingMemo
+      ? {
+          status: session.nextMeetingMemo.status,
+          previousSummary: session.nextMeetingMemo.previousSummary,
+          suggestedTopics: session.nextMeetingMemo.suggestedTopics,
+          errorMessage: session.nextMeetingMemo.errorMessage,
+          updatedAt: session.nextMeetingMemo.updatedAt,
+        }
+      : null,
+    parts: session.parts.map((part) => ({
+      id: part.id,
+      partType: part.partType,
+      status: part.status,
+      fileName: part.fileName,
+      previewText: buildSummaryPreview(
+        pickDisplayTranscriptText({
+          rawTextCleaned: part.rawTextCleaned,
+          reviewedText: part.reviewedText,
+          rawTextOriginal: part.rawTextOriginal,
+        })
+      ),
+      reviewState: part.reviewState,
+      qualityMetaJson: part.qualityMetaJson,
+    })),
+    progress,
+  });
+}
+
+async function loadAuthorizedProgressSession(params: RouteParams) {
+  const sessionId = await resolveRouteId(params);
+  if (!sessionId) {
+    return {
+      sessionId: null,
+      authSession: null,
+      session: null,
+      response: NextResponse.json({ error: "sessionId が必要です。" }, { status: 400 }),
+    } as const;
+  }
+
+  const authResult = await requireAuthorizedSession();
+  if (authResult.response) {
+    return {
+      sessionId,
+      authSession: null,
+      session: null,
+      response: authResult.response,
+    } as const;
+  }
+
+  const session = await loadSessionProgressSnapshot(sessionId, authResult.session.user.organizationId);
+  if (!session) {
+    return {
+      sessionId,
+      authSession: authResult.session,
+      session: null,
+      response: NextResponse.json({ error: "セッションが見つかりません。" }, { status: 404 }),
+    } as const;
+  }
+
+  return {
+    sessionId,
+    authSession: authResult.session,
+    session,
+    response: null,
+  } as const;
+}
+
+export async function GET(_request: Request, { params }: { params: RouteParams }) {
+  try {
+    const loaded = await loadAuthorizedProgressSession(params);
+    if (loaded.response) return loaded.response;
+    return buildSessionProgressResponse(loaded.session);
   } catch (error: any) {
     console.error("[GET /api/sessions/[id]/progress] Error:", error);
+    return NextResponse.json({ error: error?.message ?? "Internal Server Error" }, { status: 500 });
+  }
+}
+
+export async function POST(_request: Request, { params }: { params: RouteParams }) {
+  try {
+    const loaded = await loadAuthorizedProgressSession(params);
+    if (loaded.response) return loaded.response;
+
+    await processSessionProgress(loaded.session);
+    const refreshedSession = await loadSessionProgressSnapshot(loaded.sessionId!, loaded.authSession!.user.organizationId);
+    if (!refreshedSession) {
+      return NextResponse.json({ error: "セッションが見つかりません。" }, { status: 404 });
+    }
+    return buildSessionProgressResponse(refreshedSession);
+  } catch (error: any) {
+    console.error("[POST /api/sessions/[id]/progress] Error:", error);
     return NextResponse.json({ error: error?.message ?? "Internal Server Error" }, { status: 500 });
   }
 }

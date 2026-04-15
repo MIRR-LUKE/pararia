@@ -58,6 +58,27 @@ async function recoverMissingConversationJobs(conversationId: string) {
   return recovery;
 }
 
+async function processVisibleConversation(conversationId: string, status: string) {
+  const recovery = await recoverMissingConversationJobs(conversationId).catch(() => ({
+    healed: false as const,
+    reason: "recovery_failed" as const,
+  }));
+  if (recovery.healed) {
+    return;
+  }
+  if (shouldRunBackgroundJobsInline()) {
+    try {
+      await processAllConversationJobs(conversationId);
+    } finally {
+      await maybeStopRunpodWorkerWhenSessionPartQueueIdle().catch(() => {});
+    }
+    return;
+  }
+  if (status === "PROCESSING") {
+    await wakeConversationWorkerOrFallback(conversationId).catch(() => {});
+  }
+}
+
 export async function GET(
   request: Request,
   { params }: { params: RouteParams }
@@ -73,7 +94,6 @@ export async function GET(
     const organizationId = authResult.session.user.organizationId;
 
     const { searchParams } = new URL(request.url);
-    const process = searchParams.get("process");
     const brief = searchParams.get("brief") === "1";
 
     if (brief) {
@@ -108,19 +128,6 @@ export async function GET(
       });
       if (!briefConversation) {
         return NextResponse.json({ error: "not found" }, { status: 404 });
-      }
-      if (process === "1") {
-        const recovery = await recoverMissingConversationJobs(conversationId).catch(() => ({
-          healed: false as const,
-          reason: "recovery_failed" as const,
-        }));
-        if (recovery.healed) {
-          // Recovery already processed the queued finalize job inline.
-        } else if (shouldRunBackgroundJobsInline()) {
-          await processAllConversationJobs(conversationId).catch(() => {});
-        } else if (briefConversation.status === "PROCESSING") {
-          await wakeConversationWorkerOrFallback(conversationId).catch(() => {});
-        }
       }
       return NextResponse.json({ conversation: briefConversation });
     }
@@ -177,23 +184,6 @@ export async function GET(
     if (!conversation) {
       return NextResponse.json({ error: "not found" }, { status: 404 });
     }
-    if (process === "1") {
-      const recovery = await recoverMissingConversationJobs(conversationId).catch(() => ({
-        healed: false as const,
-        reason: "recovery_failed" as const,
-      }));
-      if (recovery.healed) {
-        // Recovery already processed the queued finalize job inline.
-      } else if (shouldRunBackgroundJobsInline()) {
-        try {
-          await processAllConversationJobs(conversationId);
-        } finally {
-          await maybeStopRunpodWorkerWhenSessionPartQueueIdle().catch(() => {});
-        }
-      } else if (conversation.status === "PROCESSING") {
-        await wakeConversationWorkerOrFallback(conversationId).catch(() => {});
-      }
-    }
 
     const renderedSummary = renderConversationArtifactOrFallback(
       conversation.artifactJson,
@@ -231,6 +221,42 @@ export async function GET(
     });
   } catch (error: any) {
     console.error("[GET /api/conversations/[id]] Error:", error);
+    return NextResponse.json(
+      { error: error?.message ?? "Internal Server Error" },
+      { status: 500 }
+    );
+  }
+}
+
+export async function POST(
+  request: Request,
+  { params }: { params: RouteParams }
+) {
+  try {
+    const conversationId = await resolveRouteId(params);
+    if (!conversationId) {
+      return NextResponse.json({ error: "conversationId is required" }, { status: 400 });
+    }
+
+    const authResult = await requireAuthorizedSession();
+    if (authResult.response) return authResult.response;
+    const organizationId = authResult.session.user.organizationId;
+
+    const conversation = await prisma.conversationLog.findFirst({
+      where: withVisibleConversationWhere({ id: conversationId, organizationId }),
+      select: {
+        id: true,
+        status: true,
+      },
+    });
+    if (!conversation) {
+      return NextResponse.json({ error: "not found" }, { status: 404 });
+    }
+
+    await processVisibleConversation(conversation.id, conversation.status);
+    return GET(request, { params });
+  } catch (error: any) {
+    console.error("[POST /api/conversations/[id]] Error:", error);
     return NextResponse.json(
       { error: error?.message ?? "Internal Server Error" },
       { status: 500 }

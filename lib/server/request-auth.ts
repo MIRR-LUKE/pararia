@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { UserRole } from "@prisma/client";
 import { auth } from "@/auth";
+import { readConfiguredSecretValues } from "@/lib/env";
 import { canRunMaintenanceRoutes, normalizeUserRole, roleLabelJa } from "@/lib/permissions";
 
 export type AuthorizedSession = Awaited<ReturnType<typeof auth>> & {
@@ -44,20 +45,13 @@ export type MaintenanceAccessResult = {
   response: NextResponse | null;
 };
 
-const MAINTENANCE_SECRET_FALLBACK = "1f390fcbc78c7c2e6733ebedc386dd68";
-
 function readMaintenanceSecretCandidates() {
-  const configuredSecrets = [
-    { secretName: "MAINTENANCE_SECRET", value: process.env.MAINTENANCE_SECRET ?? "" },
-    { secretName: "CRON_SECRET", value: process.env.CRON_SECRET ?? "" },
-    { secretName: "MAINTENANCE_CRON_SECRET", value: process.env.MAINTENANCE_CRON_SECRET ?? "" },
-  ].filter((candidate) => candidate.value.trim().length > 0);
-
-  if (configuredSecrets.length > 0) {
-    return configuredSecrets;
-  }
-
-  return [{ secretName: "fallback", value: MAINTENANCE_SECRET_FALLBACK }];
+  return readConfiguredSecretValues(["MAINTENANCE_SECRET", "CRON_SECRET", "MAINTENANCE_CRON_SECRET"]).map(
+    (candidate) => ({
+      secretName: candidate.name,
+      value: candidate.value,
+    })
+  );
 }
 
 function readMaintenanceSecretFromRequest(request: Request) {

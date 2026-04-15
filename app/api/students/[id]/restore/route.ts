@@ -4,6 +4,7 @@ import { writeAuditLog } from "@/lib/audit";
 import { canRestoreStudent } from "@/lib/permissions";
 import { getLogListCacheTag } from "@/lib/logs/get-log-list-page-data";
 import { requireAuthorizedSession } from "@/lib/server/request-auth";
+import { StudentLimitExceededError } from "@/lib/students/student-limit";
 import { restoreArchivedStudent } from "@/lib/students/student-lifecycle";
 
 export async function POST(_request: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -26,8 +27,11 @@ export async function POST(_request: Request, { params }: { params: Promise<{ id
     }
 
     await writeAuditLog({
+      organizationId: authResult.session.user.organizationId,
       userId: authResult.session.user.id,
       action: "student.restore",
+      targetType: "student",
+      targetId: restored.student.id,
       detail: {
         studentId: restored.student.id,
         studentName: restored.student.name,
@@ -51,6 +55,9 @@ export async function POST(_request: Request, { params }: { params: Promise<{ id
       archiveSnapshotId: restored.latestSnapshotId,
     });
   } catch (error: any) {
+    if (error instanceof StudentLimitExceededError) {
+      return NextResponse.json({ error: error.message }, { status: 409 });
+    }
     console.error("[POST /api/students/[id]/restore] Error:", error);
     return NextResponse.json({ error: error?.message ?? "Internal Server Error" }, { status: 500 });
   }

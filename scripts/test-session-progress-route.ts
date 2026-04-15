@@ -29,7 +29,10 @@ export async function runSessionProgressRouteSmoke(baseUrl: string): Promise<Ses
   const { api, close } = await createCriticalPathSmokeApi(baseUrl);
 
   try {
-    const response = await api.get(`/api/sessions/${fixture.sessionId}/progress?process=1`);
+    const processResponse = await api.post(`/api/sessions/${fixture.sessionId}/progress`);
+    assert.equal(processResponse.ok(), true, `session progress POST failed: ${processResponse.status()}`);
+
+    const response = await api.get(`/api/sessions/${fixture.sessionId}/progress`);
     assert.equal(response.ok(), true, `session progress GET failed: ${response.status()}`);
 
     const body = await response.json();

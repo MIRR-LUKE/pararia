@@ -1,5 +1,6 @@
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
+import { assertStudentCapacityAvailable, runStudentCapacityWrite } from "@/lib/students/student-limit";
 
 export function withActiveStudentWhere(where: Prisma.StudentWhereInput): Prisma.StudentWhereInput {
   return {
@@ -151,7 +152,7 @@ export async function archiveStudent(input: ArchiveStudentInput) {
 }
 
 export async function restoreArchivedStudent(input: RestoreStudentInput) {
-  return prisma.$transaction(async (tx) => {
+  return runStudentCapacityWrite("student-restore", async (tx) => {
     const student = await tx.student.findFirst({
       where: withArchivedStudentWhere({
         id: input.studentId,
@@ -167,6 +168,8 @@ export async function restoreArchivedStudent(input: RestoreStudentInput) {
     if (!student) {
       return null;
     }
+
+    await assertStudentCapacityAvailable(tx, input.organizationId);
 
     const latestSnapshot = await tx.studentArchiveSnapshot.findFirst({
       where: {

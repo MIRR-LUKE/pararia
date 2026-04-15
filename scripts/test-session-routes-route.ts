@@ -47,7 +47,9 @@ async function waitForGeneratedConversation(sessionId: string, client: Awaited<R
       );
     }
 
-    await client.requestJson(`/api/sessions/${sessionId}/progress?process=1`);
+    await client.requestJson(`/api/sessions/${sessionId}/progress`, {
+      method: "POST",
+    });
     await new Promise((resolve) => setTimeout(resolve, 1000));
   }
 
@@ -123,12 +125,21 @@ export async function runSessionRoutesRouteTest() {
     assert.equal(persistedPart.status, "READY", "persisted part should stay READY");
     assert.match(persistedPart.rawTextOriginal ?? "", /模試の振り返り/);
 
+    const processingKick = await client.requestJson<{
+      session?: { id?: string };
+      parts?: Array<{ id?: string; status?: string }>;
+      progress?: { stage?: string };
+    }>(`/api/sessions/${SESSION_ROUTE_SESSION_ID}/progress`, {
+      method: "POST",
+    });
+    assert.equal(processingKick.response.status, 200, "session progress POST should succeed");
+
     const processingProgress = await client.requestJson<{
       session?: { id?: string };
       parts?: Array<{ id?: string; status?: string }>;
       progress?: { stage?: string };
-    }>(`/api/sessions/${SESSION_ROUTE_SESSION_ID}/progress?process=1`);
-    assert.equal(processingProgress.response.status, 200, "session progress with process=1 should succeed");
+    }>(`/api/sessions/${SESSION_ROUTE_SESSION_ID}/progress`);
+    assert.equal(processingProgress.response.status, 200, "session progress GET should succeed");
     assert.equal(processingProgress.body.session?.id, SESSION_ROUTE_SESSION_ID, "processed progress should keep session id");
     assert.ok(Array.isArray(processingProgress.body.parts), "processed progress should include parts");
 

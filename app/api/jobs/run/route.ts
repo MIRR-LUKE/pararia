@@ -5,6 +5,15 @@ import { processQueuedSessionPartJobs } from "@/lib/jobs/sessionPartJobs";
 import { shouldRunBackgroundJobsInline } from "@/lib/jobs/execution-mode";
 import { describeRequestActor, requireMaintenanceAccess } from "@/lib/server/request-auth";
 
+function clampRouteInt(raw: unknown, fallback: number, min: number, max: number) {
+  const value = Number(raw);
+  if (!Number.isFinite(value)) return fallback;
+  return Math.max(min, Math.min(max, Math.floor(value)));
+}
+
+const JOB_ROUTE_LIMIT_MAX = clampRouteInt(process.env.JOB_ROUTE_LIMIT_MAX ?? 20, 20, 1, 100);
+const JOB_ROUTE_CONCURRENCY_MAX = clampRouteInt(process.env.JOB_ROUTE_CONCURRENCY_MAX ?? 4, 4, 1, 12);
+
 async function handleRequest(request: Request) {
   const access = await requireMaintenanceAccess(request);
   if (access.response) return access.response;
@@ -36,25 +45,24 @@ async function handleRequest(request: Request) {
 
     const { searchParams } = new URL(request.url);
     const body = request.method === "POST" ? await request.json().catch(() => ({})) : {};
-    const limit = Number(searchParams.get("limit") ?? 3);
-    const concurrencyParam = Number(searchParams.get("concurrency") ?? (body as any)?.concurrency);
+    const limit = clampRouteInt(searchParams.get("limit") ?? (body as any)?.limit, 3, 1, JOB_ROUTE_LIMIT_MAX);
+    const rawConcurrency = searchParams.get("concurrency") ?? (body as any)?.concurrency;
     const conversationId =
       searchParams.get("conversationId") ?? (typeof (body as any)?.conversationId === "string" ? (body as any).conversationId : undefined);
     const sessionId =
       searchParams.get("sessionId") ?? (typeof (body as any)?.sessionId === "string" ? (body as any).sessionId : undefined);
-    const envConcurrency = Number(process.env.JOB_CONCURRENCY ?? 3);
-    const concurrency = Number.isFinite(concurrencyParam)
-      ? concurrencyParam
-      : Number.isFinite(envConcurrency)
+    const envConcurrency = clampRouteInt(process.env.JOB_CONCURRENCY ?? 3, 3, 1, JOB_ROUTE_CONCURRENCY_MAX);
+    const concurrency =
+      rawConcurrency == null
         ? envConcurrency
-        : 1;
+        : clampRouteInt(rawConcurrency, envConcurrency, 1, JOB_ROUTE_CONCURRENCY_MAX);
     const sessionPartJobs = await processQueuedSessionPartJobs(
-      Number.isFinite(limit) ? limit : 1,
+      limit,
       concurrency,
       sessionId ? { sessionId } : undefined
     );
     const conversationJobs = await processQueuedJobs(
-      Number.isFinite(limit) ? limit : 1,
+      limit,
       concurrency,
       conversationId ? { conversationId } : undefined
     );
@@ -74,7 +82,7 @@ async function handleRequest(request: Request) {
       status: "SUCCESS",
       detail: {
         actor: actor ? describeRequestActor(actor) : null,
-        limit: Number.isFinite(limit) ? limit : 1,
+        limit,
         concurrency,
         conversationId: conversationId ?? null,
         sessionId: sessionId ?? null,

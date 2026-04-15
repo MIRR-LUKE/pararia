@@ -109,6 +109,11 @@ export default function SettingsPageClient({
   const [guardianDrafts, setGuardianDrafts] = useState<Record<string, string>>(() =>
     toGuardianDrafts(initialSettings.guardianContacts.missingStudents)
   );
+  const activeStudentCount = settings.guardianContacts.totalStudents;
+  const remainingStudentSlots =
+    settings.organization.studentLimit === null || settings.organization.studentLimit === undefined
+      ? null
+      : Math.max(0, settings.organization.studentLimit - activeStudentCount);
 
   useEffect(() => {
     setSettings(initialSettings);
@@ -348,6 +353,11 @@ export default function SettingsPageClient({
                   placeholder="未設定なら空欄"
                   disabled={!canManage}
                 />
+                <span className={styles.note}>
+                  {remainingStudentSlots === null
+                    ? `いま ${activeStudentCount} 人が在籍中です。`
+                    : `いま ${activeStudentCount} / ${settings.organization.studentLimit} 人です。あと ${remainingStudentSlots} 人まで追加できます。`}
+                </span>
               </div>
               <div className={styles.field}>
                 <label className={styles.label}>表示言語</label>

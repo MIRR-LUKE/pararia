@@ -40,15 +40,22 @@ export function useStudentSessionProgress({
   const [recoverableSessionId, setRecoverableSessionId] = useState<string | null>(null);
 
   useEffect(() => {
-    if (mode === "LESSON_REPORT") {
-      setSessionProgress(ongoingLessonSession?.pipeline ?? null);
-      if (ongoingLessonSession?.conversation?.id) {
-        setCreatedConversationId(ongoingLessonSession.conversation.id);
+    let cancelled = false;
+    const nextProgress = mode === "LESSON_REPORT" ? ongoingLessonSession?.pipeline ?? null : null;
+    const nextConversationId = mode === "LESSON_REPORT" ? ongoingLessonSession?.conversation?.id ?? null : null;
+
+    queueMicrotask(() => {
+      if (cancelled) return;
+      setSessionProgress(nextProgress);
+      if (nextConversationId) {
+        setCreatedConversationId(nextConversationId);
       }
-      return;
-    }
-    setSessionProgress(null);
-  }, [mode, ongoingLessonSession?.conversation?.id, ongoingLessonSession?.pipeline]);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [mode, ongoingLessonSession]);
 
   const createSession = useCallback(async () => {
     const payload = {
@@ -77,7 +84,7 @@ export function useStudentSessionProgress({
       return ongoingLessonSession.id;
     }
     return createSession();
-  }, [createSession, mode, ongoingLessonSession?.id]);
+  }, [createSession, mode, ongoingLessonSession]);
 
   const pollSessionProgress = useCallback(
     async (sessionId: string) => {
@@ -93,8 +100,12 @@ export function useStudentSessionProgress({
         const shouldKickWorker = now - lastWorkerKickAt >= 3000;
         if (shouldKickWorker) {
           lastWorkerKickAt = now;
+          void fetch(`/api/sessions/${sessionId}/progress`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+          }).catch(() => {});
         }
-        const res = await fetch(`/api/sessions/${sessionId}/progress${shouldKickWorker ? "?process=1" : ""}`, {
+        const res = await fetch(`/api/sessions/${sessionId}/progress`, {
           cache: "no-store",
         });
         const body = (await res.json().catch(() => ({}))) as SessionProgressResponse & { error?: string };

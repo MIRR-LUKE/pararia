@@ -103,6 +103,22 @@ export async function PATCH(request: Request) {
         return NextResponse.json({ error: "organization not found" }, { status: 404 });
       }
 
+      if (studentLimit !== undefined && studentLimit !== null) {
+        const activeStudentCount = await prisma.student.count({
+          where: withActiveStudentWhere({
+            organizationId: session.user.organizationId,
+          }),
+        });
+        if (studentLimit < activeStudentCount) {
+          return NextResponse.json(
+            {
+              error: `生徒上限を ${studentLimit} 人にはできません。いま ${activeStudentCount} 人が在籍中です。`,
+            },
+            { status: 409 }
+          );
+        }
+      }
+
       const organizationData: Record<string, unknown> = {};
       if (nextOrganizationName) organizationData.name = nextOrganizationName;
       if (nextPlanCode) organizationData.planCode = nextPlanCode;

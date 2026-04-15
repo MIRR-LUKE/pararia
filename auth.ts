@@ -1,13 +1,23 @@
 import NextAuth from "next-auth";
 import Credentials from "next-auth/providers/credentials";
 import { loginWithEmail } from "@/lib/auth";
+import {
+  assertAuthThrottleAllowed,
+  AuthRateLimitError,
+  clearAuthThrottle,
+  getRequestIp,
+  recordAuthThrottleFailure,
+} from "@/lib/auth-throttle";
+import { requireEnvValue } from "@/lib/env";
+
+const AUTH_SECRET = requireEnvValue(
+  ["AUTH_SECRET", "NEXTAUTH_SECRET"],
+  "ログイン用の秘密鍵"
+);
 
 const config = {
   trustHost: true,
-  secret:
-    process.env.AUTH_SECRET ||
-    process.env.NEXTAUTH_SECRET ||
-    "pararia-dev-auth-secret",
+  secret: AUTH_SECRET,
   session: { strategy: "jwt" },
   pages: { signIn: "/login" },
   providers: [
@@ -17,11 +27,39 @@ const config = {
         email: { label: "Email", type: "email" },
         password: { label: "Password", type: "password" },
       },
-      authorize: async (credentials) => {
+      authorize: async (credentials, request) => {
         const email = String(credentials?.email ?? "").trim();
         const password = String(credentials?.password ?? "");
         if (!email || !password) return null;
-        return loginWithEmail(email, password);
+        const normalizedEmail = email.toLowerCase();
+        const ipAddress = getRequestIp(request as Request | null | undefined);
+
+        try {
+          await assertAuthThrottleAllowed("login_email", normalizedEmail);
+          if (ipAddress) {
+            await assertAuthThrottleAllowed("login_ip", ipAddress);
+          }
+        } catch (error) {
+          if (error instanceof AuthRateLimitError) {
+            return null;
+          }
+          throw error;
+        }
+
+        const user = await loginWithEmail(email, password);
+        if (!user) {
+          await recordAuthThrottleFailure("login_email", normalizedEmail);
+          if (ipAddress) {
+            await recordAuthThrottleFailure("login_ip", ipAddress);
+          }
+          return null;
+        }
+
+        await clearAuthThrottle("login_email", normalizedEmail);
+        if (ipAddress) {
+          await clearAuthThrottle("login_ip", ipAddress);
+        }
+        return user;
       },
     }),
   ],
