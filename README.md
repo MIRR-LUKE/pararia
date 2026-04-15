@@ -5,6 +5,78 @@ PARARIA は、塾・個別指導・学習コーチング向けの `Teaching OS` 
 
 この README は、**2026-04-15 時点の現行コードと一致する運用仕様書** です。
 
+## 0. いまの読み方
+
+この SaaS の正本は、次の順で見ます。
+
+1. **生徒データ**
+   - `Student` は生徒本人の基本情報だけを持つ
+   - 削除は hard delete ではなく archive
+   - 通常一覧・詳細は `archivedAt IS NULL` の生徒だけを見る
+   - アーカイブ時は `StudentArchiveSnapshot` に戻すための情報を残す
+2. **録音・音声**
+   - browser から受けた音声は、local mode では runtime dir、production 相当では Vercel Blob に置く
+   - web は「受け付け」と「job 登録」までをすぐ返す
+   - 重い STT は Runpod worker が同じ DB と Blob を見て進める
+3. **面談ログ / 指導報告ログ**
+   - 正本は `ConversationLog.artifactJson`
+   - `summaryMarkdown` は画面表示用の派生物
+   - transcript は `rawTextOriginal` を壊さず、確認済み文面は `reviewedText` に分ける
+4. **保護者レポート**
+   - 選択したログだけを材料にする
+   - 未選択ログ、前回レポート、プロフィール snapshot は本文生成に混ぜない
+   - 文体は、保護者宛ての自然な月次報告として、宛名、講師自己紹介、今月の様子、具体的な話題、成長、来月への見立て、署名まで固定する
+5. **保全**
+   - DB は Supabase(Postgres)
+   - 音声 runtime は Vercel Blob
+   - DB backup だけでは足りないため、DB dump と Blob backup を両方取る
+   - production / shared DB へ `prisma migrate dev` は打たない
+
+## 0.1 2026-04-15 の安定化
+
+今回の速度・安定性の見直しで、次を入れています。
+
+- 生徒一覧は、初回表示と通常の `GET /api/students` で `getCachedStudentDirectoryView()` を使う
+- 録音ロックを含めてほしい API 呼び出しだけは、生の取得を使って鮮度を優先する
+- 生徒詳細は最初に `scope: "summary"` で軽く開き、画面が見えているときだけ既存の `useStudentDetailRefresh()` が `full` を静かに取り直す
+- session progress の polling は、最初だけ細かく、その後は 2秒、4秒、6秒、8秒へ広げる
+- タブが非表示のときは polling を 4秒、8秒、15秒へ落とす
+- worker を起こす `POST /api/sessions/[id]/progress` は、最初でも 5秒以上あけ、後半は 30〜45秒へ落とす
+- 独自 RUM は既定で送らない。送るときだけ `NEXT_PUBLIC_PARARIA_RUM_ENABLED=1` を立てる
+- RUM の送信量は `NEXT_PUBLIC_PARARIA_RUM_SAMPLE_RATE` で間引ける
+- RUM のサーバーログは既定で書かない。必要なときだけ `PARARIA_RUM_LOG_ENABLED=1` を立てる
+- `prisma:migrate` は先に local DB か確認し、remote / production っぽい URL なら止める
+- 本番や共有DBの schema 変更は `npm run prisma:migrate:deploy` だけを使う
+
+## 0.2 毎回の安全確認
+
+開発中の最低確認:
+
+```bash
+npm run typecheck
+npm run scan:secrets
+npm run test:migration-safety
+npm run build
+```
+
+まとめて確認する場合:
+
+```bash
+npm run verify
+```
+
+今回の変更で特に見るテスト:
+
+```bash
+npm run test:migration-safety
+npm run test:session-progress-polling
+npm run test:rum-route
+npm run test:student-directory-route
+npm run test:student-room-route
+```
+
+`test:student-directory-route` と `test:student-room-route` は fixture を作るため、local app + local DB 以外では安全ガードで止まります。production や共有DBに無理やり流しません。
+
 ## Engineering
 
 - コード品質と性能の基準は [docs/engineering-rules.md](./docs/engineering-rules.md)
@@ -15,12 +87,12 @@ PARARIA は、塾・個別指導・学習コーチング向けの `Teaching OS` 
 - tracked ファイルに秘密値が混ざっていないかは `npm run scan:secrets` で見る
 - mutating fixture を使う smoke / UI script は local app + local DB でしか動かさない。remote で明示的に許可するときだけ `PARARIA_ALLOW_REMOTE_FIXTURES=1`
 - production / shared tenant の整合性確認は read-only の `npm run test:student-integrity-audit -- --base-url https://pararia.vercel.app`
-- 公開 RUM API は本文上限と軽い回数制限をかけ、ログには検索文字列を残さない
+- 公開 RUM API は本文上限と軽い回数制限をかけ、検索文字列をログに残さない。RUM 送信もサーバーログも既定ではオフ
 - 生徒 / 会話 / 設定 / レポート送信 / 招待 / 復元系の書き込み API は軽い回数制限を通す
 - 招待 URL は公開 URL から組み立て、平文 token は API 応答に残さない
 - `jobs/run` と `maintenance/cleanup` の定期実行は Vercel cron に頼らず、GitHub Actions から `POST` で叩く
 - shape guard は `npm run check:code-shape`
-- 最低限の確認は `npm run typecheck && npm run build && npm run check:code-shape`
+- 最低限の確認は `npm run typecheck && npm run scan:secrets && npm run test:migration-safety && npm run build`
 
 ## 1. 先に結論
 
@@ -292,7 +364,8 @@ PARARIA は、塾・個別指導・学習コーチング向けの `Teaching OS` 
 - STT worker は長い音声でも 1 本のファイルとして扱い、モデル読み込み後はそのまま全文を起こす
 - UI は `文字起こし中 -> 取りまとめ中 -> ログ生成中` を分けて表示する
 - session progress API で UI を早く戻す
-- poll で worker を再キックできる
+- poll は処理中だけ動かし、経過時間とタブ表示状態で間隔を広げる
+- worker 再キックは poll よりかなり少なくし、二重起動や無駄な serverless 呼び出しを避ける
 
 ### 7.1 ローカル web / 本番 web 共通の Runpod 構成
 
@@ -972,6 +1045,8 @@ PARARIA_AUDIO_RETENTION_DAYS=14
 ### 16.1 非交渉ルール
 
 - shared / production DB に対して `prisma migrate dev` を直接打たない
+- `npm run prisma:migrate` は local DB 以外を自動で止める
+- shared / production DB へ migration を反映するときは `npm run prisma:migrate:deploy` を使う
 - shared / production への schema 反映は `prisma migrate deploy` を使う
 - `DATABASE_URL` は通常の app 接続用、`DIRECT_URL` は migration / backup 用の直結専用で扱う
 - Prisma が direct を使うのは `PARARIA_USE_DIRECT_DATABASE_URL=1` を明示したときだけ
@@ -1146,11 +1221,13 @@ npm run restore:db -- --backup-dir <backup-dir> --database-url <restore-db-url>
 - 今の既定は `GPU 1枚で1本をそのまま速く起こす`
 - 今は `ごちゃごちゃした並列処理を常時使う形ではない`
 
-## 16. 現在の smoke check
+## 17. 現在の smoke check
 
-2026-04-14 時点の主な smoke / regression:
+2026-04-15 時点の主な smoke / regression:
 
 - `npm run typecheck`
+- `npm run scan:secrets`
+- `npm run test:migration-safety`
 - `npm run test:critical-path-smoke`
 - `npm run test:student-integrity-audit -- --base-url https://pararia.vercel.app`
 - `npm run test:audio-upload-support`
@@ -1161,9 +1238,12 @@ npm run restore:db -- --backup-dir <backup-dir> --database-url <restore-db-url>
 - `npm run test:next-meeting-memo-route`
 - `npm run test:recording-lock-route`
 - `npm run test:session-progress`
+- `npm run test:session-progress-polling`
+- `npm run test:rum-route`
 - `npm run test:student-room-route`
+- `npm run test:student-directory-route`
 
-## 17. CI の品質ゲート
+## 18. CI の品質ゲート
 
 - GitHub Actions の `Conversation Quality` で faithfulness 系の代表チェックを回す
 - GitHub Actions の `Critical Path Smoke` で `録音ロック -> student room -> next meeting memo` の route smoke を回す
@@ -1184,7 +1264,7 @@ npm run restore:db -- --backup-dir <backup-dir> --database-url <restore-db-url>
 - `conversation-eval` のレポートは artifact として保存する
 - 目的は「コードは通るが、主経路が壊れた」や「backend branch に UI が混ざった」を PR 時点で止めること
 
-## 18. やらないこと
+## 19. やらないこと
 
 - ログ生成と同時に別成果物を量産すること
 - ログ本文の裏で高コストな polish を回すこと

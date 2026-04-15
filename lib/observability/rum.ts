@@ -4,6 +4,7 @@ export type RumWindowState = {
   routeStartAt: number | null;
   routeStartSource: RumRouteStartSource;
   sentKeys: Set<string>;
+  sampleRoll: number;
 };
 
 export type WebVitalRumEvent = {
@@ -51,13 +52,26 @@ export const RUM_ENDPOINT_PATH = "/api/rum";
 
 export function isRumEnabled() {
   if (typeof window === "undefined") return false;
-  return process.env.NODE_ENV === "production" || process.env.NEXT_PUBLIC_PARARIA_RUM_DEBUG === "1";
+  return process.env.NEXT_PUBLIC_PARARIA_RUM_ENABLED === "1" || process.env.NEXT_PUBLIC_PARARIA_RUM_DEBUG === "1";
+}
+
+function normalizeSampleRate(value: string | undefined) {
+  if (!value) return 1;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return 1;
+  if (parsed <= 0) return 0;
+  if (parsed >= 1) return 1;
+  return parsed;
+}
+
+export function getRumSampleRate() {
+  return normalizeSampleRate(process.env.NEXT_PUBLIC_PARARIA_RUM_SAMPLE_RATE);
 }
 
 export function initializeRumServerConfig() {
   globalThis.__parariaRumServerConfig = {
     endpointPath: RUM_ENDPOINT_PATH,
-    enabled: process.env.NODE_ENV === "production" || process.env.PARARIA_RUM_ENABLED === "1",
+    enabled: process.env.PARARIA_RUM_ENABLED === "1",
     bootedAt: new Date().toISOString(),
   };
 }
@@ -65,7 +79,7 @@ export function initializeRumServerConfig() {
 export function getRumServerConfig() {
   return globalThis.__parariaRumServerConfig ?? {
     endpointPath: RUM_ENDPOINT_PATH,
-    enabled: process.env.NODE_ENV === "production" || process.env.PARARIA_RUM_ENABLED === "1",
+    enabled: process.env.PARARIA_RUM_ENABLED === "1",
     bootedAt: new Date().toISOString(),
   };
 }
@@ -79,6 +93,7 @@ export function ensureRumWindowState() {
     routeStartAt: 0,
     routeStartSource: "initial-load",
     sentKeys: new Set<string>(),
+    sampleRoll: Math.random(),
   };
 
   return window.__parariaRum;
@@ -136,6 +151,17 @@ function normalizeEvent(event: RumEvent) {
   };
 }
 
+function shouldSendRumEvent() {
+  if (!isRumEnabled()) return false;
+
+  const sampleRate = getRumSampleRate();
+  if (sampleRate >= 1) return true;
+  if (sampleRate <= 0) return false;
+
+  const state = ensureRumWindowState();
+  return state.sampleRoll < sampleRate;
+}
+
 export function isRumEvent(value: unknown): value is RumEvent {
   if (!value || typeof value !== "object") return false;
   const event = value as Record<string, unknown>;
@@ -169,10 +195,10 @@ export function isRumEvent(value: unknown): value is RumEvent {
 }
 
 export function dispatchRumEvent(event: RumEvent) {
-  if (!isRumEnabled()) return false;
+  if (!shouldSendRumEvent()) return false;
 
   const body = JSON.stringify(normalizeEvent(event));
-  if (navigator.sendBeacon) {
+  if (typeof navigator !== "undefined" && typeof navigator.sendBeacon === "function") {
     const sent = navigator.sendBeacon(RUM_ENDPOINT_PATH, new Blob([body], { type: "application/json" }));
     if (sent) return true;
   }

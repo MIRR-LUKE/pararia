@@ -17,6 +17,7 @@ function getNavigationType() {
 }
 
 export function TelemetryBridge() {
+  const rumEnabled = isRumEnabled();
   const pathname = usePathname() ?? "/";
   const searchParams = useSearchParams();
   const search = searchParams ? searchParams.toString() : "";
@@ -28,7 +29,7 @@ export function TelemetryBridge() {
   }, [routeKey]);
 
   useEffect(() => {
-    if (!isRumEnabled()) return;
+    if (!rumEnabled) return;
 
     const state = ensureRumWindowState();
     const originalPushState = history.pushState.bind(history);
@@ -59,10 +60,10 @@ export function TelemetryBridge() {
       history.replaceState = originalReplaceState;
       window.removeEventListener("popstate", onPopState);
     };
-  }, []);
+  }, [rumEnabled]);
 
   useEffect(() => {
-    if (!isRumEnabled()) return;
+    if (!rumEnabled) return;
 
     const state = ensureRumWindowState();
     const routeStartAt = state.routeStartAt ?? 0;
@@ -89,10 +90,10 @@ export function TelemetryBridge() {
     return () => {
       window.clearTimeout(timeout);
     };
-  }, [pathname, routeKey, search]);
+  }, [pathname, routeKey, rumEnabled, search]);
 
   useReportWebVitals((metric) => {
-    if (!isRumEnabled()) return;
+    if (!rumEnabled) return;
 
     const rumMetric = metric as {
       navigationType?: string;

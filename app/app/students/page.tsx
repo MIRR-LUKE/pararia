@@ -1,7 +1,6 @@
 import { redirect } from "next/navigation";
 import { getAppSession } from "@/lib/server/app-session";
-import { mapStudentDirectoryRows } from "@/lib/students/student-directory-view";
-import { listStudentRows } from "@/lib/students/list-student-rows";
+import { getCachedStudentDirectoryView } from "@/lib/students/get-cached-student-directory-view";
 import StudentsPageClient from "./StudentsPageClient";
 
 const STUDENT_DIRECTORY_INITIAL_LIMIT = 200;
@@ -13,13 +12,10 @@ export default async function StudentsPage() {
     redirect("/login");
   }
 
-  const initialStudents = mapStudentDirectoryRows(
-    await listStudentRows({
-      organizationId,
-      limit: STUDENT_DIRECTORY_INITIAL_LIMIT,
-      projection: "directory",
-    })
-  );
+  const initialStudents = await getCachedStudentDirectoryView({
+    organizationId,
+    limit: STUDENT_DIRECTORY_INITIAL_LIMIT,
+  });
 
   return (
     <StudentsPageClient

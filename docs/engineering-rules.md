@@ -1,6 +1,6 @@
 # Engineering Rules
 
-更新日: `2026-04-13`
+更新日: `2026-04-15`
 
 この repo のコードを「速い」「読みやすい」「壊れにくい」状態で保つための基準です。  
 雰囲気ではなく、設計・実装・計測の 3 つを揃えて守ります。
@@ -13,7 +13,8 @@
 ### 1.1 Server First
 
 - 画面の主情報は server component / server function で先に揃える
-- above-the-fold の UI に必要なデータで `summary を出してから full を取り直す` をやらない
+- above-the-fold に本当に必要な情報は server component / server function で先に揃える
+- 生徒詳細のように、最初の表示に軽い一覧情報だけで足りる画面は `summary` で開き、画面が見えているときだけ `full` を静かに取り直してよい
 - 主要画面で人工的な `setTimeout` hydration を入れない
 
 ### 1.2 One Screen, One Primary Fetch
@@ -21,6 +22,7 @@
 - 1 画面の初期表示で、同じ意味のデータを二重取得しない
 - 取得ロジックが必要なら `lib/*` に寄せ、route / page に散らさない
 - poll は「進行中の仕事があるときだけ」に限定する
+- poll は最初だけ細かく、その後は経過時間とタブ表示状態で間隔を広げる
 
 ### 1.3 Heavy UI Must Split
 
@@ -103,7 +105,8 @@
 - `navigation / loading / empty / populated` は同じ harness で継続計測する
 - 比較は `npm run test:route-performance -- --label local` を基本にする
 - baseline を残すときは `--baseline` と `--write-baseline` を明示して使う
-- field の監視は `/api/rum` に送る Web Vitals と route timing で補完する
+- field の監視は、必要な期間だけ `NEXT_PUBLIC_PARARIA_RUM_ENABLED=1` で `/api/rum` に Web Vitals と route timing を送って補完する
+- RUM のサーバーログは既定では出さず、調査時だけ `PARARIA_RUM_LOG_ENABLED=1` を使う
 - budget の目安は `dashboard 700/1000ms`, `students 450/700ms`, `logs 450/700ms`, `reports 650/900ms`
 
 ## 5. Protected Critical Path
@@ -152,7 +155,9 @@ field 監視の読み方は [performance-observability.md](./performance-observa
 
 ## 7. 今回入れた実例
 
-- Student Detail の `summary -> full` 二重取得をやめた
+- Student Detail は初回を `scope: "summary"` にして、重い詳細だけ client で静かに取り直す形へ寄せた
 - `StudentSessionConsole` を memo 化し、親の細かい state 更新で巻き込まれにくくした
 - `StudentDetailWorkspace` も memo 化し、overlay や選択 state の更新で無駄に再描画しにくくした
 - `check:code-shape` を追加し、巨大ファイルを debt として常時見えるようにした
+- session progress の polling を経過時間で広げ、非表示タブではさらに静かにした
+- RUM は既定オフにし、送信量とログ量を env で抑えられるようにした

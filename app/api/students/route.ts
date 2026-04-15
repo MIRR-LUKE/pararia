@@ -2,6 +2,7 @@ import { revalidatePath, revalidateTag } from "next/cache";
 import { NextResponse } from "next/server";
 import { writeAuditLog } from "@/lib/audit";
 import { requireAuthorizedMutationSession, requireAuthorizedSession } from "@/lib/server/request-auth";
+import { getCachedStudentDirectoryView } from "@/lib/students/get-cached-student-directory-view";
 import { listStudentRows } from "@/lib/students/list-student-rows";
 import { StudentLimitExceededError, assertStudentCapacityAvailable, runStudentCapacityWrite } from "@/lib/students/student-limit";
 import { mapStudentDirectoryRows } from "@/lib/students/student-directory-view";
@@ -12,6 +13,7 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 const AUDIT_WARNING_MESSAGE = "更新自体は完了しましたが、監査記録の保存に失敗しました。管理者へ連絡してください。";
+const DEFAULT_STUDENT_DIRECTORY_LIMIT = 200;
 
 export async function GET(request: Request) {
   try {
@@ -23,15 +25,25 @@ export async function GET(request: Request) {
     const limitRaw = searchParams.get("limit");
     const limit = limitRaw ? Math.max(1, Math.min(1000, Number(limitRaw))) : undefined;
     const includeRecordingLock = /^(1|true|yes)$/i.test(searchParams.get("includeRecordingLock") ?? "");
-    const studentsOut = await listStudentRows({
-      organizationId,
-      limit: limit && Number.isFinite(limit) ? Math.floor(limit) : undefined,
-      includeRecordingLock,
-      projection: "directory",
-    });
+    const effectiveLimit =
+      limit && Number.isFinite(limit) ? Math.floor(limit) : DEFAULT_STUDENT_DIRECTORY_LIMIT;
+
+    const studentsOut = includeRecordingLock
+      ? mapStudentDirectoryRows(
+          await listStudentRows({
+            organizationId,
+            limit: effectiveLimit,
+            includeRecordingLock: true,
+            projection: "directory",
+          })
+        )
+      : await getCachedStudentDirectoryView({
+          organizationId,
+          limit: effectiveLimit,
+        });
 
     return NextResponse.json(
-      { students: mapStudentDirectoryRows(studentsOut) },
+      { students: studentsOut },
       {
         headers: {
           "Cache-Control": "no-store, max-age=0",

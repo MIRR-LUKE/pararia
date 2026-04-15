@@ -3,6 +3,24 @@ import { isRumEvent, type RumEvent } from "@/lib/observability/rum";
 import { applyPublicIpThrottle } from "@/lib/server/request-throttle";
 import { parseJsonWithByteLimit } from "@/lib/server/request-body";
 
+function normalizeLogSampleRate(value: string | undefined) {
+  if (!value) return 1;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return 1;
+  if (parsed <= 0) return 0;
+  if (parsed >= 1) return 1;
+  return parsed;
+}
+
+function stableHash(input: string) {
+  let hash = 0;
+  for (let index = 0; index < input.length; index += 1) {
+    hash = Math.imul(31, hash) + input.charCodeAt(index);
+    hash |= 0;
+  }
+  return (hash >>> 0) / 2 ** 32;
+}
+
 function normalizeEvent(event: RumEvent) {
   if (event.kind === "web-vital") {
     return {
@@ -30,6 +48,17 @@ function normalizeEvent(event: RumEvent) {
   };
 }
 
+function shouldLogRumEvent(event: RumEvent) {
+  if (process.env.PARARIA_RUM_LOG_ENABLED !== "1") return false;
+
+  const sampleRate = normalizeLogSampleRate(process.env.PARARIA_RUM_LOG_SAMPLE_RATE);
+  if (sampleRate >= 1) return true;
+  if (sampleRate <= 0) return false;
+
+  const seed = `${event.kind}:${event.routeKey}:${event.pathname}:${event.sentAt}`;
+  return stableHash(seed) < sampleRate;
+}
+
 export async function POST(request: Request) {
   try {
     const throttleResponse = await applyPublicIpThrottle({ request, scope: "rum" });
@@ -40,7 +69,9 @@ export async function POST(request: Request) {
       return new NextResponse(null, { status: 204 });
     }
 
-    console.info("[rum]", JSON.stringify(normalizeEvent(payload)));
+    if (shouldLogRumEvent(payload)) {
+      console.info("[rum]", JSON.stringify(normalizeEvent(payload)));
+    }
     return new NextResponse(null, {
       status: 204,
       headers: {

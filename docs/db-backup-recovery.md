@@ -1,6 +1,6 @@
 # DB Backup / Recovery Runbook
 
-最終更新: 2026-04-14
+最終更新: 2026-04-15
 
 ## 1. 目的
 
@@ -217,7 +217,14 @@ npm run restore:student -- --student-id <studentId>
 2. 対象 object を backup から復元
 3. session / conversation の再生成可否を確認
 
-## 7. 公式ドキュメント
+## 7. migration の安全ガード
+
+- `npm run prisma:migrate` は `prisma migrate dev` の前に local DB か確認する
+- `DATABASE_URL` または `DIRECT_URL` が remote DB の場合は既定で止める
+- shared / production DB の schema 反映は `npm run prisma:migrate:deploy` を使う
+- isolated な検証DBでどうしても `migrate dev` を使うときだけ `PARARIA_ALLOW_REMOTE_MIGRATE_DEV=1` を明示する
+
+## 8. 公式ドキュメント
 
 - Supabase Backups / PITR
   - https://supabase.com/docs/guides/platform/backups

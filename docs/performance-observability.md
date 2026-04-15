@@ -19,6 +19,11 @@
 - `POST /api/rum`
 - ペイロードは軽い JSON 1 件
 - ブラウザは `navigator.sendBeacon` を優先し、失敗時だけ `fetch keepalive` に落とす
+- 既定では送らない
+- 送るときは `NEXT_PUBLIC_PARARIA_RUM_ENABLED=1`
+- 送信量を間引くときは `NEXT_PUBLIC_PARARIA_RUM_SAMPLE_RATE=0.1` のように 0〜1 で指定する
+- サーバーログへ残すときだけ `PARARIA_RUM_LOG_ENABLED=1`
+- ログ量を間引くときは `PARARIA_RUM_LOG_SAMPLE_RATE=0.1` のように指定する
 
 ## ルート budget
 

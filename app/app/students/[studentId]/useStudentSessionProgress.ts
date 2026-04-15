@@ -22,6 +22,36 @@ type Params = {
   setMessage: (value: string) => void;
 };
 
+function isPageHidden() {
+  return typeof document !== "undefined" && document.visibilityState !== "visible";
+}
+
+export function getSessionProgressPollIntervalMs(elapsedMs: number, pageHidden: boolean) {
+  if (pageHidden) {
+    if (elapsedMs < 30_000) return 4_000;
+    if (elapsedMs < 120_000) return 8_000;
+    return 15_000;
+  }
+
+  if (elapsedMs < 10_000) return 1_000;
+  if (elapsedMs < 30_000) return 2_000;
+  if (elapsedMs < 120_000) return 4_000;
+  if (elapsedMs < 240_000) return 6_000;
+  return 8_000;
+}
+
+export function getSessionProgressWakeIntervalMs(elapsedMs: number, pageHidden: boolean) {
+  if (pageHidden) {
+    if (elapsedMs < 60_000) return 30_000;
+    return 60_000;
+  }
+
+  if (elapsedMs < 15_000) return 5_000;
+  if (elapsedMs < 60_000) return 15_000;
+  if (elapsedMs < 180_000) return 30_000;
+  return 45_000;
+}
+
 export function useStudentSessionProgress({
   studentId,
   mode,
@@ -95,9 +125,11 @@ export function useStudentSessionProgress({
 
       while (Date.now() - startedAt < 300000) {
         const now = Date.now();
-        const pollingIntervalMs =
-          typeof document !== "undefined" && document.visibilityState !== "visible" ? 4000 : 2200;
-        const shouldKickWorker = now - lastWorkerKickAt >= 3000;
+        const elapsedMs = now - startedAt;
+        const pageHidden = isPageHidden();
+        const pollingIntervalMs = getSessionProgressPollIntervalMs(elapsedMs, pageHidden);
+        const workerWakeIntervalMs = getSessionProgressWakeIntervalMs(elapsedMs, pageHidden);
+        const shouldKickWorker = now - lastWorkerKickAt >= workerWakeIntervalMs;
         if (shouldKickWorker) {
           lastWorkerKickAt = now;
           void fetch(`/api/sessions/${sessionId}/progress`, {
@@ -110,7 +142,7 @@ export function useStudentSessionProgress({
         });
         const body = (await res.json().catch(() => ({}))) as SessionProgressResponse & { error?: string };
         if (!res.ok || !body?.progress) {
-          await sleep(Math.min(1000, pollingIntervalMs));
+          await sleep(pollingIntervalMs);
           continue;
         }
 
