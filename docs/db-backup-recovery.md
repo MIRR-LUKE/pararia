@@ -66,6 +66,7 @@ npm run backup:db
   - `pararia.dump`
   - `metadata.json`
 - backup 専用の接続先を使えるなら `PARARIA_BACKUP_DATABASE_URL` を最優先にする
+- `.tmp/vercel.env` と `.tmp/vercel-prod.env` を読むのは `--include-tmp-env` を付けたときだけ
 
 Blob:
 
@@ -121,6 +122,7 @@ npm run backup:sync-github-secrets
 
 ただし `gh` token に Actions secrets の write 権限が必要です。
 backup 用の Blob secret は `PARARIA_BLOB_BACKUP_TOKEN` だけを同期します。
+`.tmp/vercel.env` や `.tmp/vercel-prod.env` が必要なときだけ、`--include-tmp-env` を付けます。
 
 ## 3.2.1 Supabase 側の one-time 設定
 
@@ -155,9 +157,11 @@ npm run restore:student -- --student-id <studentId>
 - `DATABASE_URL`
   - app 通常接続用
 - `DIRECT_URL`
-  - migration / backup / 直結系の優先候補
+  - migration / backup の直結専用
 - `PARARIA_BACKUP_DATABASE_URL`
   - backup 専用に別接続先を明示したいときに使う
+- `PARARIA_USE_DIRECT_DATABASE_URL=1`
+  - Prisma で direct を使うときだけ明示する
 
 ### 4.2 Blob
 

@@ -6,17 +6,12 @@ function isLocalDatabaseHost(hostname: string) {
   return normalized === "localhost" || normalized === "127.0.0.1";
 }
 
-function isServerlessRuntime() {
-  return Boolean(
-    process.env.VERCEL ||
-      process.env.AWS_LAMBDA_FUNCTION_NAME ||
-      process.env.AWS_EXECUTION_ENV ||
-      process.env.K_SERVICE
-  );
+function defaultPrismaConnectionLimit() {
+  return "1";
 }
 
-function defaultPrismaConnectionLimit() {
-  return isServerlessRuntime() ? "1" : "5";
+function shouldUseDirectDatabaseUrl() {
+  return process.env.PARARIA_USE_DIRECT_DATABASE_URL?.trim() === "1";
 }
 
 export function shouldConstrainPrismaPool(rawUrl?: string | null) {
@@ -60,11 +55,19 @@ export function normalizePrismaDatabaseUrl(rawUrl?: string | null) {
 }
 
 export function resolvePrismaDatasourceUrl() {
-  const directUrl = process.env.DIRECT_URL?.trim();
-  if (directUrl && !isServerlessRuntime() && !shouldConstrainPrismaPool(directUrl)) {
-    return directUrl;
+  const primaryUrl = process.env.DATABASE_URL?.trim();
+  if (primaryUrl) {
+    return normalizePrismaDatabaseUrl(primaryUrl);
   }
 
-  const primaryUrl = process.env.DATABASE_URL?.trim();
-  return normalizePrismaDatabaseUrl(primaryUrl || directUrl);
+  const directUrl = process.env.DIRECT_URL?.trim();
+  if (directUrl && shouldUseDirectDatabaseUrl()) {
+    return normalizePrismaDatabaseUrl(directUrl);
+  }
+
+  if (directUrl) {
+    throw new Error("DATABASE_URL が必要です。DIRECT_URL を使うときは PARARIA_USE_DIRECT_DATABASE_URL=1 を指定してください。");
+  }
+
+  throw new Error("DATABASE_URL が必要です。");
 }

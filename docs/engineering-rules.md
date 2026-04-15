@@ -5,6 +5,9 @@
 この repo のコードを「速い」「読みやすい」「壊れにくい」状態で保つための基準です。  
 雰囲気ではなく、設計・実装・計測の 3 つを揃えて守ります。
 
+- Node の基準は `.nvmrc` と `package.json` の `engines.node` に合わせる
+- tracked ファイルに秘密値がないかは `npm run scan:secrets` で確認する
+
 ## 1. 非交渉ルール
 
 ### 1.1 Server First
@@ -136,6 +139,7 @@
 npm run typecheck
 npm run build
 npm run check:code-shape
+npm run scan:secrets
 ```
 
 性能まわりを触ったら、可能なら実測も残す:

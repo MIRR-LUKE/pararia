@@ -11,8 +11,13 @@ PARARIA は、塾・個別指導・学習コーチング向けの `Teaching OS` 
 - DB / Blob の保全・復旧手順は [docs/db-backup-recovery.md](./docs/db-backup-recovery.md)
 - protected critical path は `録音ロック -> session part ingest -> session progress -> student room -> next meeting memo` として扱い、回帰確認は `npm run test:critical-path-smoke`
 - backend / perf 系ブランチは UI を触らない前提で進め、guard の自己確認は `npm run test:backend-scope-guard`
+- Node の正本は `.nvmrc` と `package.json` の `engines.node` の `22`
+- tracked ファイルに秘密値が混ざっていないかは `npm run scan:secrets` で見る
 - mutating fixture を使う smoke / UI script は local app + local DB でしか動かさない。remote で明示的に許可するときだけ `PARARIA_ALLOW_REMOTE_FIXTURES=1`
 - production / shared tenant の整合性確認は read-only の `npm run test:student-integrity-audit -- --base-url https://pararia.vercel.app`
+- 公開 RUM API は本文上限と軽い回数制限をかけ、ログには検索文字列を残さない
+- 生徒 / 会話 / 設定 / レポート送信 / 招待 / 復元系の書き込み API は軽い回数制限を通す
+- 招待 URL は公開 URL から組み立て、平文 token は API 応答に残さない
 - shape guard は `npm run check:code-shape`
 - 最低限の確認は `npm run typecheck && npm run build && npm run check:code-shape`
 
@@ -153,7 +158,7 @@ PARARIA は、塾・個別指導・学習コーチング向けの `Teaching OS` 
 - 管理者向けの保守コンソールから `jobs/run` と `maintenance/cleanup` を実行
 - 止まった会話処理 / 音声処理を見て、その会話やセッションだけ再開
 - 削除した会話ログ / 保護者レポートを設定画面から復元
-- 保守 API は管理者セッション、または `cron_secret` / `x-maintenance-secret` で通す
+- 保守 API は管理者セッション、または `x-maintenance-secret` / `Authorization: Bearer` で通す
 - 実行した人、実行方法、対象は監査ログに残す
 
 ### 4.7 設定画面でできること
@@ -784,13 +789,13 @@ GPU が強いときの最初の目安:
 
 ### 13.6 ジョブ / メンテナンス
 
-- `GET/POST /api/jobs/run`
-- `GET/POST /api/maintenance/cleanup`
+- `POST /api/jobs/run`
+- `POST /api/maintenance/cleanup`
 
 補足:
 
 - `jobs/run` と `maintenance/cleanup` は、ふつうの画面操作ではなく保守操作として扱う
-- route 側でも止める。通るのは管理者セッションか `cron_secret` / `x-maintenance-secret` だけ
+- route 側でも止める。通るのは管理者セッションか `x-maintenance-secret` / `Authorization: Bearer` だけ
 - 実行した人や対象は監査ログに残す
 - 生徒画面やログ画面の再実行は、それぞれ `POST /api/sessions/[id]/progress` と `POST /api/conversations/[id]` だけを使う
 
@@ -932,7 +937,8 @@ PARARIA_AUDIO_RETENTION_DAYS=14
 
 - shared / production DB に対して `prisma migrate dev` を直接打たない
 - shared / production への schema 反映は `prisma migrate deploy` を使う
-- `DATABASE_URL` は通常の app 接続用、`DIRECT_URL` は migration / backup 用の直結優先で扱う
+- `DATABASE_URL` は通常の app 接続用、`DIRECT_URL` は migration / backup 用の直結専用で扱う
+- Prisma が direct を使うのは `PARARIA_USE_DIRECT_DATABASE_URL=1` を明示したときだけ
 - 生徒削除は **hard delete しない**
 - 生徒は **archive** し、関連データと runtime path の snapshot を `StudentArchiveSnapshot` に残す
 - runtime 音声は DB と別系統なので、DB dump と Blob 退避を **両方** 回す
@@ -957,8 +963,9 @@ npm run backup:db
 - 実行端末には PostgreSQL client (`pg_dump`) が必要
 - `pg_dump` が無い場合は Supabase CLI fallback を試すが、Windows では Docker Desktop が必要
 - metadata と sha256 を同じディレクトリに残す
-- 接続先は `PARARIA_BACKUP_DATABASE_URL` → `DIRECT_URL` → `DATABASE_URL` の順で解決する
+- 接続先は `PARARIA_BACKUP_DATABASE_URL` → `DATABASE_URL` の順で解決する
 - backup 専用の接続先を使えるなら `PARARIA_BACKUP_DATABASE_URL` を先に入れる
+- `.tmp/vercel.env` と `.tmp/vercel-prod.env` を読むのは `--include-tmp-env` を付けたときだけ
 - 本番では Supabase の PITR を有効にした上で、この dump を **別ストレージにも退避** する
 
 Blob runtime backup:
@@ -1011,6 +1018,12 @@ GitHub secrets を CLI から同期したい場合:
 
 ```bash
 npm run backup:sync-github-secrets
+```
+
+`.tmp/vercel.env` や `.tmp/vercel-prod.env` を使うときだけ、次を付ける:
+
+```bash
+npm run backup:sync-github-secrets -- --include-tmp-env
 ```
 
 注意:

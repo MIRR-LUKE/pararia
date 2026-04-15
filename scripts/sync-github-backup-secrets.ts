@@ -1,7 +1,7 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
-import { loadEnvFile } from "./lib/load-env-file";
+import { loadBackupEnv } from "./lib/load-backup-env";
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(SCRIPT_DIR, "..");
@@ -16,6 +16,10 @@ function inferProjectRefFromUrl(input: string | undefined | null) {
     if (usernameMatch) return usernameMatch[1];
   } catch {}
   return null;
+}
+
+function hasFlag(flag: string) {
+  return process.argv.includes(flag);
 }
 
 async function setSecret(repo: string, name: string, value: string) {
@@ -42,10 +46,7 @@ async function setSecret(repo: string, name: string, value: string) {
 }
 
 async function main() {
-  await loadEnvFile(path.join(ROOT, ".env"), { optional: true, overrideExisting: false });
-  await loadEnvFile(path.join(ROOT, ".env.local"), { optional: true, overrideExisting: false });
-  await loadEnvFile(path.join(ROOT, ".tmp", "vercel.env"), { optional: true, overrideExisting: false });
-  await loadEnvFile(path.join(ROOT, ".tmp", "vercel-prod.env"), { optional: true, overrideExisting: true });
+  await loadBackupEnv(ROOT, { includeTmpEnv: hasFlag("--include-tmp-env") });
 
   const repo = process.argv[2] || "MIRR-LUKE/pararia";
   const databaseSource: "PARARIA_BACKUP_DATABASE_URL" | "DIRECT_URL" | "DATABASE_URL" | null = process.env.PARARIA_BACKUP_DATABASE_URL?.trim()
