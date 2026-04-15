@@ -178,7 +178,7 @@ export async function getSettingsSnapshot({
     deletedConversations,
     deletedReports,
     recentAuditLogs,
-  ] = await Promise.all([
+  ] = await prisma.$transaction([
     prisma.organization.findUnique({
       where: { id: organizationId },
       select: {
