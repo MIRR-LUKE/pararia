@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db";
+import { withVisibleReportWhere } from "@/lib/content-visibility";
 import { runWithDatabaseRetry } from "@/lib/db-retry";
 import { buildReportDeliverySummary } from "@/lib/report-delivery";
 import { getRecordingLockView } from "@/lib/recording/lockService";
@@ -89,6 +90,7 @@ function buildStudentRoomSelect(scope: StudentRoomScope) {
         },
       },
       reports: {
+        where: withVisibleReportWhere({}),
         orderBy: { createdAt: "desc" as const },
         take: 4,
         select: {
@@ -181,6 +183,7 @@ function buildStudentRoomSelect(scope: StudentRoomScope) {
       },
     },
     reports: {
+      where: withVisibleReportWhere({}),
       orderBy: { createdAt: "desc" as const },
       take: 6,
       select: {
@@ -217,7 +220,7 @@ function buildStudentRoomSelect(scope: StudentRoomScope) {
 async function getLatestDetailedReport(reportId: string, organizationId: string) {
   return (await runWithDatabaseRetry("student-room-latest-report", () =>
     prisma.report.findFirst({
-      where: { id: reportId, organizationId },
+      where: withVisibleReportWhere({ id: reportId, organizationId }),
       select: {
         id: true,
         reportMarkdown: true,

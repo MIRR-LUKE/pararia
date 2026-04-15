@@ -2,6 +2,7 @@ import { resolvePrismaDatasourceUrl } from "@/lib/db-url";
 
 const MUTATING_FIXTURE_OVERRIDE_ENV = "PARARIA_ALLOW_REMOTE_FIXTURES";
 const REMOTE_SEED_OVERRIDE_ENV = "PARARIA_ALLOW_REMOTE_SEED";
+const RESTORE_DRILL_OVERRIDE_ENV = "PARARIA_ALLOW_REMOTE_RESTORE_DRILL";
 
 function isLocalHostname(hostname: string) {
   const normalized = hostname.trim().toLowerCase();
@@ -59,5 +60,22 @@ export function assertSeedTargetSafe(label: string) {
   throw new Error(
     `[${label}] seed is blocked because Prisma datasource is not local. ` +
       `Set ${REMOTE_SEED_OVERRIDE_ENV}=1 only when you intentionally want to seed an isolated non-production remote database.`
+  );
+}
+
+export function assertRestoreDrillTargetSafe(databaseUrl: string, label: string) {
+  if (process.env[RESTORE_DRILL_OVERRIDE_ENV]?.trim() === "1") {
+    return;
+  }
+
+  const host = parseUrlHost(databaseUrl);
+  const localTarget = host ? isLocalHostname(host) : false;
+  if (localTarget) {
+    return;
+  }
+
+  throw new Error(
+    `[${label}] restore drill is blocked because the target database is not local. ` +
+      `databaseUrl=${databaseUrl}. Set ${RESTORE_DRILL_OVERRIDE_ENV}=1 only for an intentionally isolated non-production restore target.`
   );
 }

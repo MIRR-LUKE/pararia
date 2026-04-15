@@ -1,4 +1,5 @@
 import type { Prisma } from "@prisma/client";
+import { withVisibleReportWhere } from "@/lib/content-visibility";
 
 export type StudentRowProjection = "report" | "directory" | "dashboard";
 
@@ -139,6 +140,7 @@ export function buildStudentRowSelect(projection: StudentRowProjection): Prisma.
   return {
     ...studentBaseSelect,
     reports: {
+      where: withVisibleReportWhere({}),
       select: reportSelect,
       orderBy: { createdAt: "desc" as const },
       take: 1,

@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { ReportDeliveryEventType, ReportStatus } from "@prisma/client";
 import { auth } from "@/auth";
 import { writeAuditLog } from "@/lib/audit";
+import { withVisibleReportWhere } from "@/lib/content-visibility";
 import { prisma } from "@/lib/db";
 import { getLogListCacheTag } from "@/lib/logs/get-log-list-page-data";
 
@@ -13,6 +14,9 @@ export async function POST(
   try {
     const { id } = await Promise.resolve(params);
     const session = await auth();
+    if (!session?.user?.organizationId) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
     const body = await request.json().catch(() => ({}));
     const action: "review" | "sent" | "delivered" | "failed" | "bounced" | "manual_share" | "resent" =
       typeof body?.action === "string" && body.action.trim()
@@ -42,8 +46,11 @@ export async function POST(
         resent: ReportDeliveryEventType.RESENT,
       }[action] ?? ReportDeliveryEventType.MANUAL_SHARED;
 
-    const current = await prisma.report.findUnique({
-      where: { id },
+    const current = await prisma.report.findFirst({
+      where: withVisibleReportWhere({
+        id,
+        organizationId: session.user.organizationId,
+      }),
       select: {
         id: true,
         studentId: true,

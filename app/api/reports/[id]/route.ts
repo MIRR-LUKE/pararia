@@ -1,6 +1,7 @@
 import { revalidatePath, revalidateTag } from "next/cache";
 import { NextResponse } from "next/server";
 import { writeAuditLog } from "@/lib/audit";
+import { withVisibleReportWhere } from "@/lib/content-visibility";
 import { prisma } from "@/lib/db";
 import { buildReportDeliverySummary } from "@/lib/report-delivery";
 import { getLogListCacheTag } from "@/lib/logs/get-log-list-page-data";
@@ -23,7 +24,7 @@ export async function GET(
     const organizationId = authResult.session.user.organizationId;
 
     const report = await prisma.report.findFirst({
-      where: { id, organizationId },
+      where: withVisibleReportWhere({ id, organizationId }),
       select: {
         id: true,
         status: true,
@@ -96,7 +97,7 @@ export async function DELETE(
     const organizationId = authResult.session.user.organizationId;
 
     const report = await prisma.report.findFirst({
-      where: { id, organizationId },
+      where: withVisibleReportWhere({ id, organizationId }),
       select: {
         id: true,
         studentId: true,
@@ -109,7 +110,21 @@ export async function DELETE(
       return NextResponse.json({ error: "report not found" }, { status: 404 });
     }
 
-    await prisma.report.delete({ where: { id: report.id } });
+    const body = await _request.json().catch(() => ({}));
+    const deleteReason =
+      typeof body?.reason === "string" && body.reason.trim().length > 0
+        ? body.reason.trim().slice(0, 500)
+        : null;
+
+    const deletedAt = new Date();
+    await prisma.report.update({
+      where: { id: report.id },
+      data: {
+        deletedAt,
+        deletedByUserId: authResult.session.user.id,
+        deletedReason: deleteReason,
+      },
+    });
 
     await writeAuditLog({
       organizationId,
@@ -122,6 +137,8 @@ export async function DELETE(
         studentId: report.studentId,
         status: report.status,
         sourceLogCount: toStringArray(report.sourceLogIds).length,
+        deletedAt: deletedAt.toISOString(),
+        deleteReason,
       },
     });
 

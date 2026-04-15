@@ -13,6 +13,7 @@ import { parseConversationArtifact, renderConversationArtifactOrFallback } from 
 import { getTranscriptExpiryDate } from "./system-config";
 import { sanitizeTranscriptSegments } from "./user-facing-japanese";
 import { normalizeRawTranscriptText, pickEvidenceTranscriptText } from "./transcript/source";
+import { withVisibleConversationWhere } from "./content-visibility";
 
 type SessionPartLike = {
   id: string;
@@ -251,8 +252,8 @@ function extractHeroOneLiner(summaryMarkdown?: string | null) {
 }
 
 export async function syncSessionAfterConversation(conversationId: string) {
-  const conversation = await prisma.conversationLog.findUnique({
-    where: { id: conversationId },
+  const conversation = await prisma.conversationLog.findFirst({
+    where: withVisibleConversationWhere({ id: conversationId }),
     select: {
       id: true,
       sessionId: true,

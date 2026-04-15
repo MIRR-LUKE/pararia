@@ -7,6 +7,7 @@ import { resolveRouteId, type RouteParams } from "@/lib/server/route-params";
 import { requireAuthorizedSession } from "@/lib/server/request-auth";
 import { archiveStudent, withActiveStudentWhere } from "@/lib/students/student-lifecycle";
 import { normalizeStudentUpdateInput } from "@/lib/students/student-write";
+import { withVisibleConversationWhere, withVisibleReportWhere } from "@/lib/content-visibility";
 
 export async function GET(
   _request: Request,
@@ -27,10 +28,12 @@ export async function GET(
         take: 1,
       },
       conversations: {
+        where: withVisibleConversationWhere({}),
         orderBy: { createdAt: "desc" },
         take: 10,
       },
       reports: {
+        where: withVisibleReportWhere({}),
         orderBy: { createdAt: "desc" },
         take: 5,
       },

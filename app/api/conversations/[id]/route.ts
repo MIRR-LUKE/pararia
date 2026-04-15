@@ -17,6 +17,7 @@ import { requireAuthorizedSession } from "@/lib/server/request-auth";
 import { resolveRouteId, type RouteParams } from "@/lib/server/route-params";
 import { toPrismaJson } from "@/lib/prisma-json";
 import { syncSessionAfterConversation } from "@/lib/session-service";
+import { withVisibleConversationWhere } from "@/lib/content-visibility";
 import { sanitizeFormattedTranscript, sanitizeSummaryMarkdown } from "@/lib/user-facing-japanese";
 import { normalizeRawTranscriptText, pickDisplayTranscriptText } from "@/lib/transcript/source";
 import { getLogListCacheTag } from "@/lib/logs/get-log-list-page-data";
@@ -77,7 +78,7 @@ export async function GET(
 
     if (brief) {
       const briefConversation = await prisma.conversationLog.findFirst({
-        where: { id: conversationId, organizationId },
+        where: withVisibleConversationWhere({ id: conversationId, organizationId }),
         select: {
           id: true,
           sessionId: true,
@@ -125,7 +126,7 @@ export async function GET(
     }
 
     const conversation = await prisma.conversationLog.findFirst({
-      where: { id: conversationId, organizationId },
+      where: withVisibleConversationWhere({ id: conversationId, organizationId }),
       include: {
         student: {
           select: {
@@ -251,8 +252,14 @@ export async function DELETE(
     if (authResult.response) return authResult.response;
     const organizationId = authResult.session.user.organizationId;
 
+    const body = await _request.json().catch(() => ({}));
+    const deleteReason =
+      typeof body?.reason === "string" && body.reason.trim().length > 0
+        ? body.reason.trim().slice(0, 500)
+        : null;
+
     const conversation = await prisma.conversationLog.findFirst({
-      where: { id: conversationId, organizationId },
+      where: withVisibleConversationWhere({ id: conversationId, organizationId }),
       select: { id: true, studentId: true, sessionId: true },
     });
 
@@ -260,40 +267,23 @@ export async function DELETE(
       return NextResponse.json({ error: "conversation not found" }, { status: 404 });
     }
 
-    const relatedReports = await prisma.report.findMany({
-      where: {
-        organizationId,
-        studentId: conversation.studentId,
-      },
-      select: {
-        id: true,
-        sourceLogIds: true,
-      },
-    });
-
-    const detachedReportIds = relatedReports
-      .filter((report) => toStringArray(report.sourceLogIds).includes(conversationId))
-      .map((report) => report.id);
-
+    const deletedAt = new Date();
+    const deletedSessionId = conversation.sessionId ?? null;
     await prisma.$transaction(async (tx) => {
-      for (const report of relatedReports) {
-        const sourceLogIds = toStringArray(report.sourceLogIds);
-        if (!sourceLogIds.includes(conversationId)) continue;
+      await tx.conversationLog.update({
+        where: { id: conversationId },
+        data: {
+          deletedAt,
+          deletedByUserId: authResult.session.user.id,
+          deletedReason: deleteReason,
+          deletedSessionId,
+          sessionId: null,
+        },
+      });
 
-        await tx.report.update({
-          where: { id: report.id },
-          data: {
-            sourceLogIds: sourceLogIds.filter((logId) => logId !== conversationId),
-          },
-        });
-      }
-
-      await tx.conversationJob.deleteMany({ where: { conversationId } });
-      await tx.conversationLog.delete({ where: { id: conversationId } });
-
-      if (conversation.sessionId) {
+      if (deletedSessionId) {
         await tx.session.updateMany({
-          where: { id: conversation.sessionId },
+          where: { id: deletedSessionId },
           data: {
             status: "DRAFT",
             heroStateLabel: null,
@@ -314,8 +304,9 @@ export async function DELETE(
       detail: {
         conversationId,
         studentId: conversation.studentId,
-        sessionId: conversation.sessionId,
-        detachedReportCount: detachedReportIds.length,
+        sessionId: deletedSessionId,
+        deletedAt: deletedAt.toISOString(),
+        deleteReason,
       },
     });
 
@@ -332,7 +323,7 @@ export async function DELETE(
       success: true,
       message: "conversation deleted",
       studentId: conversation.studentId,
-      sessionId: conversation.sessionId,
+      sessionId: deletedSessionId,
     });
   } catch (error: any) {
     console.error("[DELETE /api/conversations/[id]] Error:", error);
@@ -358,7 +349,7 @@ export async function PATCH(
     const organizationId = authResult.session.user.organizationId;
 
     const conversation = await prisma.conversationLog.findFirst({
-      where: { id: conversationId, organizationId },
+      where: withVisibleConversationWhere({ id: conversationId, organizationId }),
       select: {
         id: true,
         summaryMarkdown: true,

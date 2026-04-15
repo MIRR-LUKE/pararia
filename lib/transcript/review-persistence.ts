@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db";
 import { toPrismaJson } from "@/lib/prisma-json";
+import { withVisibleConversationWhere } from "@/lib/content-visibility";
 import type {
   ReviewAssessment,
   StoredSuggestion,
@@ -220,7 +221,7 @@ export async function attachConversationIdToPartSuggestions(sessionPartIds: stri
 
 export async function findConversationIdBySessionPart(sessionPartId: string) {
   const linkedConversation = await prisma.conversationLog.findFirst({
-    where: {
+    where: withVisibleConversationWhere({
       session: {
         parts: {
           some: {
@@ -228,7 +229,7 @@ export async function findConversationIdBySessionPart(sessionPartId: string) {
           },
         },
       },
-    },
+    }),
     select: { id: true },
   });
   return linkedConversation?.id ?? null;

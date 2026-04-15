@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db";
+import { withVisibleConversationWhere } from "@/lib/content-visibility";
 import { normalizeRawTranscriptText, pickDisplayTranscriptText } from "@/lib/transcript/source";
 import { selectSuggestionsWithSpan } from "@/lib/transcript/reviewed-text";
 import type { ConversationSuggestionList } from "@/lib/transcript/review-types";
@@ -6,8 +7,8 @@ import type { ConversationSuggestionList } from "@/lib/transcript/review-types";
 export async function buildConversationSuggestionList(
   conversationId: string
 ): Promise<ConversationSuggestionList> {
-  const conversation = await prisma.conversationLog.findUnique({
-    where: { id: conversationId },
+  const conversation = await prisma.conversationLog.findFirst({
+    where: withVisibleConversationWhere({ id: conversationId }),
     select: {
       id: true,
       sessionId: true,

@@ -47,6 +47,8 @@ model User {
   conversations      ConversationLog[]
   sessions           Session[]
   reportsSent        Report[]               @relation("ReportSentBy")
+  deletedConversations ConversationLog[]    @relation("ConversationDeletedBy")
+  deletedReports     Report[]               @relation("ReportDeletedBy")
   reportDeliveryEventsActed ReportDeliveryEvent[] @relation("ReportDeliveryEventActor")
   recordingLocksHeld StudentRecordingLock[] @relation("RecordingLockHolder")
   invitationsCreated OrganizationInvitation[] @relation("InvitationCreator")
@@ -145,8 +147,12 @@ model ConversationLog {
   studentId      String
   userId         String?
   sessionId      String?                @unique
+  deletedSessionId String?
   sourceType     ConversationSourceType
   status         ConversationStatus     @default(PROCESSING)
+  deletedAt      DateTime?
+  deletedByUserId String?
+  deletedReason  String?
 
   // --- Raw transcript storage (TTL) ---
   rawTextOriginal  String?
@@ -156,6 +162,10 @@ model ConversationLog {
   reviewState      TranscriptReviewState @default(NONE)
   rawSegments      Json?
   rawTextExpiresAt DateTime?
+  processingLeaseExecutionId String?
+  processingLeaseExpiresAt DateTime?
+  processingLeaseStartedAt DateTime?
+  processingLeaseHeartbeatAt DateTime?
 
   // --- LLM outputs (final artifacts) ---
   artifactJson          Json?
@@ -169,13 +179,18 @@ model ConversationLog {
   student      Student           @relation(fields: [studentId], references: [id])
   user         User?             @relation(fields: [userId], references: [id])
   session      Session?          @relation(fields: [sessionId], references: [id])
+  deletedBy    User?             @relation("ConversationDeletedBy", fields: [deletedByUserId], references: [id], onDelete: SetNull)
   jobs         ConversationJob[]
   properNounSuggestions ProperNounSuggestion[]
   nextMeetingMemo NextMeetingMemo?
 
   @@index([studentId, createdAt])
   @@index([organizationId, createdAt])
+  @@index([organizationId, deletedAt, createdAt])
+  @@index([studentId, deletedAt, createdAt])
   @@index([rawTextExpiresAt])
+  @@index([status, processingLeaseExpiresAt])
+  @@index([organizationId, processingLeaseExpiresAt])
 }
 
 model ConversationJob {
@@ -266,6 +281,9 @@ model Report {
   reportMarkdown    String
   reportJson        Json?
   status            ReportStatus @default(DRAFT)
+  deletedAt         DateTime?
+  deletedByUserId   String?
+  deletedReason     String?
   reviewedAt        DateTime?
   sentAt            DateTime?
   sentByUserId      String?
@@ -279,10 +297,13 @@ model Report {
   organization Organization @relation(fields: [organizationId], references: [id])
   student      Student      @relation(fields: [studentId], references: [id])
   sentBy       User?        @relation("ReportSentBy", fields: [sentByUserId], references: [id])
+  deletedBy    User?        @relation("ReportDeletedBy", fields: [deletedByUserId], references: [id], onDelete: SetNull)
   deliveryEvents ReportDeliveryEvent[]
 
   @@index([studentId, createdAt])
   @@index([organizationId, createdAt])
+  @@index([organizationId, deletedAt, createdAt])
+  @@index([studentId, deletedAt, createdAt])
 }
 
 model ProperNounGlossaryEntry {

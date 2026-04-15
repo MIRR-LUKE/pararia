@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { shouldRecoverProcessingConversationJobs } from "../lib/jobs/conversationJobs";
+import { isConversationProcessingLeaseActive } from "../lib/jobs/conversation-jobs/repository";
 
 assert.equal(
   shouldRecoverProcessingConversationJobs({
@@ -35,6 +36,41 @@ assert.equal(
   }),
   false,
   "completed conversations should not be recovered"
+);
+
+const now = new Date("2026-04-15T00:00:00.000Z");
+
+assert.equal(
+  isConversationProcessingLeaseActive({
+    status: "PROCESSING",
+    processingLeaseExecutionId: "run-1",
+    processingLeaseExpiresAt: new Date("2026-04-15T00:05:00.000Z"),
+    now,
+  }),
+  true,
+  "fresh processing lease should be active"
+);
+
+assert.equal(
+  isConversationProcessingLeaseActive({
+    status: "PROCESSING",
+    processingLeaseExecutionId: "run-1",
+    processingLeaseExpiresAt: new Date("2026-04-14T23:59:59.000Z"),
+    now,
+  }),
+  false,
+  "expired processing lease should not be active"
+);
+
+assert.equal(
+  isConversationProcessingLeaseActive({
+    status: "DONE",
+    processingLeaseExecutionId: "run-1",
+    processingLeaseExpiresAt: new Date("2026-04-15T00:05:00.000Z"),
+    now,
+  }),
+  false,
+  "completed conversations should never count as active leases"
 );
 
 console.log("conversation job recovery regression checks passed");

@@ -4,6 +4,7 @@ import {
   SessionType,
 } from "@prisma/client";
 import { prisma } from "@/lib/db";
+import { withVisibleConversationWhere } from "@/lib/content-visibility";
 import { loadInternalGlossaryCandidates, listProviderHintTerms } from "@/lib/transcript/glossary";
 import { assessConversationReview, assessSessionPartReview, buildReviewMetaPatch } from "@/lib/transcript/review-assessment";
 import { buildConversationSuggestionList } from "@/lib/transcript/review-list";
@@ -204,8 +205,8 @@ export async function ensureSessionPartReviewedTranscript(sessionPartId: string)
 }
 
 export async function ensureConversationReviewedTranscript(conversationId: string): Promise<ConversationReviewSummary> {
-  const conversation = await prisma.conversationLog.findUnique({
-    where: { id: conversationId },
+  const conversation = await prisma.conversationLog.findFirst({
+    where: withVisibleConversationWhere({ id: conversationId }),
     include: {
       student: {
         select: {

@@ -156,6 +156,22 @@
   gap: 6px;
 }
 
+.jobItem {
+  padding: 14px 16px;
+  border-radius: var(--card-radius);
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  display: grid;
+  gap: 10px;
+}
+
+.jobTop {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+}
+
 .auditTop {
   display: flex;
   justify-content: space-between;
@@ -197,6 +213,7 @@
   }
 
   .auditTop,
+  .jobTop,
   .checkboxRow {
     flex-direction: column;
   }

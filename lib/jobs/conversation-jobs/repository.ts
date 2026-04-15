@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { ConversationJobType, ConversationStatus, JobStatus, NextMeetingMemoStatus, Prisma, SessionStatus, SessionType } from "@prisma/client";
 import { prisma } from "@/lib/db";
+import { withVisibleConversationWhere } from "@/lib/content-visibility";
 import { DEFAULT_TEACHER_FULL_NAME } from "@/lib/constants";
 import { toPrismaJson } from "@/lib/prisma-json";
 import type { ConversationQualityMeta } from "@/lib/types/conversation";
@@ -15,6 +16,101 @@ import {
   JOB_MAX_ATTEMPTS,
   JOB_PRIORITY,
 } from "./shared";
+
+export function isConversationProcessingLeaseActive(input: {
+  status: ConversationStatus | string | null | undefined;
+  processingLeaseExecutionId: string | null | undefined;
+  processingLeaseExpiresAt: Date | string | null | undefined;
+  now?: Date;
+}) {
+  if (input.status !== ConversationStatus.PROCESSING) return false;
+  if (!input.processingLeaseExecutionId) return false;
+  if (!input.processingLeaseExpiresAt) return false;
+  const now = input.now ?? new Date();
+  const expiresAt =
+    input.processingLeaseExpiresAt instanceof Date
+      ? input.processingLeaseExpiresAt
+      : new Date(input.processingLeaseExpiresAt);
+  if (Number.isNaN(expiresAt.getTime())) return false;
+  return expiresAt.getTime() > now.getTime();
+}
+
+export async function acquireConversationProcessingLease(opts: {
+  conversationId: string;
+  executionId: string;
+}) {
+  const now = new Date();
+  const leaseExpiresAt = new Date(now.getTime() + JOB_LEASE_MS);
+  const updated = await prisma.conversationLog.updateMany({
+    where: {
+      id: opts.conversationId,
+      status: ConversationStatus.PROCESSING,
+      deletedAt: null,
+      OR: [
+        { processingLeaseExecutionId: null },
+        { processingLeaseExpiresAt: null },
+        { processingLeaseExpiresAt: { lte: now } },
+        { processingLeaseExecutionId: opts.executionId },
+      ],
+    },
+    data: {
+      processingLeaseExecutionId: opts.executionId,
+      processingLeaseStartedAt: now,
+      processingLeaseHeartbeatAt: now,
+      processingLeaseExpiresAt: leaseExpiresAt,
+    },
+  });
+
+  if (updated.count !== 1) {
+    return { acquired: false as const };
+  }
+
+  return {
+    acquired: true as const,
+    executionId: opts.executionId,
+    leaseExpiresAt,
+    startedAt: now,
+  };
+}
+
+export async function touchConversationProcessingLease(opts: {
+  conversationId: string;
+  executionId: string;
+}) {
+  const now = new Date();
+  const leaseExpiresAt = new Date(now.getTime() + JOB_LEASE_MS);
+  await prisma.conversationLog.updateMany({
+    where: {
+      id: opts.conversationId,
+      processingLeaseExecutionId: opts.executionId,
+      status: ConversationStatus.PROCESSING,
+      deletedAt: null,
+    },
+    data: {
+      processingLeaseHeartbeatAt: now,
+      processingLeaseExpiresAt: leaseExpiresAt,
+    },
+  });
+}
+
+export async function releaseConversationProcessingLease(opts: {
+  conversationId: string;
+  executionId: string;
+}) {
+  await prisma.conversationLog.updateMany({
+    where: {
+      id: opts.conversationId,
+      processingLeaseExecutionId: opts.executionId,
+      deletedAt: null,
+    },
+    data: {
+      processingLeaseExecutionId: null,
+      processingLeaseExpiresAt: null,
+      processingLeaseStartedAt: null,
+      processingLeaseHeartbeatAt: null,
+    },
+  });
+}
 
 type LoadedConversation = {
   id: string;
@@ -62,8 +158,8 @@ function buildConversationPayload(convo: LoadedConversation): ConversationPayloa
 }
 
 export async function loadConversationPayload(conversationId: string) {
-  const convo = await prisma.conversationLog.findUnique({
-    where: { id: conversationId },
+  const convo = await prisma.conversationLog.findFirst({
+    where: withVisibleConversationWhere({ id: conversationId }),
     include: {
       student: { select: { id: true, name: true } },
       user: { select: { name: true } },
@@ -87,6 +183,10 @@ export async function touchJobLease(job: JobPayload) {
       leaseExpiresAt: new Date(now.getTime() + JOB_LEASE_MS),
     },
   });
+  await touchConversationProcessingLease({
+    conversationId: job.conversationId,
+    executionId: job.executionId,
+  });
 }
 
 export async function updateConversationStatus(conversationId: string, statusHint?: ConversationStatus) {
@@ -104,8 +204,8 @@ export async function updateConversationStatus(conversationId: string, statusHin
   }
   if (statusHint) status = statusHint;
 
-  await prisma.conversationLog.update({
-    where: { id: conversationId },
+  await prisma.conversationLog.updateMany({
+    where: withVisibleConversationWhere({ id: conversationId }),
     data: { status },
   });
 }
@@ -118,7 +218,10 @@ export async function recoverExpiredRunningJobs(opts?: ProcessJobsOptions) {
       leaseExpiresAt: { lt: now },
       type: { in: ACTIVE_JOB_TYPES },
       ...(opts?.conversationId ? { conversationId: opts.conversationId } : {}),
-      ...(opts?.sessionId ? { conversation: { sessionId: opts.sessionId } } : {}),
+      conversation: {
+        ...(opts?.sessionId ? { sessionId: opts.sessionId } : {}),
+        deletedAt: null,
+      },
     },
     select: {
       id: true,
@@ -190,7 +293,10 @@ export async function claimNextJob(opts?: ProcessJobsOptions): Promise<JobPayloa
       status: JobStatus.QUEUED,
       type: { in: ACTIVE_JOB_TYPES },
       ...(opts?.conversationId ? { conversationId: opts.conversationId } : {}),
-      ...(opts?.sessionId ? { conversation: { sessionId: opts.sessionId } } : {}),
+      conversation: {
+        ...(opts?.sessionId ? { sessionId: opts.sessionId } : {}),
+        deletedAt: null,
+      },
       OR: [{ nextRetryAt: null }, { nextRetryAt: { lte: now } }],
     },
     orderBy: [{ createdAt: "asc" }],
@@ -211,6 +317,9 @@ export async function claimNextJob(opts?: ProcessJobsOptions): Promise<JobPayloa
     where: {
       conversationId: { in: conversationIds },
       type: { in: ACTIVE_JOB_TYPES },
+      conversation: {
+        deletedAt: null,
+      },
     },
     select: { conversationId: true, type: true, status: true },
   });
@@ -232,7 +341,7 @@ export async function claimNextJob(opts?: ProcessJobsOptions): Promise<JobPayloa
 
   for (const job of eligible) {
     const claimedAt = new Date();
-    const executionId = randomUUID();
+    const executionId = opts?.executionId ?? randomUUID();
     const lastQueueLagMs = Math.max(0, claimedAt.getTime() - job.createdAt.getTime());
     const updated = await prisma.conversationJob.updateMany({
       where: { id: job.id, status: JobStatus.QUEUED },
@@ -304,8 +413,8 @@ function upsertNextMeetingMemoRecord(input: {
 }
 
 export async function enqueueNextMeetingMemoJob(conversationId: string) {
-  const conversation = await prisma.conversationLog.findUnique({
-    where: { id: conversationId },
+  const conversation = await prisma.conversationLog.findFirst({
+    where: withVisibleConversationWhere({ id: conversationId }),
     select: {
       id: true,
       organizationId: true,
@@ -431,8 +540,8 @@ export async function ensureConversationJobsAvailable(
   conversationId: string,
   opts?: { includeFormat?: boolean }
 ) {
-  const conversation = await prisma.conversationLog.findUnique({
-    where: { id: conversationId },
+  const conversation = await prisma.conversationLog.findFirst({
+    where: withVisibleConversationWhere({ id: conversationId }),
     select: {
       status: true,
       jobs: {
@@ -486,13 +595,13 @@ export async function recordJobFailure(job: JobPayload, error: unknown) {
     },
   });
 
-  const existing = await prisma.conversationLog.findUnique({
-    where: { id: job.conversationId },
+  const existing = await prisma.conversationLog.findFirst({
+    where: withVisibleConversationWhere({ id: job.conversationId }),
     select: { qualityMetaJson: true, sessionId: true, studentId: true },
   });
   const prev = (existing?.qualityMetaJson as ConversationQualityMeta) ?? {};
-  await prisma.conversationLog.update({
-    where: { id: job.conversationId },
+  await prisma.conversationLog.updateMany({
+    where: withVisibleConversationWhere({ id: job.conversationId }),
     data: {
       qualityMetaJson: toPrismaJson({
         ...prev,

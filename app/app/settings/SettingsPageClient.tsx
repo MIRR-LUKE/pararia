@@ -5,7 +5,12 @@ import Link from "next/link";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
-import type { MissingStudent, SettingsSnapshot } from "@/lib/settings/get-settings-snapshot";
+import type {
+  DeletedContentRow,
+  MissingStudent,
+  OperationsJobRow,
+  SettingsSnapshot,
+} from "@/lib/settings/get-settings-snapshot";
 import styles from "./settings.module.css";
 
 type Props = {
@@ -62,6 +67,28 @@ function formatDateTime(value: string | null | undefined, timeZone?: string) {
   }).format(date);
 }
 
+function buildJobDetail(row: OperationsJobRow, timeZone: string) {
+  const lines = [
+    `状態: ${row.statusLabel}`,
+    row.startedAt ? `開始: ${formatDateTime(row.startedAt, timeZone)}` : null,
+    row.nextRetryAt ? `再開予定: ${formatDateTime(row.nextRetryAt, timeZone)}` : null,
+    row.leaseExpiresAt ? `実行権の期限: ${formatDateTime(row.leaseExpiresAt, timeZone)}` : null,
+    row.fileName ? `ファイル: ${row.fileName}` : null,
+    row.lastError ? `直近エラー: ${row.lastError}` : null,
+  ];
+  return lines.filter(Boolean).join(" / ");
+}
+
+function buildDeletedContentDetail(row: DeletedContentRow, timeZone: string) {
+  const parts = [
+    `削除: ${formatDateTime(row.deletedAt, timeZone)}`,
+    row.deletedByLabel ? `担当: ${row.deletedByLabel}` : null,
+    row.sessionId ? `セッション: ${row.sessionId}` : null,
+    row.note ? `メモ: ${row.note}` : null,
+  ];
+  return parts.filter(Boolean).join(" / ");
+}
+
 export default function SettingsPageClient({
   initialSettings,
   viewerName,
@@ -75,6 +102,8 @@ export default function SettingsPageClient({
   const [savingGuardianId, setSavingGuardianId] = useState<string | null>(null);
   const [runningJobs, setRunningJobs] = useState(false);
   const [runningCleanup, setRunningCleanup] = useState(false);
+  const [runningScopedJobKey, setRunningScopedJobKey] = useState<string | null>(null);
+  const [restoringTargetKey, setRestoringTargetKey] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [operationsMessage, setOperationsMessage] = useState<string | null>(null);
   const [guardianDrafts, setGuardianDrafts] = useState<Record<string, string>>(() =>
@@ -165,6 +194,9 @@ export default function SettingsPageClient({
   };
 
   const runJobKick = async () => {
+    if (!window.confirm("保守ジョブを回します。よければ進めてください。")) {
+      return;
+    }
     setRunningJobs(true);
     setOperationsMessage(null);
     try {
@@ -184,6 +216,9 @@ export default function SettingsPageClient({
   };
 
   const runCleanup = async () => {
+    if (!window.confirm("保存期限切れの掃除を実行します。よければ進めてください。")) {
+      return;
+    }
     setRunningCleanup(true);
     setOperationsMessage(null);
     try {
@@ -195,6 +230,64 @@ export default function SettingsPageClient({
       setOperationsMessage(nextError?.message ?? "保守掃除に失敗しました。");
     } finally {
       setRunningCleanup(false);
+    }
+  };
+
+  const runScopedJobs = async (input: {
+    key: string;
+    conversationId?: string | null;
+    sessionId?: string | null;
+    successLabel: string;
+  }) => {
+    if (!window.confirm(`${input.successLabel}の処理を回します。よければ進めてください。`)) {
+      return;
+    }
+    setRunningScopedJobKey(input.key);
+    setOperationsMessage(null);
+    try {
+      const res = await fetch("/api/jobs/run", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          concurrency: 1,
+          ...(input.conversationId ? { conversationId: input.conversationId } : {}),
+          ...(input.sessionId ? { sessionId: input.sessionId } : {}),
+        }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body?.error ?? "個別再開に失敗しました。");
+      await refreshSettings(undefined, `${input.successLabel}を回しました。処理件数: ${body?.processed ?? 0}`);
+    } catch (nextError: any) {
+      setOperationsMessage(nextError?.message ?? "個別再開に失敗しました。");
+    } finally {
+      setRunningScopedJobKey((current) => (current === input.key ? null : current));
+    }
+  };
+
+  const restoreDeletedContent = async (input: {
+    key: string;
+    kind: "conversation" | "report";
+    id: string;
+    successLabel: string;
+  }) => {
+    if (!window.confirm(`${input.successLabel}を復元します。よければ進めてください。`)) {
+      return;
+    }
+    setRestoringTargetKey(input.key);
+    setOperationsMessage(null);
+    try {
+      const path =
+        input.kind === "conversation"
+          ? `/api/conversations/${input.id}/restore`
+          : `/api/reports/${input.id}/restore`;
+      const res = await fetch(path, { method: "POST" });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body?.error ?? "復元に失敗しました。");
+      await refreshSettings(undefined, `${input.successLabel}を復元しました。`);
+    } catch (nextError: any) {
+      setOperationsMessage(nextError?.message ?? "復元に失敗しました。");
+    } finally {
+      setRestoringTargetKey((current) => (current === input.key ? null : current));
     }
   };
 
@@ -509,6 +602,170 @@ export default function SettingsPageClient({
           </div>
 
           {operationsMessage ? <div className={styles.note}>{operationsMessage}</div> : null}
+
+          <div className={styles.policyList}>
+            <div className={styles.policyItem}>
+              <strong>会話処理の明細</strong>
+              <p>止まっている会話や、やり直し待ちの会話をここから直接回せます。</p>
+              <div className={styles.listBlock}>
+                {settings.operations.conversationJobRows.length === 0 ? (
+                  <div className={styles.successBox}>会話処理の詰まりは見つかっていません。</div>
+                ) : (
+                  settings.operations.conversationJobRows.map((row) => {
+                    const actionKey = `conversation:${row.targetId}`;
+                    return (
+                      <div key={row.id} className={styles.jobItem}>
+                        <div className={styles.jobTop}>
+                          <div>
+                            <strong>{row.studentName ?? "生徒未設定"} / {row.jobType}</strong>
+                            <div className={styles.note}>{buildJobDetail(row, timeZoneLabel)}</div>
+                          </div>
+                          <span className={styles.pill}>{row.statusLabel}</span>
+                        </div>
+                        <div className={styles.buttonRow}>
+                          <Button
+                            variant="secondary"
+                            onClick={() =>
+                              runScopedJobs({
+                                key: actionKey,
+                                conversationId: row.targetId,
+                                successLabel: "この会話",
+                              })
+                            }
+                            disabled={!canManage || runningScopedJobKey === actionKey}
+                          >
+                            {runningScopedJobKey === actionKey ? "実行中..." : "この会話だけ回す"}
+                          </Button>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+
+            <div className={styles.policyItem}>
+              <strong>音声処理の明細</strong>
+              <p>音声の文字起こしや昇格処理で止まったものを、セッション単位で回し直せます。</p>
+              <div className={styles.listBlock}>
+                {settings.operations.sessionPartJobRows.length === 0 ? (
+                  <div className={styles.successBox}>音声処理の詰まりは見つかっていません。</div>
+                ) : (
+                  settings.operations.sessionPartJobRows.map((row) => {
+                    const actionKey = `session:${row.sessionId}`;
+                    return (
+                      <div key={row.id} className={styles.jobItem}>
+                        <div className={styles.jobTop}>
+                          <div>
+                            <strong>{row.studentName ?? "生徒未設定"} / {row.jobType}</strong>
+                            <div className={styles.note}>{buildJobDetail(row, timeZoneLabel)}</div>
+                          </div>
+                          <span className={styles.pill}>{row.statusLabel}</span>
+                        </div>
+                        <div className={styles.buttonRow}>
+                          <Button
+                            variant="secondary"
+                            onClick={() =>
+                              runScopedJobs({
+                                key: actionKey,
+                                sessionId: row.sessionId,
+                                successLabel: "このセッション",
+                              })
+                            }
+                            disabled={!canManage || !row.sessionId || runningScopedJobKey === actionKey}
+                          >
+                            {runningScopedJobKey === actionKey ? "実行中..." : "このセッションだけ回す"}
+                          </Button>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+
+            <div className={styles.policyItem}>
+              <strong>削除した会話ログ</strong>
+              <p>間違って消した会話ログは、ここから元に戻せます。</p>
+              <div className={styles.listBlock}>
+                {settings.operations.deletedConversations.length === 0 ? (
+                  <div className={styles.successBox}>いま復元待ちの会話ログはありません。</div>
+                ) : (
+                  settings.operations.deletedConversations.map((row) => {
+                    const actionKey = `restore-conversation:${row.id}`;
+                    return (
+                      <div key={row.id} className={styles.jobItem}>
+                        <div className={styles.jobTop}>
+                          <div>
+                            <strong>{row.studentName ?? "生徒未設定"}</strong>
+                            <div className={styles.note}>{buildDeletedContentDetail(row, timeZoneLabel)}</div>
+                          </div>
+                          <span className={styles.pill}>削除中</span>
+                        </div>
+                        <div className={styles.buttonRow}>
+                          <Button
+                            variant="secondary"
+                            onClick={() =>
+                              restoreDeletedContent({
+                                key: actionKey,
+                                kind: "conversation",
+                                id: row.id,
+                                successLabel: "会話ログ",
+                              })
+                            }
+                            disabled={!canManage || restoringTargetKey === actionKey}
+                          >
+                            {restoringTargetKey === actionKey ? "復元中..." : "この会話を戻す"}
+                          </Button>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+
+            <div className={styles.policyItem}>
+              <strong>削除した保護者レポート</strong>
+              <p>間違って消した保護者レポートも、ここから元に戻せます。</p>
+              <div className={styles.listBlock}>
+                {settings.operations.deletedReports.length === 0 ? (
+                  <div className={styles.successBox}>いま復元待ちの保護者レポートはありません。</div>
+                ) : (
+                  settings.operations.deletedReports.map((row) => {
+                    const actionKey = `restore-report:${row.id}`;
+                    return (
+                      <div key={row.id} className={styles.jobItem}>
+                        <div className={styles.jobTop}>
+                          <div>
+                            <strong>{row.studentName ?? "生徒未設定"}</strong>
+                            <div className={styles.note}>{buildDeletedContentDetail(row, timeZoneLabel)}</div>
+                          </div>
+                          <span className={styles.pill}>削除中</span>
+                        </div>
+                        <div className={styles.buttonRow}>
+                          <Button
+                            variant="secondary"
+                            onClick={() =>
+                              restoreDeletedContent({
+                                key: actionKey,
+                                kind: "report",
+                                id: row.id,
+                                successLabel: "保護者レポート",
+                              })
+                            }
+                            disabled={!canManage || restoringTargetKey === actionKey}
+                          >
+                            {restoringTargetKey === actionKey ? "復元中..." : "このレポートを戻す"}
+                          </Button>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+          </div>
 
           <div className={styles.listBlock}>
             {settings.operations.recentAuditLogs.length === 0 ? (

@@ -44,20 +44,21 @@ export const DATA_RETENTION_POLICIES: DataRetentionPolicy[] = [
   {
     key: "conversation_artifact",
     label: "ConversationLog の structured artifact / summary",
-    deleteMode: "hard_delete",
+    deleteMode: "soft_delete",
     retentionDays: null,
     notes: [
-      "会話ログ削除時に削除する。",
-      "保護者レポートで参照中なら source trace から外す。",
+      "会話ログ削除時は deletedAt / deletedByUserId を付けて一覧から隠す。",
+      "管理画面からしばらく復元できる。",
     ],
   },
   {
     key: "report",
     label: "保護者レポート本文 / 共有履歴",
-    deleteMode: "hard_delete",
+    deleteMode: "soft_delete",
     retentionDays: null,
     notes: [
-      "レポート本文は削除操作があるまで保持する。",
+      "レポート削除時は deletedAt / deletedByUserId を付けて一覧から隠す。",
+      "管理画面からしばらく復元できる。",
       `delivery events は ${getReportDeliveryEventRetentionDays()} 日を過ぎたら cleanup で整理する。`,
     ],
   },

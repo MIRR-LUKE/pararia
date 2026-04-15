@@ -10,6 +10,37 @@ export type MissingStudent = {
   guardianNames?: string | null;
 };
 
+export type OperationsJobRow = {
+  id: string;
+  kind: "conversation" | "session_part";
+  targetId: string;
+  sessionId: string | null;
+  studentId: string | null;
+  studentName: string | null;
+  jobType: string;
+  status: string;
+  statusLabel: string;
+  fileName: string | null;
+  partType: string | null;
+  lastError: string | null;
+  nextRetryAt: string | null;
+  startedAt: string | null;
+  finishedAt: string | null;
+  updatedAt: string;
+  leaseExpiresAt: string | null;
+};
+
+export type DeletedContentRow = {
+  id: string;
+  kind: "conversation" | "report";
+  studentId: string;
+  studentName: string | null;
+  deletedAt: string;
+  deletedByLabel: string | null;
+  note: string | null;
+  sessionId: string | null;
+};
+
 export type SettingsSnapshot = {
   organization: {
     id: string;
@@ -60,6 +91,10 @@ export type SettingsSnapshot = {
     runningSessionPartJobs: number;
     staleSessionPartJobs: number;
     archivedStudents: number;
+    conversationJobRows: OperationsJobRow[];
+    sessionPartJobRows: OperationsJobRow[];
+    deletedConversations: DeletedContentRow[];
+    deletedReports: DeletedContentRow[];
     recentAuditLogs: Array<{
       id: string;
       action: string;
@@ -84,6 +119,30 @@ export type SettingsSnapshot = {
     deletionRequestFlow: string;
   };
 };
+
+function toIsoString(value: Date | null | undefined) {
+  return value ? value.toISOString() : null;
+}
+
+function buildJobStatusLabel(input: {
+  status: string;
+  nextRetryAt?: Date | null;
+  now: Date;
+}) {
+  if (input.nextRetryAt && input.nextRetryAt.getTime() > input.now.getTime()) {
+    return "やり直し待ち";
+  }
+  if (input.status === "RUNNING") return "実行中";
+  if (input.status === "QUEUED") return "待ち";
+  if (input.status === "ERROR") return "失敗";
+  if (input.status === "DONE") return "完了";
+  return input.status;
+}
+
+function pickDeletedByLabel(input: { name?: string | null; email?: string | null } | null | undefined) {
+  if (!input) return null;
+  return input.name?.trim() || input.email?.trim() || null;
+}
 
 type GetSettingsSnapshotOptions = {
   organizationId: string;
@@ -114,6 +173,10 @@ export async function getSettingsSnapshot({
     runningSessionPartJobs,
     staleSessionPartJobs,
     archivedStudents,
+    conversationJobRows,
+    sessionPartJobRows,
+    deletedConversations,
+    deletedReports,
     recentAuditLogs,
   ] = await Promise.all([
     prisma.organization.findUnique({
@@ -254,6 +317,133 @@ export async function getSettingsSnapshot({
         archivedAt: { not: null },
       },
     }),
+    prisma.conversationJob.findMany({
+      where: {
+        conversation: {
+          organizationId,
+          deletedAt: null,
+        },
+        OR: [
+          { status: { in: ["QUEUED", "RUNNING", "ERROR"] } },
+          { nextRetryAt: { not: null } },
+        ],
+      },
+      orderBy: [{ updatedAt: "desc" }, { createdAt: "desc" }],
+      take: 8,
+      select: {
+        id: true,
+        conversationId: true,
+        type: true,
+        status: true,
+        lastError: true,
+        nextRetryAt: true,
+        startedAt: true,
+        finishedAt: true,
+        updatedAt: true,
+        leaseExpiresAt: true,
+        conversation: {
+          select: {
+            sessionId: true,
+            student: {
+              select: {
+                id: true,
+                name: true,
+              },
+            },
+          },
+        },
+      },
+    }),
+    prisma.sessionPartJob.findMany({
+      where: {
+        status: { in: ["QUEUED", "RUNNING", "ERROR"] },
+        sessionPart: {
+          session: {
+            organizationId,
+          },
+        },
+      },
+      orderBy: [{ updatedAt: "desc" }, { createdAt: "desc" }],
+      take: 8,
+      select: {
+        id: true,
+        sessionPartId: true,
+        type: true,
+        status: true,
+        lastError: true,
+        startedAt: true,
+        finishedAt: true,
+        updatedAt: true,
+        sessionPart: {
+          select: {
+            partType: true,
+            fileName: true,
+            session: {
+              select: {
+                id: true,
+                student: {
+                  select: {
+                    id: true,
+                    name: true,
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    }),
+    prisma.conversationLog.findMany({
+      where: {
+        organizationId,
+        deletedAt: { not: null },
+      },
+      orderBy: [{ deletedAt: "desc" }, { createdAt: "desc" }],
+      take: 6,
+      select: {
+        id: true,
+        studentId: true,
+        deletedAt: true,
+        deletedReason: true,
+        deletedSessionId: true,
+        student: {
+          select: {
+            name: true,
+          },
+        },
+        deletedBy: {
+          select: {
+            name: true,
+            email: true,
+          },
+        },
+      },
+    }),
+    prisma.report.findMany({
+      where: {
+        organizationId,
+        deletedAt: { not: null },
+      },
+      orderBy: [{ deletedAt: "desc" }, { createdAt: "desc" }],
+      take: 6,
+      select: {
+        id: true,
+        studentId: true,
+        deletedAt: true,
+        deletedReason: true,
+        student: {
+          select: {
+            name: true,
+          },
+        },
+        deletedBy: {
+          select: {
+            name: true,
+            email: true,
+          },
+        },
+      },
+    }),
     prisma.auditLog.findMany({
       where: { organizationId },
       orderBy: { createdAt: "desc" },
@@ -340,6 +530,75 @@ export async function getSettingsSnapshot({
       runningSessionPartJobs,
       staleSessionPartJobs,
       archivedStudents,
+      conversationJobRows: conversationJobRows.map((job) => ({
+        id: job.id,
+        kind: "conversation",
+        targetId: job.conversationId,
+        sessionId: job.conversation.sessionId ?? null,
+        studentId: job.conversation.student.id,
+        studentName: job.conversation.student.name ?? null,
+        jobType: job.type,
+        status: job.status,
+        statusLabel: buildJobStatusLabel({
+          status: job.status,
+          nextRetryAt: job.nextRetryAt,
+          now,
+        }),
+        fileName: null,
+        partType: null,
+        lastError: job.lastError ?? null,
+        nextRetryAt: toIsoString(job.nextRetryAt),
+        startedAt: toIsoString(job.startedAt),
+        finishedAt: toIsoString(job.finishedAt),
+        updatedAt: job.updatedAt.toISOString(),
+        leaseExpiresAt: toIsoString(job.leaseExpiresAt),
+      })),
+      sessionPartJobRows: sessionPartJobRows.map((job) => ({
+        id: job.id,
+        kind: "session_part",
+        targetId: job.sessionPartId,
+        sessionId: job.sessionPart.session.id,
+        studentId: job.sessionPart.session.student.id,
+        studentName: job.sessionPart.session.student.name ?? null,
+        jobType: job.type,
+        status: job.status,
+        statusLabel: buildJobStatusLabel({
+          status: job.status,
+          now,
+        }),
+        fileName: job.sessionPart.fileName ?? null,
+        partType: job.sessionPart.partType,
+        lastError: job.lastError ?? null,
+        nextRetryAt: null,
+        startedAt: toIsoString(job.startedAt),
+        finishedAt: toIsoString(job.finishedAt),
+        updatedAt: job.updatedAt.toISOString(),
+        leaseExpiresAt: null,
+      })),
+      deletedConversations: deletedConversations
+        .filter((item) => item.deletedAt)
+        .map((item) => ({
+          id: item.id,
+          kind: "conversation",
+          studentId: item.studentId,
+          studentName: item.student.name ?? null,
+          deletedAt: item.deletedAt!.toISOString(),
+          deletedByLabel: pickDeletedByLabel(item.deletedBy),
+          note: item.deletedReason ?? null,
+          sessionId: item.deletedSessionId ?? null,
+        })),
+      deletedReports: deletedReports
+        .filter((item) => item.deletedAt)
+        .map((item) => ({
+          id: item.id,
+          kind: "report",
+          studentId: item.studentId,
+          studentName: item.student.name ?? null,
+          deletedAt: item.deletedAt!.toISOString(),
+          deletedByLabel: pickDeletedByLabel(item.deletedBy),
+          note: item.deletedReason ?? null,
+          sessionId: null,
+        })),
       recentAuditLogs: recentAuditLogs.map((entry) => ({
         id: entry.id,
         action: entry.action,

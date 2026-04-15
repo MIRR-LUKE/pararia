@@ -11,6 +11,7 @@ import { buildSummaryPreview } from "@/lib/session-part-meta";
 import { resolveRouteId, type RouteParams } from "@/lib/server/route-params";
 import { requireAuthorizedSession } from "@/lib/server/request-auth";
 import { pickDisplayTranscriptText } from "@/lib/transcript/source";
+import { withVisibleConversationWhere } from "@/lib/content-visibility";
 import { shouldRunBackgroundJobsInline } from "@/lib/jobs/execution-mode";
 import { maybeStopRunpodWorkerWhenSessionPartQueueIdle } from "@/lib/runpod/idle-stop";
 import { maybeEnsureRunpodWorker } from "@/lib/runpod/worker-control";
@@ -101,7 +102,7 @@ async function wakeSessionWorkerOrFallback(sessionId: string, hasPendingConversa
   await processAllSessionPartJobs(sessionId);
 
   const refreshedConversation = await prisma.conversationLog.findFirst({
-    where: { sessionId },
+    where: withVisibleConversationWhere({ sessionId }),
     select: {
       id: true,
       status: true,

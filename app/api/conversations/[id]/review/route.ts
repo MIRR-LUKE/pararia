@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { withVisibleConversationWhere } from "@/lib/content-visibility";
 import { prisma } from "@/lib/db";
 import { requireAuthorizedSession } from "@/lib/server/request-auth";
 import { resolveRouteId, type RouteParams } from "@/lib/server/route-params";
@@ -9,10 +10,10 @@ import {
 
 async function ensureOwnedConversation(conversationId: string, organizationId: string) {
   const conversation = await prisma.conversationLog.findFirst({
-    where: {
+    where: withVisibleConversationWhere({
       id: conversationId,
       organizationId,
-    },
+    }),
     select: { id: true },
   });
   if (!conversation) {

@@ -17,6 +17,7 @@ export type JobPayload = {
 export type ProcessJobsOptions = {
   conversationId?: string;
   sessionId?: string;
+  executionId?: string;
 };
 
 export type ConversationPayload = {

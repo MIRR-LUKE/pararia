@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { withVisibleConversationWhere } from "@/lib/content-visibility";
 import { prisma } from "@/lib/db";
 import { ConversationJobType, JobStatus } from "@prisma/client";
 import { processAllConversationJobs } from "@/lib/jobs/conversationJobs";
@@ -19,7 +20,7 @@ export async function POST(
     const organizationId = authResult.session.user.organizationId;
 
     const conversation = await prisma.conversationLog.findFirst({
-      where: { id, organizationId },
+      where: withVisibleConversationWhere({ id, organizationId }),
       select: {
         id: true,
         formattedTranscript: true,

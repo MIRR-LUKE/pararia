@@ -6,6 +6,7 @@ import { writeAuditLog } from "@/lib/audit";
 import { prisma } from "@/lib/db";
 import { generateParentReport } from "@/lib/ai/parentReport";
 import { renderConversationArtifactOrFallback } from "@/lib/conversation-artifact";
+import { withVisibleConversationWhere } from "@/lib/content-visibility";
 import { getLogListCacheTag } from "@/lib/logs/get-log-list-page-data";
 import { withActiveStudentWhere } from "@/lib/students/student-lifecycle";
 
@@ -44,7 +45,7 @@ export async function POST(request: Request) {
     const to = toDate ? new Date(toDate) : undefined;
 
     const selectedLogs = await prisma.conversationLog.findMany({
-      where: {
+      where: withVisibleConversationWhere({
         organizationId: session.user.organizationId,
         studentId,
         ...(resolvedLogIds.length
@@ -57,7 +58,7 @@ export async function POST(request: Request) {
                   ...(to ? { lte: to } : {}),
                 },
               }),
-      },
+      }),
       orderBy: { createdAt: "asc" },
       select: {
         id: true,

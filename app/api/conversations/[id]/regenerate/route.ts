@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { ConversationStatus, JobStatus, Prisma } from "@prisma/client";
+import { withVisibleConversationWhere } from "@/lib/content-visibility";
 import { prisma } from "@/lib/db";
 import {
   enqueueConversationJobs,
@@ -26,7 +27,7 @@ export async function POST(
     const { searchParams } = new URL(request.url);
     const includeFormat = searchParams.get("format") === "1";
     const conversation = await prisma.conversationLog.findFirst({
-      where: { id, organizationId },
+      where: withVisibleConversationWhere({ id, organizationId }),
       select: {
         id: true,
         rawTextOriginal: true,
@@ -48,7 +49,7 @@ export async function POST(
       },
     });
 
-    if (runningJobs > 0 || isConversationJobRunActive(id)) {
+    if (runningJobs > 0 || (await isConversationJobRunActive(id))) {
       return NextResponse.json(
         { error: "このログは現在生成中です。完了後に再試行してください。" },
         { status: 409 }

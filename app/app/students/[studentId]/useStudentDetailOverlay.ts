@@ -216,14 +216,14 @@ export function useStudentDetailOverlay({
     const label = activeLogSession ? formatSessionLabel(activeLogSession) : "このログ";
     const usageDetail =
       activeLogReportUsageCount > 0
-        ? `${activeLogReportUsageCount}件の保護者レポートで使われている source trace からも外れます。`
-        : "保護者レポートの参照中でなければ、関連トレースはありません。";
+        ? `${activeLogReportUsageCount}件の保護者レポートからは参照件数だけが残ります。必要ならあとでこのログを戻せます。`
+        : "一覧からは隠れますが、あとで戻せます。";
 
     setDeleteTarget({
       kind: "conversation",
       id: overlay.logId,
       label,
-      detail: `${label}の本文と文字起こしを削除します。${usageDetail}`,
+      detail: `${label}を一覧から隠します。本文と文字起こしは復元用にしばらく残ります。${usageDetail}`,
     });
   }, [activeLogReportUsageCount, activeLogSession, logHasUnsavedChanges, overlay]);
 
@@ -234,7 +234,7 @@ export function useStudentDetailOverlay({
       kind: "report",
       id: activeParentReport.id,
       label: `${formatReportDate(activeParentReport.createdAt)} の保護者レポート`,
-      detail: "レポート本文と共有履歴をまとめて削除します。",
+      detail: "レポートを一覧から隠します。本文と共有履歴は復元用にしばらく残ります。",
     });
   }, [activeParentReport]);
 

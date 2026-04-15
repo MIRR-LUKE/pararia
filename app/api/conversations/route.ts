@@ -11,6 +11,7 @@ import { getLogListCacheTag } from "@/lib/logs/get-log-list-page-data";
 import { getTranscriptExpiryDate } from "@/lib/system-config";
 import { ensureConversationReviewedTranscript } from "@/lib/transcript/review";
 import { withActiveStudentWhere } from "@/lib/students/student-lifecycle";
+import { withVisibleConversationWhere } from "@/lib/content-visibility";
 import { sanitizeSummaryMarkdown } from "@/lib/user-facing-japanese";
 import { maybeStopRunpodWorkerWhenSessionPartQueueIdle } from "@/lib/runpod/idle-stop";
 import { maybeEnsureRunpodWorker } from "@/lib/runpod/worker-control";
@@ -35,12 +36,12 @@ export async function GET(request: Request) {
       const sessionTypeFilter =
         typeFilter === "LESSON_REPORT" || typeFilter === "INTERVIEW" ? typeFilter : undefined;
       const conversations = await prisma.conversationLog.findMany({
-        where: {
+        where: withVisibleConversationWhere({
           organizationId,
           studentId,
           student: { archivedAt: null },
           ...(sessionTypeFilter ? { session: { type: sessionTypeFilter } } : {}),
-        },
+        }),
         orderBy: { createdAt: "desc" },
         take: limit,
         select: {
@@ -82,11 +83,11 @@ export async function GET(request: Request) {
       typeFilter === "LESSON_REPORT" || typeFilter === "INTERVIEW" ? typeFilter : undefined;
 
     const conversations = await prisma.conversationLog.findMany({
-      where: {
+      where: withVisibleConversationWhere({
         organizationId,
         student: { archivedAt: null },
         ...(sessionTypeFilter ? { session: { type: sessionTypeFilter } } : {}),
-      },
+      }),
       orderBy: { createdAt: "desc" },
       take: limit,
       select: {

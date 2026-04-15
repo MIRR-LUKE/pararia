@@ -1,0 +1,105 @@
+name: Backup Restore Drill
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 3 1 * *"
+
+jobs:
+  restore-drill:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      CI: true
+      NODE_ENV: test
+      NEXTAUTH_SECRET: pararia-dev-auth-secret
+      PGHOST: 127.0.0.1
+      PGPORT: 5432
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      SOURCE_DB_NAME: pararia_restore_drill_source
+      TARGET_DB_NAME: pararia_restore_drill_target
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npm run prisma:generate
+
+      - name: Create drill databases
+        run: |
+          dropdb --if-exists --host "$PGHOST" --port "$PGPORT" --username "$PGUSER" "$SOURCE_DB_NAME"
+          dropdb --if-exists --host "$PGHOST" --port "$PGPORT" --username "$PGUSER" "$TARGET_DB_NAME"
+          createdb --host "$PGHOST" --port "$PGPORT" --username "$PGUSER" "$SOURCE_DB_NAME"
+          createdb --host "$PGHOST" --port "$PGPORT" --username "$PGUSER" "$TARGET_DB_NAME"
+
+      - name: Prepare source database
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/pararia_restore_drill_source?schema=public
+          DIRECT_URL: postgresql://postgres:postgres@127.0.0.1:5432/pararia_restore_drill_source?schema=public
+        run: npm run prisma:test:prepare
+
+      - name: Seed source database
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/pararia_restore_drill_source?schema=public
+          DIRECT_URL: postgresql://postgres:postgres@127.0.0.1:5432/pararia_restore_drill_source?schema=public
+          PARARIA_INCLUDE_DEMO_STUDENTS: "1"
+        run: npm run prisma:seed
+
+      - name: Create backup from source
+        env:
+          PARARIA_BACKUP_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/pararia_restore_drill_source?schema=public
+        run: npm run backup:db -- --output-dir ".backups/restore-drill/source"
+
+      - name: Pick latest backup
+        id: backup_dir
+        run: |
+          latest_backup_dir=$(find .backups/restore-drill/source -mindepth 1 -maxdepth 1 -type d | sort | tail -n 1)
+          if [ -z "$latest_backup_dir" ]; then
+            echo "backup directory not found"
+            exit 1
+          fi
+          echo "backup_dir=$latest_backup_dir" >> "$GITHUB_OUTPUT"
+
+      - name: Restore into target
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/pararia_restore_drill_target?schema=public
+        run: npm run restore:db -- --backup-dir "${{ steps.backup_dir.outputs.backup_dir }}"
+
+      - name: Verify restored data
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/pararia_restore_drill_target?schema=public
+        run: npm run test:backup-restore-drill
+
+      - name: Upload backup artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pararia-restore-drill-backup-${{ github.run_id }}
+          path: .backups/restore-drill/source
+          retention-days: 14

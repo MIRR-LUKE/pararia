@@ -1,5 +1,6 @@
 import { unstable_cache } from "next/cache";
 import { prisma } from "@/lib/db";
+import { withVisibleConversationWhere } from "@/lib/content-visibility";
 import { normalizeTranscriptReviewMeta, type TranscriptReviewMeta } from "@/lib/logs/transcript-review-display";
 import { sanitizeSummaryMarkdown } from "@/lib/user-facing-japanese";
 
@@ -35,10 +36,10 @@ export async function getLogListPageData({
   studentId?: string | null;
 }): Promise<LogListPageData> {
   const conversations = await prisma.conversationLog.findMany({
-    where: {
+    where: withVisibleConversationWhere({
       organizationId,
       ...(studentId ? { studentId } : {}),
-    },
+    }),
     orderBy: { createdAt: "desc" },
     take: studentId ? 100 : 80,
     select: {

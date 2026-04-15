@@ -151,6 +151,8 @@ PARARIA は、塾・個別指導・学習コーチング向けの `Teaching OS` 
 - 組織名、プラン、人数上限、表示言語、タイムゾーン、同意バージョンの更新
 - 招待の詰まり、権限人数、最近の操作履歴の確認
 - 管理者向けの保守コンソールから `jobs/run` と `maintenance/cleanup` を実行
+- 止まった会話処理 / 音声処理を見て、その会話やセッションだけ再開
+- 削除した会話ログ / 保護者レポートを設定画面から復元
 - 保守 API は管理者セッション、または `cron_secret` / `x-maintenance-secret` で通す
 - 実行した人、実行方法、対象は監査ログに残す
 
@@ -177,6 +179,8 @@ PARARIA は、塾・個別指導・学習コーチング向けの `Teaching OS` 
 - 保守コンソール
   - 会話ジョブ / 音声ジョブの待ち数
   - 詰まり疑い件数
+  - 会話処理 / 音声処理の明細
+  - 削除した会話ログ / 保護者レポートの復元
   - 最近の監査ログ
   - `ジョブを回す`
   - `保存期限切れを掃除`
@@ -728,6 +732,7 @@ GPU が強いときの最初の目安:
 
 - `GET/POST /api/conversations`
 - `GET/PATCH/DELETE /api/conversations/[id]`
+- `POST /api/conversations/[id]/restore`
 - `POST /api/conversations/[id]/regenerate`
 - `POST /api/conversations/[id]/format`
 - `GET/POST /api/conversations/[id]/review`
@@ -743,6 +748,9 @@ GPU が強いときの最初の目安:
   - ログ本文の手動編集保存に使う
   - `summaryMarkdown` を保存すると `artifactJson` も同時に更新する
   - 編集途中は自動保存しない
+- `DELETE /api/conversations/[id]`
+  - 物理削除ではなく、いったん見えなくするだけにする
+  - `POST /api/conversations/[id]/restore` で戻せる
 - `POST /api/conversations/[id]/regenerate?format=1`
   - 再生成に加えて transcript 整形も再実行
 - `POST /api/sessions/[id]/next-meeting-memo/regenerate`
@@ -760,6 +768,7 @@ GPU が強いときの最初の目安:
 
 - `POST /api/ai/generate-report`
 - `POST /api/reports/[id]/send`
+- `POST /api/reports/[id]/restore`
 
 補足:
 
@@ -768,6 +777,9 @@ GPU が強いときの最初の目安:
   - `artifactJson` first で bundle を組む
   - 弱い draft は同モデルで 1 回だけ repair する
   - `qualityChecksJson.bundleQualityEval` と `qualityChecksJson.generationMeta` を保存する
+- `DELETE /api/reports/[id]`
+  - 物理削除ではなく、いったん見えなくするだけにする
+  - `POST /api/reports/[id]/restore` で戻せる
 
 ### 13.6 ジョブ / メンテナンス
 
@@ -1033,6 +1045,12 @@ npm run students:archived
 npm run restore:student -- --student-id <studentId>
 ```
 
+バックアップを別 DB に戻す確認:
+
+```bash
+npm run restore:db -- --backup-dir <backup-dir> --database-url <restore-db-url>
+```
+
 ### 16.5 運用ベストプラクティス
 
 - Supabase は **PITR を有効化** する
@@ -1042,6 +1060,7 @@ npm run restore:student -- --student-id <studentId>
   - dump を別 DB に戻せるか
   - blob backup から対象音声を取り出せるか
   - archive した生徒を restore script で戻せるか
+- GitHub Actions の `Backup Restore Drill` は、DB backup を作って別 DB に戻し、最後に中身を確認する
 - backup 成功だけでは不十分で、**restore できること** を確認する
 
 ### 16.6 公式ドキュメント

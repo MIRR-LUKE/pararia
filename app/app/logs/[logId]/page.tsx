@@ -1,5 +1,6 @@
 import { notFound, redirect } from "next/navigation";
 import { AppHeader } from "@/components/layout/AppHeader";
+import { withVisibleConversationWhere } from "@/lib/content-visibility";
 import { prisma } from "@/lib/db";
 import { normalizeTranscriptReviewMeta } from "@/lib/logs/transcript-review-display";
 import { getAppSession } from "@/lib/server/app-session";
@@ -18,10 +19,10 @@ export default async function LogReviewPage({ params }: { params: Promise<{ logI
   }
 
   const conversation = await prisma.conversationLog.findFirst({
-    where: {
+    where: withVisibleConversationWhere({
       id: logId,
       organizationId,
-    },
+    }),
     select: {
       id: true,
       status: true,

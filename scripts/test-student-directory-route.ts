@@ -8,11 +8,15 @@ import { createCriticalPathSmokeApi, loadCriticalPathSmokeEnv } from "./lib/crit
 
 type StudentDirectoryRouteSmokeResult = {
   studentId: string;
+  settingsUpdatedGuardianNames: string | null;
   updatedGrade: string | null;
+  updatedNameKana: string | null;
   updatedGuardianNames: string | null;
   listContainsCreatedStudentBeforeArchive: boolean;
   listContainsCreatedStudentAfterArchive: boolean;
+  listContainsRestoredStudentAfterRestore: boolean;
   roomReflectsEdit: boolean;
+  restoreSucceeded: boolean;
 };
 
 function argValue(flag: string) {
@@ -54,30 +58,41 @@ export async function runStudentDirectoryRouteSmoke(
     assert.ok(createdListRow, "created student appears in directory");
     assert.equal(typeof createdListRow.createdAt, "string", "directory createdAt");
 
+    const settingsResponse = await api.patch("/api/settings", {
+      data: {
+        studentId,
+        guardianNames: "保護者C",
+      },
+    });
+    assert.equal(settingsResponse.ok(), true, `student settings update failed: ${settingsResponse.status()}`);
+    const settingsBody = await settingsResponse.json();
+    assert.equal(settingsBody.student?.guardianNames ?? null, "保護者C");
+
     const updateResponse = await api.put(`/api/students/${studentId}`, {
       data: {
+        nameKana: "ルート スチューデント アップデート",
         grade: "高3",
         course: "route-smoke-updated",
-        guardianNames: "保護者B",
       },
     });
     assert.equal(updateResponse.ok(), true, `student update failed: ${updateResponse.status()}`);
     const updateBody = await updateResponse.json();
     assert.equal(updateBody.student?.grade ?? null, "高3");
-    assert.equal(updateBody.student?.guardianNames ?? null, "保護者B");
+    assert.equal(updateBody.student?.nameKana ?? null, "ルート スチューデント アップデート");
 
     const readResponse = await api.get(`/api/students/${studentId}`);
     assert.equal(readResponse.ok(), true, `student read failed: ${readResponse.status()}`);
     const readBody = await readResponse.json();
     assert.equal(readBody.student?.grade ?? null, "高3");
-    assert.equal(readBody.student?.guardianNames ?? null, "保護者B");
+    assert.equal(readBody.student?.nameKana ?? null, "ルート スチューデント アップデート");
+    assert.equal(readBody.student?.guardianNames ?? null, "保護者C");
 
     const roomResponse = await api.get(`/api/students/${studentId}/room`);
     assert.equal(roomResponse.ok(), true, `student room failed: ${roomResponse.status()}`);
     const roomBody = await roomResponse.json();
     assert.equal(roomBody.student?.grade ?? null, "高3");
     assert.equal(roomBody.student?.course ?? null, "route-smoke-updated");
-    assert.equal(roomBody.student?.guardianNames ?? null, "保護者B");
+    assert.equal(roomBody.student?.guardianNames ?? null, "保護者C");
 
     const archiveResponse = await api.delete(`/api/students/${studentId}`);
     assert.equal(archiveResponse.ok(), true, `student archive failed: ${archiveResponse.status()}`);
@@ -95,16 +110,47 @@ export async function runStudentDirectoryRouteSmoke(
     const archivedListRow = (listAfterArchiveBody.students ?? []).find((student: any) => student.id === studentId);
     assert.equal(Boolean(archivedListRow), false, "archived student removed from directory");
 
+    const restoreResponse = await api.post(`/api/students/${studentId}/restore`);
+    assert.equal(restoreResponse.ok(), true, `student restore failed: ${restoreResponse.status()}`);
+    const restoreBody = await restoreResponse.json();
+    assert.equal(restoreBody.studentId ?? null, studentId);
+
+    const readAfterRestoreResponse = await api.get(`/api/students/${studentId}`);
+    assert.equal(readAfterRestoreResponse.ok(), true, `student read after restore failed: ${readAfterRestoreResponse.status()}`);
+    const readAfterRestoreBody = await readAfterRestoreResponse.json();
+    assert.equal(readAfterRestoreBody.student?.grade ?? null, "高3");
+    assert.equal(readAfterRestoreBody.student?.course ?? null, "route-smoke-updated");
+    assert.equal(readAfterRestoreBody.student?.guardianNames ?? null, "保護者C");
+
+    const roomAfterRestoreResponse = await api.get(`/api/students/${studentId}/room`);
+    assert.equal(roomAfterRestoreResponse.ok(), true, `student room after restore failed: ${roomAfterRestoreResponse.status()}`);
+    const roomAfterRestoreBody = await roomAfterRestoreResponse.json();
+    assert.equal(roomAfterRestoreBody.student?.grade ?? null, "高3");
+    assert.equal(roomAfterRestoreBody.student?.course ?? null, "route-smoke-updated");
+    assert.equal(roomAfterRestoreBody.student?.guardianNames ?? null, "保護者C");
+
+    const listAfterRestoreResponse = await api.get("/api/students?limit=200");
+    assert.equal(listAfterRestoreResponse.ok(), true, `students list after restore failed: ${listAfterRestoreResponse.status()}`);
+    const listAfterRestoreBody = await listAfterRestoreResponse.json();
+    const restoredListRow = (listAfterRestoreBody.students ?? []).find((student: any) => student.id === studentId);
+    assert.ok(restoredListRow, "restored student appears in directory again");
+    assert.equal(restoredListRow.grade ?? null, "高3");
+    assert.equal(restoredListRow.course ?? null, "route-smoke-updated");
+
     return {
       studentId,
+      settingsUpdatedGuardianNames: settingsBody.student?.guardianNames ?? null,
       updatedGrade: updateBody.student?.grade ?? null,
-      updatedGuardianNames: updateBody.student?.guardianNames ?? null,
+      updatedNameKana: updateBody.student?.nameKana ?? null,
+      updatedGuardianNames: readBody.student?.guardianNames ?? null,
       listContainsCreatedStudentBeforeArchive: Boolean(createdListRow),
       listContainsCreatedStudentAfterArchive: Boolean(archivedListRow),
+      listContainsRestoredStudentAfterRestore: Boolean(restoredListRow),
       roomReflectsEdit:
-        roomBody.student?.grade === "高3" &&
-        roomBody.student?.course === "route-smoke-updated" &&
-        roomBody.student?.guardianNames === "保護者B",
+        roomAfterRestoreBody.student?.grade === "高3" &&
+        roomAfterRestoreBody.student?.course === "route-smoke-updated" &&
+        roomAfterRestoreBody.student?.guardianNames === "保護者C",
+      restoreSucceeded: restoreBody.studentId === studentId,
     };
   } finally {
     if (studentId) {
