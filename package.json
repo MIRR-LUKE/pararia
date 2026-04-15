@@ -78,7 +78,7 @@
     "students:archived": "tsx scripts/list-archived-students.ts",
     "restore:student": "tsx scripts/restore-archived-student.ts",
     "test:backup-restore-drill": "tsx scripts/test-backup-restore-drill.ts",
-    "verify": "npm run lint && npm run typecheck && npm run scan:secrets && npm run test:migration-safety && npm run build",
+    "verify": "npm run lint && npm run typecheck && npm run scan:secrets && npm run check:code-shape && npm run test:migration-safety && npm run build",
     "postinstall": "prisma generate",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "tsx scripts/prisma-migrate-dev-safe.ts && prisma migrate dev",

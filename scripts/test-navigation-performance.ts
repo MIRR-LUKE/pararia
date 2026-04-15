@@ -7,6 +7,8 @@ import type { BrowserContext } from "playwright-core";
 import { assertMeasurementStudent } from "./lib/measurement-student-guard";
 import { renderRoutePerformanceReport, summarizeComparison, type RoutePerformanceRun } from "./lib/navigation-performance";
 import { runNavigationPerformanceScenarios } from "./lib/navigation-performance-runner";
+import { assertMutatingFixtureEnvironment } from "./lib/environment-safety";
+import { CRITICAL_PATH_ADMIN_EMAIL, CRITICAL_PATH_ADMIN_PASSWORD, loadCriticalPathSmokeEnv } from "./lib/critical-path-smoke-env";
 
 function argValue(...flags: string[]) {
   const index = process.argv.findIndex((arg) => flags.includes(arg));
@@ -33,7 +35,7 @@ async function loadJsonIfExists<T>(filePath: string): Promise<T | null> {
   return JSON.parse(await readFile(filePath, "utf8")) as T;
 }
 
-async function measureAuthApi(baseUrl: string) {
+async function measureAuthApi(baseUrl: string, email: string, password: string) {
   const csrfStartedAt = Date.now();
   const csrfResponse = await fetch(`${baseUrl}/api/auth/csrf`);
   const csrfBody = await csrfResponse.json();
@@ -48,8 +50,8 @@ async function measureAuthApi(baseUrl: string) {
     redirect: "manual",
     body: new URLSearchParams({
       csrfToken: String(csrfBody?.csrfToken ?? ""),
-      email: "admin@demo.com",
-      password: "demo123",
+      email,
+      password,
       callbackUrl: `${baseUrl}/app/dashboard`,
       json: "true",
     }),
@@ -106,6 +108,9 @@ async function main() {
     mkdir(path.dirname(baselinePath), { recursive: true }),
   ]);
 
+  await loadCriticalPathSmokeEnv();
+  assertMutatingFixtureEnvironment(baseUrl, label);
+
   const browser = await chromium.launch({
     headless: true,
     executablePath: detectBrowserExecutable(),
@@ -135,15 +140,15 @@ async function main() {
     await page.waitForSelector("h1", { timeout: 20_000 });
     const loginPageMs = Date.now() - loginPageStartedAt;
 
-    const authMetric = await measureAuthApi(baseUrl);
+    const authMetric = await measureAuthApi(baseUrl, CRITICAL_PATH_ADMIN_EMAIL, CRITICAL_PATH_ADMIN_PASSWORD);
 
     const csrfResponse = await context.request.get(`${baseUrl}/api/auth/csrf`);
     const csrfBody = await csrfResponse.json();
     const loginResponse = await context.request.post(`${baseUrl}/api/auth/callback/credentials?json=true`, {
       form: {
         csrfToken: String(csrfBody?.csrfToken ?? ""),
-        email: "admin@demo.com",
-        password: "demo123",
+        email: CRITICAL_PATH_ADMIN_EMAIL,
+        password: CRITICAL_PATH_ADMIN_PASSWORD,
         callbackUrl: `${baseUrl}/app/dashboard`,
         json: "true",
       },

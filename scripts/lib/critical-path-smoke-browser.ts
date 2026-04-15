@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { chromium, request, type APIRequestContext } from "playwright-core";
-import { CRITICAL_PATH_ADMIN_EMAIL, CRITICAL_PATH_ADMIN_PASSWORD, CRITICAL_PATH_BOOTSTRAP_URL } from "./critical-path-smoke-env";
+import { CRITICAL_PATH_BOOTSTRAP_URL, loadCriticalPathSmokeEnv, type CriticalPathSmokeCredentials } from "./critical-path-smoke-env";
 
 function detectBrowserExecutable() {
   const candidates = [
@@ -24,7 +24,7 @@ function detectBrowserExecutable() {
   throw new Error("Edge / Chrome の実行ファイルが見つかりません。");
 }
 
-async function loginDemoUser(api: APIRequestContext, baseUrl: string) {
+async function loginSmokeUser(api: APIRequestContext, baseUrl: string, credentials: CriticalPathSmokeCredentials) {
   const csrfResponse = await api.get("/api/auth/csrf");
   if (!csrfResponse.ok()) {
     throw new Error(`auth csrf failed: ${csrfResponse.status()}`);
@@ -38,15 +38,15 @@ async function loginDemoUser(api: APIRequestContext, baseUrl: string) {
   const loginResponse = await api.post("/api/auth/callback/credentials?json=true", {
     form: {
       csrfToken,
-      email: CRITICAL_PATH_ADMIN_EMAIL,
-      password: CRITICAL_PATH_ADMIN_PASSWORD,
+      email: credentials.email,
+      password: credentials.password,
       callbackUrl: `${baseUrl}/app/dashboard`,
       json: "true",
     },
     maxRedirects: 0,
   });
   if (loginResponse.status() >= 400) {
-    throw new Error(`demo login failed: ${loginResponse.status()}`);
+    throw new Error(`smoke login failed: ${loginResponse.status()}`);
   }
 
   const sessionResponse = await api.get("/api/auth/session");
@@ -54,7 +54,7 @@ async function loginDemoUser(api: APIRequestContext, baseUrl: string) {
     throw new Error(`auth session failed: ${sessionResponse.status()}`);
   }
   const sessionBody = await sessionResponse.json().catch(() => ({}));
-  if (sessionBody?.user?.email === CRITICAL_PATH_ADMIN_EMAIL) {
+  if (sessionBody?.user?.email === credentials.email) {
     if (String(sessionBody?.user?.id ?? "").length === 0) {
       throw new Error("authenticated user id is empty");
     }
@@ -77,6 +77,7 @@ async function bootstrapIfNeeded(api: APIRequestContext) {
 }
 
 export async function createCriticalPathSmokeApi(baseUrl: string) {
+  const credentials = await loadCriticalPathSmokeEnv();
   const requestApi = await request.newContext({
     baseURL: baseUrl,
     ignoreHTTPSErrors: true,
@@ -84,7 +85,7 @@ export async function createCriticalPathSmokeApi(baseUrl: string) {
 
   try {
     await bootstrapIfNeeded(requestApi);
-    await loginDemoUser(requestApi, baseUrl);
+    await loginSmokeUser(requestApi, baseUrl, credentials);
     return {
       api: requestApi,
       close: () => requestApi.dispose(),
@@ -108,8 +109,8 @@ export async function createCriticalPathSmokeApi(baseUrl: string) {
         await page.goto(bootstrapUrl, { waitUntil: "domcontentloaded" });
       }
       await page.goto(`${baseUrl}/login`, { waitUntil: "domcontentloaded" });
-      await page.locator('input[type="email"]').fill(CRITICAL_PATH_ADMIN_EMAIL);
-      await page.locator('input[type="password"]').fill(CRITICAL_PATH_ADMIN_PASSWORD);
+      await page.locator('input[type="email"]').fill(credentials.email);
+      await page.locator('input[type="password"]').fill(credentials.password);
       await page.getByRole("button", { name: "ログイン" }).click();
       await page.waitForURL(/\/app\/dashboard/, { timeout: 20_000 });
       const protectedResponse = await context.request.get("/api/students?limit=1");
@@ -133,6 +134,7 @@ export async function createCriticalPathSmokeApi(baseUrl: string) {
 }
 
 export async function createCriticalPathBrowserContext(baseUrl: string) {
+  const credentials = await loadCriticalPathSmokeEnv();
   const browser = await chromium.launch({
     headless: true,
     executablePath: detectBrowserExecutable(),
@@ -145,7 +147,7 @@ export async function createCriticalPathBrowserContext(baseUrl: string) {
 
   try {
     await bootstrapIfNeeded(context.request);
-    await loginDemoUser(context.request, baseUrl);
+    await loginSmokeUser(context.request, baseUrl, credentials);
     return {
       browser,
       context,

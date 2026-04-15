@@ -16,6 +16,12 @@ async function main() {
     !productionHeaders.some((header) => header.key === "Content-Security-Policy-Report-Only"),
     "production should not default to report-only CSP"
   );
+  const productionPermissionsPolicy = productionHeaders.find((header) => header.key === "Permissions-Policy");
+  assert.equal(
+    productionPermissionsPolicy?.value,
+    "camera=(), microphone=(self), geolocation=(), browsing-topics=()",
+    "production Permissions-Policy should allow same-site microphone access without opening other sensors"
+  );
   assert.ok(
     !productionCsp.value.includes("'unsafe-eval'"),
     "production CSP should not allow unsafe-eval"

@@ -18,10 +18,27 @@ jobs:
       NODE_ENV: test
       DATABASE_URL: ${{ secrets.SUPABASE_DB_URL }}
       DIRECT_URL: ${{ secrets.SUPABASE_DB_URL }}
-      NEXTAUTH_SECRET: pararia-dev-auth-secret
+      CRITICAL_PATH_SMOKE_EMAIL: ${{ secrets.PRODUCTION_INTEGRITY_AUDIT_EMAIL }}
+      CRITICAL_PATH_SMOKE_PASSWORD: ${{ secrets.PRODUCTION_INTEGRITY_AUDIT_PASSWORD }}
+      AUTH_SECRET: ${{ secrets.PRODUCTION_INTEGRITY_AUDIT_AUTH_SECRET }}
+      NEXTAUTH_SECRET: ${{ secrets.PRODUCTION_INTEGRITY_AUDIT_AUTH_SECRET }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Validate required audit secrets
+        shell: bash
+        run: |
+          missing=0
+          for key in DATABASE_URL DIRECT_URL CRITICAL_PATH_SMOKE_EMAIL CRITICAL_PATH_SMOKE_PASSWORD AUTH_SECRET NEXTAUTH_SECRET; do
+            if [ -z "${!key}" ]; then
+              echo "::error::$key is required for the production integrity audit."
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            exit 1
+          fi
 
       - name: Setup Node.js
         uses: actions/setup-node@v4

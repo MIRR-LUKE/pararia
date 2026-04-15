@@ -12,8 +12,8 @@ type Props = {
 
 export function LoginForm({ callbackUrl }: Props) {
   const router = useRouter();
-  const [email, setEmail] = useState("admin@demo.com");
-  const [password, setPassword] = useState("demo123");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 

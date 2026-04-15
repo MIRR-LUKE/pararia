@@ -3,18 +3,44 @@ import { DEFAULT_ORGANIZATION_ID } from "@/lib/constants";
 import { prisma } from "@/lib/db";
 import { loadLocalEnvFiles } from "./load-local-env";
 
-export const CRITICAL_PATH_ADMIN_EMAIL = "admin@demo.com";
-export const CRITICAL_PATH_ADMIN_PASSWORD = "demo123";
+export type CriticalPathSmokeCredentials = {
+  email: string;
+  password: string;
+};
+
+export let CRITICAL_PATH_ADMIN_EMAIL = "";
+export let CRITICAL_PATH_ADMIN_PASSWORD = "";
 export const CRITICAL_PATH_BASE_URL = process.env.CRITICAL_PATH_BASE_URL?.trim() || "http://127.0.0.1:3000";
 export const CRITICAL_PATH_BOOTSTRAP_URL = process.env.CRITICAL_PATH_BOOTSTRAP_URL?.trim() || "";
-export const DEMO_EMAIL = process.env.CRITICAL_PATH_SMOKE_EMAIL?.trim() || CRITICAL_PATH_ADMIN_EMAIL;
-export const DEMO_PASSWORD = process.env.CRITICAL_PATH_SMOKE_PASSWORD?.trim() || CRITICAL_PATH_ADMIN_PASSWORD;
+export let DEMO_EMAIL = "";
+export let DEMO_PASSWORD = "";
 export const ROOM_STUDENT_ID = "student-demo-1";
 export const LOCK_STUDENT_ID = "student-demo-2";
 export const NEXT_MEETING_SESSION_ID = "session-demo-1-interview";
 export const NEXT_MEETING_CONVERSATION_ID = "conversation-demo-1-interview";
 export const SESSION_ROUTE_SESSION_ID = "session-critical-path-routes";
 export const SESSION_ROUTE_STUDENT_ID = ROOM_STUDENT_ID;
+
+function syncCriticalPathSmokeCredentials(credentials: CriticalPathSmokeCredentials) {
+  CRITICAL_PATH_ADMIN_EMAIL = credentials.email;
+  CRITICAL_PATH_ADMIN_PASSWORD = credentials.password;
+  DEMO_EMAIL = credentials.email;
+  DEMO_PASSWORD = credentials.password;
+}
+
+export function requireCriticalPathSmokeCredentials(): CriticalPathSmokeCredentials {
+  const email = process.env.CRITICAL_PATH_SMOKE_EMAIL?.trim() || "";
+  const password = process.env.CRITICAL_PATH_SMOKE_PASSWORD?.trim() || "";
+  if (!email || !password) {
+    throw new Error(
+      "CRITICAL_PATH_SMOKE_EMAIL / CRITICAL_PATH_SMOKE_PASSWORD を設定してください。固定の demo ログインは廃止しました。"
+    );
+  }
+
+  const credentials = { email, password };
+  syncCriticalPathSmokeCredentials(credentials);
+  return credentials;
+}
 
 export type CriticalPathSmokeFixture = {
   studentId: string;
@@ -26,8 +52,9 @@ export type CriticalPathManagedFixture<T extends CriticalPathSmokeFixture> = T &
   cleanup: () => Promise<void>;
 };
 
-export async function loadCriticalPathSmokeEnv() {
+export async function loadCriticalPathSmokeEnv(): Promise<CriticalPathSmokeCredentials> {
   await loadLocalEnvFiles();
+  return requireCriticalPathSmokeCredentials();
 }
 
 export function buildFixtureId(prefix: string) {

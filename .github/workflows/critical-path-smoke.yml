@@ -30,6 +30,8 @@ jobs:
       DIRECT_URL: postgresql://postgres:postgres@127.0.0.1:5432/pararia_ci?schema=public
       PARARIA_BACKGROUND_MODE: external
       NEXTAUTH_SECRET: pararia-dev-auth-secret
+      CRITICAL_PATH_SMOKE_EMAIL: admin@demo.com
+      CRITICAL_PATH_SMOKE_PASSWORD: demo123
     steps:
       - name: Checkout
         uses: actions/checkout@v4

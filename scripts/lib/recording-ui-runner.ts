@@ -5,6 +5,7 @@ import ffmpegPath from "ffmpeg-static";
 import { chromium } from "playwright-core";
 import { loadEnvFile } from "./load-env-file";
 import { assertMeasurementStudent } from "./measurement-student-guard";
+import { assertMutatingFixtureEnvironment } from "./environment-safety";
 
 export type RecordingUiResult = {
   label: string;
@@ -71,6 +72,17 @@ export async function ensureFakeAudioFile(wavPath: string, mp3Path: string) {
     );
   }
   return wavPath;
+}
+
+function requireRecordingUiCredentials() {
+  const email = process.env.CRITICAL_PATH_SMOKE_EMAIL?.trim() || "";
+  const password = process.env.CRITICAL_PATH_SMOKE_PASSWORD?.trim() || "";
+  if (!email || !password) {
+    throw new Error(
+      "録音UI検証のログイン情報が必要です。CRITICAL_PATH_SMOKE_EMAIL / CRITICAL_PATH_SMOKE_PASSWORD を設定してください。固定の demo ログインは廃止しました。"
+    );
+  }
+  return { email, password };
 }
 
 export function detectBrowserExecutable() {
@@ -219,6 +231,8 @@ export type RunRecordingUiSmokeOptions = {
 };
 
 export async function runRecordingUiSmoke(options: RunRecordingUiSmokeOptions) {
+  await loadEnvFile(options.envFile, { overrideExisting: true, optional: true });
+  assertMutatingFixtureEnvironment(options.baseUrl, options.label);
   const browser = await chromium.launch({
     headless: true,
     executablePath: detectBrowserExecutable(),
@@ -248,9 +262,10 @@ export async function runRecordingUiSmoke(options: RunRecordingUiSmokeOptions) {
   let studentId = "";
 
   try {
+    const credentials = requireRecordingUiCredentials();
     await page.goto(`${options.baseUrl}/login`, { waitUntil: "domcontentloaded" });
-    await page.locator('input[type="email"]').fill("admin@demo.com");
-    await page.locator('input[type="password"]').fill("demo123");
+    await page.locator('input[type="email"]').fill(credentials.email);
+    await page.locator('input[type="password"]').fill(credentials.password);
     await page.getByRole("button", { name: "ログイン" }).click();
     await waitForCondition(
       20_000,

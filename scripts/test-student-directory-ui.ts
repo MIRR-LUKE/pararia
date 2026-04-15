@@ -4,7 +4,7 @@ import { spawnSync } from "node:child_process";
 import { chromium, type BrowserContext } from "playwright-core";
 import { prisma } from "@/lib/db";
 import { assertMutatingFixtureEnvironment } from "./lib/environment-safety";
-import { loadCriticalPathSmokeEnv } from "./lib/critical-path-smoke";
+import { loadCriticalPathSmokeEnv, type CriticalPathSmokeCredentials } from "./lib/critical-path-smoke-env";
 
 function argValue(flag: string) {
   const index = process.argv.indexOf(flag);
@@ -34,14 +34,18 @@ function detectBrowserExecutable() {
   throw new Error("Edge / Chrome の実行ファイルが見つかりません。");
 }
 
-async function loginWithDemoUser(baseUrl: string, context: BrowserContext) {
+async function loginWithSmokeUser(
+  baseUrl: string,
+  context: BrowserContext,
+  credentials: CriticalPathSmokeCredentials
+) {
   const csrfResponse = await context.request.get(`${baseUrl}/api/auth/csrf`);
   const csrfBody = await csrfResponse.json();
   const loginResponse = await context.request.post(`${baseUrl}/api/auth/callback/credentials?json=true`, {
     form: {
       csrfToken: String(csrfBody?.csrfToken ?? ""),
-      email: "admin@demo.com",
-      password: "demo123",
+      email: credentials.email,
+      password: credentials.password,
       callbackUrl: `${baseUrl}/app/dashboard`,
       json: "true",
     },
@@ -54,7 +58,7 @@ async function loginWithDemoUser(baseUrl: string, context: BrowserContext) {
 }
 
 async function main() {
-  await loadCriticalPathSmokeEnv();
+  const credentials = await loadCriticalPathSmokeEnv();
 
   const baseUrl = argValue("--base-url") || process.env.CRITICAL_PATH_BASE_URL || "http://127.0.0.1:3000";
   assertMutatingFixtureEnvironment(baseUrl, "student-directory-ui");
@@ -80,7 +84,7 @@ async function main() {
         throw new Error(`preview bootstrap failed: ${bootstrapResponse.status()}`);
       }
     }
-    await loginWithDemoUser(baseUrl, context);
+    await loginWithSmokeUser(baseUrl, context, credentials);
 
     const createResponse = await context.request.post(`${baseUrl}/api/students`, {
       data: {
