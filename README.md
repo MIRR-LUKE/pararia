@@ -186,6 +186,7 @@ npm run test:student-room-route
 - 生徒検索
 - 生徒追加
 - 一覧のまま、その場で生徒情報を編集して保存できる
+- アーカイブは押した直後に一覧から外し、失敗したときだけ元に戻す
 - Student Room へ移動
 
 ### 4.3 `/app/students/[studentId]`

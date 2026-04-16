@@ -22,6 +22,10 @@ type Props = {
   initialLimit: number;
 };
 
+type RefreshOptions = {
+  silent?: boolean;
+};
+
 export function useStudentsPageController({ initialStudents, initialLimit }: Props) {
   const [students, setStudents] = useState<StudentDirectoryViewRow[]>(initialStudents);
   const [loading, setLoading] = useState(initialStudents.length === 0);
@@ -50,18 +54,25 @@ export function useStudentsPageController({ initialStudents, initialLimit }: Pro
   const [studentToDelete, setStudentToDelete] = useState<StudentDirectoryViewRow | null>(null);
   const [isDeletingStudent, setIsDeletingStudent] = useState(false);
 
-  const refresh = useCallback(async () => {
-    setLoading(true);
-    setError(null);
+  const refresh = useCallback(async (options?: RefreshOptions) => {
+    const silent = options?.silent ?? false;
+    if (!silent) {
+      setLoading(true);
+      setError(null);
+    }
     try {
       const res = await fetch(`/api/students?limit=${initialLimit}`, { cache: "no-store" });
       const body = await res.json();
       if (!res.ok) throw new Error(body?.error ?? "生徒一覧の取得に失敗しました。");
       setStudents(body.students ?? []);
     } catch (err: any) {
-      setError(err?.message ?? "生徒一覧の取得に失敗しました。");
+      if (!silent) {
+        setError(err?.message ?? "生徒一覧の取得に失敗しました。");
+      }
     } finally {
-      setLoading(false);
+      if (!silent) {
+        setLoading(false);
+      }
     }
   }, [initialLimit]);
 
@@ -200,12 +211,23 @@ export function useStudentsPageController({ initialStudents, initialLimit }: Pro
   }, [newStudent, refresh]);
 
   const archiveStudent = useCallback(async () => {
-    if (!studentToDelete) return;
+    if (!studentToDelete || isDeletingStudent) return;
 
-    const targetStudentId = studentToDelete.id;
+    const targetStudent = studentToDelete;
+    const targetStudentId = targetStudent.id;
+    const previousStudents = students;
     setIsDeletingStudent(true);
+    setStudentToDelete(null);
+    setStudents((current) => current.filter((item) => item.id !== targetStudentId));
+
+    if (editingStudentId === targetStudentId) {
+      closeInlineEditor();
+    }
+
+    setStudentNotice({ tone: "success", text: "生徒をアーカイブしました。" });
+
     try {
-      const res = await fetch(`/api/students/${studentToDelete.id}`, {
+      const res = await fetch(`/api/students/${targetStudentId}`, {
         method: "DELETE",
       });
       const body = await res.json().catch(() => ({}));
@@ -213,14 +235,9 @@ export function useStudentsPageController({ initialStudents, initialLimit }: Pro
         throw new Error(body?.error ?? "生徒のアーカイブに失敗しました。");
       }
 
-      setStudents((current) => current.filter((item) => item.id !== studentToDelete.id));
-      setStudentToDelete(null);
-      if (editingStudentId === targetStudentId) {
-        closeInlineEditor();
-      }
-      setStudentNotice({ tone: "success", text: "生徒をアーカイブしました。" });
-      await refresh();
+      void refresh({ silent: true });
     } catch (nextError: any) {
+      setStudents(previousStudents);
       setStudentNotice({
         tone: "error",
         text: nextError?.message ?? "生徒のアーカイブに失敗しました。",
@@ -228,7 +245,7 @@ export function useStudentsPageController({ initialStudents, initialLimit }: Pro
     } finally {
       setIsDeletingStudent(false);
     }
-  }, [closeInlineEditor, editingStudentId, refresh, studentToDelete]);
+  }, [closeInlineEditor, editingStudentId, isDeletingStudent, refresh, studentToDelete, students]);
 
   return {
     archiveStudent,

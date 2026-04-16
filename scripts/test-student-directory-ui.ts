@@ -146,6 +146,29 @@ async function main() {
     await updatedRow.waitFor({ timeout: 20_000 });
     await updatedRow.getByText("高3", { exact: true }).waitFor({ timeout: 20_000 });
     await updatedRow.getByText("コース: ui-smoke-updated").waitFor({ timeout: 20_000 });
+
+    const archiveResponsePromise = page.waitForResponse(
+      (response) =>
+        response.url().includes(`/api/students/${studentId}`) &&
+        response.request().method() === "DELETE" &&
+        response.status() >= 200 &&
+        response.status() < 300,
+      { timeout: 20_000 }
+    );
+    await updatedRow.getByRole("button", { name: "アーカイブ" }).click();
+    await page.getByRole("dialog").getByRole("button", { name: "アーカイブする" }).click();
+    await updatedRow.waitFor({ state: "detached", timeout: 3_000 });
+    const archiveResponse = await archiveResponsePromise;
+    if (!archiveResponse.ok()) {
+      throw new Error(`生徒アーカイブ API に失敗しました: ${archiveResponse.status()}`);
+    }
+
+    const archivedRowCount = await page.locator("article", { hasText: studentName }).count();
+    if (archivedRowCount !== 0) {
+      throw new Error("アーカイブ後も生徒行が一覧に残っています。");
+    }
+
+    studentId = null;
   } finally {
     if (studentId) {
       await prisma.student.updateMany({
@@ -173,6 +196,7 @@ async function main() {
         studentName,
         verifiedGrade: "高3",
         verifiedCourse: "ui-smoke-updated",
+        verifiedArchiveRemovesRowImmediately: true,
       },
       null,
       2
