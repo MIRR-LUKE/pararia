@@ -1,8 +1,4 @@
-import {
-  buildConversationArtifactFromMarkdown,
-  parseConversationArtifact,
-  splitActionEntries,
-} from "@/lib/conversation-artifact";
+import { buildConversationArtifactFromMarkdown, parseConversationArtifact, splitActionEntries } from "@/lib/conversation-artifact";
 
 export type OperationalLogInput = {
   sessionType?: string | null;
@@ -40,6 +36,16 @@ export type BundleQualityEval = {
   warnings: string[];
   suggestedLogIds: string[];
 };
+
+export class ReportArtifactValidationError extends Error {
+  readonly logId: string;
+
+  constructor(logId: string, message?: string) {
+    super(message ?? `保護者レポートに使えない面談ログがあります: ${logId}`);
+    this.name = "ReportArtifactValidationError";
+    this.logId = logId;
+  }
+}
 
 function normalizeWhitespace(text: string) {
   return String(text ?? "")
@@ -108,6 +114,17 @@ export function buildOperationalLog(input: OperationalLogInput): OperationalLog 
     nextChecks: [],
     parentShare: [],
   };
+}
+
+export function requireReportArtifact(input: OperationalLogInput & { id: string }) {
+  const artifact = parseConversationArtifact(input.artifactJson);
+  if (!artifact) {
+    throw new ReportArtifactValidationError(
+      input.id,
+      `面談ログ ${input.id} の artifactJson が無効です。面談ログを再生成してから、もう一度保護者レポートを生成してください。`
+    );
+  }
+  return artifact;
 }
 
 function distinct(values: string[]) {
@@ -212,4 +229,21 @@ export function buildReportBundleLog(
       artifactJson: input.artifactJson,
     }),
   };
+}
+
+export function buildStrictReportBundleLog(
+  input: OperationalLogInput & {
+    id: string;
+    sessionId?: string | null;
+    date: string;
+    mode: "INTERVIEW" | "LESSON_REPORT";
+    subType?: string | null;
+  }
+): ReportBundleLog {
+  const artifact = requireReportArtifact(input);
+  return buildReportBundleLog({
+    ...input,
+    artifactJson: artifact,
+    summaryMarkdown: null,
+  });
 }

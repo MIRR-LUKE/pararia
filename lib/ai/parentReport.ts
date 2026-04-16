@@ -1,7 +1,7 @@
 import {
   buildBundlePreview,
   buildBundleQualityEval,
-  buildReportBundleLog,
+  buildStrictReportBundleLog,
   type BundleQualityEval,
 } from "@/lib/operational-log";
 import {
@@ -48,7 +48,7 @@ export type ParentReportGenerationMeta = {
 
 export function buildReportBundle(input: ReportInput) {
   const selected = input.logs.map((log) =>
-    buildReportBundleLog({
+    buildStrictReportBundleLog({
       id: log.id,
       sessionId: log.sessionId ?? null,
       date: log.date,
@@ -56,7 +56,6 @@ export function buildReportBundle(input: ReportInput) {
       subType: log.subType ?? null,
       sessionType: log.mode,
       artifactJson: log.artifactJson,
-      summaryMarkdown: log.summaryMarkdown,
     })
   );
 

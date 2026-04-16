@@ -23,6 +23,68 @@ import {
 import { logJobInfo, stopRunpodWorkerAfterConversationJob } from "./side-effects";
 import { prisma } from "@/lib/db";
 
+type FinalizeSideEffectRunner = {
+  enqueueNextMeetingMemoJob?: typeof enqueueNextMeetingMemoJob;
+  syncSessionAfterConversation?: typeof syncSessionAfterConversation;
+  stopRunpodWorkerAfterConversationJob?: typeof stopRunpodWorkerAfterConversationJob;
+};
+
+export async function runFinalizeBestEffortSideEffects(
+  convo: Pick<ConversationPayload, "id" | "sessionId">,
+  opts?: {
+    shouldGenerateNextMeetingMemo?: boolean;
+    runners?: FinalizeSideEffectRunner;
+  }
+) {
+  const shouldGenerateNextMeetingMemo = opts?.shouldGenerateNextMeetingMemo ?? false;
+  const runners = opts?.runners ?? {};
+  const enqueueNextMeetingMemo = runners.enqueueNextMeetingMemoJob ?? enqueueNextMeetingMemoJob;
+  const syncSession = runners.syncSessionAfterConversation ?? syncSessionAfterConversation;
+  const stopWorker =
+    runners.stopRunpodWorkerAfterConversationJob ?? stopRunpodWorkerAfterConversationJob;
+
+  const tasks: Promise<unknown>[] = [];
+  if (shouldGenerateNextMeetingMemo) {
+    tasks.push(
+      Promise.resolve()
+        .then(() => enqueueNextMeetingMemo(convo.id))
+        .catch((error) => {
+          console.warn("[conversation-jobs] failed to enqueue next meeting memo after finalize", {
+            conversationId: convo.id,
+            message: error instanceof Error ? error.message : String(error ?? "unknown error"),
+          });
+        })
+    );
+  }
+
+  if (convo.sessionId) {
+    tasks.push(
+      Promise.resolve()
+        .then(() => syncSession(convo.id))
+        .catch((error) => {
+          console.warn("[conversation-jobs] failed to sync session after finalize", {
+            conversationId: convo.id,
+            sessionId: convo.sessionId,
+            message: error instanceof Error ? error.message : String(error ?? "unknown error"),
+          });
+        })
+    );
+  }
+
+  tasks.push(
+    Promise.resolve()
+      .then(() => stopWorker("finalize"))
+      .catch((error) => {
+        console.warn("[conversation-jobs] failed to stop Runpod worker after finalize", {
+          conversationId: convo.id,
+          message: error instanceof Error ? error.message : String(error ?? "unknown error"),
+        });
+      })
+  );
+
+  await Promise.all(tasks);
+}
+
 async function executeFinalizeJob(job: JobPayload, convo: ConversationPayload) {
   const review = await ensureConversationReviewedTranscript(convo.id);
   const sourceText = normalizeRawTranscriptText(review.reviewedText || review.rawTextOriginal || normalizeSourceText(convo));
@@ -105,10 +167,6 @@ async function executeFinalizeJob(job: JobPayload, convo: ConversationPayload) {
     },
   });
 
-  if (shouldGenerateNextMeetingMemo(convo)) {
-    await enqueueNextMeetingMemoJob(convo.id);
-  }
-
   await prisma.conversationJob.update({
     where: { id: job.id },
     data: {
@@ -147,7 +205,6 @@ async function executeFinalizeJob(job: JobPayload, convo: ConversationPayload) {
   });
 
   await updateConversationStatus(convo.id, ConversationStatus.DONE);
-  await syncSessionAfterConversation(convo.id);
 
   logJobInfo("job_completed", {
     ...buildJobContext(job, convo),
@@ -156,7 +213,9 @@ async function executeFinalizeJob(job: JobPayload, convo: ConversationPayload) {
     usedFallback,
   });
 
-  await stopRunpodWorkerAfterConversationJob("finalize");
+  void runFinalizeBestEffortSideEffects(convo, {
+    shouldGenerateNextMeetingMemo: shouldGenerateNextMeetingMemo(convo),
+  });
 
   return {
     summaryMarkdown: renderedSummary,

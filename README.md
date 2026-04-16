@@ -65,10 +65,15 @@ npm run build
 npm run verify
 ```
 
+`verify` には、面談ログと保護者レポートの回帰をまとめて見る `npm run test:generation-preservation` を入れてあります。
+この中で、`artifact` の意味崩れ、再生成開始時の既存ログ消去、finalize 後の副作用巻き込み、保護者レポートの artifact 必須をまとめて確認します。
+認証が必要な重い smoke は別に切り、普段の確認では安全側の回帰を先に落とせるようにしています。
+
 今回の変更で特に見るテスト:
 
 ```bash
 npm run test:migration-safety
+npm run test:generation-preservation
 npm run test:session-progress-polling
 npm run test:rum-route
 npm run test:student-directory-route
@@ -1231,6 +1236,7 @@ npm run restore:db -- --backup-dir <backup-dir> --database-url <restore-db-url>
 - `npm run typecheck`
 - `npm run scan:secrets`
 - `npm run test:migration-safety`
+- `npm run test:generation-preservation`
 - `npm run test:critical-path-smoke`
 - `npm run test:student-integrity-audit -- --base-url https://pararia.vercel.app`
 - `npm run test:audio-upload-support`
@@ -1249,6 +1255,7 @@ npm run restore:db -- --backup-dir <backup-dir> --database-url <restore-db-url>
 ## 18. CI の品質ゲート
 
 - GitHub Actions の `Conversation Quality` で faithfulness 系の代表チェックを回す
+- `Conversation Quality` は `npm run test:generation-preservation` を先に通し、面談ログと保護者レポートの回帰をまとめて守る
 - GitHub Actions の `Critical Path Smoke` で `録音ロック -> student room -> next meeting memo` の route smoke を回す
 - GitHub Actions の `Backend Scope Guard` で backend / perf 系 branch の UI 変更を止める
 - workflow では PostgreSQL service container を立てて、local と同じ Prisma 前提で回す
@@ -1257,9 +1264,7 @@ npm run restore:db -- --backup-dir <backup-dir> --database-url <restore-db-url>
   - `npm run prisma:generate`
   - `npm run prisma:test:prepare`
   - `npm run typecheck`
-  - `npm run test:transcript-review`
-  - `npx tsx scripts/test-conversation-artifact-semantics.ts`
-  - `npm run test:conversation-draft-quality`
+  - `npm run test:generation-preservation`
   - `npm run test:conversation-eval -- --out artifacts/conversation-eval-report.md`
   - `npm run prisma:seed`
   - `npm run test:critical-path-smoke`

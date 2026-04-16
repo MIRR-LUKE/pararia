@@ -5,7 +5,6 @@ import { z } from "zod";
 import { writeAuditLog } from "@/lib/audit";
 import { API_THROTTLE_RULES, ApiQuotaExceededError, consumeApiQuota } from "@/lib/api-throttle";
 import { generateParentReport } from "@/lib/ai/parentReport";
-import { renderConversationArtifactOrFallback } from "@/lib/conversation-artifact";
 import { withVisibleConversationWhere } from "@/lib/content-visibility";
 import { prisma } from "@/lib/db";
 import {
@@ -19,6 +18,7 @@ import { getLogListCacheTag } from "@/lib/logs/get-log-list-page-data";
 import { RequestValidationError, parseJsonWithSchema } from "@/lib/server/request-validation";
 import { requireAuthorizedMutationSession } from "@/lib/server/request-auth";
 import { withActiveStudentWhere } from "@/lib/students/student-lifecycle";
+import { requireReportArtifact, ReportArtifactValidationError } from "@/lib/operational-log";
 
 const generateReportBodySchema = z.object({
   studentId: z.string().trim().min(1),
@@ -136,7 +136,6 @@ export async function POST(request: Request) {
         sessionId: true,
         createdAt: true,
         artifactJson: true,
-        summaryMarkdown: true,
         session: {
           select: {
             type: true,
@@ -149,19 +148,33 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "selected logs not found" }, { status: 400 });
     }
 
-    const pendingLogs = selectedLogs.filter(
-      (log) => !renderConversationArtifactOrFallback(log.artifactJson, log.summaryMarkdown).trim()
-    );
-    if (pendingLogs.length > 0) {
+    const invalidLogs = selectedLogs
+      .map((log) => {
+        try {
+          requireReportArtifact({ id: log.id, artifactJson: log.artifactJson });
+          return null;
+        } catch (error) {
+          if (error instanceof ReportArtifactValidationError) {
+            return { id: log.id, message: error.message };
+          }
+          throw error;
+        }
+      })
+      .filter((entry): entry is { id: string; message: string } => entry !== null);
+
+    if (invalidLogs.length > 0) {
       return NextResponse.json(
-        { error: "選択したログ本文がまだ生成されていません。面談ログの生成完了後に再実行してください。" },
+        {
+          error:
+            `保護者レポートに使えない面談ログがあります。` +
+            ` 面談ログを再生成してから再実行してください。` +
+            ` 対象: ${invalidLogs.map((log) => log.id).join(", ")}`,
+        },
         { status: 400 }
       );
     }
 
-    const logs = selectedLogs.filter((log) =>
-      Boolean(renderConversationArtifactOrFallback(log.artifactJson, log.summaryMarkdown).trim())
-    );
+    const logs = selectedLogs;
 
     const { markdown, reportJson, bundleQualityEval, generationMeta } = await generateParentReport({
       studentName: student.name,
@@ -176,7 +189,6 @@ export async function POST(request: Request) {
         date: log.createdAt.toISOString().slice(0, 10),
         mode: log.session?.type === "LESSON_REPORT" ? "LESSON_REPORT" : "INTERVIEW",
         artifactJson: log.artifactJson,
-        summaryMarkdown: renderConversationArtifactOrFallback(log.artifactJson, log.summaryMarkdown),
       })),
     });
 

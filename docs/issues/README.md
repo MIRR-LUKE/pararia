@@ -165,6 +165,20 @@ close / defer に回した考え方:
 - Campus / LINE / digest のような拡張候補は active open に置かない
 - 今すぐ触らない運用 / 管理機能は、必要になるまで reopen 前提で閉じる
 
+今回追加して完了した生成保全 issue:
+
+1. `#147` 再生成の途中失敗で、既存の面談ログを消さない
+2. `#148` finalize 成功後に、後続処理の失敗で面談ログの状態を壊さない
+3. `#149` 保護者レポート生成で、壊れた面談ログを markdown fallback で通さない
+4. `#150` 面談ログと保護者レポートの保全チェックを verify と CI の必須ゲートに入れる
+
+今回追加した issue docs:
+
+1. [70-regenerate-keep-last-good-log.md](./70-regenerate-keep-last-good-log.md)
+2. [71-finalize-main-flow-and-side-effects.md](./71-finalize-main-flow-and-side-effects.md)
+3. [72-parent-report-requires-valid-artifact.md](./72-parent-report-requires-valid-artifact.md)
+4. [73-protected-generation-gates.md](./73-protected-generation-gates.md)
+
 補足:
 
 - このディレクトリの Markdown は GitHub Issue の本文更新にも使う

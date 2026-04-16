@@ -48,11 +48,8 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
-      - name: Transcript review regression
-        run: npm run test:transcript-review
-
-      - name: Artifact semantics regression
-        run: npx tsx scripts/test-conversation-artifact-semantics.ts
+      - name: Generation preservation regression
+        run: npm run test:generation-preservation
 
       - name: Conversation eval gate
         run: |

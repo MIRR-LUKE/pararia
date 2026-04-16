@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { ConversationStatus, JobStatus, Prisma } from "@prisma/client";
+import { ConversationStatus, JobStatus } from "@prisma/client";
 import { withVisibleConversationWhere } from "@/lib/content-visibility";
 import { prisma } from "@/lib/db";
 import {
@@ -14,6 +14,27 @@ import { resolveRouteId, type RouteParams } from "@/lib/server/route-params";
 import { maybeStopRunpodWorkerWhenSessionPartQueueIdle } from "@/lib/runpod/idle-stop";
 import { maybeEnsureRunpodWorker } from "@/lib/runpod/worker-control";
 import { applyLightMutationThrottle } from "@/lib/server/request-throttle";
+
+type ConversationRegenerationSource = {
+  rawTextOriginal: string | null;
+  rawTextCleaned: string | null;
+  reviewedText: string | null;
+  formattedTranscript: string | null;
+};
+
+export function buildConversationRegenerationStartPlan(conversation: ConversationRegenerationSource) {
+  const keepFormattedTranscriptAsSource =
+    !conversation.rawTextCleaned?.trim() &&
+    !conversation.rawTextOriginal?.trim() &&
+    Boolean(conversation.formattedTranscript?.trim());
+
+  return {
+    keepFormattedTranscriptAsSource,
+    updateData: {
+      status: ConversationStatus.PROCESSING,
+    },
+  } as const;
+}
 
 export async function POST(
   request: Request,
@@ -77,21 +98,14 @@ export async function POST(
       );
     }
 
-    const keepFormattedTranscriptAsSource =
-      !conversation.rawTextCleaned?.trim() &&
-      !conversation.rawTextOriginal?.trim() &&
-      Boolean(conversation.formattedTranscript?.trim());
+    const regenerationPlan = buildConversationRegenerationStartPlan(conversation);
 
     await prisma.conversationJob.deleteMany({ where: { conversationId: id } });
 
     await prisma.conversationLog.update({
       where: { id },
       data: {
-        status: ConversationStatus.PROCESSING,
-        artifactJson: Prisma.DbNull,
-        summaryMarkdown: null,
-        qualityMetaJson: Prisma.DbNull,
-        formattedTranscript: keepFormattedTranscriptAsSource ? conversation.formattedTranscript : null,
+        ...regenerationPlan.updateData,
       },
     });
 

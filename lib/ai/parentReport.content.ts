@@ -1,6 +1,6 @@
-import { renderConversationArtifactOrFallback } from "@/lib/conversation-artifact";
+import { renderConversationArtifactMarkdown } from "@/lib/conversation-artifact";
 import { normalizeGeneratedText } from "@/lib/ai/structured-generation";
-import { buildReportBundleLog } from "@/lib/operational-log";
+import { buildStrictReportBundleLog } from "@/lib/operational-log";
 
 export type ReportInput = {
   studentName: string;
@@ -223,7 +223,7 @@ export function buildReportContext(input: ReportInput, createdAt: string, period
 
 export function buildReportEvidenceLogs(input: ReportInput): ReportEvidenceLog[] {
   return input.logs.map((log) => {
-    const bundleLog = buildReportBundleLog({
+    const bundleLog = buildStrictReportBundleLog({
       id: log.id,
       sessionId: log.sessionId ?? null,
       date: log.date,
@@ -231,7 +231,6 @@ export function buildReportEvidenceLogs(input: ReportInput): ReportEvidenceLog[]
       subType: log.subType ?? null,
       sessionType: log.mode,
       artifactJson: log.artifactJson,
-      summaryMarkdown: log.summaryMarkdown,
     });
 
     return {
@@ -244,7 +243,7 @@ export function buildReportEvidenceLogs(input: ReportInput): ReportEvidenceLog[]
       assessment: bundleLog.operationalLog.assessment,
       nextChecks: bundleLog.operationalLog.nextChecks,
       parentShare: bundleLog.operationalLog.parentShare,
-      derivedMarkdown: renderConversationArtifactOrFallback(log.artifactJson, log.summaryMarkdown).trim(),
+      derivedMarkdown: renderConversationArtifactMarkdown(log.artifactJson).trim(),
     };
   });
 }
@@ -346,4 +345,3 @@ export function sanitizeParentReportJson(
     signatureLines: context.signatureLines,
   };
 }
-
