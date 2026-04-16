@@ -108,12 +108,12 @@ export function useStudentDetailOverlay({
     const resolved = resolveOverlayState(room, queryParams, selectedSessionIds);
     const pending = pendingUrlOverlayRef.current;
 
-    if (pending && isSameOverlayState(resolved, pending)) {
-      pendingUrlOverlayRef.current = null;
-    }
-
-    if (pending && resolved.kind === "none") {
-      return;
+    if (pending) {
+      if (isSameOverlayState(resolved, pending)) {
+        pendingUrlOverlayRef.current = null;
+      } else {
+        return;
+      }
     }
 
     setOverlay((current) => (isSameOverlayState(current, resolved) ? current : resolved));
@@ -179,8 +179,9 @@ export function useStudentDetailOverlay({
   }, [activeParentReportBase, fetchParentReportDetail, overlay.kind, parentReportDetails]);
 
   const closeOverlay = useCallback(() => {
-    pendingUrlOverlayRef.current = null;
-    setOverlay({ kind: "none" });
+    const nextOverlay = { kind: "none" } satisfies StudentDetailOverlayState;
+    pendingUrlOverlayRef.current = nextOverlay;
+    setOverlay(nextOverlay);
     syncUrl({ panel: null, logId: null, reportId: null, lessonSessionId: null });
   }, [syncUrl]);
 
