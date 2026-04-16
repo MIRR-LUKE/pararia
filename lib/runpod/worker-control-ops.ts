@@ -210,7 +210,23 @@ export async function ensureRunpodWorker(
     }
 
     const refreshed = await applyRunpodWorkerRuntimeConfig(stopped.id, resolved);
-    await runpodRequest(`/pods/${stopped.id}/start`, resolved, { method: "POST" });
+    try {
+      await runpodRequest(`/pods/${stopped.id}/start`, resolved, { method: "POST" });
+    } catch (error: any) {
+      const message = String(error?.message ?? error);
+      if (!isRunpodCapacityErrorMessage(message)) {
+        throw error;
+      }
+
+      await terminateRunpodPod(stopped.id, resolved).catch(() => {});
+      terminatedPodIds.push(stopped.id);
+      const created = await createRunpodWorkerPod(undefined, resolved);
+      return {
+        action: "created_new",
+        pod: created as RunpodPod,
+        terminatedPodIds,
+      };
+    }
     return {
       action: "started_existing",
       pod: {

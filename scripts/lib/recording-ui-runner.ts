@@ -266,7 +266,7 @@ export async function runRecordingUiSmoke(options: RunRecordingUiSmokeOptions) {
     await page.goto(`${options.baseUrl}/login`, { waitUntil: "domcontentloaded" });
     await page.locator('input[type="email"]').fill(credentials.email);
     await page.locator('input[type="password"]').fill(credentials.password);
-    await page.getByRole("button", { name: "ログイン" }).click();
+    await page.locator('button[type="submit"]').first().click();
     await waitForCondition(
       20_000,
       async () => page.url().includes("/app/"),
@@ -309,7 +309,7 @@ export async function runRecordingUiSmoke(options: RunRecordingUiSmokeOptions) {
         "ファイル選択後にアップロード処理へ進みませんでした。"
       );
     } else {
-      const startButton = page.locator('[data-testid="recording-start-button"]');
+      const startButton = page.locator('[data-testid="recording-start-button"]').first();
       await startButton.click();
 
       await waitForCondition(
@@ -370,7 +370,7 @@ export async function runRecordingUiSmoke(options: RunRecordingUiSmokeOptions) {
 
     const stopClickedAt = Date.now();
     if (!options.uploadFilePath) {
-      const stopButton = page.locator('[data-testid="recording-stop-button"]');
+      const stopButton = page.locator('[data-testid="recording-stop-button"]').first();
       await waitForCondition(
         90_000,
         async () => !(await stopButton.isDisabled()),

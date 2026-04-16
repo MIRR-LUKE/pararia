@@ -24,6 +24,7 @@ export function useStudentDetailRefresh({ initialRoom, studentId }: Params): Res
   );
   const hasLoadedRoomRef = useRef(true);
   const hasQueuedFullHydrationRef = useRef(false);
+  const previousPageVisibleRef = useRef(pageVisible);
 
   const refresh = useCallback(
     async (opts?: { silent?: boolean }) => {
@@ -93,19 +94,21 @@ export function useStudentDetailRefresh({ initialRoom, studentId }: Params): Res
     if ((!hasActivePipeline && !hasPendingNextMeetingMemo) || !pageVisible) return;
     const timer = window.setTimeout(() => {
       void refresh({ silent: true });
-    }, 3000);
+    }, 6000);
     return () => window.clearTimeout(timer);
   }, [pageVisible, refresh, room, room?.sessions]);
 
   useEffect(() => {
-    if (!pageVisible || !room?.sessions?.length) return;
+    const becameVisible = !previousPageVisibleRef.current && pageVisible;
+    previousPageVisibleRef.current = pageVisible;
+    if (!becameVisible || !room?.sessions?.length) return;
     const hasLiveWork = room.sessions.some((session) =>
       ["TRANSCRIBING", "GENERATING"].includes(session.pipeline?.stage ?? "") ||
       ["QUEUED", "GENERATING"].includes(session.nextMeetingMemo?.status ?? "")
     );
     if (!hasLiveWork) return;
     void refresh({ silent: true });
-  }, [pageVisible, refresh, room, room?.sessions]);
+  }, [pageVisible, refresh, room?.sessions]);
 
   return { room, loading, error, refresh };
 }

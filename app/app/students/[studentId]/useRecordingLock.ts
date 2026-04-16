@@ -100,6 +100,14 @@ export function useRecordingLock({ studentId, mode, recordingLock, isActive }: P
   }, [releaseLockClient, stopHeartbeat]);
 
   useEffect(() => {
+    if (isActive) {
+      return undefined;
+    }
+    stopHeartbeat();
+    return undefined;
+  }, [isActive, stopHeartbeat]);
+
+  useEffect(() => {
     if (!isActive) return undefined;
 
     const refreshHeartbeat = () => {

@@ -128,6 +128,23 @@ export async function resolveAuthorizedSession(session: Awaited<ReturnType<typeo
     return null;
   }
 
+  const sessionOrganizationId =
+    typeof session.user.organizationId === "string" ? session.user.organizationId.trim() : "";
+  if (sessionOrganizationId) {
+    const normalizedRole = normalizeUserRole(session.user.role);
+    return {
+      ...session,
+      user: {
+        ...session.user,
+        id: session.user.id,
+        organizationId: sessionOrganizationId,
+        role: normalizedRole ?? session.user.role,
+        name: session.user.name ?? null,
+        email: session.user.email ?? null,
+      },
+    } as AuthorizedSession;
+  }
+
   const liveUser = await prisma.user.findUnique({
     where: { id: session.user.id },
     select: {

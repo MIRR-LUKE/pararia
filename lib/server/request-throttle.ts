@@ -14,7 +14,17 @@ type PublicThrottleInput = {
   scope: string;
 };
 
+const LIGHT_MUTATION_THROTTLE_BYPASS_SCOPES = new Set([
+  "recording-lock.heartbeat",
+  "recording-lock.release",
+  "sessions.progress",
+]);
+
 export async function applyLightMutationThrottle(input: LightMutationThrottleInput) {
+  if (LIGHT_MUTATION_THROTTLE_BYPASS_SCOPES.has(input.scope)) {
+    return null;
+  }
+
   const checks: Parameters<typeof consumeApiQuota>[0][] = [];
 
   try {

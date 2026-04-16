@@ -8,8 +8,10 @@ export function isRetryableDatabaseError(error: unknown) {
     /max clients reached/i.test(message) ||
     /remaining connection slots are reserved/i.test(message) ||
     /timed out fetching a new connection from the connection pool/i.test(message) ||
+    /unable to start a transaction in the given time/i.test(message) ||
     /too many connections/i.test(message) ||
-    /\bP2024\b/i.test(message)
+    /\bP2024\b/i.test(message) ||
+    /\bP2028\b/i.test(message)
   );
 }
 

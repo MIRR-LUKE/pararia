@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 
 type ApiThrottleRule = {
@@ -72,7 +73,11 @@ function warnMissingApiThrottleBucketTable() {
   console.warn("[api-throttle] ApiThrottleBucket table is missing. Throttling is temporarily bypassed until migrations are applied.");
 }
 
-export async function consumeApiQuota(input: ConsumeApiQuotaInput) {
+function isApiThrottleConflictError(error: unknown) {
+  return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002";
+}
+
+async function consumeApiQuotaInternal(input: ConsumeApiQuotaInput, attempt: number) {
   const rawKey = input.rawKey.trim();
   if (!rawKey) return;
 
@@ -97,15 +102,22 @@ export async function consumeApiQuota(input: ConsumeApiQuotaInput) {
         throw buildBlockedError(input.scope, new Date(now.getTime() + input.rule.blockMs), input.rule);
       }
 
-      await prisma.apiThrottleBucket.create({
-        data: {
-          scope: input.scope,
-          keyHash,
-          requestCount: 1,
-          byteCount: nextBytes,
-          windowStartedAt: now,
-        },
-      });
+      try {
+        await prisma.apiThrottleBucket.create({
+          data: {
+            scope: input.scope,
+            keyHash,
+            requestCount: 1,
+            byteCount: nextBytes,
+            windowStartedAt: now,
+          },
+        });
+      } catch (error) {
+        if (attempt < 1 && isApiThrottleConflictError(error)) {
+          return consumeApiQuotaInternal(input, attempt + 1);
+        }
+        throw error;
+      }
       return;
     }
 
@@ -151,8 +163,15 @@ export async function consumeApiQuota(input: ConsumeApiQuotaInput) {
       warnMissingApiThrottleBucketTable();
       return;
     }
+    if (attempt < 1 && isApiThrottleConflictError(error)) {
+      return consumeApiQuotaInternal(input, attempt + 1);
+    }
     throw error;
   }
+}
+
+export async function consumeApiQuota(input: ConsumeApiQuotaInput) {
+  return consumeApiQuotaInternal(input, 0);
 }
 
 export const API_THROTTLE_RULES = {

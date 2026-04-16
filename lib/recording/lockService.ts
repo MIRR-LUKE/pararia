@@ -210,10 +210,17 @@ export async function heartbeatRecordingLock(opts: {
     return { ok: false as const, code: "token_mismatch" as const };
   }
   const nextExpires = computeExpiresAt(now);
-  await prisma.studentRecordingLock.update({
-    where: { studentId: resolvedStudentId },
+  const updated = await prisma.studentRecordingLock.updateMany({
+    where: {
+      studentId: resolvedStudentId,
+      lockedByUserId: opts.userId,
+      lockTokenHash: hash,
+    },
     data: { lastHeartbeatAt: now, expiresAt: nextExpires },
   });
+  if (updated.count === 0) {
+    return { ok: false as const, code: "stale_or_missing" as const };
+  }
   return { ok: true as const, expiresAt: nextExpires.toISOString() };
 }
 

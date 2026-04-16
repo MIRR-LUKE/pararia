@@ -5,6 +5,7 @@ import {
   SessionPartStatus,
 } from "@prisma/client";
 import { prisma } from "@/lib/db";
+import { runWithDatabaseRetry } from "@/lib/db-retry";
 import { AUDIO_UPLOAD_EXTENSIONS_LABEL, SUPPORTED_AUDIO_UPLOAD_EXTENSIONS, buildUnsupportedAudioUploadErrorMessage, isSupportedAudioUpload, isSupportedRecordedAudio } from "@/lib/audio-upload-support";
 import { getAudioDurationSecondsFromBuffer, evaluateDurationGate, evaluateTranscriptSubstance, getRecordingMaxDurationSeconds } from "@/lib/recording/validation";
 import { verifyRecordingLockForAudioUpload, releaseRecordingLock } from "@/lib/recording/lockService";
@@ -96,55 +97,63 @@ async function persistAudioSessionPart(input: {
   qualityMeta: Record<string, unknown>;
   transcriptExpiresAt: Date;
 }) {
-  return prisma.$transaction(async (tx) => {
-    const existing = await tx.sessionPart.findUnique({
-      where: {
-        sessionId_partType: {
-          sessionId: input.sessionId,
-          partType: input.partType,
+  return runWithDatabaseRetry(
+    "persist-audio-session-part",
+    () =>
+      prisma.$transaction(
+        async (tx) => {
+          const existing = await tx.sessionPart.findUnique({
+            where: {
+              sessionId_partType: {
+                sessionId: input.sessionId,
+                partType: input.partType,
+              },
+            },
+            select: {
+              id: true,
+              storageUrl: true,
+            },
+          });
+
+          const data = {
+            sourceType: input.sourceType,
+            status: SessionPartStatus.TRANSCRIBING,
+            fileName: input.fileName,
+            mimeType: input.mimeType || null,
+            byteSize: input.byteSize,
+            storageUrl: input.storageUrl,
+            rawTextOriginal: "",
+            rawTextCleaned: "",
+            reviewedText: null,
+            reviewState: "NONE" as const,
+            rawSegments: toPrismaJson([]),
+            qualityMetaJson: toSessionPartMetaJson({}, input.qualityMeta as any),
+            transcriptExpiresAt: input.transcriptExpiresAt,
+          };
+
+          const part = existing
+            ? await tx.sessionPart.update({
+                where: { id: existing.id },
+                data,
+              })
+            : await tx.sessionPart.create({
+                data: {
+                  sessionId: input.sessionId,
+                  partType: input.partType,
+                  ...data,
+                },
+              });
+
+          return {
+            part,
+            replacedStorageUrls:
+              existing?.storageUrl && existing.storageUrl !== input.storageUrl ? [existing.storageUrl] : [],
+          };
         },
-      },
-      select: {
-        id: true,
-        storageUrl: true,
-      },
-    });
-
-    const data = {
-      sourceType: input.sourceType,
-      status: SessionPartStatus.TRANSCRIBING,
-      fileName: input.fileName,
-      mimeType: input.mimeType || null,
-      byteSize: input.byteSize,
-      storageUrl: input.storageUrl,
-      rawTextOriginal: "",
-      rawTextCleaned: "",
-      reviewedText: null,
-      reviewState: "NONE" as const,
-      rawSegments: toPrismaJson([]),
-      qualityMetaJson: toSessionPartMetaJson({}, input.qualityMeta as any),
-      transcriptExpiresAt: input.transcriptExpiresAt,
-    };
-
-    const part = existing
-      ? await tx.sessionPart.update({
-          where: { id: existing.id },
-          data,
-        })
-      : await tx.sessionPart.create({
-          data: {
-            sessionId: input.sessionId,
-            partType: input.partType,
-            ...data,
-          },
-        });
-
-    return {
-      part,
-      replacedStorageUrls:
-        existing?.storageUrl && existing.storageUrl !== input.storageUrl ? [existing.storageUrl] : [],
-    };
-  });
+        { maxWait: 5_000, timeout: 15_000 }
+      ),
+    { retries: 3, initialDelayMs: 150 }
+  );
 }
 
 async function persistTextSessionPart(input: {
@@ -160,54 +169,62 @@ async function persistTextSessionPart(input: {
   transcriptExpiresAt: Date;
   status: "READY" | "ERROR";
 }) {
-  return prisma.$transaction(async (tx) => {
-    const existing = await tx.sessionPart.findUnique({
-      where: {
-        sessionId_partType: {
-          sessionId: input.sessionId,
-          partType: input.partType,
+  return runWithDatabaseRetry(
+    "persist-text-session-part",
+    () =>
+      prisma.$transaction(
+        async (tx) => {
+          const existing = await tx.sessionPart.findUnique({
+            where: {
+              sessionId_partType: {
+                sessionId: input.sessionId,
+                partType: input.partType,
+              },
+            },
+            select: {
+              id: true,
+              storageUrl: true,
+            },
+          });
+
+          const data = {
+            sourceType: input.sourceType,
+            status: input.status,
+            fileName: null,
+            mimeType: null,
+            byteSize: null,
+            storageUrl: null,
+            rawTextOriginal: input.rawTextOriginal,
+            rawTextCleaned: input.rawTextCleaned,
+            reviewedText: input.reviewedText,
+            reviewState: input.reviewState,
+            rawSegments: toPrismaJson(input.rawSegments),
+            qualityMetaJson: toSessionPartMetaJson({}, input.qualityMeta as any),
+            transcriptExpiresAt: input.transcriptExpiresAt,
+          };
+
+          const part = existing
+            ? await tx.sessionPart.update({
+                where: { id: existing.id },
+                data,
+              })
+            : await tx.sessionPart.create({
+                data: {
+                  sessionId: input.sessionId,
+                  partType: input.partType,
+                  ...data,
+                },
+              });
+
+          return {
+            part,
+            replacedStorageUrls: existing?.storageUrl ? [existing.storageUrl] : [],
+          };
         },
-      },
-      select: {
-        id: true,
-        storageUrl: true,
-      },
-    });
-
-    const data = {
-      sourceType: input.sourceType,
-      status: input.status,
-      fileName: null,
-      mimeType: null,
-      byteSize: null,
-      storageUrl: null,
-      rawTextOriginal: input.rawTextOriginal,
-      rawTextCleaned: input.rawTextCleaned,
-      reviewedText: input.reviewedText,
-      reviewState: input.reviewState,
-      rawSegments: toPrismaJson(input.rawSegments),
-      qualityMetaJson: toSessionPartMetaJson({}, input.qualityMeta as any),
-      transcriptExpiresAt: input.transcriptExpiresAt,
-    };
-
-    const part = existing
-      ? await tx.sessionPart.update({
-          where: { id: existing.id },
-          data,
-        })
-      : await tx.sessionPart.create({
-          data: {
-            sessionId: input.sessionId,
-            partType: input.partType,
-            ...data,
-          },
-        });
-
-    return {
-      part,
-      replacedStorageUrls: existing?.storageUrl ? [existing.storageUrl] : [],
-    };
-  });
+        { maxWait: 5_000, timeout: 15_000 }
+      ),
+    { retries: 3, initialDelayMs: 150 }
+  );
 }
 
 async function handleAudioSessionPartSubmission(input: {

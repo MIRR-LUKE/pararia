@@ -14,6 +14,7 @@ export function buildContentSecurityPolicy({ reportOnly }) {
     "frame-ancestors 'self'",
     "object-src 'none'",
     "img-src 'self' data: blob: https:",
+    "media-src 'self' blob: https:",
     `script-src ${buildScriptSrc({ reportOnly })}`,
     "style-src 'self' 'unsafe-inline'",
     "connect-src 'self' https: wss:",

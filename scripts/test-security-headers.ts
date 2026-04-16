@@ -26,6 +26,10 @@ async function main() {
     !productionCsp.value.includes("'unsafe-eval'"),
     "production CSP should not allow unsafe-eval"
   );
+  assert.ok(
+    productionCsp.value.includes("media-src 'self' blob: https:"),
+    "production CSP should allow same-site and blob media playback for recording review"
+  );
 
   const devHeaders = buildSecurityHeaders({ nodeEnv: "development", cspReportOnly: false });
   const devCsp = devHeaders.find((header) => header.key === "Content-Security-Policy-Report-Only");

@@ -355,6 +355,7 @@ export function getRunpodGpuCandidates(
 export function isRunpodCapacityErrorMessage(message: string) {
   return (
     /does not have the resources to deploy your pod/i.test(message) ||
+    /not enough free gpus/i.test(message) ||
     /no spot price found/i.test(message) ||
     /insufficient capacity/i.test(message)
   );
