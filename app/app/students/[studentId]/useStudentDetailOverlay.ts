@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { UNSAVED_CONVERSATION_SUMMARY_MESSAGE } from "@/lib/conversation-editing";
 import { formatReportDate, formatSessionLabel } from "./studentDetailFormatting";
@@ -76,6 +76,15 @@ function findSessionByLogId(sessions: SessionItem[], logId: string) {
   return sessions.find((session) => session.conversation?.id === logId) ?? null;
 }
 
+function isSameOverlayState(left: StudentDetailOverlayState, right: StudentDetailOverlayState) {
+  if (left.kind !== right.kind) return false;
+  if (left.kind === "none") return true;
+  if (left.kind === "log" && right.kind === "log") return left.logId === right.logId;
+  if (left.kind === "parentReport" && right.kind === "parentReport") return left.reportId === right.reportId;
+  if (left.kind === "report" && right.kind === "report") return left.view === right.view;
+  return false;
+}
+
 export function useStudentDetailOverlay({
   room,
   queryParams,
@@ -87,6 +96,7 @@ export function useStudentDetailOverlay({
   const [overlay, setOverlay] = useState<StudentDetailOverlayState>(() =>
     resolveOverlayState(room, queryParams, selectedSessionIds)
   );
+  const pendingUrlOverlayRef = useRef<StudentDetailOverlayState | null>(null);
   const [parentReportDetails, setParentReportDetails] = useState<Record<string, ReportItem>>({});
   const [parentReportLoadingId, setParentReportLoadingId] = useState<string | null>(null);
   const [parentReportError, setParentReportError] = useState<string | null>(null);
@@ -95,7 +105,18 @@ export function useStudentDetailOverlay({
   const [logHasUnsavedChanges, setLogHasUnsavedChanges] = useState(false);
 
   useEffect(() => {
-    setOverlay(resolveOverlayState(room, queryParams, selectedSessionIds));
+    const resolved = resolveOverlayState(room, queryParams, selectedSessionIds);
+    const pending = pendingUrlOverlayRef.current;
+
+    if (pending && isSameOverlayState(resolved, pending)) {
+      pendingUrlOverlayRef.current = null;
+    }
+
+    if (pending && resolved.kind === "none") {
+      return;
+    }
+
+    setOverlay((current) => (isSameOverlayState(current, resolved) ? current : resolved));
   }, [queryParams, room, selectedSessionIds]);
 
   useEffect(() => {
@@ -158,13 +179,16 @@ export function useStudentDetailOverlay({
   }, [activeParentReportBase, fetchParentReportDetail, overlay.kind, parentReportDetails]);
 
   const closeOverlay = useCallback(() => {
+    pendingUrlOverlayRef.current = null;
     setOverlay({ kind: "none" });
     syncUrl({ panel: null, logId: null, reportId: null, lessonSessionId: null });
   }, [syncUrl]);
 
   const openLog = useCallback(
     (logId: string) => {
-      setOverlay({ kind: "log", logId });
+      const nextOverlay = { kind: "log", logId } satisfies StudentDetailOverlayState;
+      pendingUrlOverlayRef.current = nextOverlay;
+      setOverlay(nextOverlay);
       syncUrl({ panel: "log", logId, reportId: null, lessonSessionId: null });
     },
     [syncUrl]
@@ -172,7 +196,9 @@ export function useStudentDetailOverlay({
 
   const openReportStudio = useCallback(
     (view: ReportStudioView) => {
-      setOverlay({ kind: "report", view });
+      const nextOverlay = { kind: "report", view } satisfies StudentDetailOverlayState;
+      pendingUrlOverlayRef.current = nextOverlay;
+      setOverlay(nextOverlay);
       syncUrl({ panel: "report", logId: null, reportId: null, lessonSessionId: null });
     },
     [syncUrl]
@@ -188,7 +214,9 @@ export function useStudentDetailOverlay({
   const openParentReport = useCallback(
     (reportId: string) => {
       setParentReportError(null);
-      setOverlay({ kind: "parentReport", reportId });
+      const nextOverlay = { kind: "parentReport", reportId } satisfies StudentDetailOverlayState;
+      pendingUrlOverlayRef.current = nextOverlay;
+      setOverlay(nextOverlay);
       syncUrl({ panel: "parentReport", reportId, logId: null, lessonSessionId: null, tab: "parentReports" });
     },
     [syncUrl]
@@ -199,7 +227,9 @@ export function useStudentDetailOverlay({
   }, [openReportStudio]);
 
   const onReportViewChange = useCallback((view: ReportStudioView) => {
-    setOverlay({ kind: "report", view });
+    const nextOverlay = { kind: "report", view } satisfies StudentDetailOverlayState;
+    pendingUrlOverlayRef.current = nextOverlay;
+    setOverlay(nextOverlay);
   }, []);
 
   const requestOverlayClose = useCallback(() => {
