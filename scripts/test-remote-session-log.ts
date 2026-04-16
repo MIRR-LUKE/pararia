@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { loginForCriticalPathSmoke } from "./lib/critical-path-smoke";
+import { assertRemoteGenerationSmokeAllowed } from "./lib/environment-safety";
 
 const BASE_URL = process.argv[2]?.trim() || process.env.CRITICAL_PATH_BASE_URL?.trim() || "http://127.0.0.1:3000";
 const BOOTSTRAP_URL = process.argv[3]?.trim() || process.env.CRITICAL_PATH_BOOTSTRAP_URL?.trim() || "";
@@ -31,6 +32,7 @@ type ProgressJob = {
 };
 
 async function main() {
+  assertRemoteGenerationSmokeAllowed(BASE_URL, "remote-session-log");
   const client = await loginForCriticalPathSmoke(BASE_URL, {
     bootstrapUrl: BOOTSTRAP_URL,
   });

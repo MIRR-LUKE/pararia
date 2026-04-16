@@ -4,6 +4,7 @@ const MUTATING_FIXTURE_OVERRIDE_ENV = "PARARIA_ALLOW_REMOTE_FIXTURES";
 const REMOTE_SEED_OVERRIDE_ENV = "PARARIA_ALLOW_REMOTE_SEED";
 const RESTORE_DRILL_OVERRIDE_ENV = "PARARIA_ALLOW_REMOTE_RESTORE_DRILL";
 const REMOTE_MIGRATE_DEV_OVERRIDE_ENV = "PARARIA_ALLOW_REMOTE_MIGRATE_DEV";
+const REMOTE_GENERATION_SMOKE_OVERRIDE_ENV = "PARARIA_ALLOW_REMOTE_GENERATION_SMOKE";
 
 function isLocalHostname(hostname: string) {
   const normalized = hostname.trim().toLowerCase();
@@ -50,6 +51,22 @@ export function assertMutatingFixtureEnvironment(baseUrl: string, label: string)
     `[${label}] mutating fixture scripts are blocked unless both app URL and Prisma datasource are local. ` +
       `baseUrl=${baseUrl} localBaseUrl=${localBaseUrl} localDatasource=${localDatasource}. ` +
       `Use ${MUTATING_FIXTURE_OVERRIDE_ENV}=1 only for an intentionally isolated non-production environment.`
+  );
+}
+
+export function assertRemoteGenerationSmokeAllowed(baseUrl: string, label: string) {
+  if (isLocalBaseUrl(baseUrl)) {
+    return;
+  }
+
+  if (process.env[REMOTE_GENERATION_SMOKE_OVERRIDE_ENV]?.trim() === "1") {
+    return;
+  }
+
+  throw new Error(
+    `[${label}] remote generation smoke writes temporary data to the app. ` +
+      `baseUrl=${baseUrl}. local app で実行するか、意図して remote を叩くときだけ ` +
+      `${REMOTE_GENERATION_SMOKE_OVERRIDE_ENV}=1 を付けてください。`
   );
 }
 

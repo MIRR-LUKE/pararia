@@ -67,6 +67,7 @@ npm run verify
 
 `verify` には、面談ログと保護者レポートの回帰をまとめて見る `npm run test:generation-preservation` を入れてあります。
 この中で、`artifact` の意味崩れ、再生成開始時の既存ログ消去、finalize 後の副作用巻き込み、保護者レポートの artifact 必須をまとめて確認します。
+さらに、`artifactJson / summaryMarkdown / formattedTranscript` を本番コードの別ルートから勝手に書き換えないよう、`npm run test:conversation-generation-boundary` を同じ保全ゲートへ入れています。
 認証が必要な重い smoke は別に切り、普段の確認では安全側の回帰を先に落とせるようにしています。
 
 今回の変更で特に見るテスト:
@@ -91,6 +92,7 @@ npm run test:student-room-route
 - Node の正本は `.nvmrc` と `package.json` の `engines.node` の `22`
 - tracked ファイルに秘密値が混ざっていないかは `npm run scan:secrets` で見る
 - mutating fixture を使う smoke / UI script は local app + local DB でしか動かさない。remote で明示的に許可するときだけ `PARARIA_ALLOW_REMOTE_FIXTURES=1`
+- 面談ログ / 保護者レポートを remote で実動確認する `npm run test:remote-generation-smoke -- --base-url https://pararia.vercel.app` は、明示的に `PARARIA_ALLOW_REMOTE_GENERATION_SMOKE=1` を付けたときだけ動く
 - production / shared tenant の整合性確認は read-only の `npm run test:student-integrity-audit -- --base-url https://pararia.vercel.app`
 - 公開 RUM API は本文上限と軽い回数制限をかけ、検索文字列をログに残さない。RUM 送信もサーバーログも既定ではオフ
 - 生徒 / 会話 / 設定 / レポート送信 / 招待 / 復元系の書き込み API は軽い回数制限を通す

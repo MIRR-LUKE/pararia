@@ -58,8 +58,9 @@ async function runExternalCase() {
     },
   });
 
+  await waitForMicrotask();
   assert.equal(result.mode, "external");
-  assert.equal(result.workerWake?.ok, true);
+  assert.equal(result.workerWake, null);
   assert.deepEqual(events, ["enqueue:conversation-external", "wake"]);
 }
 

@@ -37,18 +37,22 @@ export async function dispatchPromotedConversationJobs(
     };
   }
 
-  const workerWake = await deps.maybeEnsureRunpodWorker().catch((error: any) => ({
-    attempted: true,
-    ok: false,
-    error: error?.message ?? String(error),
-  }));
-  if (workerWake?.attempted && !workerWake.ok) {
-    console.error("[sessionPartJobs] Runpod worker wake failed after promotion:", workerWake);
-  }
+  void deps
+    .maybeEnsureRunpodWorker()
+    .then((workerWake) => {
+      if (workerWake?.attempted && !workerWake.ok) {
+        console.error("[sessionPartJobs] Runpod worker wake failed after promotion:", workerWake);
+      }
+    })
+    .catch((error: any) => {
+      console.error("[sessionPartJobs] Runpod worker wake threw after promotion:", {
+        error: error?.message ?? String(error),
+      });
+    });
 
   return {
     mode: "external" as const,
-    workerWake,
+    workerWake: null,
   };
 }
 

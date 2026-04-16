@@ -58,9 +58,10 @@ async function runExternalCase() {
     },
   });
 
+  await waitForMicrotask();
   assert.equal(result.mode, "external");
-  assert.equal(result.workerWake?.ok, true);
-  assert.deepEqual(events, ["enqueue:part-external", "wake", "process:session-external"]);
+  assert.equal(result.workerWake, null);
+  assert.deepEqual(events, ["enqueue:part-external", "wake"]);
 }
 
 await runInlineCase();

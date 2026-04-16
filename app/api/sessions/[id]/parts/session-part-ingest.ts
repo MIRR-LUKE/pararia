@@ -32,19 +32,25 @@ type AudioSessionPartSubmissionResult = {
 };
 
 async function dispatchAudioSessionPartJobs(sessionId: string, partId: string) {
-  const workerWakePromise = shouldRunBackgroundJobsInline() ? null : maybeEnsureRunpodWorker();
   await enqueueSessionPartJob(partId, SessionPartJobType.TRANSCRIBE_FILE);
-  const workerWake = workerWakePromise ? await workerWakePromise : null;
 
   if (shouldRunBackgroundJobsInline()) {
     void processAllSessionPartJobs(sessionId).catch((error) => {
       console.error("[POST /api/sessions/[id]/parts] Background session part processing failed:", error);
     });
-  } else if (workerWake?.attempted && !workerWake.ok) {
-    console.error("[POST /api/sessions/[id]/parts] Runpod worker wake failed:", workerWake);
+  } else {
+    void maybeEnsureRunpodWorker()
+      .then((workerWake) => {
+        if (workerWake?.attempted && !workerWake.ok) {
+          console.error("[POST /api/sessions/[id]/parts] Runpod worker wake failed:", workerWake);
+        }
+      })
+      .catch((error) => {
+        console.error("[POST /api/sessions/[id]/parts] Runpod worker wake threw:", error);
+      });
   }
 
-  return workerWake;
+  return null;
 }
 
 type TextSessionPartDispatchDeps = {
@@ -66,23 +72,24 @@ export async function dispatchTextSessionPartJobs(
   const inline = runInline();
 
   await enqueue(partId, SessionPartJobType.PROMOTE_SESSION);
-  const workerWake = inline ? null : await ensureWorker();
 
   if (inline) {
     await processAll(sessionId);
-  } else if (workerWake?.attempted && !workerWake.ok) {
-    console.error("[POST /api/sessions/[id]/parts] Runpod worker wake failed for text promotion:", workerWake);
-  }
-
-  if (!inline) {
-    await processAll(sessionId).catch((error) => {
-      console.error("[POST /api/sessions/[id]/parts] Manual session part promotion failed:", error);
-    });
+  } else {
+    void ensureWorker()
+      .then((workerWake) => {
+        if (workerWake?.attempted && !workerWake.ok) {
+          console.error("[POST /api/sessions/[id]/parts] Runpod worker wake failed for text promotion:", workerWake);
+        }
+      })
+      .catch((error) => {
+        console.error("[POST /api/sessions/[id]/parts] Runpod worker wake threw for text promotion:", error);
+      });
   }
 
   return {
     mode: inline ? "inline" as const : "external" as const,
-    workerWake,
+    workerWake: null,
   };
 }
 

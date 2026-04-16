@@ -36,17 +36,24 @@ async function verifyLockOrThrow(access: SessionPartAccessContext, plainToken: s
 
 async function dispatchLiveSessionPartJobs(sessionId: string, partId: string) {
   await enqueueSessionPartJob(partId, SessionPartJobType.FINALIZE_LIVE_PART);
-  const workerWake = shouldRunBackgroundJobsInline() ? null : await maybeEnsureRunpodWorker();
 
   if (shouldRunBackgroundJobsInline()) {
     void processAllSessionPartJobs(sessionId).catch((error) => {
       console.error("[POST /api/sessions/[id]/parts/live] Background session part processing failed:", error);
     });
-  } else if (workerWake?.attempted && !workerWake.ok) {
-    console.error("[POST /api/sessions/[id]/parts/live] Runpod worker wake failed:", workerWake);
+  } else {
+    void maybeEnsureRunpodWorker()
+      .then((workerWake) => {
+        if (workerWake?.attempted && !workerWake.ok) {
+          console.error("[POST /api/sessions/[id]/parts/live] Runpod worker wake failed:", workerWake);
+        }
+      })
+      .catch((error) => {
+        console.error("[POST /api/sessions/[id]/parts/live] Runpod worker wake threw:", error);
+      });
   }
 
-  return workerWake;
+  return null;
 }
 
 async function persistLiveTranscribingPart(input: {
