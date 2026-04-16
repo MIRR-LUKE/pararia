@@ -55,6 +55,9 @@ type RunpodMeasureResult = {
   llmCostUsd?: number | null;
   finalizeModel?: string | null;
   artifactChars?: number | null;
+  studentId?: string | null;
+  studentName?: string | null;
+  recordsKept?: boolean;
   sessionId?: string;
   partId?: string;
   conversationId?: string | null;
@@ -80,8 +83,10 @@ async function main() {
   const createRetries = readNumberArg("create-retries", 2);
   const createRetryWaitMs = readNumberArg("create-retry-wait-ms", 30000);
   const interruptible = readBoolArg("interruptible", false);
+  const keepRecords = readBoolArg("keep-records", false);
   const startupMode = (parseArg("startup-mode", "direct") ?? "direct") as StartupMode;
   const gitRef = parseArg("git-ref", "main")!;
+  const targetStudentName = (parseArg("student-name", "") ?? "").trim();
   const fallbackEnvFile = path.resolve(parseArg("fallback-env-file", ".tmp/.env.production.runpod")!);
   const outputDir = path.resolve(parseArg("out-dir", ".tmp/runpod-ux")!);
   const workerImage = parseArg("image", process.env.RUNPOD_WORKER_IMAGE?.trim() || "ghcr.io/mirr-luke/pararia-runpod-worker:latest");
@@ -122,6 +127,7 @@ async function main() {
     sourceAudioPath,
     audioDurationSeconds: null,
     enqueueStartedAt: new Date().toISOString(),
+    recordsKept: keepRecords,
   };
 
   let clipAudioPath: string | null = null;
@@ -143,6 +149,8 @@ async function main() {
       { toSessionPartMetaJson, readSessionPartMeta },
       { getAudioDurationSeconds },
       { getAudioExpiryDate },
+      { checkAudioBlobWriteHealth },
+      { checkLlmApiHealth },
     ] = await Promise.all([
       import("../lib/db"),
       import("@prisma/client"),
@@ -152,7 +160,18 @@ async function main() {
       import("../lib/session-part-meta"),
       import("../lib/audio-processing"),
       import("../lib/system-config"),
+      import("../lib/audio-storage-health"),
+      import("../lib/ai/llm-health"),
     ]);
+
+    const blobHealth = await checkAudioBlobWriteHealth();
+    if (!blobHealth.ok) {
+      throw new Error(blobHealth.message);
+    }
+    const llmHealth = await checkLlmApiHealth();
+    if (!llmHealth.ok) {
+      throw new Error(llmHealth.message);
+    }
 
     if (startupMode === "reuse") {
       if (prepareFresh) {
@@ -205,25 +224,49 @@ async function main() {
     const enqueueStartedAt = new Date();
     result.enqueueStartedAt = enqueueStartedAt.toISOString();
 
-    const student = await prisma.student.create({
-      data: {
-        organizationId: organization.id,
-        name: `[Runpod UX ${profile.name}] ${enqueueStartedAt.toISOString().slice(11, 19)}`,
-        grade: "計測用",
-        course: `runpod-ux-${profile.name}`,
-      },
-      select: { id: true },
-    });
-    createdStudentId = student.id;
+    let studentId: string;
+    if (targetStudentName) {
+      const matchingStudents = await prisma.student.findMany({
+        where: {
+          organizationId: organization.id,
+          archivedAt: null,
+          name: targetStudentName,
+        },
+        orderBy: { createdAt: "asc" },
+        select: { id: true, name: true },
+      });
+      if (matchingStudents.length !== 1) {
+        throw new Error(
+          `student-name "${targetStudentName}" は ${matchingStudents.length} 件ヒットしました。正確に1件だけになる状態で再実行してください。`
+        );
+      }
+      studentId = matchingStudents[0].id;
+      result.studentId = matchingStudents[0].id;
+      result.studentName = matchingStudents[0].name;
+    } else {
+      const student = await prisma.student.create({
+        data: {
+          organizationId: organization.id,
+          name: `[Runpod UX ${profile.name}] ${enqueueStartedAt.toISOString().slice(11, 19)}`,
+          grade: "計測用",
+          course: `runpod-ux-${profile.name}`,
+        },
+        select: { id: true, name: true },
+      });
+      createdStudentId = student.id;
+      studentId = student.id;
+      result.studentId = student.id;
+      result.studentName = student.name;
+    }
 
     const session = await prisma.session.create({
       data: {
         organizationId: organization.id,
-        studentId: student.id,
+        studentId,
         userId: user.id,
         type: SessionType.INTERVIEW,
         status: SessionStatus.COLLECTING,
-        title: `Runpod UX ${profile.name}`,
+        title: targetStudentName ? `Runpod UX ${profile.name} ${targetStudentName}` : `Runpod UX ${profile.name}`,
         sessionDate: enqueueStartedAt,
       },
       select: { id: true },
@@ -419,13 +462,15 @@ async function main() {
     } else {
       await deleteRunpodPod(podId);
     }
-    await cleanupBenchmarkRecords({
-      sessionId: createdSessionId,
-      studentId: createdStudentId,
-      partId: createdPartId,
-      conversationId: createdConversationId,
-      storageUrl: uploadedStorageUrl,
-    });
+    if (!keepRecords) {
+      await cleanupBenchmarkRecords({
+        sessionId: createdSessionId,
+        studentId: createdStudentId,
+        partId: createdPartId,
+        conversationId: createdConversationId,
+        storageUrl: uploadedStorageUrl,
+      });
+    }
     if (clipAudioPath) {
       await rm(clipAudioPath, { force: true }).catch(() => {});
     }

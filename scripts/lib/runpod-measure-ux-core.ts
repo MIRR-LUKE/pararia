@@ -1,9 +1,28 @@
 import { spawn } from "node:child_process";
 
-export function parseArg(name: string, fallback?: string) {
+function findRawArgValue(name: string) {
   const prefix = `--${name}=`;
-  const raw = process.argv.find((arg) => arg.startsWith(prefix));
-  return raw ? raw.slice(prefix.length) : fallback ?? null;
+
+  for (let index = 0; index < process.argv.length; index += 1) {
+    const arg = process.argv[index];
+    if (arg.startsWith(prefix)) {
+      return arg.slice(prefix.length);
+    }
+    if (arg === `--${name}`) {
+      const next = process.argv[index + 1];
+      if (!next || next.startsWith("--")) {
+        return "";
+      }
+      return next;
+    }
+  }
+
+  return null;
+}
+
+export function parseArg(name: string, fallback?: string) {
+  const raw = findRawArgValue(name);
+  return raw !== null ? raw : fallback ?? null;
 }
 
 export function must(value: string | null | undefined, message: string) {
@@ -17,8 +36,9 @@ export function readNumberArg(name: string, fallback: number) {
 }
 
 export function readBoolArg(name: string, fallback: boolean) {
-  const raw = parseArg(name);
-  if (!raw) return fallback;
+  const raw = findRawArgValue(name);
+  if (raw === null) return fallback;
+  if (raw === "") return true;
   return raw === "1" || raw.toLowerCase() === "true" || raw.toLowerCase() === "yes";
 }
 

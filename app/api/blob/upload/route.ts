@@ -10,6 +10,7 @@ import {
   parseBlobUploadReservationRequest,
   upsertBlobUploadReservation,
 } from "@/lib/blob-upload-reservations";
+import { checkAudioBlobWriteHealth } from "@/lib/audio-storage-health";
 import { requireAuthorizedSession } from "@/lib/server/request-auth";
 import { RequestValidationError, parseJsonWithSchema, parseWithSchema } from "@/lib/server/request-validation";
 
@@ -34,6 +35,17 @@ export async function POST(request: Request) {
       const authResult = await requireAuthorizedSession();
       if (authResult.response) return authResult.response;
       authorizedSession = authResult.session;
+
+      const blobHealth = await checkAudioBlobWriteHealth();
+      if (!blobHealth.ok) {
+        return NextResponse.json(
+          {
+            error: blobHealth.message,
+            code: blobHealth.code,
+          },
+          { status: 503 }
+        );
+      }
     }
 
     const result = await handleUpload({

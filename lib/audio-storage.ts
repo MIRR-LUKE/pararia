@@ -27,6 +27,16 @@ async function getBlobSdk() {
   return import("@vercel/blob");
 }
 
+function toBlobStorageWriteError(error: unknown) {
+  const detail = String((error as any)?.message ?? error ?? "unknown blob storage error");
+  const suspended =
+    String((error as any)?.name ?? "") === "BlobStoreSuspendedError" || /store has been suspended|store is suspended/i.test(detail);
+  if (suspended) {
+    return new Error("音声保存ストレージが停止中です。Vercel Blob の Billing State を Active に戻してから、もう一度お試しください。");
+  }
+  return error instanceof Error ? error : new Error(detail);
+}
+
 function toLocalRuntimePath(storagePathname: string) {
   return path.join(getRuntimeRootDir(), ...String(storagePathname).split("/").filter(Boolean));
 }
@@ -48,12 +58,17 @@ export async function saveStorageBuffer(input: {
 }) {
   if (getAudioStorageMode() === "blob") {
     const { put } = await getBlobSdk();
-    const blob = await put(input.storagePathname, input.buffer, {
-      access: getAudioStorageAccess(),
-      addRandomSuffix: false,
-      allowOverwrite: input.allowOverwrite ?? true,
-      contentType: input.contentType,
-    });
+    let blob;
+    try {
+      blob = await put(input.storagePathname, input.buffer, {
+        access: getAudioStorageAccess(),
+        addRandomSuffix: false,
+        allowOverwrite: input.allowOverwrite ?? true,
+        contentType: input.contentType,
+      });
+    } catch (error) {
+      throw toBlobStorageWriteError(error);
+    }
     return {
       storageUrl: blob.url,
       storagePathname: blob.pathname,

@@ -94,6 +94,13 @@ function isRetryableLlmError(error: unknown) {
   return /abort|timeout|timed out|fetch failed|network|econnreset|etimedout|socket/i.test(message.toLowerCase());
 }
 
+function toLlmApiError(status: number, raw: string) {
+  if (status === 401 || status === 403 || /invalid_api_key|incorrect api key|unauthorized|authentication/i.test(raw)) {
+    return new Error("LLM の認証に失敗しました。OPENAI_API_KEY が無効か期限切れです。環境変数を更新してください。");
+  }
+  return new Error(`LLM API failed (${status}): ${raw}`);
+}
+
 async function callChatCompletions(params: {
   model: string;
   messages: Array<{ role: "system" | "user"; content: string }>;
@@ -151,7 +158,7 @@ async function callChatCompletions(params: {
         continue;
       }
 
-      throw new Error(`LLM API failed (${response.status}): ${raw}`);
+      throw toLlmApiError(response.status, raw);
     } catch (error) {
       if (attempt < 3 && isRetryableLlmError(error)) {
         await waitForLlmRetry(attempt);

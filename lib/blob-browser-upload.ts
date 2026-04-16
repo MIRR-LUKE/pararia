@@ -31,12 +31,21 @@ export async function uploadFileToBlobFromBrowser(input: {
         uploadSource: input.uploadSource ?? "file_upload",
       })
     : null;
-  const blob = await upload(input.pathname, input.file, {
-    access: input.access ?? "private",
-    handleUploadUrl: input.handleUploadUrl,
-    clientPayload: clientPayload ?? undefined,
-    contentType: normalizedContentType,
-    multipart: input.file.size > 8 * 1024 * 1024,
-  });
+  let blob;
+  try {
+    blob = await upload(input.pathname, input.file, {
+      access: input.access ?? "private",
+      handleUploadUrl: input.handleUploadUrl,
+      clientPayload: clientPayload ?? undefined,
+      contentType: normalizedContentType,
+      multipart: input.file.size > 8 * 1024 * 1024,
+    });
+  } catch (error: any) {
+    const detail = String(error?.message ?? error ?? "unknown blob upload error");
+    if (/store has been suspended|store is suspended/i.test(detail)) {
+      throw new Error("音声保存ストレージが停止中です。Vercel Blob の Billing State を Active に戻してから、もう一度お試しください。");
+    }
+    throw error;
+  }
   return blob as BrowserBlobUploadResult;
 }
