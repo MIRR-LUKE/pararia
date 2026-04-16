@@ -10,6 +10,7 @@ import { getRecordingMaxDurationSeconds } from "@/lib/recording/validation";
 import { enqueueSessionPartJob, processAllSessionPartJobs } from "@/lib/jobs/sessionPartJobs";
 import { shouldRunBackgroundJobsInline } from "@/lib/jobs/execution-mode";
 import { maybeEnsureRunpodWorker } from "@/lib/runpod/worker-control";
+import { runAfterResponse } from "@/lib/server/after-response";
 import { getAudioExpiryDate } from "@/lib/system-config";
 import { isLiveChunkUploadEnabled } from "@/lib/recording/live-chunk-upload";
 import type {
@@ -42,15 +43,17 @@ async function dispatchLiveSessionPartJobs(sessionId: string, partId: string) {
       console.error("[POST /api/sessions/[id]/parts/live] Background session part processing failed:", error);
     });
   } else {
-    void maybeEnsureRunpodWorker()
-      .then((workerWake) => {
+    runAfterResponse(async () => {
+      await maybeEnsureRunpodWorker()
+        .then((workerWake) => {
         if (workerWake?.attempted && !workerWake.ok) {
           console.error("[POST /api/sessions/[id]/parts/live] Runpod worker wake failed:", workerWake);
         }
-      })
-      .catch((error) => {
-        console.error("[POST /api/sessions/[id]/parts/live] Runpod worker wake threw:", error);
-      });
+        })
+        .catch((error) => {
+          console.error("[POST /api/sessions/[id]/parts/live] Runpod worker wake threw:", error);
+        });
+    }, "POST /api/sessions/[id]/parts/live wake runpod");
   }
 
   return null;

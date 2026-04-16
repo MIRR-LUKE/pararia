@@ -7,6 +7,7 @@ import { maybeStopRunpodWorkerWhenSessionPartQueueIdle } from "@/lib/runpod/idle
 import { maybeEnsureRunpodWorker } from "@/lib/runpod/worker-control";
 import { toPrismaJson } from "@/lib/prisma-json";
 import { toSessionPartMetaJson } from "@/lib/session-part-meta";
+import { runAfterResponse } from "@/lib/server/after-response";
 import { type SessionPartJobPayload, type SessionPartPayload } from "./shared";
 
 type PromoteConversationDispatchDeps = {
@@ -37,18 +38,20 @@ export async function dispatchPromotedConversationJobs(
     };
   }
 
-  void deps
-    .maybeEnsureRunpodWorker()
-    .then((workerWake) => {
-      if (workerWake?.attempted && !workerWake.ok) {
-        console.error("[sessionPartJobs] Runpod worker wake failed after promotion:", workerWake);
-      }
-    })
-    .catch((error: any) => {
-      console.error("[sessionPartJobs] Runpod worker wake threw after promotion:", {
-        error: error?.message ?? String(error),
+  runAfterResponse(async () => {
+    await deps
+      .maybeEnsureRunpodWorker()
+      .then((workerWake) => {
+        if (workerWake?.attempted && !workerWake.ok) {
+          console.error("[sessionPartJobs] Runpod worker wake failed after promotion:", workerWake);
+        }
+      })
+      .catch((error: any) => {
+        console.error("[sessionPartJobs] Runpod worker wake threw after promotion:", {
+          error: error?.message ?? String(error),
+        });
       });
-    });
+  }, "sessionPartJobs promote wake runpod");
 
   return {
     mode: "external" as const,
@@ -126,7 +129,9 @@ export async function executePromoteSessionJob(job: SessionPartJobPayload, part:
     },
   });
 
-  await maybeStopRunpodWorkerWhenSessionPartQueueIdle().catch((error) => {
-    console.warn("[sessionPartJobs] failed to stop Runpod worker after promotion", error);
-  });
+  runAfterResponse(async () => {
+    await maybeStopRunpodWorkerWhenSessionPartQueueIdle().catch((error) => {
+      console.warn("[sessionPartJobs] failed to stop Runpod worker after promotion", error);
+    });
+  }, "sessionPartJobs promote idle stop");
 }

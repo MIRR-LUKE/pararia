@@ -11,6 +11,7 @@ import { maybeStopRunpodWorkerWhenSessionPartQueueIdle } from "@/lib/runpod/idle
 import { maybeEnsureRunpodWorker } from "@/lib/runpod/worker-control";
 import { requireAuthorizedMutationSession } from "@/lib/server/request-auth";
 import { applyLightMutationThrottle } from "@/lib/server/request-throttle";
+import { runAfterResponse } from "@/lib/server/after-response";
 
 export async function POST(
   request: Request,
@@ -97,13 +98,15 @@ export async function POST(
         }
       })();
     } else {
-      void maybeEnsureRunpodWorker().catch((error) => {
-        logOperationError(operation, {
-          stage: "wake_runpod_worker",
-          message: "Runpod wake failed",
-          error,
+      runAfterResponse(async () => {
+        await maybeEnsureRunpodWorker().catch((error) => {
+          logOperationError(operation, {
+            stage: "wake_runpod_worker",
+            message: "Runpod wake failed",
+            error,
+          });
         });
-      });
+      }, "POST /api/sessions/[id]/next-meeting-memo/regenerate wake runpod");
     }
 
     return NextResponse.json({

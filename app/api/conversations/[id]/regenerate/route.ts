@@ -14,6 +14,7 @@ import { resolveRouteId, type RouteParams } from "@/lib/server/route-params";
 import { maybeStopRunpodWorkerWhenSessionPartQueueIdle } from "@/lib/runpod/idle-stop";
 import { maybeEnsureRunpodWorker } from "@/lib/runpod/worker-control";
 import { applyLightMutationThrottle } from "@/lib/server/request-throttle";
+import { runAfterResponse } from "@/lib/server/after-response";
 
 type ConversationRegenerationSource = {
   rawTextOriginal: string | null;
@@ -123,9 +124,11 @@ export async function POST(
         }
       })();
     } else {
-      void maybeEnsureRunpodWorker().catch((error) => {
-        console.error("[POST /api/conversations/[id]/regenerate] Runpod wake failed:", error);
-      });
+      runAfterResponse(async () => {
+        await maybeEnsureRunpodWorker().catch((error) => {
+          console.error("[POST /api/conversations/[id]/regenerate] Runpod wake failed:", error);
+        });
+      }, "POST /api/conversations/[id]/regenerate wake runpod");
     }
 
     if (conversation.sessionId) {

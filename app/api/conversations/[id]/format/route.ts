@@ -9,6 +9,7 @@ import { resolveRouteId, type RouteParams } from "@/lib/server/route-params";
 import { maybeStopRunpodWorkerWhenSessionPartQueueIdle } from "@/lib/runpod/idle-stop";
 import { maybeEnsureRunpodWorker } from "@/lib/runpod/worker-control";
 import { applyLightMutationThrottle } from "@/lib/server/request-throttle";
+import { runAfterResponse } from "@/lib/server/after-response";
 
 export async function POST(
   request: Request,
@@ -72,9 +73,11 @@ export async function POST(
         }
       })();
     } else {
-      void maybeEnsureRunpodWorker().catch((error) => {
-        console.error("[POST /api/conversations/[id]/format] Runpod wake failed:", error);
-      });
+      runAfterResponse(async () => {
+        await maybeEnsureRunpodWorker().catch((error) => {
+          console.error("[POST /api/conversations/[id]/format] Runpod wake failed:", error);
+        });
+      }, "POST /api/conversations/[id]/format wake runpod");
     }
 
     return NextResponse.json({ ok: true, message: "format job queued" });

@@ -16,6 +16,7 @@ import { sanitizeSummaryMarkdown } from "@/lib/user-facing-japanese";
 import { maybeStopRunpodWorkerWhenSessionPartQueueIdle } from "@/lib/runpod/idle-stop";
 import { maybeEnsureRunpodWorker } from "@/lib/runpod/worker-control";
 import { applyLightMutationThrottle } from "@/lib/server/request-throttle";
+import { runAfterResponse } from "@/lib/server/after-response";
 
 export async function GET(request: Request) {
   try {
@@ -198,9 +199,11 @@ export async function POST(request: Request) {
         }
       })();
     } else {
-      void maybeEnsureRunpodWorker().catch((error) => {
-        console.error("[POST /api/conversations] Runpod wake failed:", error);
-      });
+      runAfterResponse(async () => {
+        await maybeEnsureRunpodWorker().catch((error) => {
+          console.error("[POST /api/conversations] Runpod wake failed:", error);
+        });
+      }, "POST /api/conversations wake runpod");
     }
 
     revalidateTag(`student-directory:${organizationId}`, "max");

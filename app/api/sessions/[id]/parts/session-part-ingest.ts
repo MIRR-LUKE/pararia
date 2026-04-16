@@ -21,6 +21,7 @@ import { ensureSessionPartReviewedTranscript } from "@/lib/transcript/review";
 import { getAudioExpiryDate, getTranscriptExpiryDate } from "@/lib/system-config";
 import { enqueueStorageDeletions } from "@/lib/storage-deletion-queue";
 import { updateSessionStatusFromParts } from "@/lib/session-service";
+import { runAfterResponse } from "@/lib/server/after-response";
 import { toPrismaJson } from "@/lib/prisma-json";
 import type { SessionPartAccessContext, SessionPartSubmissionFormData } from "./session-part-route-common";
 
@@ -39,15 +40,17 @@ async function dispatchAudioSessionPartJobs(sessionId: string, partId: string) {
       console.error("[POST /api/sessions/[id]/parts] Background session part processing failed:", error);
     });
   } else {
-    void maybeEnsureRunpodWorker()
-      .then((workerWake) => {
+    runAfterResponse(async () => {
+      await maybeEnsureRunpodWorker()
+        .then((workerWake) => {
         if (workerWake?.attempted && !workerWake.ok) {
           console.error("[POST /api/sessions/[id]/parts] Runpod worker wake failed:", workerWake);
         }
       })
-      .catch((error) => {
-        console.error("[POST /api/sessions/[id]/parts] Runpod worker wake threw:", error);
-      });
+        .catch((error) => {
+          console.error("[POST /api/sessions/[id]/parts] Runpod worker wake threw:", error);
+        });
+    }, "POST /api/sessions/[id]/parts wake runpod");
   }
 
   return null;
@@ -76,15 +79,17 @@ export async function dispatchTextSessionPartJobs(
   if (inline) {
     await processAll(sessionId);
   } else {
-    void ensureWorker()
-      .then((workerWake) => {
+    runAfterResponse(async () => {
+      await ensureWorker()
+        .then((workerWake) => {
         if (workerWake?.attempted && !workerWake.ok) {
           console.error("[POST /api/sessions/[id]/parts] Runpod worker wake failed for text promotion:", workerWake);
         }
-      })
-      .catch((error) => {
-        console.error("[POST /api/sessions/[id]/parts] Runpod worker wake threw for text promotion:", error);
-      });
+        })
+        .catch((error) => {
+          console.error("[POST /api/sessions/[id]/parts] Runpod worker wake threw for text promotion:", error);
+        });
+    }, "POST /api/sessions/[id]/parts text promotion wake");
   }
 
   return {

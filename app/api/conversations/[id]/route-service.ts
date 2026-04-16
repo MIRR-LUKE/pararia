@@ -17,23 +17,26 @@ import { maybeStopRunpodWorkerWhenSessionPartQueueIdle } from "@/lib/runpod/idle
 import { maybeEnsureRunpodWorker } from "@/lib/runpod/worker-control";
 import { normalizeTranscriptReviewMeta } from "@/lib/logs/transcript-review-display";
 import { toPrismaJson } from "@/lib/prisma-json";
+import { runAfterResponse } from "@/lib/server/after-response";
 
 async function wakeConversationWorkerOrFallback(conversationId: string) {
-  const workerWake = await maybeEnsureRunpodWorker().catch((error: any) => ({
-    attempted: true,
-    ok: false,
-    error: error?.message ?? String(error),
-  }));
+  runAfterResponse(async () => {
+    const workerWake = await maybeEnsureRunpodWorker().catch((error: any) => ({
+      attempted: true,
+      ok: false,
+      error: error?.message ?? String(error),
+    }));
 
-  if (workerWake.attempted && workerWake.ok) {
-    return;
-  }
+    if (workerWake.attempted && workerWake.ok) {
+      return;
+    }
 
-  console.warn("[GET /api/conversations/[id]] falling back to inline conversation processing", {
-    conversationId,
-    workerWake,
-  });
-  await processAllConversationJobs(conversationId);
+    console.warn("[GET /api/conversations/[id]] falling back to inline conversation processing", {
+      conversationId,
+      workerWake,
+    });
+    await processAllConversationJobs(conversationId);
+  }, "GET /api/conversations/[id] wake conversation worker");
 }
 
 async function recoverMissingConversationJobs(conversationId: string) {
@@ -42,7 +45,13 @@ async function recoverMissingConversationJobs(conversationId: string) {
     return recovery;
   }
 
-  await processAllConversationJobs(conversationId);
+  if (shouldRunBackgroundJobsInline()) {
+    await processAllConversationJobs(conversationId);
+  } else {
+    runAfterResponse(async () => {
+      await processAllConversationJobs(conversationId);
+    }, "GET /api/conversations/[id] recover conversation jobs");
+  }
   return recovery;
 }
 
@@ -63,7 +72,7 @@ export async function processVisibleConversation(conversationId: string, status:
     return;
   }
   if (status === "PROCESSING") {
-    await wakeConversationWorkerOrFallback(conversationId).catch(() => {});
+    await wakeConversationWorkerOrFallback(conversationId);
   }
 }
 

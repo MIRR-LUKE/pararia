@@ -11,6 +11,7 @@ import { buildSummaryPreview } from "@/lib/session-part-meta";
 import { resolveRouteId, type RouteParams } from "@/lib/server/route-params";
 import { requireAuthorizedMutationSession, requireAuthorizedSession } from "@/lib/server/request-auth";
 import { applyLightMutationThrottle } from "@/lib/server/request-throttle";
+import { runAfterResponse } from "@/lib/server/after-response";
 import { pickDisplayTranscriptText } from "@/lib/transcript/source";
 import { withVisibleConversationWhere } from "@/lib/content-visibility";
 import { shouldRunBackgroundJobsInline } from "@/lib/jobs/execution-mode";
@@ -99,7 +100,7 @@ export function kickSessionWorkerOrFallback(
   const processSessionParts = deps.processAllSessionPartJobs ?? processAllSessionPartJobs;
   const processConversation = deps.processAllConversationJobs ?? processAllConversationJobs;
 
-  void (async () => {
+  runAfterResponse(async () => {
     const workerWake = await ensureWorker().catch((error: any) => ({
       attempted: true,
       ok: false,
@@ -139,9 +140,7 @@ export function kickSessionWorkerOrFallback(
     if (refreshedConversation?.id && shouldProcessConversation) {
       await processConversation(refreshedConversation.id);
     }
-  })().catch((error) => {
-    console.error("[GET /api/sessions/[id]/progress] worker wake fallback failed:", error);
-  });
+  }, "GET /api/sessions/[id]/progress worker wake fallback");
 }
 
 async function recoverMissingConversationJobs(conversationId: string | null | undefined) {
@@ -316,12 +315,20 @@ export async function POST(request: Request, { params }: { params: RouteParams }
     });
     if (throttleResponse) return throttleResponse;
 
-    await processSessionProgress(loaded.session);
-    const refreshedSession = await loadSessionProgressSnapshot(loaded.sessionId!, loaded.authSession!.user.organizationId);
-    if (!refreshedSession) {
-      return NextResponse.json({ error: "セッションが見つかりません。" }, { status: 404 });
+    if (shouldRunBackgroundJobsInline()) {
+      await processSessionProgress(loaded.session);
+      const refreshedSession = await loadSessionProgressSnapshot(loaded.sessionId!, loaded.authSession!.user.organizationId);
+      if (!refreshedSession) {
+        return NextResponse.json({ error: "セッションが見つかりません。" }, { status: 404 });
+      }
+      return buildSessionProgressResponse(refreshedSession);
     }
-    return buildSessionProgressResponse(refreshedSession);
+
+    runAfterResponse(
+      () => processSessionProgress(loaded.session),
+      "POST /api/sessions/[id]/progress"
+    );
+    return buildSessionProgressResponse(loaded.session);
   } catch (error: any) {
     console.error("[POST /api/sessions/[id]/progress] Error:", error);
     return NextResponse.json({ error: error?.message ?? "Internal Server Error" }, { status: 500 });
