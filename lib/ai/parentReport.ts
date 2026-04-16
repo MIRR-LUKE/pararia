@@ -27,7 +27,7 @@ import { buildParentReportRepairPrompt, evaluateParentReportQuality } from "./pa
 const REPORT_PRIMARY_MODEL =
   process.env.LLM_MODEL_REPORT ||
   process.env.LLM_MODEL_REPORT_PRIMARY ||
-  "gpt-5-mini";
+  "gpt-4o-mini";
 
 const REPORT_REPAIR_MODEL =
   process.env.LLM_MODEL_REPORT_REPAIR ||

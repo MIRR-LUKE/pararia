@@ -243,7 +243,7 @@ export function buildReportEvidenceLogs(input: ReportInput): ReportEvidenceLog[]
       assessment: bundleLog.operationalLog.assessment,
       nextChecks: bundleLog.operationalLog.nextChecks,
       parentShare: bundleLog.operationalLog.parentShare,
-      derivedMarkdown: renderConversationArtifactMarkdown(log.artifactJson).trim(),
+      derivedMarkdown: normalizeGeneratedText(renderConversationArtifactMarkdown(log.artifactJson).trim(), 420),
     };
   });
 }
