@@ -64,6 +64,19 @@ type RunpodMeasureResult = {
   error?: string;
 };
 
+const EXISTING_STUDENT_TARGET_OVERRIDE_ENV = "PARARIA_ALLOW_EXISTING_STUDENT_TARGET";
+
+function assertExistingStudentTargetAllowed(targetStudentName: string) {
+  if (!targetStudentName) return;
+  if (targetStudentName.startsWith("[")) return;
+  if (process.env[EXISTING_STUDENT_TARGET_OVERRIDE_ENV]?.trim() === "1") return;
+  throw new Error(
+    `既存の生徒 "${targetStudentName}" を直接使う計測は既定で止めています。` +
+      `新規の検証用生徒を使ってください。` +
+      `どうしても既存生徒を使うときだけ ${EXISTING_STUDENT_TARGET_OVERRIDE_ENV}=1 を指定してください。`
+  );
+}
+
 async function main() {
   const profileName = (parseArg("profile", "5090") ?? "5090") as GpuProfileName;
   const profile = GPU_PROFILES[profileName];
@@ -104,6 +117,7 @@ async function main() {
   await mkdir(outputDir, { recursive: true });
   await loadLocalEnvFiles();
   await loadEnvFile(fallbackEnvFile, { overrideExisting: true, optional: true });
+  assertExistingStudentTargetAllowed(targetStudentName);
 
   if (!workerImage) {
     const { getRunpodWorkerConfig } = await import("../lib/runpod/worker-control");
