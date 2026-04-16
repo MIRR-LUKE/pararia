@@ -84,46 +84,64 @@ export function shouldWakeExternalSessionWorker(input: {
   );
 }
 
-async function wakeSessionWorkerOrFallback(sessionId: string, hasPendingConversationWork: boolean) {
-  const workerWake = await maybeEnsureRunpodWorker().catch((error: any) => ({
-    attempted: true,
-    ok: false,
-    error: error?.message ?? String(error),
-  }));
+type SessionWorkerWakeDeps = {
+  maybeEnsureRunpodWorker?: typeof maybeEnsureRunpodWorker;
+  processAllSessionPartJobs?: typeof processAllSessionPartJobs;
+  processAllConversationJobs?: typeof processAllConversationJobs;
+};
 
-  if (workerWake.attempted && workerWake.ok) {
-    return;
-  }
+export function kickSessionWorkerOrFallback(
+  sessionId: string,
+  hasPendingConversationWork: boolean,
+  deps: SessionWorkerWakeDeps = {}
+) {
+  const ensureWorker = deps.maybeEnsureRunpodWorker ?? maybeEnsureRunpodWorker;
+  const processSessionParts = deps.processAllSessionPartJobs ?? processAllSessionPartJobs;
+  const processConversation = deps.processAllConversationJobs ?? processAllConversationJobs;
 
-  console.warn("[GET /api/sessions/[id]/progress] falling back to inline processing", {
-    sessionId,
-    workerWake,
-  });
+  void (async () => {
+    const workerWake = await ensureWorker().catch((error: any) => ({
+      attempted: true,
+      ok: false,
+      error: error?.message ?? String(error),
+    }));
 
-  await processAllSessionPartJobs(sessionId);
+    if (workerWake.attempted && workerWake.ok) {
+      return;
+    }
 
-  const refreshedConversation = await prisma.conversationLog.findFirst({
-    where: withVisibleConversationWhere({ sessionId }),
-    select: {
-      id: true,
-      status: true,
-      jobs: {
-        select: {
-          status: true,
+    console.warn("[GET /api/sessions/[id]/progress] falling back to inline processing", {
+      sessionId,
+      workerWake,
+    });
+
+    await processSessionParts(sessionId);
+
+    const refreshedConversation = await prisma.conversationLog.findFirst({
+      where: withVisibleConversationWhere({ sessionId }),
+      select: {
+        id: true,
+        status: true,
+        jobs: {
+          select: {
+            status: true,
+          },
         },
       },
-    },
+    });
+
+    const shouldProcessConversation =
+      Boolean(refreshedConversation?.id) &&
+      (hasPendingConversationWork ||
+        refreshedConversation?.status === "PROCESSING" ||
+        Boolean(refreshedConversation?.jobs.some((job) => job.status === "QUEUED" || job.status === "RUNNING")));
+
+    if (refreshedConversation?.id && shouldProcessConversation) {
+      await processConversation(refreshedConversation.id);
+    }
+  })().catch((error) => {
+    console.error("[GET /api/sessions/[id]/progress] worker wake fallback failed:", error);
   });
-
-  const shouldProcessConversation =
-    Boolean(refreshedConversation?.id) &&
-    (hasPendingConversationWork ||
-      refreshedConversation?.status === "PROCESSING" ||
-      Boolean(refreshedConversation?.jobs.some((job) => job.status === "QUEUED" || job.status === "RUNNING")));
-
-  if (refreshedConversation?.id && shouldProcessConversation) {
-    await processAllConversationJobs(refreshedConversation.id);
-  }
 }
 
 async function recoverMissingConversationJobs(conversationId: string | null | undefined) {
@@ -181,19 +199,13 @@ async function processSessionProgress(session: NonNullable<Awaited<ReturnType<ty
     return;
   }
 
-  if (manualOnlyParts && session.conversation?.id && needsConversationWork) {
-    await processAllConversationJobs(session.conversation.id).catch(() => {});
-    await maybeStopRunpodWorkerWhenSessionPartQueueIdle().catch(() => {});
-    return;
-  }
-
   const needsWorkerWake = shouldWakeExternalSessionWorker({
     partStatuses: session.parts.map((part) => part.status),
     queuedSessionPartJobCount,
     hasPendingConversationWork: needsConversationWork,
   });
   if (needsWorkerWake) {
-    await wakeSessionWorkerOrFallback(session.id, needsConversationWork).catch(() => {});
+    kickSessionWorkerOrFallback(session.id, needsConversationWork);
   }
 }
 

@@ -66,7 +66,7 @@ npm run verify
 ```
 
 `verify` には、面談ログと保護者レポートの回帰をまとめて見る `npm run test:generation-preservation` を入れてあります。
-この中で、`artifact` の意味崩れ、再生成開始時の既存ログ消去、finalize 後の副作用巻き込み、保護者レポートの artifact 必須をまとめて確認します。
+この中で、`artifact` の意味崩れ、再生成開始時の既存ログ消去、finalize 後の副作用巻き込み、保護者レポートの artifact 必須、session progress からの重い同期実行の逆戻りをまとめて確認します。
 さらに、`artifactJson / summaryMarkdown / formattedTranscript` を本番コードの別ルートから勝手に書き換えないよう、`npm run test:conversation-generation-boundary` を同じ保全ゲートへ入れています。
 認証が必要な重い smoke は別に切り、普段の確認では安全側の回帰を先に落とせるようにしています。
 
