@@ -103,7 +103,7 @@ async function main() {
 
   await mkdir(outputDir, { recursive: true });
   await loadLocalEnvFiles();
-  await loadEnvFile(fallbackEnvFile, { overrideExisting: false, optional: true });
+  await loadEnvFile(fallbackEnvFile, { overrideExisting: true, optional: true });
 
   process.env.PARARIA_BACKGROUND_MODE = "external";
   process.env.PARARIA_AUDIO_STORAGE_MODE = "blob";
