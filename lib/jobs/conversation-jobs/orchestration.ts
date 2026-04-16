@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { JobStatus } from "@prisma/client";
+import { ConversationStatus, JobStatus } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { withVisibleConversationWhere } from "@/lib/content-visibility";
 import { ACTIVE_JOB_TYPES, buildJobContext } from "./shared";
@@ -33,6 +33,10 @@ export async function isConversationJobRunActive(conversationId: string) {
     processingLeaseExecutionId: conversation.processingLeaseExecutionId,
     processingLeaseExpiresAt: conversation.processingLeaseExpiresAt,
   });
+}
+
+export function requiresConversationProcessingLease(status: ConversationStatus | string | null | undefined) {
+  return status === ConversationStatus.PROCESSING;
 }
 
 async function handleJobFailure(job: JobPayload, error: unknown) {
@@ -198,6 +202,32 @@ export async function processQueuedJobs(
 
 export async function processAllConversationJobs(conversationId: string) {
   const runExecutionId = randomUUID();
+  const conversation = await prisma.conversationLog.findFirst({
+    where: withVisibleConversationWhere({ id: conversationId }),
+    select: { status: true },
+  });
+  if (!conversation) {
+    return { processed: 0, errors: [] };
+  }
+
+  const runQueue = async () => {
+    const envConcurrency = Number(process.env.JOB_CONCURRENCY ?? 3);
+    const concurrency = Number.isFinite(envConcurrency) ? Math.max(1, Math.floor(envConcurrency)) : 1;
+    const pending = await prisma.conversationJob.count({
+      where: {
+        conversationId,
+        type: { in: ACTIVE_JOB_TYPES },
+        status: { in: [JobStatus.QUEUED, JobStatus.RUNNING] },
+      },
+    });
+    const limit = Math.max(4, pending * 2);
+    return processQueuedJobs(limit, concurrency, { conversationId, executionId: runExecutionId });
+  };
+
+  if (!requiresConversationProcessingLease(conversation.status)) {
+    return runQueue();
+  }
+
   const lease = await acquireConversationProcessingLease({
     conversationId,
     executionId: runExecutionId,
@@ -210,17 +240,7 @@ export async function processAllConversationJobs(conversationId: string) {
     return { processed: 0, errors: [] };
   }
   try {
-    const envConcurrency = Number(process.env.JOB_CONCURRENCY ?? 3);
-    const concurrency = Number.isFinite(envConcurrency) ? Math.max(1, Math.floor(envConcurrency)) : 1;
-    const pending = await prisma.conversationJob.count({
-      where: {
-        conversationId,
-        type: { in: ACTIVE_JOB_TYPES },
-        status: { in: [JobStatus.QUEUED, JobStatus.RUNNING] },
-      },
-    });
-    const limit = Math.max(4, pending * 2);
-    return processQueuedJobs(limit, concurrency, { conversationId, executionId: runExecutionId });
+    return runQueue();
   } finally {
     await releaseConversationProcessingLease({
       conversationId,

@@ -3,7 +3,7 @@
 import { readStorageText } from "../lib/audio-storage";
 import {
   ensureRunpodWorker,
-  getManagedRunpodPods,
+  getRunpodPodsByName,
   getRunpodPodById,
   getRunpodWorkerConfig,
   type RunpodWorkerConfig,
@@ -185,7 +185,7 @@ async function main() {
   const command = (process.argv[2] || "status").trim();
 
   if (command === "status") {
-    const pods = await getManagedRunpodPods(resolvedConfig);
+    const pods = await getRunpodPodsByName(resolvedConfig);
     printJson({
       workerName: resolvedConfig.name,
       image: resolvedConfig.image,

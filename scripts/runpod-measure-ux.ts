@@ -89,7 +89,7 @@ async function main() {
   const targetStudentName = (parseArg("student-name", "") ?? "").trim();
   const fallbackEnvFile = path.resolve(parseArg("fallback-env-file", ".tmp/.env.production.runpod")!);
   const outputDir = path.resolve(parseArg("out-dir", ".tmp/runpod-ux")!);
-  const workerImage = parseArg("image", process.env.RUNPOD_WORKER_IMAGE?.trim() || "ghcr.io/mirr-luke/pararia-runpod-worker:latest");
+  let workerImage = parseArg("image", process.env.RUNPOD_WORKER_IMAGE?.trim() || undefined) ?? null;
   const workerName = parseArg("worker-name", `pararia-ux-${profileName}-reuse`) ?? `pararia-ux-${profileName}-reuse`;
   const prepareFresh = readBoolArg("prepare-fresh", true);
   const containerRegistryAuthId = parseArg(
@@ -105,6 +105,11 @@ async function main() {
   await loadLocalEnvFiles();
   await loadEnvFile(fallbackEnvFile, { overrideExisting: true, optional: true });
 
+  if (!workerImage) {
+    const { getRunpodWorkerConfig } = await import("../lib/runpod/worker-control");
+    workerImage = getRunpodWorkerConfig()?.image ?? null;
+  }
+
   process.env.PARARIA_BACKGROUND_MODE = "external";
   process.env.PARARIA_AUDIO_STORAGE_MODE = "blob";
   process.env.PARARIA_AUDIO_BLOB_ACCESS = "private";
@@ -115,6 +120,7 @@ async function main() {
   must(process.env.BLOB_READ_WRITE_TOKEN, "BLOB_READ_WRITE_TOKEN is required.");
   must(process.env.OPENAI_API_KEY, "OPENAI_API_KEY is required.");
   must(process.env.RUNPOD_API_KEY, "RUNPOD_API_KEY is required.");
+  must(workerImage, "worker image is required.");
 
   const result: RunpodMeasureResult = {
     ok: false,

@@ -114,10 +114,10 @@ export async function withEnvFile<T>(envFile: string, work: () => Promise<T>) {
 
 export async function waitForRunpodStop(envFile: string) {
   return withEnvFile(envFile, async () => {
-    const { getManagedRunpodPods } = await import("../../lib/runpod/worker-control");
+    const { getRunpodPodsByName } = await import("../../lib/runpod/worker-control");
     const startedAt = Date.now();
     while (Date.now() - startedAt < 180_000) {
-      const pods = await getManagedRunpodPods().catch(() => []);
+      const pods = await getRunpodPodsByName().catch(() => []);
       const active = pods.filter(
         (pod: { desiredStatus?: string | null }) => !["EXITED", "TERMINATED"].includes(String(pod.desiredStatus || ""))
       );

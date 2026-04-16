@@ -5,5 +5,6 @@ export {
   isConversationJobRunActive,
   processAllConversationJobs,
   processQueuedJobs,
+  requiresConversationProcessingLease,
   shouldRecoverProcessingConversationJobs,
 } from "./conversation-jobs/orchestration";

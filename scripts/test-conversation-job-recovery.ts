@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { shouldRecoverProcessingConversationJobs } from "../lib/jobs/conversationJobs";
+import { requiresConversationProcessingLease, shouldRecoverProcessingConversationJobs } from "../lib/jobs/conversationJobs";
 import { isConversationProcessingLeaseActive } from "../lib/jobs/conversation-jobs/repository";
 
 assert.equal(
@@ -36,6 +36,18 @@ assert.equal(
   }),
   false,
   "completed conversations should not be recovered"
+);
+
+assert.equal(
+  requiresConversationProcessingLease("PROCESSING"),
+  true,
+  "processing conversations should take the conversation lease"
+);
+
+assert.equal(
+  requiresConversationProcessingLease("DONE"),
+  false,
+  "done conversations should process follow-up jobs without the conversation lease"
 );
 
 const now = new Date("2026-04-15T00:00:00.000Z");

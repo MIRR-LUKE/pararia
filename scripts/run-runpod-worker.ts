@@ -170,7 +170,7 @@ async function processQueueOnce(
   };
 }
 
-async function stopPodWhenSessionPartQueueDrains(
+async function stopPodWhenQueuesDrain(
   sessionPartLimit: number,
   sessionPartConcurrency: number,
   conversationLimit: number,
@@ -184,10 +184,10 @@ async function stopPodWhenSessionPartQueueDrains(
     conversationConcurrency,
     scope
   );
-  if (confirm.sessionPartJobs.processed === 0 && confirm.errors.length === 0) {
+  if (confirm.processed === 0 && confirm.errors.length === 0) {
     const stopResult = await stopCurrentRunpodPod();
     if (!stopResult.ok) {
-      console.log("[runpod-worker] session_part_queue_drained_stop_failed", {
+      console.log("[runpod-worker] queues_drained_stop_failed", {
         podId: process.env.RUNPOD_POD_ID ?? null,
         stopResult,
       });
@@ -196,7 +196,7 @@ async function stopPodWhenSessionPartQueueDrains(
         confirm,
       };
     }
-    console.log("[runpod-worker] session_part_queue_drained_stop", {
+    console.log("[runpod-worker] queues_drained_stop", {
       podId: process.env.RUNPOD_POD_ID ?? null,
       stopResult,
     });
@@ -206,7 +206,7 @@ async function stopPodWhenSessionPartQueueDrains(
     };
   }
 
-  console.log("[runpod-worker] session_part_queue_drained_stop_aborted", {
+  console.log("[runpod-worker] queues_drained_stop_aborted", {
     processed: confirm.processed,
     sessionPartProcessed: confirm.sessionPartJobs.processed,
     conversationProcessed: confirm.conversationJobs.processed,
@@ -248,6 +248,7 @@ async function main() {
     conversationId: readOptionalEnv("RUNPOD_WORKER_ONLY_CONVERSATION_ID"),
   };
   const once = process.argv.includes("--once");
+  const canStopCurrentPod = Boolean(process.env.RUNPOD_POD_ID?.trim());
   let lastActiveAt = Date.now();
 
   let stopped = false;
@@ -328,12 +329,8 @@ async function main() {
       });
     }
 
-    if (
-      conversationLimit === 0 &&
-      tick.errors.length === 0 &&
-      tick.sessionPartJobs.processed > 0
-    ) {
-      const drained = await stopPodWhenSessionPartQueueDrains(
+    if (canStopCurrentPod && tick.processed > 0 && tick.errors.length === 0) {
+      const drained = await stopPodWhenQueuesDrain(
         sessionPartLimit,
         sessionPartConcurrency,
         conversationLimit,

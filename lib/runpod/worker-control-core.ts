@@ -70,6 +70,7 @@ export {
   buildRunpodWorkerCreateBody,
   buildRunpodWorkerEnv,
   getManagedRunpodPods,
+  getRunpodPodsByName,
   getRunpodGpuCandidates,
   getRunpodPodById,
   getRunpodWorkerConfig,

@@ -2,6 +2,7 @@ import { prisma } from "@/lib/db";
 
 import {
   buildRunpodWorkerCreateBody,
+  getRunpodPodsByName,
   getManagedRunpodPods,
   getRunpodGpuCandidates,
   getRunpodWorkerConfig,
@@ -183,6 +184,7 @@ export async function ensureRunpodWorker(
   const resolved = config ?? requireRunpodWorkerConfig();
   const fresh = Boolean(opts?.fresh);
   const terminatedPodIds: string[] = [];
+  const preferSameNamePod = resolved.image.trim().toLowerCase().endsWith(":latest");
   const existingPods = await getManagedRunpodPods(resolved);
   if (fresh && existingPods.length > 0) {
     for (const pod of existingPods) {
@@ -193,6 +195,43 @@ export async function ensureRunpodWorker(
   if (fresh) {
     const created = await createRunpodWorkerPod(undefined, resolved);
     return { action: "created_new", pod: created as RunpodPod, terminatedPodIds };
+  }
+
+  if (preferSameNamePod && existingPods.length === 0) {
+    const namedPods = await getRunpodPodsByName(resolved);
+    const activeNamedPod = namedPods.find((pod) => isActivePod(pod));
+    if (activeNamedPod) {
+      return { action: "already_running", pod: activeNamedPod, terminatedPodIds };
+    }
+
+    const stoppedNamedPod = namedPods.find((pod) => isStoppedPod(pod));
+    if (stoppedNamedPod) {
+      const refreshed = await applyRunpodWorkerRuntimeConfig(stoppedNamedPod.id, resolved);
+      try {
+        await runpodRequest(`/pods/${stoppedNamedPod.id}/start`, resolved, { method: "POST" });
+      } catch (error: any) {
+        const message = String(error?.message ?? error);
+        if (!isRunpodCapacityErrorMessage(message)) {
+          throw error;
+        }
+        await terminateRunpodPod(stoppedNamedPod.id, resolved).catch(() => {});
+        terminatedPodIds.push(stoppedNamedPod.id);
+        const created = await createRunpodWorkerPod(undefined, resolved);
+        return {
+          action: "created_new",
+          pod: created as RunpodPod,
+          terminatedPodIds,
+        };
+      }
+      return {
+        action: "started_existing",
+        pod: {
+          ...refreshed,
+          desiredStatus: "RUNNING",
+        },
+        terminatedPodIds,
+      };
+    }
   }
 
   const running = existingPods.find((pod) => isActivePod(pod));
@@ -295,7 +334,7 @@ export async function stopManagedRunpodWorker(config?: RunpodWorkerConfig): Prom
   }
 
   try {
-    const pods = await getManagedRunpodPods(resolved);
+    const pods = await getRunpodPodsByName(resolved);
     const activePods = pods.filter((pod) => isActivePod(pod));
     const alreadyStoppedPods = pods.filter((pod) => isStoppedPod(pod) || isTerminatedPod(pod));
 

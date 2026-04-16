@@ -189,6 +189,15 @@ function matchesManagedPod(pod: RunpodPod, config: RunpodWorkerConfig) {
   return !image || image === config.image;
 }
 
+export async function getRunpodPodsByName(config?: RunpodWorkerConfig) {
+  const resolved = config ?? getRunpodWorkerConfig();
+  if (!resolved) {
+    throw new Error("RUNPOD_API_KEY が必要です。");
+  }
+  const pods = await listRunpodPods(resolved);
+  return sortPods(pods.filter((pod) => (pod.name || "") === resolved.name));
+}
+
 export function getRunpodWorkerConfig(): RunpodWorkerConfig | null {
   const apiKey = readStringEnv("RUNPOD_API_KEY");
   if (!apiKey) return null;
