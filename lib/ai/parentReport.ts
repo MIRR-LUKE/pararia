@@ -24,11 +24,39 @@ import {
 } from "./parentReport.content";
 import { buildParentReportRepairPrompt, evaluateParentReportQuality } from "./parentReport.quality";
 
-const REPORT_MODEL =
+const REPORT_PRIMARY_MODEL =
   process.env.LLM_MODEL_REPORT ||
+  process.env.LLM_MODEL_REPORT_PRIMARY ||
+  "gpt-5-mini";
+
+const REPORT_REPAIR_MODEL =
+  process.env.LLM_MODEL_REPORT_REPAIR ||
   process.env.LLM_MODEL_FINAL ||
   process.env.LLM_MODEL ||
   "gpt-5.4";
+
+const REPORT_PRIMARY_TIMEOUT_MS = Number(process.env.LLM_REPORT_TIMEOUT_MS ?? 20000);
+const REPORT_REPAIR_TIMEOUT_MS = Number(process.env.LLM_REPORT_REPAIR_TIMEOUT_MS ?? 30000);
+const REPORT_PRIMARY_MAX_OUTPUT_TOKENS = 2200;
+const REPORT_REPAIR_MAX_OUTPUT_TOKENS = 2600;
+
+const REPORT_REPAIR_REQUIRED_ISSUES = new Set([
+  "opening_is_generic",
+  "body_is_too_generic",
+  "generic_phrases_remain",
+  "report_is_too_short",
+  "too_few_paragraphs",
+  "paragraphs_are_repetitive",
+  "contains_headings_or_bullets",
+  "body_has_checklist_tone",
+  "phase_paragraph_is_too_operational",
+  "growth_impression_needs_anchor",
+  "growth_summary_needs_anchor",
+  "closing_needs_commitment",
+  "closing_contains_fixed_greeting",
+  "closing_is_too_operational",
+  "closing_is_repetitive",
+]);
 
 export type ParentReportResult = {
   markdown: string;
@@ -65,15 +93,26 @@ export function buildReportBundle(input: ReportInput) {
   };
 }
 
-async function callReportModel(systemPrompt: string, userPrompt: string) {
+function shouldRepairReport(issues: string[]) {
+  return issues.some((issue) => REPORT_REPAIR_REQUIRED_ISSUES.has(issue));
+}
+
+async function callReportModel(params: {
+  model: string;
+  systemPrompt: string;
+  userPrompt: string;
+  timeoutMs: number;
+  maxOutputTokens: number;
+}) {
   return generateJsonObject({
-    model: REPORT_MODEL,
+    model: params.model,
     messages: [
-      { role: "system", content: systemPrompt },
-      { role: "user", content: userPrompt },
+      { role: "system", content: params.systemPrompt },
+      { role: "user", content: params.userPrompt },
     ],
     temperature: 0.3,
-    max_output_tokens: 4200,
+    timeoutMs: params.timeoutMs,
+    max_output_tokens: params.maxOutputTokens,
     json_schema: {
       name: "parent_report_letter_body",
       strict: true,
@@ -197,7 +236,13 @@ ${evidencePrompt}
 - 締め段落は 1 文だけにして、同じ約束を言い換えて重ねない
 - 「今後ともどうぞよろしくお願いいたします。」は書かない`;
 
-  const firstCall = await callReportModel(systemPrompt, userPrompt);
+  const firstCall = await callReportModel({
+    model: REPORT_PRIMARY_MODEL,
+    systemPrompt,
+    userPrompt,
+    timeoutMs: REPORT_PRIMARY_TIMEOUT_MS,
+    maxOutputTokens: REPORT_PRIMARY_MAX_OUTPUT_TOKENS,
+  });
   const fallbackDraft = defaultReportDraft(createdAt);
   const fallbackReport = sanitizeParentReportJson(fallbackDraft, fallbackDraft, context);
   let reportJson = sanitizeParentReportJson(readGeneratedJson<ParentReportDraftJson>(firstCall), fallbackDraft, context);
@@ -205,17 +250,20 @@ ${evidencePrompt}
   let tokenUsage = firstCall.usage ?? emptyLlmTokenUsage();
   const qualityIssues = evaluateParentReportQuality(reportJson, fallbackReport);
 
-  if (qualityIssues.length > 0) {
-    const retryCall = await callReportModel(
+  if (qualityIssues.length > 0 && shouldRepairReport(qualityIssues)) {
+    const retryCall = await callReportModel({
+      model: REPORT_REPAIR_MODEL,
       systemPrompt,
-      buildParentReportRepairPrompt({
+      userPrompt: buildParentReportRepairPrompt({
         context,
         bundlePreview: buildBundlePreview(bundleQualityEval),
         evidencePrompt,
         previousReport: reportJson,
         issues: qualityIssues,
-      })
-    );
+      }),
+      timeoutMs: REPORT_REPAIR_TIMEOUT_MS,
+      maxOutputTokens: REPORT_REPAIR_MAX_OUTPUT_TOKENS,
+    });
     const retryReportJson = sanitizeParentReportJson(readGeneratedJson<ParentReportDraftJson>(retryCall), fallbackDraft, context);
     const retryIssues = evaluateParentReportQuality(retryReportJson, fallbackReport);
 
@@ -233,7 +281,7 @@ ${evidencePrompt}
     reportJson,
     bundleQualityEval,
     generationMeta: {
-      model: REPORT_MODEL,
+      model: apiCalls > 1 ? REPORT_REPAIR_MODEL : REPORT_PRIMARY_MODEL,
       apiCalls,
       retried: apiCalls > 1,
       tokenUsage,
