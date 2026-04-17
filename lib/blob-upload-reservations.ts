@@ -24,6 +24,23 @@ export const ALLOWED_AUDIO_CONTENT_TYPES = [
 ] as const;
 
 const BLOB_UPLOAD_RESERVATION_TTL_MS = 60 * 60 * 1000;
+const BLOB_UPLOAD_RESERVATION_WAIT_MS = 15_000;
+const BLOB_UPLOAD_RESERVATION_POLL_MS = 250;
+
+type BlobUploadReservationRecord = Awaited<ReturnType<typeof prisma.blobUploadReservation.findFirst>>;
+
+type ConsumeCompletedBlobUploadReservationDeps = {
+  findReservation?: (input: {
+    organizationId: string;
+    sessionId: string;
+    partType: SessionPartType;
+    pathname: string;
+    now: Date;
+  }) => Promise<BlobUploadReservationRecord>;
+  markConsumed?: (input: { reservationId: string; now: Date }) => Promise<number>;
+  sleep?: (ms: number) => Promise<void>;
+  now?: () => number;
+};
 
 export function parseBlobUploadReservationRequest(pathname: string, clientPayload: string | null | undefined) {
   const parsedPath = parseSessionPartUploadPathname(pathname);
@@ -139,41 +156,80 @@ export async function consumeCompletedBlobUploadReservation(input: {
   sessionId: string;
   partType: SessionPartType;
   pathname: string;
-}) {
-  const now = new Date();
-  const reservation = await prisma.blobUploadReservation.findFirst({
-    where: {
+}, deps: ConsumeCompletedBlobUploadReservationDeps = {}) {
+  const findReservation =
+    deps.findReservation ??
+    ((current: {
+      organizationId: string;
+      sessionId: string;
+      partType: SessionPartType;
+      pathname: string;
+      now: Date;
+    }) =>
+      prisma.blobUploadReservation.findFirst({
+        where: {
+          organizationId: current.organizationId,
+          sessionId: current.sessionId,
+          partType: current.partType,
+          pathname: current.pathname,
+          status: "COMPLETED",
+          expiresAt: { gt: current.now },
+          consumedAt: null,
+          blobUrl: { not: null },
+        },
+      }));
+  const markConsumed =
+    deps.markConsumed ??
+    (async (current: { reservationId: string; now: Date }) => {
+      const consumed = await prisma.blobUploadReservation.updateMany({
+        where: {
+          id: current.reservationId,
+          consumedAt: null,
+          status: "COMPLETED",
+        },
+        data: {
+          status: "CONSUMED",
+          consumedAt: current.now,
+        },
+      });
+      return consumed.count;
+    });
+  const sleep =
+    deps.sleep ??
+    ((ms: number) =>
+      new Promise<void>((resolve) => {
+        setTimeout(resolve, ms);
+      }));
+  const now = deps.now ?? (() => Date.now());
+  const deadline = now() + BLOB_UPLOAD_RESERVATION_WAIT_MS;
+
+  while (true) {
+    const currentNow = new Date(now());
+    const reservation = await findReservation({
       organizationId: input.organizationId,
       sessionId: input.sessionId,
       partType: input.partType,
       pathname: input.pathname,
-      status: "COMPLETED",
-      expiresAt: { gt: now },
-      consumedAt: null,
-      blobUrl: { not: null },
-    },
-  });
+      now: currentNow,
+    });
 
-  if (!reservation?.blobUrl) {
-    throw new Error("アップロード予約が見つからないか、まだ完了していません。");
+    if (reservation?.blobUrl) {
+      const consumed = await markConsumed({
+        reservationId: reservation.id,
+        now: currentNow,
+      });
+      if (consumed !== 1) {
+        throw new Error("このアップロード予約はすでに使われました。");
+      }
+      return reservation;
+    }
+
+    if (now() >= deadline) {
+      throw new Error("アップロード予約が見つからないか、まだ完了していません。");
+    }
+
+    await sleep(BLOB_UPLOAD_RESERVATION_POLL_MS);
   }
-
-  const consumed = await prisma.blobUploadReservation.updateMany({
-    where: {
-      id: reservation.id,
-      consumedAt: null,
-      status: "COMPLETED",
-    },
-    data: {
-      status: "CONSUMED",
-      consumedAt: now,
-    },
-  });
-  if (consumed.count !== 1) {
-    throw new Error("このアップロード予約はすでに使われました。");
-  }
-
-  return reservation;
 }
 
 export async function markExpiredBlobUploadReservations(now = new Date()) {
