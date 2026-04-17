@@ -59,8 +59,6 @@ async function dispatchAudioSessionPartJobs(sessionId: string, partId: string) {
 type TextSessionPartDispatchDeps = {
   enqueueSessionPartJob?: typeof enqueueSessionPartJob;
   processAllSessionPartJobs?: typeof processAllSessionPartJobs;
-  shouldRunBackgroundJobsInline?: typeof shouldRunBackgroundJobsInline;
-  maybeEnsureRunpodWorker?: typeof maybeEnsureRunpodWorker;
 };
 
 export async function dispatchTextSessionPartJobs(
@@ -70,30 +68,12 @@ export async function dispatchTextSessionPartJobs(
 ) {
   const enqueue = deps.enqueueSessionPartJob ?? enqueueSessionPartJob;
   const processAll = deps.processAllSessionPartJobs ?? processAllSessionPartJobs;
-  const runInline = deps.shouldRunBackgroundJobsInline ?? shouldRunBackgroundJobsInline;
-  const ensureWorker = deps.maybeEnsureRunpodWorker ?? maybeEnsureRunpodWorker;
-  const inline = runInline();
 
   await enqueue(partId, SessionPartJobType.PROMOTE_SESSION);
-
-  if (inline) {
-    await processAll(sessionId);
-  } else {
-    runAfterResponse(async () => {
-      await ensureWorker()
-        .then((workerWake) => {
-        if (workerWake?.attempted && !workerWake.ok) {
-          console.error("[POST /api/sessions/[id]/parts] Runpod worker wake failed for text promotion:", workerWake);
-        }
-        })
-        .catch((error) => {
-          console.error("[POST /api/sessions/[id]/parts] Runpod worker wake threw for text promotion:", error);
-        });
-    }, "POST /api/sessions/[id]/parts text promotion wake");
-  }
+  await processAll(sessionId);
 
   return {
-    mode: inline ? "inline" as const : "external" as const,
+    mode: "inline" as const,
     workerWake: null,
   };
 }

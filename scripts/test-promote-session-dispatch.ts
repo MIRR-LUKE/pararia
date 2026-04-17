@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
-import { dispatchPromotedConversationJobs } from "../lib/jobs/session-part-jobs/promote-session";
+import {
+  dispatchPromotedConversationJobs,
+  kickPromotedConversationJobsOutsideRunpod,
+} from "../lib/jobs/session-part-jobs/promote-session";
 
 async function waitForMicrotask() {
   await Promise.resolve();
@@ -48,7 +51,65 @@ async function runExternalCase() {
   assert.deepEqual(events, ["enqueue:conversation-external"]);
 }
 
+function runExternalKickCase() {
+  const events: string[] = [];
+
+  const started = kickPromotedConversationJobsOutsideRunpod("conversation-external", "external", {
+    kickConversationJobsOutsideRunpod: (conversationId, label, deps) => {
+      events.push(`kick:${conversationId}:${label}:${String(deps?.requireRunpodStopped)}`);
+    },
+  });
+
+  assert.equal(started, true);
+  assert.deepEqual(events, ["kick:conversation-external:sessionPartJobs promote app conversation processing:true"]);
+}
+
+function runInlineKickCase() {
+  const events: string[] = [];
+
+  const started = kickPromotedConversationJobsOutsideRunpod("conversation-inline", "inline", {
+    kickConversationJobsOutsideRunpod: () => {
+      events.push("kick");
+    },
+  });
+
+  assert.equal(started, false);
+  assert.deepEqual(events, []);
+}
+
+function runRunpodWorkerSkipCase() {
+  const events: string[] = [];
+
+  const started = kickPromotedConversationJobsOutsideRunpod("conversation-runpod", "external", {
+    isRunpodWorkerProcess: () => true,
+    kickConversationJobsOutsideRunpod: () => {
+      events.push("kick");
+    },
+  });
+
+  assert.equal(started, false);
+  assert.deepEqual(events, []);
+}
+
+function runManualKickCase() {
+  const events: string[] = [];
+
+  const started = kickPromotedConversationJobsOutsideRunpod("conversation-manual", "external", {
+    requireRunpodStopped: false,
+    kickConversationJobsOutsideRunpod: (conversationId, label, deps) => {
+      events.push(`kick:${conversationId}:${label}:${String(deps?.requireRunpodStopped)}`);
+    },
+  });
+
+  assert.equal(started, true);
+  assert.deepEqual(events, ["kick:conversation-manual:sessionPartJobs promote app conversation processing:false"]);
+}
+
 await runInlineCase();
 await runExternalCase();
+runExternalKickCase();
+runInlineKickCase();
+runRunpodWorkerSkipCase();
+runManualKickCase();
 
 console.log("promote-session dispatch regression checks passed");

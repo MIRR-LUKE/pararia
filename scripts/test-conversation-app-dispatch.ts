@@ -56,7 +56,33 @@ async function runExternalDispatchCase() {
   assert.deepEqual(events, ["stop-check", "process:conversation-ready"]);
 }
 
+async function runExternalManualDispatchCase() {
+  const events: string[] = [];
+
+  const result = await processConversationJobsOutsideRunpod("conversation-manual", {
+    shouldRunBackgroundJobsInline: () => false,
+    requireRunpodStopped: false,
+    maybeStopRunpodWorkerWhenSessionPartQueueIdle: async () => {
+      events.push("stop-check");
+      return {
+        attempted: true as const,
+        reason: "stopped_or_already_stopped" as const,
+        pendingSessionPartJobs: 0,
+        stopResult: { ok: true, podId: "pod-skipped" },
+      };
+    },
+    processAllConversationJobs: async (conversationId) => {
+      events.push(`process:${conversationId}`);
+      return { processed: 1, errors: [] };
+    },
+  });
+
+  assert.deepEqual(events, ["process:conversation-manual"]);
+  assert.equal(result.started, true);
+}
+
 await runExternalBlockedCase();
 await runExternalDispatchCase();
+await runExternalManualDispatchCase();
 
 console.log("conversation app dispatch regression checks passed");

@@ -28,28 +28,27 @@ function isPageHidden() {
 
 export function getSessionProgressPollIntervalMs(elapsedMs: number, pageHidden: boolean) {
   if (pageHidden) {
-    if (elapsedMs < 30_000) return 4_000;
-    if (elapsedMs < 120_000) return 8_000;
+    if (elapsedMs < 60_000) return 5_000;
+    if (elapsedMs < 180_000) return 10_000;
     return 15_000;
   }
 
-  if (elapsedMs < 10_000) return 1_000;
-  if (elapsedMs < 30_000) return 2_000;
-  if (elapsedMs < 120_000) return 4_000;
-  if (elapsedMs < 240_000) return 6_000;
-  return 8_000;
+  if (elapsedMs < 60_000) return 1_000;
+  if (elapsedMs < 180_000) return 1_500;
+  if (elapsedMs < 300_000) return 2_000;
+  return 3_000;
 }
 
 export function getSessionProgressWakeIntervalMs(elapsedMs: number, pageHidden: boolean) {
   if (pageHidden) {
-    if (elapsedMs < 60_000) return 30_000;
-    return 60_000;
+    if (elapsedMs < 60_000) return 10_000;
+    return 15_000;
   }
 
-  if (elapsedMs < 15_000) return 5_000;
-  if (elapsedMs < 60_000) return 15_000;
-  if (elapsedMs < 180_000) return 30_000;
-  return 45_000;
+  if (elapsedMs < 30_000) return 1_000;
+  if (elapsedMs < 120_000) return 2_000;
+  if (elapsedMs < 300_000) return 4_000;
+  return 5_000;
 }
 
 export function useStudentSessionProgress({

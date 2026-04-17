@@ -7,6 +7,7 @@ type AppConversationDispatchDeps = {
   processAllConversationJobs?: typeof processAllConversationJobs;
   shouldRunBackgroundJobsInline?: typeof shouldRunBackgroundJobsInline;
   maybeStopRunpodWorkerWhenSessionPartQueueIdle?: typeof maybeStopRunpodWorkerWhenSessionPartQueueIdle;
+  requireRunpodStopped?: boolean;
 };
 
 export async function processConversationJobsOutsideRunpod(
@@ -17,8 +18,9 @@ export async function processConversationJobsOutsideRunpod(
   const processConversationJobs = deps.processAllConversationJobs ?? processAllConversationJobs;
   const stopRunpodWorker =
     deps.maybeStopRunpodWorkerWhenSessionPartQueueIdle ?? maybeStopRunpodWorkerWhenSessionPartQueueIdle;
+  const requireRunpodStopped = deps.requireRunpodStopped ?? true;
 
-  if (!runInline()) {
+  if (!runInline() && requireRunpodStopped) {
     const stop = await stopRunpodWorker();
     if (!stop.attempted) {
       return {

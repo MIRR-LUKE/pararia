@@ -1,12 +1,11 @@
-import { JobStatus, SessionPartStatus, SessionPartType, SessionType } from "@prisma/client";
+import { ConversationSourceType, JobStatus, SessionPartStatus, SessionPartType, SessionType } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { ensureConversationForSession } from "@/lib/session-service";
 import { enqueueConversationJobs, processAllConversationJobs } from "@/lib/jobs/conversationJobs";
 import { shouldRunBackgroundJobsInline } from "@/lib/jobs/execution-mode";
-import { maybeStopRunpodWorkerWhenSessionPartQueueIdle } from "@/lib/runpod/idle-stop";
+import { kickConversationJobsOutsideRunpod } from "@/lib/jobs/conversation-jobs/app-dispatch";
 import { toPrismaJson } from "@/lib/prisma-json";
 import { toSessionPartMetaJson } from "@/lib/session-part-meta";
-import { runAfterResponse } from "@/lib/server/after-response";
 import { type SessionPartJobPayload, type SessionPartPayload } from "./shared";
 
 type PromoteConversationDispatchDeps = {
@@ -39,6 +38,35 @@ export async function dispatchPromotedConversationJobs(
     mode: "external" as const,
     workerWake: null,
   };
+}
+
+type PromoteConversationKickDeps = {
+  kickConversationJobsOutsideRunpod?: typeof kickConversationJobsOutsideRunpod;
+  isRunpodWorkerProcess?: () => boolean;
+  requireRunpodStopped?: boolean;
+};
+
+export function kickPromotedConversationJobsOutsideRunpod(
+  conversationId: string,
+  dispatchMode: "inline" | "external",
+  deps: PromoteConversationKickDeps = {}
+) {
+  const isRunpodWorkerProcess =
+    deps.isRunpodWorkerProcess ?? (() => Boolean(process.env.RUNPOD_POD_ID?.trim()));
+
+  if (dispatchMode !== "external" || isRunpodWorkerProcess()) {
+    return false;
+  }
+
+  const kickConversationJobs = deps.kickConversationJobsOutsideRunpod ?? kickConversationJobsOutsideRunpod;
+  kickConversationJobs(
+    conversationId,
+    "sessionPartJobs promote app conversation processing",
+    {
+      requireRunpodStopped: deps.requireRunpodStopped ?? true,
+    }
+  );
+  return true;
 }
 
 export async function executePromoteSessionJob(job: SessionPartJobPayload, part: SessionPartPayload) {
@@ -110,10 +138,7 @@ export async function executePromoteSessionJob(job: SessionPartJobPayload, part:
       }),
     },
   });
-
-  runAfterResponse(async () => {
-    await maybeStopRunpodWorkerWhenSessionPartQueueIdle().catch((error) => {
-      console.warn("[sessionPartJobs] failed to stop Runpod worker after promotion", error);
-    });
-  }, "sessionPartJobs promote idle stop");
+  kickPromotedConversationJobsOutsideRunpod(conversationId, dispatch.mode, {
+    requireRunpodStopped: part.sourceType !== ConversationSourceType.MANUAL,
+  });
 }
