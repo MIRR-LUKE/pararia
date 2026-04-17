@@ -138,7 +138,9 @@ export async function executePromoteSessionJob(job: SessionPartJobPayload, part:
       }),
     },
   });
-  kickPromotedConversationJobsOutsideRunpod(conversationId, dispatch.mode, {
-    requireRunpodStopped: part.sourceType !== ConversationSourceType.MANUAL,
-  });
+  if (part.sourceType !== ConversationSourceType.MANUAL) {
+    kickPromotedConversationJobsOutsideRunpod(conversationId, dispatch.mode, {
+      requireRunpodStopped: true,
+    });
+  }
 }
