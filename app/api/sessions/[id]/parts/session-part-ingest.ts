@@ -59,7 +59,6 @@ async function dispatchAudioSessionPartJobs(sessionId: string, partId: string) {
 type TextSessionPartDispatchDeps = {
   enqueueSessionPartJob?: typeof enqueueSessionPartJob;
   processAllSessionPartJobs?: typeof processAllSessionPartJobs;
-  runAfterResponse?: typeof runAfterResponse;
 };
 
 export async function dispatchTextSessionPartJobs(
@@ -69,19 +68,16 @@ export async function dispatchTextSessionPartJobs(
 ) {
   const enqueue = deps.enqueueSessionPartJob ?? enqueueSessionPartJob;
   const processAll = deps.processAllSessionPartJobs ?? processAllSessionPartJobs;
-  const defer = deps.runAfterResponse ?? runAfterResponse;
 
   await enqueue(partId, SessionPartJobType.PROMOTE_SESSION);
-  defer(async () => {
-    const result = await processAll(sessionId);
-    if (result.errors.length > 0) {
-      console.error("[POST /api/sessions/[id]/parts] Text promotion processing failed:", {
-        sessionId,
-        partId,
-        errors: result.errors,
-      });
-    }
-  }, "POST /api/sessions/[id]/parts text promotion");
+  const result = await processAll(sessionId);
+  if (result.errors.length > 0) {
+    console.error("[POST /api/sessions/[id]/parts] Text promotion processing failed:", {
+      sessionId,
+      partId,
+      errors: result.errors,
+    });
+  }
 
   return {
     mode: "external" as const,

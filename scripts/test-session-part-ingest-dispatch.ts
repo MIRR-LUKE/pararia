@@ -18,9 +18,6 @@ async function runInlineCase() {
       events.push(`process:${sessionId}`);
       return { processed: 1, errors: [] };
     },
-    runAfterResponse: (task) => {
-      void task();
-    },
   });
 
   await waitForMicrotask();
@@ -40,9 +37,6 @@ async function runExternalCase() {
     processAllSessionPartJobs: async (sessionId) => {
       events.push(`process:${sessionId}`);
       return { processed: 1, errors: [] };
-    },
-    runAfterResponse: (task) => {
-      void task();
     },
   });
 
