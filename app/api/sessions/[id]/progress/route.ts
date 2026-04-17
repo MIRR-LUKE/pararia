@@ -254,7 +254,14 @@ async function processSessionProgress(session: NonNullable<Awaited<ReturnType<ty
       inlineBackgroundMode,
     })
   ) {
-    await processQueuedJobs(1, 1, { conversationId: currentSession.conversation.id }).catch(() => {});
+    await processQueuedJobs(1, 1, {
+      conversationId: currentSession.conversation.id,
+      stopWhenConversationDone: true,
+    }).catch(() => {});
+    kickConversationJobsOutsideRunpod(
+      currentSession.conversation.id,
+      "POST /api/sessions/[id]/progress next meeting memo follow-up"
+    );
     void maybeStopRunpodWorkerWhenSessionPartQueueIdle().catch(() => {});
     return;
   }

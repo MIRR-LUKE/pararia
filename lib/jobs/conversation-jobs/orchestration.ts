@@ -116,6 +116,14 @@ async function listRunnableConversationIds(limit: number, opts?: ProcessJobsOpti
   return conversationIds;
 }
 
+async function isConversationMarkedDone(conversationId: string) {
+  const conversation = await prisma.conversationLog.findFirst({
+    where: withVisibleConversationWhere({ id: conversationId }),
+    select: { status: true },
+  });
+  return conversation?.status === ConversationStatus.DONE;
+}
+
 export async function processQueuedJobs(
   limit = 1,
   concurrency = 1,
@@ -173,6 +181,13 @@ export async function processQueuedJobs(
   const runWorker = async () => {
     let idle = 0;
     while (true) {
+      if (opts?.conversationId && opts.stopWhenConversationDone) {
+        const conversationDone = await isConversationMarkedDone(opts.conversationId);
+        if (conversationDone) {
+          return;
+        }
+      }
+
       if (!reserveSlot()) return;
       const job = await claimNextJob(opts);
       if (!job) {

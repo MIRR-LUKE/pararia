@@ -18,6 +18,7 @@ export type ProcessJobsOptions = {
   conversationId?: string;
   sessionId?: string;
   executionId?: string;
+  stopWhenConversationDone?: boolean;
 };
 
 export type ConversationPayload = {

@@ -198,7 +198,7 @@ async function executeFinalizeJob(job: JobPayload, convo: ConversationPayload) {
     usedFallback,
   });
 
-  void runFinalizeBestEffortSideEffects(convo, {
+  await runFinalizeBestEffortSideEffects(convo, {
     shouldGenerateNextMeetingMemo: shouldGenerateNextMeetingMemo(convo),
   });
 
