@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db";
 import {
   ensureConversationJobsAvailable,
   processAllConversationJobs,
+  processQueuedJobs,
 } from "@/lib/jobs/conversationJobs";
 import { processAllSessionPartJobs } from "@/lib/jobs/sessionPartJobs";
 import { buildSessionProgressState } from "@/lib/session-progress";
@@ -84,6 +85,15 @@ export function shouldWakeExternalSessionWorker(input: {
   );
 }
 
+export function shouldProcessConversationInlineDuringProgress(input: {
+  manualOnlyParts: boolean;
+  needsWorkerWake: boolean;
+  needsConversationWork: boolean;
+  inlineBackgroundMode: boolean;
+}) {
+  return !input.inlineBackgroundMode && input.manualOnlyParts && !input.needsWorkerWake && input.needsConversationWork;
+}
+
 type SessionWorkerWakeDeps = {
   maybeEnsureRunpodWorker?: typeof maybeEnsureRunpodWorker;
   processAllSessionPartJobs?: typeof processAllSessionPartJobs;
@@ -157,6 +167,7 @@ async function recoverMissingConversationJobs(conversationId: string | null | un
 }
 
 async function processSessionProgress(session: NonNullable<Awaited<ReturnType<typeof loadSessionProgressSnapshot>>>) {
+  const inlineBackgroundMode = shouldRunBackgroundJobsInline();
   const manualOnlyParts = hasOnlyManualParts(session.parts);
   const queuedSessionPartJobCount = await prisma.sessionPartJob.count({
     where: {
@@ -188,7 +199,7 @@ async function processSessionProgress(session: NonNullable<Awaited<ReturnType<ty
     return;
   }
 
-  if (shouldRunBackgroundJobsInline()) {
+  if (inlineBackgroundMode) {
     void processAllSessionPartJobs(session.id).catch(() => {});
     if (session.conversation?.id && needsConversationWork) {
       await processAllConversationJobs(session.conversation.id).catch(() => {});
@@ -203,8 +214,23 @@ async function processSessionProgress(session: NonNullable<Awaited<ReturnType<ty
   });
   if (needsWorkerWake) {
     kickSessionWorkerOrFallback(session.id, needsConversationWork);
+    return;
   }
-  if (!needsWorkerWake && session.conversation?.id && needsConversationWork) {
+
+  if (
+    session.conversation?.id &&
+    shouldProcessConversationInlineDuringProgress({
+      manualOnlyParts,
+      needsWorkerWake,
+      needsConversationWork,
+      inlineBackgroundMode,
+    })
+  ) {
+    await processQueuedJobs(1, 1, { conversationId: session.conversation.id }).catch(() => {});
+    return;
+  }
+
+  if (session.conversation?.id && needsConversationWork) {
     kickConversationJobsOutsideRunpod(
       session.conversation.id,
       "POST /api/sessions/[id]/progress app conversation processing"

@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
-import { kickSessionWorkerOrFallback } from "../app/api/sessions/[id]/progress/route";
+import {
+  kickSessionWorkerOrFallback,
+  shouldProcessConversationInlineDuringProgress,
+} from "../app/api/sessions/[id]/progress/route";
 
 async function waitForMicrotask() {
   await Promise.resolve();
@@ -35,5 +38,27 @@ assert.deepEqual(events, ["wake"], "worker wake may start immediately, but must 
 
 await waitForMicrotask();
 assert.deepEqual(events, ["wake"], "worker wake should continue in the background");
+
+assert.equal(
+  shouldProcessConversationInlineDuringProgress({
+    manualOnlyParts: true,
+    needsWorkerWake: false,
+    needsConversationWork: true,
+    inlineBackgroundMode: false,
+  }),
+  true,
+  "manual-only conversation work should run inside progress requests in external mode"
+);
+
+assert.equal(
+  shouldProcessConversationInlineDuringProgress({
+    manualOnlyParts: false,
+    needsWorkerWake: false,
+    needsConversationWork: true,
+    inlineBackgroundMode: false,
+  }),
+  false,
+  "audio-backed sessions should keep the existing external conversation path"
+);
 
 console.log("session progress dispatch regression checks passed");
