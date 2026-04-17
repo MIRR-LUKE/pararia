@@ -8,7 +8,7 @@ const DEFAULT_WORKER_NAME = "pararia-gpu-worker";
 const DEFAULT_WORKER_IMAGE = "ghcr.io/mirr-luke/pararia-runpod-worker:latest";
 const DEFAULT_WORKER_GPU = "NVIDIA GeForce RTX 5090";
 const DEFAULT_WORKER_GPU_FALLBACK = "NVIDIA GeForce RTX 4090";
-const DEFAULT_AUTO_STOP_IDLE_MS = 5 * 60 * 1000;
+const DEFAULT_AUTO_STOP_IDLE_MS = 60 * 1000;
 const DEFAULT_WORKER_CONVERSATION_LIMIT = "0";
 
 function readStringEnv(name: string, fallback = "") {

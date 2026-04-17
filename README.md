@@ -515,7 +515,7 @@ RUNPOD_API_KEY="your-runpod-api-key"
 ```
 
 on-demand 運用のときは、worker は session part queue が空になった時点で自分の Pod を stop します。
-取りこぼし確認のための idle 停止も残しており、`RUNPOD_WORKER_AUTO_STOP_IDLE_MS` の既定は `300000` ms（5分）です。
+取りこぼし確認のための idle 停止も残しており、`RUNPOD_WORKER_AUTO_STOP_IDLE_MS` の既定は `60000` ms（1分）です。
 
 本番 web の upload / regenerate から自動で Pod を wake したい場合は、Vercel 側の server env にも `RUNPOD_API_KEY` を入れて deploy してください。
 それが未設定でも、ローカル端末から `npm run runpod:start -- --wait` で手動 wake はできます。
@@ -532,7 +532,7 @@ worker loop の調整 env:
 - `RUNPOD_WORKER_CONVERSATION_CONCURRENCY=1`
 - `RUNPOD_WORKER_IDLE_WAIT_MS=2500`
 - `RUNPOD_WORKER_ACTIVE_WAIT_MS=200`
-- `RUNPOD_WORKER_AUTO_STOP_IDLE_MS=300000`
+- `RUNPOD_WORKER_AUTO_STOP_IDLE_MS=60000`
 - `RUNPOD_WORKER_ONLY_SESSION_ID=...`
 - `RUNPOD_WORKER_ONLY_CONVERSATION_ID=...`
 
@@ -1026,7 +1026,7 @@ PARARIA_AUDIO_RETENTION_DAYS=14
 - Pod の生成 / 起動 / 停止は `npm run runpod:deploy`, `npm run runpod:start`, `npm run runpod:stop`
 - worker image は `Dockerfile.runpod-worker` と `.github/workflows/publish-runpod-worker.yml` から GHCR へ publish する
 - `RUNPOD_API_KEY` を web 側にも入れると、upload / regenerate 時に Pod を自動 wake できる
-- `RUNPOD_WORKER_AUTO_STOP_IDLE_MS` を入れておくと、queue が空のまま一定時間たった Pod を自動 stop できる
+- `RUNPOD_WORKER_AUTO_STOP_IDLE_MS` を入れておくと、queue が空のまま一定時間たった Pod を自動 stop できる。既定は 1 分
 - stop 判定は `SessionPartJob` と `ConversationJob` の `QUEUED / RUNNING` が両方ゼロの時だけ掛ける
 
 開発機で worker を直接検証したいときだけ、次を使う:

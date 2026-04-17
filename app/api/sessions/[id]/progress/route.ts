@@ -8,6 +8,7 @@ import {
 } from "@/lib/jobs/conversationJobs";
 import { processAllSessionPartJobs } from "@/lib/jobs/sessionPartJobs";
 import { buildSessionProgressState } from "@/lib/session-progress";
+import { buildSessionProgressTimingSnapshot } from "@/lib/session-progress/timing";
 import { buildSummaryPreview } from "@/lib/session-part-meta";
 import { resolveRouteId, type RouteParams } from "@/lib/server/route-params";
 import { requireAuthorizedMutationSession, requireAuthorizedSession } from "@/lib/server/request-auth";
@@ -20,17 +21,70 @@ import { kickConversationJobsOutsideRunpod } from "@/lib/jobs/conversation-jobs/
 import { maybeStopRunpodWorkerWhenSessionPartQueueIdle } from "@/lib/runpod/idle-stop";
 import { maybeEnsureRunpodWorker } from "@/lib/runpod/worker-control";
 
+const SESSION_WORKER_WAKE_COOLDOWN_MS = 4_000;
+const CONVERSATION_PROGRESS_KICK_COOLDOWN_MS = 4_000;
+const recentSessionWorkerWakeAt = new Map<string, number>();
+const recentConversationProgressKickAt = new Map<string, number>();
+
+function shouldTriggerProgressCooldown(
+  key: string,
+  cache: Map<string, number>,
+  cooldownMs: number,
+  now = Date.now()
+) {
+  for (const [entryKey, lastTriggeredAt] of cache.entries()) {
+    if (now - lastTriggeredAt >= cooldownMs) {
+      cache.delete(entryKey);
+    }
+  }
+
+  const lastTriggeredAt = cache.get(key);
+  if (typeof lastTriggeredAt === "number" && now - lastTriggeredAt < cooldownMs) {
+    return false;
+  }
+
+  cache.set(key, now);
+  return true;
+}
+
+export function shouldKickSessionWorkerNow(
+  sessionId: string,
+  now = Date.now(),
+  cache = recentSessionWorkerWakeAt
+) {
+  return shouldTriggerProgressCooldown(sessionId, cache, SESSION_WORKER_WAKE_COOLDOWN_MS, now);
+}
+
+export function shouldKickConversationJobsNow(
+  conversationId: string,
+  now = Date.now(),
+  cache = recentConversationProgressKickAt
+) {
+  return shouldTriggerProgressCooldown(
+    conversationId,
+    cache,
+    CONVERSATION_PROGRESS_KICK_COOLDOWN_MS,
+    now
+  );
+}
+
 async function loadSessionProgressSnapshot(sessionId: string, organizationId: string) {
   return prisma.session.findFirst({
     where: {
       id: sessionId,
       organizationId,
     },
-    include: {
+    select: {
+      id: true,
+      organizationId: true,
+      type: true,
+      status: true,
+      createdAt: true,
       parts: {
         orderBy: { createdAt: "asc" },
         select: {
           id: true,
+          createdAt: true,
           partType: true,
           sourceType: true,
           status: true,
@@ -48,12 +102,15 @@ async function loadSessionProgressSnapshot(sessionId: string, organizationId: st
           status: true,
           summaryMarkdown: true,
           createdAt: true,
+          qualityMetaJson: true,
           jobs: {
             select: {
               type: true,
               status: true,
+              executionId: true,
               startedAt: true,
               finishedAt: true,
+              lastQueueLagMs: true,
             },
           },
         },
@@ -112,6 +169,10 @@ export function kickSessionWorkerOrFallback(
   hasPendingConversationWork: boolean,
   deps: SessionWorkerWakeDeps = {}
 ) {
+  if (!shouldKickSessionWorkerNow(sessionId)) {
+    return;
+  }
+
   const ensureWorker = deps.maybeEnsureRunpodWorker ?? maybeEnsureRunpodWorker;
   const processSessionParts = deps.processAllSessionPartJobs ?? processAllSessionPartJobs;
   const processConversation = deps.processAllConversationJobs ?? processAllConversationJobs;
@@ -263,10 +324,12 @@ async function processSessionProgress(session: NonNullable<Awaited<ReturnType<ty
   }
 
   if (currentSession.conversation?.id && needsConversationWork) {
-    kickConversationJobsOutsideRunpod(
-      currentSession.conversation.id,
-      "POST /api/sessions/[id]/progress app conversation processing"
-    );
+    if (shouldKickConversationJobsNow(currentSession.conversation.id)) {
+      kickConversationJobsOutsideRunpod(
+        currentSession.conversation.id,
+        "POST /api/sessions/[id]/progress app conversation processing"
+      );
+    }
   }
 }
 
@@ -276,6 +339,14 @@ function buildSessionProgressResponse(session: NonNullable<Awaited<ReturnType<ty
     type: session.type,
     parts: session.parts,
     conversation: session.conversation,
+  });
+  const timing = buildSessionProgressTimingSnapshot({
+    sessionId: session.id,
+    sessionCreatedAt: session.createdAt,
+    conversationId: session.conversation?.id ?? null,
+    parts: session.parts,
+    conversation: session.conversation,
+    nextMeetingMemo: session.nextMeetingMemo,
   });
 
   return NextResponse.json({
@@ -310,6 +381,7 @@ function buildSessionProgressResponse(session: NonNullable<Awaited<ReturnType<ty
       qualityMetaJson: part.qualityMetaJson,
     })),
     progress,
+    timing,
   });
 }
 

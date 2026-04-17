@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import {
   kickSessionWorkerOrFallback,
+  shouldKickConversationJobsNow,
   shouldProcessConversationInlineDuringProgress,
   shouldProcessSessionProgressInline,
+  shouldKickSessionWorkerNow,
 } from "../app/api/sessions/[id]/progress/route";
 
 async function waitForMicrotask() {
@@ -78,6 +80,40 @@ assert.equal(
   }),
   false,
   "audio-backed sessions should keep background progress handling in external mode"
+);
+
+const sessionKickCache = new Map<string, number>();
+assert.equal(
+  shouldKickSessionWorkerNow("session-a", 10_000, sessionKickCache),
+  true,
+  "first session worker kick should pass"
+);
+assert.equal(
+  shouldKickSessionWorkerNow("session-a", 12_000, sessionKickCache),
+  false,
+  "duplicate session worker kicks inside cooldown should be ignored"
+);
+assert.equal(
+  shouldKickSessionWorkerNow("session-a", 15_000, sessionKickCache),
+  true,
+  "session worker kicks should reopen after the cooldown"
+);
+
+const conversationKickCache = new Map<string, number>();
+assert.equal(
+  shouldKickConversationJobsNow("conversation-a", 20_000, conversationKickCache),
+  true,
+  "first conversation dispatch kick should pass"
+);
+assert.equal(
+  shouldKickConversationJobsNow("conversation-a", 22_000, conversationKickCache),
+  false,
+  "duplicate conversation dispatch kicks inside cooldown should be ignored"
+);
+assert.equal(
+  shouldKickConversationJobsNow("conversation-a", 25_000, conversationKickCache),
+  true,
+  "conversation dispatch kicks should reopen after the cooldown"
 );
 
 console.log("session progress dispatch regression checks passed");

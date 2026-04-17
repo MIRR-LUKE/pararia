@@ -57,6 +57,7 @@ function runExternalKickCase() {
   const started = kickPromotedConversationJobsOutsideRunpod("conversation-external", "external", {
     kickConversationJobsOutsideRunpod: (conversationId, label, deps) => {
       events.push(`kick:${conversationId}:${label}:${String(deps?.requireRunpodStopped)}`);
+      return true;
     },
   });
 
@@ -70,6 +71,7 @@ function runInlineKickCase() {
   const started = kickPromotedConversationJobsOutsideRunpod("conversation-inline", "inline", {
     kickConversationJobsOutsideRunpod: () => {
       events.push("kick");
+      return true;
     },
   });
 
@@ -84,6 +86,7 @@ function runRunpodWorkerSkipCase() {
     isRunpodWorkerProcess: () => true,
     kickConversationJobsOutsideRunpod: () => {
       events.push("kick");
+      return true;
     },
   });
 
@@ -98,6 +101,7 @@ function runManualKickCase() {
     requireRunpodStopped: false,
     kickConversationJobsOutsideRunpod: (conversationId, label, deps) => {
       events.push(`kick:${conversationId}:${label}:${String(deps?.requireRunpodStopped)}`);
+      return true;
     },
   });
 

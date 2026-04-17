@@ -32,6 +32,11 @@ try {
     getRunpodWorkerConfig()?.image,
     "ghcr.io/mirr-luke/pararia-runpod-worker:sha-abc123"
   );
+  assert.equal(
+    getRunpodWorkerConfig()?.autoStopIdleMs,
+    60000,
+    "Runpod の既定 idle stop は 1 分にする"
+  );
 
   process.env.RUNPOD_WORKER_CONVERSATION_LIMIT = "0";
   const sttOnlyEnv = buildRunpodWorkerEnv(300000);

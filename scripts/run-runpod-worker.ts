@@ -245,7 +245,7 @@ async function main() {
   );
   const idleWaitMs = readIntEnvWithLegacy("RUNPOD_WORKER_IDLE_WAIT_MS", "LOCAL_GPU_WORKER_IDLE_WAIT_MS", 2500);
   const activeWaitMs = readIntEnvWithLegacy("RUNPOD_WORKER_ACTIVE_WAIT_MS", "LOCAL_GPU_WORKER_ACTIVE_WAIT_MS", 200);
-  const defaultAutoStopIdleMs = process.env.RUNPOD_POD_ID?.trim() ? 5 * 60 * 1000 : 0;
+  const defaultAutoStopIdleMs = process.env.RUNPOD_POD_ID?.trim() ? 60 * 1000 : 0;
   const autoStopIdleMs = readNonNegativeIntEnvWithLegacy(
     "RUNPOD_WORKER_AUTO_STOP_IDLE_MS",
     "LOCAL_GPU_WORKER_AUTO_STOP_IDLE_MS",

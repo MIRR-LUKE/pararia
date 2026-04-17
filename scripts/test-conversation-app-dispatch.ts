@@ -1,5 +1,9 @@
 import assert from "node:assert/strict";
-import { kickConversationJobsOutsideRunpod, processConversationJobsOutsideRunpod } from "../lib/jobs/conversation-jobs/app-dispatch";
+import {
+  kickConversationJobsOutsideRunpod,
+  processConversationJobsOutsideRunpod,
+  shouldKickConversationJobsOutsideRunpodNow,
+} from "../lib/jobs/conversation-jobs/app-dispatch";
 
 async function waitForMicrotask() {
   await Promise.resolve();
@@ -35,7 +39,7 @@ async function runExternalBlockedCase() {
 async function runExternalDispatchCase() {
   const events: string[] = [];
 
-  kickConversationJobsOutsideRunpod("conversation-ready", "conversation app dispatch test", {
+  const kicked = kickConversationJobsOutsideRunpod("conversation-ready", "conversation app dispatch test", {
     shouldRunBackgroundJobsInline: () => false,
     maybeStopRunpodWorkerWhenSessionPartQueueIdle: async () => {
       events.push("stop-check");
@@ -52,6 +56,7 @@ async function runExternalDispatchCase() {
     },
   });
 
+  assert.equal(kicked, true, "first app dispatch should schedule work");
   await waitForMicrotask();
   assert.deepEqual(events, ["stop-check", "process:conversation-ready"]);
 }
@@ -84,5 +89,22 @@ async function runExternalManualDispatchCase() {
 await runExternalBlockedCase();
 await runExternalDispatchCase();
 await runExternalManualDispatchCase();
+
+const dispatchKickCache = new Map<string, number>();
+assert.equal(
+  shouldKickConversationJobsOutsideRunpodNow("conversation-cache", 30_000, dispatchKickCache),
+  true,
+  "first app dispatch cooldown check should pass"
+);
+assert.equal(
+  shouldKickConversationJobsOutsideRunpodNow("conversation-cache", 32_000, dispatchKickCache),
+  false,
+  "duplicate app dispatch kicks inside cooldown should be ignored"
+);
+assert.equal(
+  shouldKickConversationJobsOutsideRunpodNow("conversation-cache", 35_000, dispatchKickCache),
+  true,
+  "app dispatch cooldown should reopen after the window"
+);
 
 console.log("conversation app dispatch regression checks passed");

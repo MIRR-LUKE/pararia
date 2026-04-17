@@ -28,27 +28,44 @@ function isPageHidden() {
 
 export function getSessionProgressPollIntervalMs(elapsedMs: number, pageHidden: boolean) {
   if (pageHidden) {
-    if (elapsedMs < 60_000) return 5_000;
-    if (elapsedMs < 180_000) return 10_000;
+    if (elapsedMs < 60_000) return 8_000;
+    if (elapsedMs < 180_000) return 12_000;
     return 15_000;
   }
 
-  if (elapsedMs < 60_000) return 1_000;
-  if (elapsedMs < 180_000) return 1_500;
-  if (elapsedMs < 300_000) return 2_000;
-  return 3_000;
+  if (elapsedMs < 30_000) return 1_500;
+  if (elapsedMs < 120_000) return 2_500;
+  if (elapsedMs < 300_000) return 3_500;
+  return 5_000;
 }
 
 export function getSessionProgressWakeIntervalMs(elapsedMs: number, pageHidden: boolean) {
   if (pageHidden) {
-    if (elapsedMs < 60_000) return 10_000;
-    return 15_000;
+    if (elapsedMs < 120_000) return 15_000;
+    return 30_000;
   }
 
-  if (elapsedMs < 30_000) return 1_000;
-  if (elapsedMs < 120_000) return 2_000;
-  if (elapsedMs < 300_000) return 4_000;
-  return 5_000;
+  if (elapsedMs < 45_000) return 8_000;
+  if (elapsedMs < 180_000) return 15_000;
+  return 25_000;
+}
+
+export function shouldKickSessionProgressWorker(input: {
+  elapsedMs: number;
+  pageHidden: boolean;
+  lastKickAt: number;
+  stage: SessionProgressResponse["progress"]["stage"] | null;
+}) {
+  const lastKickAgoMs = input.lastKickAt > 0 ? Date.now() - input.lastKickAt : Number.POSITIVE_INFINITY;
+  if (lastKickAgoMs < getSessionProgressWakeIntervalMs(input.elapsedMs, input.pageHidden)) {
+    return false;
+  }
+
+  if (!input.stage) {
+    return true;
+  }
+
+  return input.stage === "RECEIVED" || input.stage === "TRANSCRIBING";
 }
 
 export function useStudentSessionProgress({
@@ -119,6 +136,7 @@ export function useStudentSessionProgress({
     async (sessionId: string) => {
       const startedAt = Date.now();
       let lastWorkerKickAt = 0;
+      let latestStage: SessionProgressResponse["progress"]["stage"] | null = null;
       setState("processing");
       setRecoverableSessionId(sessionId);
 
@@ -127,10 +145,15 @@ export function useStudentSessionProgress({
         const elapsedMs = now - startedAt;
         const pageHidden = isPageHidden();
         const pollingIntervalMs = getSessionProgressPollIntervalMs(elapsedMs, pageHidden);
-        const workerWakeIntervalMs = getSessionProgressWakeIntervalMs(elapsedMs, pageHidden);
-        const shouldKickWorker = now - lastWorkerKickAt >= workerWakeIntervalMs;
-        if (shouldKickWorker) {
-          lastWorkerKickAt = now;
+        if (
+          shouldKickSessionProgressWorker({
+            elapsedMs,
+            pageHidden,
+            lastKickAt: lastWorkerKickAt,
+            stage: latestStage,
+          })
+        ) {
+          lastWorkerKickAt = Date.now();
           void fetch(`/api/sessions/${sessionId}/progress`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -145,6 +168,7 @@ export function useStudentSessionProgress({
           continue;
         }
 
+        latestStage = body.progress.stage;
         setSessionProgress(body.progress);
         const openLogId = body.progress.openLogId ?? body.conversation?.id ?? null;
         if (openLogId) {

@@ -3,12 +3,35 @@ import { maybeStopRunpodWorkerWhenSessionPartQueueIdle } from "@/lib/runpod/idle
 import { runAfterResponse } from "@/lib/server/after-response";
 import { processAllConversationJobs } from "./orchestration";
 
+const APP_DISPATCH_COOLDOWN_MS = 4_000;
+const recentAppDispatchKickAt = new Map<string, number>();
+
 type AppConversationDispatchDeps = {
   processAllConversationJobs?: typeof processAllConversationJobs;
   shouldRunBackgroundJobsInline?: typeof shouldRunBackgroundJobsInline;
   maybeStopRunpodWorkerWhenSessionPartQueueIdle?: typeof maybeStopRunpodWorkerWhenSessionPartQueueIdle;
   requireRunpodStopped?: boolean;
 };
+
+export function shouldKickConversationJobsOutsideRunpodNow(
+  conversationId: string,
+  now = Date.now(),
+  cache = recentAppDispatchKickAt
+) {
+  for (const [entryKey, lastTriggeredAt] of cache.entries()) {
+    if (now - lastTriggeredAt >= APP_DISPATCH_COOLDOWN_MS) {
+      cache.delete(entryKey);
+    }
+  }
+
+  const lastTriggeredAt = cache.get(conversationId);
+  if (typeof lastTriggeredAt === "number" && now - lastTriggeredAt < APP_DISPATCH_COOLDOWN_MS) {
+    return false;
+  }
+
+  cache.set(conversationId, now);
+  return true;
+}
 
 export async function processConversationJobsOutsideRunpod(
   conversationId: string,
@@ -41,6 +64,10 @@ export function kickConversationJobsOutsideRunpod(
   label: string,
   deps: AppConversationDispatchDeps = {}
 ) {
+  if (!shouldKickConversationJobsOutsideRunpodNow(conversationId)) {
+    return false;
+  }
+
   runAfterResponse(async () => {
     const dispatch = await processConversationJobsOutsideRunpod(conversationId, deps);
     if (!dispatch.started) {
@@ -50,4 +77,6 @@ export function kickConversationJobsOutsideRunpod(
       });
     }
   }, label);
+
+  return true;
 }

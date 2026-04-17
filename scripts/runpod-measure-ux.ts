@@ -92,7 +92,7 @@ async function main() {
   const clipDurationSeconds = readNumberArg("clip-duration", 0);
   const timeoutMs = readNumberArg("timeout-ms", 45 * 60 * 1000);
   const pollMs = readNumberArg("poll-ms", 5000);
-  const autoStopIdleMs = readNumberArg("auto-stop-idle-ms", 5 * 60 * 1000);
+  const autoStopIdleMs = readNumberArg("auto-stop-idle-ms", 60 * 1000);
   const createRetries = readNumberArg("create-retries", 2);
   const createRetryWaitMs = readNumberArg("create-retry-wait-ms", 30000);
   const interruptible = readBoolArg("interruptible", false);

@@ -14,6 +14,7 @@ type SessionProgressRouteSmokeResult = {
   stage: string;
   canOpenLog: boolean;
   stepStatuses: string[];
+  totalPipelineSeconds: number | null;
 };
 
 function argValue(flag: string) {
@@ -43,6 +44,9 @@ export async function runSessionProgressRouteSmoke(baseUrl: string): Promise<Ses
     assert.equal(body.progress?.canOpenLog, true);
     assert.ok(Array.isArray(body.parts), "parts should be an array");
     assert.equal(body.parts.length, 0);
+    assert.ok(body.timing && typeof body.timing === "object", "timing should be returned");
+    assert.equal(typeof body.timing.traceId, "string");
+    assert.equal(typeof body.timing.totalPipelineSeconds, "number");
     assert.deepEqual(
       body.progress?.progress?.steps?.map((step: { status: string }) => step.status),
       ["complete", "complete", "complete", "complete"]
@@ -54,6 +58,7 @@ export async function runSessionProgressRouteSmoke(baseUrl: string): Promise<Ses
       stage: body.progress.stage,
       canOpenLog: body.progress.canOpenLog,
       stepStatuses: body.progress.progress.steps.map((step: { status: string }) => step.status),
+      totalPipelineSeconds: body.timing?.totalPipelineSeconds ?? null,
     };
   } finally {
     await fixture.cleanup().catch(() => {});
