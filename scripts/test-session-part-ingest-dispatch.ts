@@ -18,10 +18,13 @@ async function runInlineCase() {
       events.push(`process:${sessionId}`);
       return { processed: 1, errors: [] };
     },
+    runAfterResponse: (task) => {
+      void task();
+    },
   });
 
   await waitForMicrotask();
-  assert.equal(result.mode, "inline");
+  assert.equal(result.mode, "external");
   assert.equal(result.workerWake, null);
   assert.deepEqual(events, ["enqueue:part-inline", "process:session-inline"]);
 }
@@ -38,10 +41,13 @@ async function runExternalCase() {
       events.push(`process:${sessionId}`);
       return { processed: 1, errors: [] };
     },
+    runAfterResponse: (task) => {
+      void task();
+    },
   });
 
   await waitForMicrotask();
-  assert.equal(result.mode, "inline");
+  assert.equal(result.mode, "external");
   assert.equal(result.workerWake, null);
   assert.deepEqual(events, ["enqueue:part-external", "process:session-external"]);
 }

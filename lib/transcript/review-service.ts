@@ -255,20 +255,9 @@ export async function ensureConversationReviewedTranscript(conversationId: strin
     });
   }
 
-  const readyParts = conversation.session.parts.filter((part) => part.status === SessionPartStatus.READY);
-  const readyPartIds = readyParts.map((part) => part.id);
-  const partsNeedingReview = readyParts.filter((part) => {
-    const rawTextOriginal = normalizeRawTranscriptText(part.rawTextOriginal);
-    if (!rawTextOriginal) {
-      return false;
-    }
-
-    return !normalizeRawTranscriptText(part.reviewedText);
-  });
-
-  for (const part of partsNeedingReview) {
-    await ensureSessionPartReviewedTranscript(part.id);
-  }
+  const readyPartIds = conversation.session.parts
+    .filter((part) => part.status === SessionPartStatus.READY)
+    .map((part) => part.id);
 
   const refreshedSession = await prisma.session.findUnique({
     where: { id: conversation.session.id },
