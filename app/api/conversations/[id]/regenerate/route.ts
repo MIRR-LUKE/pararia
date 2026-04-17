@@ -8,13 +8,11 @@ import {
   processAllConversationJobs,
 } from "@/lib/jobs/conversationJobs";
 import { shouldRunBackgroundJobsInline } from "@/lib/jobs/execution-mode";
+import { kickConversationJobsOutsideRunpod } from "@/lib/jobs/conversation-jobs/app-dispatch";
 import { ensureConversationReviewedTranscript } from "@/lib/transcript/review";
 import { requireAuthorizedMutationSession } from "@/lib/server/request-auth";
-import { resolveRouteId, type RouteParams } from "@/lib/server/route-params";
 import { maybeStopRunpodWorkerWhenSessionPartQueueIdle } from "@/lib/runpod/idle-stop";
-import { maybeEnsureRunpodWorker } from "@/lib/runpod/worker-control";
 import { applyLightMutationThrottle } from "@/lib/server/request-throttle";
-import { runAfterResponse } from "@/lib/server/after-response";
 
 type ConversationRegenerationSource = {
   rawTextOriginal: string | null;
@@ -124,11 +122,10 @@ export async function POST(
         }
       })();
     } else {
-      runAfterResponse(async () => {
-        await maybeEnsureRunpodWorker().catch((error) => {
-          console.error("[POST /api/conversations/[id]/regenerate] Runpod wake failed:", error);
-        });
-      }, "POST /api/conversations/[id]/regenerate wake runpod");
+      kickConversationJobsOutsideRunpod(
+        id,
+        "POST /api/conversations/[id]/regenerate app conversation processing"
+      );
     }
 
     if (conversation.sessionId) {

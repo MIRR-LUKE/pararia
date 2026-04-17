@@ -19,14 +19,6 @@ async function runInlineCase() {
       return { processed: 1, errors: [] };
     },
     shouldRunBackgroundJobsInline: () => true,
-    maybeEnsureRunpodWorker: async () => {
-      events.push("wake");
-      return {
-        attempted: true,
-        ok: true,
-        podId: "pod-inline",
-      };
-    },
   });
 
   await waitForMicrotask();
@@ -48,20 +40,12 @@ async function runExternalCase() {
       return { processed: 1, errors: [] };
     },
     shouldRunBackgroundJobsInline: () => false,
-    maybeEnsureRunpodWorker: async () => {
-      events.push("wake");
-      return {
-        attempted: true,
-        ok: true,
-        podId: "pod-external",
-      };
-    },
   });
 
   await waitForMicrotask();
   assert.equal(result.mode, "external");
   assert.equal(result.workerWake, null);
-  assert.deepEqual(events, ["enqueue:conversation-external", "wake"]);
+  assert.deepEqual(events, ["enqueue:conversation-external"]);
 }
 
 await runInlineCase();

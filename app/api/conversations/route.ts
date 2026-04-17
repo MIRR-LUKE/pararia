@@ -5,6 +5,7 @@ import { ConversationSourceType, ConversationStatus } from "@prisma/client";
 import { preprocessTranscript } from "@/lib/transcript/preprocess";
 import { enqueueConversationJobs, processAllConversationJobs } from "@/lib/jobs/conversationJobs";
 import { shouldRunBackgroundJobsInline } from "@/lib/jobs/execution-mode";
+import { kickConversationJobsOutsideRunpod } from "@/lib/jobs/conversation-jobs/app-dispatch";
 import { requireAuthorizedMutationSession, requireAuthorizedSession } from "@/lib/server/request-auth";
 import { renderConversationArtifactOrFallback } from "@/lib/conversation-artifact";
 import { getLogListCacheTag } from "@/lib/logs/get-log-list-page-data";
@@ -14,9 +15,7 @@ import { withActiveStudentWhere } from "@/lib/students/student-lifecycle";
 import { withVisibleConversationWhere } from "@/lib/content-visibility";
 import { sanitizeSummaryMarkdown } from "@/lib/user-facing-japanese";
 import { maybeStopRunpodWorkerWhenSessionPartQueueIdle } from "@/lib/runpod/idle-stop";
-import { maybeEnsureRunpodWorker } from "@/lib/runpod/worker-control";
 import { applyLightMutationThrottle } from "@/lib/server/request-throttle";
-import { runAfterResponse } from "@/lib/server/after-response";
 
 export async function GET(request: Request) {
   try {
@@ -199,11 +198,7 @@ export async function POST(request: Request) {
         }
       })();
     } else {
-      runAfterResponse(async () => {
-        await maybeEnsureRunpodWorker().catch((error) => {
-          console.error("[POST /api/conversations] Runpod wake failed:", error);
-        });
-      }, "POST /api/conversations wake runpod");
+      kickConversationJobsOutsideRunpod(conversation.id, "POST /api/conversations app conversation processing");
     }
 
     revalidateTag(`student-directory:${organizationId}`, "max");

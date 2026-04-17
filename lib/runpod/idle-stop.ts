@@ -1,4 +1,4 @@
-import { ConversationJobType, JobStatus } from "@prisma/client";
+import { JobStatus } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { shouldRunBackgroundJobsInline } from "@/lib/jobs/execution-mode";
 import { stopCurrentRunpodPod, stopManagedRunpodWorker } from "@/lib/runpod/worker-control";
@@ -6,7 +6,6 @@ import { stopCurrentRunpodPod, stopManagedRunpodWorker } from "@/lib/runpod/work
 export function evaluateRunpodStopEligibility(input: {
   inlineMode: boolean;
   pendingSessionPartJobs: number;
-  pendingConversationJobs: number;
 }) {
   if (input.inlineMode) {
     return {
@@ -22,16 +21,9 @@ export function evaluateRunpodStopEligibility(input: {
     } as const;
   }
 
-  if (input.pendingConversationJobs > 0) {
-    return {
-      attempted: false,
-      reason: "pending_conversation_jobs",
-    } as const;
-  }
-
   return {
     attempted: true,
-    reason: "queues_drained",
+    reason: "session_part_queue_drained",
   } as const;
 }
 
@@ -46,32 +38,15 @@ export async function maybeStopRunpodWorkerWhenSessionPartQueueIdle() {
     },
   });
 
-  const pendingConversationJobs = await prisma.conversationJob.count({
-    where: {
-      type: {
-        in: [
-          ConversationJobType.FINALIZE,
-          ConversationJobType.FORMAT,
-          ConversationJobType.GENERATE_NEXT_MEETING_MEMO,
-        ],
-      },
-      status: {
-        in: [JobStatus.QUEUED, JobStatus.RUNNING],
-      },
-    },
-  });
-
   const decision = evaluateRunpodStopEligibility({
     inlineMode,
     pendingSessionPartJobs,
-    pendingConversationJobs,
   });
 
   if (!decision.attempted) {
     return {
       ...decision,
       pendingSessionPartJobs,
-      pendingConversationJobs,
     } as const;
   }
 
@@ -82,7 +57,6 @@ export async function maybeStopRunpodWorkerWhenSessionPartQueueIdle() {
     attempted: true,
     reason: stopResult.ok ? "stopped_or_already_stopped" : "stop_failed",
     pendingSessionPartJobs,
-    pendingConversationJobs,
     stopResult,
   } as const;
 }

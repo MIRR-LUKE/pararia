@@ -6,12 +6,11 @@ import {
   processAllConversationJobs,
 } from "@/lib/jobs/conversationJobs";
 import { shouldRunBackgroundJobsInline } from "@/lib/jobs/execution-mode";
+import { kickConversationJobsOutsideRunpod } from "@/lib/jobs/conversation-jobs/app-dispatch";
 import { createOperationContext, logOperationError, operationErrorResponse, withOperationMeta } from "@/lib/observability/operation-errors";
 import { maybeStopRunpodWorkerWhenSessionPartQueueIdle } from "@/lib/runpod/idle-stop";
-import { maybeEnsureRunpodWorker } from "@/lib/runpod/worker-control";
 import { requireAuthorizedMutationSession } from "@/lib/server/request-auth";
 import { applyLightMutationThrottle } from "@/lib/server/request-throttle";
-import { runAfterResponse } from "@/lib/server/after-response";
 
 export async function POST(
   request: Request,
@@ -98,15 +97,10 @@ export async function POST(
         }
       })();
     } else {
-      runAfterResponse(async () => {
-        await maybeEnsureRunpodWorker().catch((error) => {
-          logOperationError(operation, {
-            stage: "wake_runpod_worker",
-            message: "Runpod wake failed",
-            error,
-          });
-        });
-      }, "POST /api/sessions/[id]/next-meeting-memo/regenerate wake runpod");
+      kickConversationJobsOutsideRunpod(
+        session.conversation.id,
+        "POST /api/sessions/[id]/next-meeting-memo/regenerate app conversation processing"
+      );
     }
 
     return NextResponse.json({

@@ -15,6 +15,7 @@ import { runAfterResponse } from "@/lib/server/after-response";
 import { pickDisplayTranscriptText } from "@/lib/transcript/source";
 import { withVisibleConversationWhere } from "@/lib/content-visibility";
 import { shouldRunBackgroundJobsInline } from "@/lib/jobs/execution-mode";
+import { kickConversationJobsOutsideRunpod } from "@/lib/jobs/conversation-jobs/app-dispatch";
 import { maybeStopRunpodWorkerWhenSessionPartQueueIdle } from "@/lib/runpod/idle-stop";
 import { maybeEnsureRunpodWorker } from "@/lib/runpod/worker-control";
 
@@ -76,12 +77,10 @@ function hasOnlyManualParts(parts: Array<{ sourceType: ConversationSourceType }>
 export function shouldWakeExternalSessionWorker(input: {
   partStatuses: string[];
   queuedSessionPartJobCount: number;
-  hasPendingConversationWork: boolean;
 }) {
   return (
     input.queuedSessionPartJobCount > 0 ||
-    input.partStatuses.some((status) => status === "PENDING" || status === "UPLOADING" || status === "TRANSCRIBING") ||
-    input.hasPendingConversationWork
+    input.partStatuses.some((status) => status === "PENDING" || status === "UPLOADING" || status === "TRANSCRIBING")
   );
 }
 
@@ -201,10 +200,15 @@ async function processSessionProgress(session: NonNullable<Awaited<ReturnType<ty
   const needsWorkerWake = shouldWakeExternalSessionWorker({
     partStatuses: session.parts.map((part) => part.status),
     queuedSessionPartJobCount,
-    hasPendingConversationWork: needsConversationWork,
   });
   if (needsWorkerWake) {
     kickSessionWorkerOrFallback(session.id, needsConversationWork);
+  }
+  if (!needsWorkerWake && session.conversation?.id && needsConversationWork) {
+    kickConversationJobsOutsideRunpod(
+      session.conversation.id,
+      "POST /api/sessions/[id]/progress app conversation processing"
+    );
   }
 }
 

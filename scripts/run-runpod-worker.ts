@@ -39,6 +39,13 @@ function readOptionalEnv(name: string) {
   return value ? value : undefined;
 }
 
+function getEffectiveConversationLimit(conversationLimit: number) {
+  if (process.env.PARARIA_BACKGROUND_MODE?.trim() === "external") {
+    return 0;
+  }
+  return conversationLimit;
+}
+
 function getConversationWorkerMode(conversationLimit: number) {
   return conversationLimit > 0 ? "stt+conversation" : "stt-only";
 }
@@ -225,11 +232,12 @@ async function main() {
     "LOCAL_GPU_WORKER_SESSION_PART_CONCURRENCY",
     Number(process.env.SESSION_PART_JOB_CONCURRENCY ?? 1)
   );
-  const conversationLimit = readNonNegativeIntEnvWithLegacy(
+  const configuredConversationLimit = readNonNegativeIntEnvWithLegacy(
     "RUNPOD_WORKER_CONVERSATION_LIMIT",
     "LOCAL_GPU_WORKER_CONVERSATION_LIMIT",
-    6
+    0
   );
+  const conversationLimit = getEffectiveConversationLimit(configuredConversationLimit);
   const conversationConcurrency = readIntEnvWithLegacy(
     "RUNPOD_WORKER_CONVERSATION_CONCURRENCY",
     "LOCAL_GPU_WORKER_CONVERSATION_CONCURRENCY",
@@ -268,6 +276,7 @@ async function main() {
     mode: getConversationWorkerMode(conversationLimit),
     sessionPartLimit,
     sessionPartConcurrency,
+    configuredConversationLimit,
     conversationLimit,
     conversationConcurrency,
     idleWaitMs,
@@ -276,8 +285,8 @@ async function main() {
     once,
   });
 
-  if (process.env.PARARIA_BACKGROUND_MODE?.trim() === "external" && conversationLimit === 0) {
-    console.warn("[runpod-worker] external mode started with conversationLimit=0; this worker is STT-only.");
+  if (process.env.PARARIA_BACKGROUND_MODE?.trim() === "external") {
+    console.warn("[runpod-worker] external mode forces STT-only execution on Runpod.");
   }
 
   const warmInfo = await warmFasterWhisperWorkers()

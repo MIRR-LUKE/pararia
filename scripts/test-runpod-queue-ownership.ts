@@ -9,23 +9,10 @@ try {
     evaluateRunpodStopEligibility({
       inlineMode: false,
       pendingSessionPartJobs: 0,
-      pendingConversationJobs: 0,
     }),
     {
       attempted: true,
-      reason: "queues_drained",
-    }
-  );
-
-  assert.deepEqual(
-    evaluateRunpodStopEligibility({
-      inlineMode: false,
-      pendingSessionPartJobs: 0,
-      pendingConversationJobs: 2,
-    }),
-    {
-      attempted: false,
-      reason: "pending_conversation_jobs",
+      reason: "session_part_queue_drained",
     }
   );
 
@@ -40,7 +27,7 @@ try {
   process.env.VERCEL_GIT_COMMIT_SHA = "abc123";
 
   const env = buildRunpodWorkerEnv(300000);
-  assert.equal(env.RUNPOD_WORKER_CONVERSATION_LIMIT, "6");
+  assert.equal(env.RUNPOD_WORKER_CONVERSATION_LIMIT, "0");
   assert.equal(
     getRunpodWorkerConfig()?.image,
     "ghcr.io/mirr-luke/pararia-runpod-worker:sha-abc123"

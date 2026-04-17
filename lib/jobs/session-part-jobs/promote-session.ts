@@ -4,7 +4,6 @@ import { ensureConversationForSession } from "@/lib/session-service";
 import { enqueueConversationJobs, processAllConversationJobs } from "@/lib/jobs/conversationJobs";
 import { shouldRunBackgroundJobsInline } from "@/lib/jobs/execution-mode";
 import { maybeStopRunpodWorkerWhenSessionPartQueueIdle } from "@/lib/runpod/idle-stop";
-import { maybeEnsureRunpodWorker } from "@/lib/runpod/worker-control";
 import { toPrismaJson } from "@/lib/prisma-json";
 import { toSessionPartMetaJson } from "@/lib/session-part-meta";
 import { runAfterResponse } from "@/lib/server/after-response";
@@ -14,7 +13,6 @@ type PromoteConversationDispatchDeps = {
   enqueueConversationJobs: typeof enqueueConversationJobs;
   processAllConversationJobs: typeof processAllConversationJobs;
   shouldRunBackgroundJobsInline: typeof shouldRunBackgroundJobsInline;
-  maybeEnsureRunpodWorker: typeof maybeEnsureRunpodWorker;
 };
 
 export async function dispatchPromotedConversationJobs(
@@ -23,7 +21,6 @@ export async function dispatchPromotedConversationJobs(
     enqueueConversationJobs,
     processAllConversationJobs,
     shouldRunBackgroundJobsInline,
-    maybeEnsureRunpodWorker,
   }
 ) {
   await deps.enqueueConversationJobs(conversationId);
@@ -37,21 +34,6 @@ export async function dispatchPromotedConversationJobs(
       workerWake: null,
     };
   }
-
-  runAfterResponse(async () => {
-    await deps
-      .maybeEnsureRunpodWorker()
-      .then((workerWake) => {
-        if (workerWake?.attempted && !workerWake.ok) {
-          console.error("[sessionPartJobs] Runpod worker wake failed after promotion:", workerWake);
-        }
-      })
-      .catch((error: any) => {
-        console.error("[sessionPartJobs] Runpod worker wake threw after promotion:", {
-          error: error?.message ?? String(error),
-        });
-      });
-  }, "sessionPartJobs promote wake runpod");
 
   return {
     mode: "external" as const,

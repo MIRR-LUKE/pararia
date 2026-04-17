@@ -8,36 +8,15 @@ import {
 import { parseConversationArtifact, renderConversationArtifactMarkdown, renderConversationArtifactOrFallback } from "@/lib/conversation-artifact";
 import { buildConversationSummaryEditPayload } from "@/lib/conversation-editing";
 import { shouldRunBackgroundJobsInline } from "@/lib/jobs/execution-mode";
+import { kickConversationJobsOutsideRunpod } from "@/lib/jobs/conversation-jobs/app-dispatch";
 import { syncSessionAfterConversation } from "@/lib/session-service";
 import { withVisibleConversationWhere } from "@/lib/content-visibility";
 import { sanitizeFormattedTranscript, sanitizeSummaryMarkdown } from "@/lib/user-facing-japanese";
 import { normalizeRawTranscriptText, pickDisplayTranscriptText } from "@/lib/transcript/source";
 import { getLogListCacheTag } from "@/lib/logs/get-log-list-page-data";
 import { maybeStopRunpodWorkerWhenSessionPartQueueIdle } from "@/lib/runpod/idle-stop";
-import { maybeEnsureRunpodWorker } from "@/lib/runpod/worker-control";
 import { normalizeTranscriptReviewMeta } from "@/lib/logs/transcript-review-display";
 import { toPrismaJson } from "@/lib/prisma-json";
-import { runAfterResponse } from "@/lib/server/after-response";
-
-async function wakeConversationWorkerOrFallback(conversationId: string) {
-  runAfterResponse(async () => {
-    const workerWake = await maybeEnsureRunpodWorker().catch((error: any) => ({
-      attempted: true,
-      ok: false,
-      error: error?.message ?? String(error),
-    }));
-
-    if (workerWake.attempted && workerWake.ok) {
-      return;
-    }
-
-    console.warn("[GET /api/conversations/[id]] falling back to inline conversation processing", {
-      conversationId,
-      workerWake,
-    });
-    await processAllConversationJobs(conversationId);
-  }, "GET /api/conversations/[id] wake conversation worker");
-}
 
 async function recoverMissingConversationJobs(conversationId: string) {
   const recovery = await ensureConversationJobsAvailable(conversationId);
@@ -45,13 +24,7 @@ async function recoverMissingConversationJobs(conversationId: string) {
     return recovery;
   }
 
-  if (shouldRunBackgroundJobsInline()) {
-    await processAllConversationJobs(conversationId);
-  } else {
-    runAfterResponse(async () => {
-      await processAllConversationJobs(conversationId);
-    }, "GET /api/conversations/[id] recover conversation jobs");
-  }
+  kickConversationJobsOutsideRunpod(conversationId, "GET /api/conversations/[id] recover conversation jobs");
   return recovery;
 }
 
@@ -72,7 +45,7 @@ export async function processVisibleConversation(conversationId: string, status:
     return;
   }
   if (status === "PROCESSING") {
-    await wakeConversationWorkerOrFallback(conversationId);
+    kickConversationJobsOutsideRunpod(conversationId, "GET /api/conversations/[id] app conversation processing");
   }
 }
 
