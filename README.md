@@ -43,6 +43,7 @@ PARARIA は、塾・個別指導・学習コーチング向けの `Teaching OS` 
 - タブが非表示のときだけ polling を 5秒、10秒、15秒へ落とす
 - worker を起こす `POST /api/sessions/[id]/progress` も、表示中は 1〜5 秒で刻み、STT 完了直後の引き継ぎ待ちを作らない
 - session promotion が終わったら、その場で app 側の conversation job を起動し、次の poll を待たずに面談ログ生成へ進める
+- 手入力 transcript は保存 API で review / promotion / finalize を抱え込まず、保存はすぐ返して `POST /api/sessions/[id]/progress` 側でまとめて進める
 - 独自 RUM は既定で送らない。送るときだけ `NEXT_PUBLIC_PARARIA_RUM_ENABLED=1` を立てる
 - RUM の送信量は `NEXT_PUBLIC_PARARIA_RUM_SAMPLE_RATE` で間引ける
 - RUM のサーバーログは既定で書かない。必要なときだけ `PARARIA_RUM_LOG_ENABLED=1` を立てる
@@ -387,6 +388,7 @@ npm run test:student-room-route
   - job を `QUEUED` に積む
   - 必要なら Runpod Pod を自動 wake する
   - 進捗 API を返す
+  - 手入力 transcript は保存を先に返し、progress API の 1 本の導線で promotion -> review -> finalize を進める
   - STT 完了後は app 側で conversation job を即起動する
 - Runpod worker 側
   - 同じ DB と Blob を見る

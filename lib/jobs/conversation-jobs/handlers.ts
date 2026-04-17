@@ -26,7 +26,6 @@ import { prisma } from "@/lib/db";
 type FinalizeSideEffectRunner = {
   enqueueNextMeetingMemoJob?: typeof enqueueNextMeetingMemoJob;
   syncSessionAfterConversation?: typeof syncSessionAfterConversation;
-  stopRunpodWorkerAfterConversationJob?: typeof stopRunpodWorkerAfterConversationJob;
 };
 
 export async function runFinalizeBestEffortSideEffects(
@@ -40,8 +39,6 @@ export async function runFinalizeBestEffortSideEffects(
   const runners = opts?.runners ?? {};
   const enqueueNextMeetingMemo = runners.enqueueNextMeetingMemoJob ?? enqueueNextMeetingMemoJob;
   const syncSession = runners.syncSessionAfterConversation ?? syncSessionAfterConversation;
-  const stopWorker =
-    runners.stopRunpodWorkerAfterConversationJob ?? stopRunpodWorkerAfterConversationJob;
 
   const tasks: Promise<unknown>[] = [];
   if (shouldGenerateNextMeetingMemo) {
@@ -70,18 +67,6 @@ export async function runFinalizeBestEffortSideEffects(
         })
     );
   }
-
-  tasks.push(
-    Promise.resolve()
-      .then(() => stopWorker("finalize"))
-      .catch((error) => {
-        console.warn("[conversation-jobs] failed to stop Runpod worker after finalize", {
-          conversationId: convo.id,
-          message: error instanceof Error ? error.message : String(error ?? "unknown error"),
-        });
-      })
-  );
-
   await Promise.all(tasks);
 }
 
@@ -298,7 +283,7 @@ async function executeFormatJob(job: JobPayload, convo: ConversationPayload) {
     durationMs: duration,
   });
 
-  await stopRunpodWorkerAfterConversationJob("format");
+  void stopRunpodWorkerAfterConversationJob("format");
 
   return { formatted: cleanedFormatted, duration };
 }
@@ -411,7 +396,7 @@ async function executeNextMeetingMemoJob(job: JobPayload, convo: ConversationPay
     durationMs: duration,
   });
 
-  await stopRunpodWorkerAfterConversationJob("next meeting memo");
+  void stopRunpodWorkerAfterConversationJob("next meeting memo");
 
   return {
     previousSummary: memo.previousSummary,

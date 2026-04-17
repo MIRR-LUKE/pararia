@@ -23,9 +23,6 @@ async function main() {
           syncSessionAfterConversation: async () => {
             throw new Error("sync failed");
           },
-          stopRunpodWorkerAfterConversationJob: async () => {
-            throw new Error("stop failed");
-          },
         },
       }
     );
@@ -33,7 +30,7 @@ async function main() {
     console.warn = originalWarn;
   }
 
-  assert.equal(warnings.length >= 3, true, "all failing side effects should be swallowed and logged");
+  assert.equal(warnings.length >= 2, true, "all failing side effects should be swallowed and logged");
   assert.ok(
     warnings.some((entry) =>
       entry.args.some((arg) => typeof arg === "string" && arg.includes("failed to enqueue next meeting memo after finalize"))
@@ -46,13 +43,6 @@ async function main() {
     ),
     "session sync failure should be logged"
   );
-  assert.ok(
-    warnings.some((entry) =>
-      entry.args.some((arg) => typeof arg === "string" && arg.includes("failed to stop Runpod worker after finalize"))
-    ),
-    "worker stop failure should be logged"
-  );
-
   console.log("conversation finalize side-effect isolation regression checks passed");
 }
 

@@ -94,6 +94,13 @@ export function shouldProcessConversationInlineDuringProgress(input: {
   return !input.inlineBackgroundMode && input.manualOnlyParts && !input.needsWorkerWake && input.needsConversationWork;
 }
 
+export function shouldProcessSessionProgressInline(input: {
+  inlineBackgroundMode: boolean;
+  manualOnlyParts: boolean;
+}) {
+  return input.inlineBackgroundMode || input.manualOnlyParts;
+}
+
 type SessionWorkerWakeDeps = {
   maybeEnsureRunpodWorker?: typeof maybeEnsureRunpodWorker;
   processAllSessionPartJobs?: typeof processAllSessionPartJobs;
@@ -168,57 +175,78 @@ async function recoverMissingConversationJobs(conversationId: string | null | un
 
 async function processSessionProgress(session: NonNullable<Awaited<ReturnType<typeof loadSessionProgressSnapshot>>>) {
   const inlineBackgroundMode = shouldRunBackgroundJobsInline();
-  const manualOnlyParts = hasOnlyManualParts(session.parts);
-  const queuedSessionPartJobCount = await prisma.sessionPartJob.count({
+  let currentSession = session;
+  let manualOnlyParts = hasOnlyManualParts(currentSession.parts);
+  let queuedSessionPartJobCount = await prisma.sessionPartJob.count({
     where: {
       status: {
         in: [JobStatus.QUEUED, JobStatus.RUNNING],
       },
       sessionPart: {
-        sessionId: session.id,
+        sessionId: currentSession.id,
       },
     },
   });
 
   if (manualOnlyParts && queuedSessionPartJobCount > 0) {
-    await processAllSessionPartJobs(session.id).catch(() => {});
+    await processAllSessionPartJobs(currentSession.id).catch(() => {});
+    const refreshedSession = await loadSessionProgressSnapshot(
+      currentSession.id,
+      currentSession.organizationId
+    ).catch(() => null);
+    if (refreshedSession) {
+      currentSession = refreshedSession;
+      manualOnlyParts = hasOnlyManualParts(currentSession.parts);
+      queuedSessionPartJobCount = await prisma.sessionPartJob.count({
+        where: {
+          status: {
+            in: [JobStatus.QUEUED, JobStatus.RUNNING],
+          },
+          sessionPart: {
+            sessionId: currentSession.id,
+          },
+        },
+      });
+    }
   }
 
-  const recovery = await recoverMissingConversationJobs(session.conversation?.id).catch(() => ({
+  const recovery = await recoverMissingConversationJobs(currentSession.conversation?.id).catch(() => ({
     healed: false as const,
     reason: "recovery_failed" as const,
   }));
   const needsConversationWork =
     recovery.healed ||
-    session.conversation?.status === "PROCESSING" ||
-    Boolean(session.conversation?.jobs.some((job) => job.status === "QUEUED" || job.status === "RUNNING")) ||
-    session.nextMeetingMemo?.status === "QUEUED" ||
-    session.nextMeetingMemo?.status === "GENERATING";
+    currentSession.conversation?.status === "PROCESSING" ||
+    Boolean(
+      currentSession.conversation?.jobs.some((job) => job.status === "QUEUED" || job.status === "RUNNING")
+    ) ||
+    currentSession.nextMeetingMemo?.status === "QUEUED" ||
+    currentSession.nextMeetingMemo?.status === "GENERATING";
   if (recovery.healed) {
     await maybeStopRunpodWorkerWhenSessionPartQueueIdle().catch(() => {});
     return;
   }
 
   if (inlineBackgroundMode) {
-    void processAllSessionPartJobs(session.id).catch(() => {});
-    if (session.conversation?.id && needsConversationWork) {
-      await processAllConversationJobs(session.conversation.id).catch(() => {});
+    void processAllSessionPartJobs(currentSession.id).catch(() => {});
+    if (currentSession.conversation?.id && needsConversationWork) {
+      await processAllConversationJobs(currentSession.conversation.id).catch(() => {});
     }
     await maybeStopRunpodWorkerWhenSessionPartQueueIdle().catch(() => {});
     return;
   }
 
   const needsWorkerWake = shouldWakeExternalSessionWorker({
-    partStatuses: session.parts.map((part) => part.status),
+    partStatuses: currentSession.parts.map((part) => part.status),
     queuedSessionPartJobCount,
   });
   if (needsWorkerWake) {
-    kickSessionWorkerOrFallback(session.id, needsConversationWork);
+    kickSessionWorkerOrFallback(currentSession.id, needsConversationWork);
     return;
   }
 
   if (
-    session.conversation?.id &&
+    currentSession.conversation?.id &&
     shouldProcessConversationInlineDuringProgress({
       manualOnlyParts,
       needsWorkerWake,
@@ -226,13 +254,14 @@ async function processSessionProgress(session: NonNullable<Awaited<ReturnType<ty
       inlineBackgroundMode,
     })
   ) {
-    await processQueuedJobs(1, 1, { conversationId: session.conversation.id }).catch(() => {});
+    await processQueuedJobs(1, 1, { conversationId: currentSession.conversation.id }).catch(() => {});
+    await maybeStopRunpodWorkerWhenSessionPartQueueIdle().catch(() => {});
     return;
   }
 
-  if (session.conversation?.id && needsConversationWork) {
+  if (currentSession.conversation?.id && needsConversationWork) {
     kickConversationJobsOutsideRunpod(
-      session.conversation.id,
+      currentSession.conversation.id,
       "POST /api/sessions/[id]/progress app conversation processing"
     );
   }
@@ -345,7 +374,12 @@ export async function POST(request: Request, { params }: { params: RouteParams }
     });
     if (throttleResponse) return throttleResponse;
 
-    if (shouldRunBackgroundJobsInline()) {
+    const inlineProgress = shouldProcessSessionProgressInline({
+      inlineBackgroundMode: shouldRunBackgroundJobsInline(),
+      manualOnlyParts: hasOnlyManualParts(loaded.session.parts),
+    });
+
+    if (inlineProgress) {
       await processSessionProgress(loaded.session);
       const refreshedSession = await loadSessionProgressSnapshot(loaded.sessionId!, loaded.authSession!.user.organizationId);
       if (!refreshedSession) {

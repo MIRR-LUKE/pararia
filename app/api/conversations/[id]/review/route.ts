@@ -59,7 +59,7 @@ export async function POST(
     if (throttleResponse) return throttleResponse;
     await ensureOwnedConversation(id, authResult.session.user.organizationId);
 
-    await ensureConversationReviewedTranscript(id);
+    await ensureConversationReviewedTranscript(id, { hydrateSessionParts: true });
     const review = await listConversationProperNounSuggestions(id);
     return NextResponse.json({ ok: true, review });
   } catch (error: any) {

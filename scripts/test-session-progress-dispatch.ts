@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import {
   kickSessionWorkerOrFallback,
   shouldProcessConversationInlineDuringProgress,
+  shouldProcessSessionProgressInline,
 } from "../app/api/sessions/[id]/progress/route";
 
 async function waitForMicrotask() {
@@ -59,6 +60,24 @@ assert.equal(
   }),
   false,
   "audio-backed sessions should keep the existing external conversation path"
+);
+
+assert.equal(
+  shouldProcessSessionProgressInline({
+    inlineBackgroundMode: false,
+    manualOnlyParts: true,
+  }),
+  true,
+  "manual-only sessions should process progress inline even in external mode"
+);
+
+assert.equal(
+  shouldProcessSessionProgressInline({
+    inlineBackgroundMode: false,
+    manualOnlyParts: false,
+  }),
+  false,
+  "audio-backed sessions should keep background progress handling in external mode"
 );
 
 console.log("session progress dispatch regression checks passed");

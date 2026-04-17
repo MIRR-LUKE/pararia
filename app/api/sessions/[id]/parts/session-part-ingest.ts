@@ -17,7 +17,6 @@ import { consumeCompletedBlobUploadReservation } from "@/lib/blob-upload-reserva
 import { saveSessionPartUpload } from "@/lib/session-part-storage";
 import { buildSummaryPreview, toSessionPartMetaJson } from "@/lib/session-part-meta";
 import { preprocessTranscript } from "@/lib/transcript/preprocess";
-import { ensureConversationReviewedTranscript, ensureSessionPartReviewedTranscript } from "@/lib/transcript/review";
 import { getAudioExpiryDate, getTranscriptExpiryDate } from "@/lib/system-config";
 import { enqueueStorageDeletions } from "@/lib/storage-deletion-queue";
 import { updateSessionStatusFromParts } from "@/lib/session-service";
@@ -58,26 +57,16 @@ async function dispatchAudioSessionPartJobs(sessionId: string, partId: string) {
 
 type TextSessionPartDispatchDeps = {
   enqueueSessionPartJob?: typeof enqueueSessionPartJob;
-  processAllSessionPartJobs?: typeof processAllSessionPartJobs;
 };
 
 export async function dispatchTextSessionPartJobs(
-  sessionId: string,
+  _sessionId: string,
   partId: string,
   deps: TextSessionPartDispatchDeps = {}
 ) {
   const enqueue = deps.enqueueSessionPartJob ?? enqueueSessionPartJob;
-  const processAll = deps.processAllSessionPartJobs ?? processAllSessionPartJobs;
 
   await enqueue(partId, SessionPartJobType.PROMOTE_SESSION);
-  const result = await processAll(sessionId);
-  if (result.errors.length > 0) {
-    console.error("[POST /api/sessions/[id]/parts] Text promotion processing failed:", {
-      sessionId,
-      partId,
-      errors: result.errors,
-    });
-  }
 
   return {
     mode: "external" as const,
@@ -522,18 +511,6 @@ async function handleTextSessionPartSubmission(input: {
       reason: "session_part_replaced_with_text",
     });
   }
-
-  runAfterResponse(async () => {
-    await ensureSessionPartReviewedTranscript(persisted.part.id);
-    const conversation = await prisma.conversationLog.findUnique({
-      where: { sessionId: access.sessionRow.id },
-      select: { id: true },
-    });
-    if (!conversation?.id) {
-      return;
-    }
-    await ensureConversationReviewedTranscript(conversation.id);
-  }, "POST /api/sessions/[id]/parts text review");
 
   const session = await updateSessionStatusFromParts(access.sessionRow.id);
   const generationDispatch = await dispatchTextSessionPartJobs(access.sessionRow.id, persisted.part.id);

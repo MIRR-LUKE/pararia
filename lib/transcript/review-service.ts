@@ -204,7 +204,12 @@ export async function ensureSessionPartReviewedTranscript(sessionPartId: string)
   return rebuildSessionPartFromStoredSuggestions(part.id);
 }
 
-export async function ensureConversationReviewedTranscript(conversationId: string): Promise<ConversationReviewSummary> {
+export async function ensureConversationReviewedTranscript(
+  conversationId: string,
+  opts?: {
+    hydrateSessionParts?: boolean;
+  }
+): Promise<ConversationReviewSummary> {
   const conversation = await prisma.conversationLog.findFirst({
     where: withVisibleConversationWhere({ id: conversationId }),
     include: {
@@ -258,6 +263,16 @@ export async function ensureConversationReviewedTranscript(conversationId: strin
   const readyPartIds = conversation.session.parts
     .filter((part) => part.status === SessionPartStatus.READY)
     .map((part) => part.id);
+
+  if (opts?.hydrateSessionParts) {
+    const missingReviewedPartIds = conversation.session.parts
+      .filter((part) => part.status === SessionPartStatus.READY)
+      .filter((part) => !part.reviewedText?.trim())
+      .map((part) => part.id);
+    for (const sessionPartId of missingReviewedPartIds) {
+      await ensureSessionPartReviewedTranscript(sessionPartId);
+    }
+  }
 
   const refreshedSession = await prisma.session.findUnique({
     where: { id: conversation.session.id },

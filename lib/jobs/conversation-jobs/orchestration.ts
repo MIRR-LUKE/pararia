@@ -64,7 +64,7 @@ async function handleJobFailure(job: JobPayload, error: unknown) {
     logJobError("job_failed", logContext);
   }
 
-  await stopRunpodWorkerAfterConversationJob("job failure");
+  void stopRunpodWorkerAfterConversationJob("job failure");
 
   return {
     message: failure.message,
