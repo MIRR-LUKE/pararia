@@ -93,7 +93,7 @@ export async function POST(
             error,
           });
         } finally {
-          await maybeStopRunpodWorkerWhenSessionPartQueueIdle().catch(() => {});
+          void maybeStopRunpodWorkerWhenSessionPartQueueIdle().catch(() => {});
         }
       })();
     } else {

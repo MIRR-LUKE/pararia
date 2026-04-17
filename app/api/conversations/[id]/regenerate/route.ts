@@ -118,7 +118,7 @@ export async function POST(
         } catch (error) {
           console.error("[POST /api/conversations/[id]/regenerate] Background process failed:", error);
         } finally {
-          await maybeStopRunpodWorkerWhenSessionPartQueueIdle().catch(() => {});
+          void maybeStopRunpodWorkerWhenSessionPartQueueIdle().catch(() => {});
         }
       })();
     } else {

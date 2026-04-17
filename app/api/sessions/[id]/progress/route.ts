@@ -223,7 +223,7 @@ async function processSessionProgress(session: NonNullable<Awaited<ReturnType<ty
     currentSession.nextMeetingMemo?.status === "QUEUED" ||
     currentSession.nextMeetingMemo?.status === "GENERATING";
   if (recovery.healed) {
-    await maybeStopRunpodWorkerWhenSessionPartQueueIdle().catch(() => {});
+    void maybeStopRunpodWorkerWhenSessionPartQueueIdle().catch(() => {});
     return;
   }
 
@@ -232,7 +232,7 @@ async function processSessionProgress(session: NonNullable<Awaited<ReturnType<ty
     if (currentSession.conversation?.id && needsConversationWork) {
       await processAllConversationJobs(currentSession.conversation.id).catch(() => {});
     }
-    await maybeStopRunpodWorkerWhenSessionPartQueueIdle().catch(() => {});
+    void maybeStopRunpodWorkerWhenSessionPartQueueIdle().catch(() => {});
     return;
   }
 
@@ -255,7 +255,7 @@ async function processSessionProgress(session: NonNullable<Awaited<ReturnType<ty
     })
   ) {
     await processQueuedJobs(1, 1, { conversationId: currentSession.conversation.id }).catch(() => {});
-    await maybeStopRunpodWorkerWhenSessionPartQueueIdle().catch(() => {});
+    void maybeStopRunpodWorkerWhenSessionPartQueueIdle().catch(() => {});
     return;
   }
 

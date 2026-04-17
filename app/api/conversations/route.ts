@@ -194,7 +194,7 @@ export async function POST(request: Request) {
         } catch (error) {
           console.error("[POST /api/conversations] Background process failed:", error);
         } finally {
-          await maybeStopRunpodWorkerWhenSessionPartQueueIdle().catch(() => {});
+          void maybeStopRunpodWorkerWhenSessionPartQueueIdle().catch(() => {});
         }
       })();
     } else {

@@ -40,7 +40,7 @@ export async function processVisibleConversation(conversationId: string, status:
     try {
       await processAllConversationJobs(conversationId);
     } finally {
-      await maybeStopRunpodWorkerWhenSessionPartQueueIdle().catch(() => {});
+      void maybeStopRunpodWorkerWhenSessionPartQueueIdle().catch(() => {});
     }
     return;
   }
