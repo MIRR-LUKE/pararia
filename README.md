@@ -603,6 +603,11 @@ GPU が強いときの最初の目安:
 - アプリ全体の生成導線を remote で確認するときは:
   - `PARARIA_ALLOW_REMOTE_GENERATION_SMOKE=1 npm run test:remote-generation-smoke -- --base-url https://pararia.vercel.app`
 - 既存のローカル長尺ベンチは `docs/interview-benchmarks/*.json` と `docs/stt-benchmarks/*.json` を参照する
+- 2026-04-18 に `5090 + reuse startup` で `runpod:measure-ux` を 3 本回した結果は:
+  - `Queue->Conversation`: `152.0秒 / 125.2秒 / 145.1秒`
+  - `p50`: `145.1秒`
+  - `p95`: `152.0秒`
+  - baseline `163.8秒` 比で `p50 -18.7秒`、`p95 -11.8秒`、best run `-38.6秒`
 
 ### 7.5 prompt cache と実コストの見方
 

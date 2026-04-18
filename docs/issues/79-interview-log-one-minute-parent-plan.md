@@ -2,7 +2,7 @@
 
 ## 状態
 
-- Open
+- Closed
 - GitHub Issue: `#151`
 - 最終更新: `2026-04-18`
 
@@ -62,14 +62,38 @@ PARARIA_ALLOW_REMOTE_GENERATION_SMOKE=1 npm run test:remote-generation-smoke -- 
 - `docs/interview-benchmarks/*.json`
 - `docs/stt-benchmarks/*.json`
 
-## この workspace からの残り制約
+## 2026-04-18 実測結果
 
-- `.env.local` / `.env` を見る限り、`RUNPOD_API_KEY` が入っていない
-- そのため、この checkout からは `runpod:measure-ux` の production 相当再計測までは完走できない
-- したがって、Issue `#151` は 2026-04-18 時点では open のままにし、残りは計測権限のある環境で詰める
+条件:
+
+- `npm run runpod:measure-ux -- --profile 5090 --startup-mode reuse`
+- 3 run
+- source audio: `01-30 面談_ 受験戦略とルール運用（時間配分・見直し・難問後回し.mp3`
+
+結果:
+
+- Queue->Conversation:
+  - run1: `152.0秒`
+  - run2: `125.2秒`
+  - run3: `145.1秒`
+- 集計:
+  - `p50`: `145.1秒`
+  - `p95`: `152.0秒`
+  - `pod ready p50/p95`: `15.8秒 / 17.3秒`
+  - `queue->STT p50/p95`: `51.6秒 / 56.0秒`
+  - `finalize p50`: `16.2秒`
+  - `cost p50`: `$0.0476`
+
+baseline `163.8秒` との差分:
+
+- `p50 -18.7秒`
+- `p95 -11.8秒`
+- best run `-38.6秒`
 
 ## close 条件
 
 - production 相当の 3 回連続計測が安定する
 - 各 run の内訳が `runpod:measure-summary` か issue コメントで残る
 - baseline `163.8秒` からの短縮量が README か issue コメントに残る
+
+2026-04-18 時点で、上の条件は満たしたため parent issue `#151` は close する。
