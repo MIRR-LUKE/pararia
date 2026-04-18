@@ -208,3 +208,9 @@ close / defer に回した考え方:
 今回完了した親 issue:
 
 1. `#151` 面談ログ生成を本番で 1 分台に近づける全体計画を作る
+
+今回追加した改善 issue docs:
+
+1. `#159` [80-post-stt-handoff-and-queue-lag.md](./80-post-stt-handoff-and-queue-lag.md)
+2. `#158` [81-runpod-worker-observability-parity.md](./81-runpod-worker-observability-parity.md)
+3. `#157` [82-production-prompt-cache-recovery.md](./82-production-prompt-cache-recovery.md)

@@ -608,6 +608,16 @@ GPU が強いときの最初の目安:
   - `p50`: `145.1秒`
   - `p95`: `152.0秒`
   - baseline `163.8秒` 比で `p50 -18.7秒`、`p95 -11.8秒`、best run `-38.6秒`
+- ただし、この 3 run では:
+  - `Queue->STT` は `41.7秒 / 51.6秒 / 56.0秒`
+  - `finalize duration` は `15.0秒 / 16.2秒 / 17.8秒`
+  - それでも STT 後に大きい空白待ちが残る
+  - `sttPrepareMs` など STT subphase は `null`
+  - `llmCachedInputTokens` も `0`
+- なので 2026-04-18 時点の次の改善 issue は:
+  - `#159`: STT 後の handoff / queue lag を分解して短くする
+  - `#158`: Runpod worker 計測を本番一致にして STT subphase null をなくす
+  - `#157`: prompt cache を本番でも効かせて cached input を回復する
 
 ### 7.5 prompt cache と実コストの見方
 
