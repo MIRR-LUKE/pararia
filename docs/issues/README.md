@@ -116,6 +116,7 @@
 
 次の active open issue:
 
+- `#151` 面談ログ生成を本番で 1 分台に近づける全体計画を作る
 - `#79` ログ生成を protected critical path として repo で守る
 - `#80` 録音ロックから次回の面談メモまでの critical path smoke を CI で止める
 - `#81` backend/perf ブランチで UI 変更を止める path guard を入れる
@@ -200,3 +201,7 @@ close / defer に回した考え方:
 3. [76-stable-prompt-cache-and-memo-roundtrip.md](./76-stable-prompt-cache-and-memo-roundtrip.md)
 4. [77-preserve-active-jobs-and-last-good-artifacts.md](./77-preserve-active-jobs-and-last-good-artifacts.md)
 5. [78-runpod-ux-percentiles-and-cost-summary.md](./78-runpod-ux-percentiles-and-cost-summary.md)
+
+今回追加した親 issue doc:
+
+1. [79-interview-log-one-minute-parent-plan.md](./79-interview-log-one-minute-parent-plan.md)

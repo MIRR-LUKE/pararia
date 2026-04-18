@@ -581,7 +581,30 @@ GPU が強いときの最初の目安:
   - 短い相づちだけの行
   - 英字が多いノイズ行
 
-### 7.3 prompt cache と実コストの見方
+### 7.4 面談ログ 1 分台 issue の進め方
+
+- GitHub の親 issue は `#151`
+- 2026-04-17 の本番マイク録音フロー baseline は:
+  - 録音開始まで `856ms`
+  - 録音停止可能になるまで `92.5秒`
+  - 停止後に成功表示まで `130.9秒`
+  - 合計 `163.8秒`
+- 同日の裏側計測では、OpenAI の面談ログ生成そのものは約 `11.7秒` で、主ボトルネックは `STT + 起動待ち + 進捗制御` に寄っていた
+- 2026-04-18 時点で、親 issue の子 issue `#152` `#153` `#154` `#155` `#156` は実装済み
+  - `#152`: STT subphase 計測と VAD env
+  - `#153`: read-only polling と手入力 transcript の one-shot 開始
+  - `#154`: prompt cache prefix 安定化
+  - `#155`: active job / last good artifact の保全
+  - `#156`: p50 / p95 / cost 集計
+- ここから親 issue を閉じるには、production 相当の 3 回連続計測を同じ条件で取り、どの改善で何秒縮んだかを issue か README に残す
+- Runpod / STT の内訳を見るときは:
+  - `npm run runpod:measure-ux -- --profile 5090 --startup-mode reuse --out-dir .tmp/runpod-ux`
+  - `npm run runpod:measure-summary -- --dir .tmp/runpod-ux --out .tmp/runpod-ux-summary.md`
+- アプリ全体の生成導線を remote で確認するときは:
+  - `PARARIA_ALLOW_REMOTE_GENERATION_SMOKE=1 npm run test:remote-generation-smoke -- --base-url https://pararia.vercel.app`
+- 既存のローカル長尺ベンチは `docs/interview-benchmarks/*.json` と `docs/stt-benchmarks/*.json` を参照する
+
+### 7.5 prompt cache と実コストの見方
 
 - OpenAI への会話ログ生成は、リクエストとしては毎回全文を送る
 - ただし `gpt-5.4` では prompt cache が効くので、同じ先頭部分は初回より安くなる
@@ -608,7 +631,7 @@ GPU が強いときの最初の目安:
   - 生成物が弱い / 根拠が薄い場合は repair または deterministic recovery に進む
   - repair でもモデルは落とさず、同じ `gpt-5.4` で再試行する
 
-### 7.4 速度を落とすものとして明示的にやめたこと
+### 7.6 速度を落とすものとして明示的にやめたこと
 
 - analyze -> reduce -> finalize の多段 LLM
 - 自動の追加仕上げ job
