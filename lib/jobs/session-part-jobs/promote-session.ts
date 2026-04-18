@@ -123,8 +123,11 @@ export async function executePromoteSessionJob(job: SessionPartJobPayload, part:
     },
   });
 
-  const conversationId = await ensureConversationForSession(part.sessionId);
-  const dispatch = await dispatchPromotedConversationJobs(conversationId);
+  const ensured = await ensureConversationForSession(part.sessionId);
+  const dispatch =
+    ensured.state === "unchanged"
+      ? { mode: "reused" as const, workerWake: null }
+      : await dispatchPromotedConversationJobs(ensured.conversationId);
 
   await prisma.sessionPartJob.update({
     where: { id: job.id },
@@ -132,15 +135,16 @@ export async function executePromoteSessionJob(job: SessionPartJobPayload, part:
       status: JobStatus.DONE,
       finishedAt: new Date(),
       outputJson: toPrismaJson({
-        conversationId,
+        conversationId: ensured.conversationId,
+        ensureState: ensured.state,
         dispatchMode: dispatch.mode,
         workerWake: dispatch.workerWake,
       }),
     },
   });
-  if (part.sourceType !== ConversationSourceType.MANUAL) {
-    kickPromotedConversationJobsOutsideRunpod(conversationId, dispatch.mode, {
-      requireRunpodStopped: true,
+  if (dispatch.mode === "external") {
+    kickPromotedConversationJobsOutsideRunpod(ensured.conversationId, dispatch.mode, {
+      requireRunpodStopped: part.sourceType !== ConversationSourceType.MANUAL,
     });
   }
 }

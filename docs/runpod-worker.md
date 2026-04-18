@@ -53,6 +53,9 @@ STT 推奨値:
 - `FASTER_WHISPER_COMPUTE_TYPE=auto`
 - `FASTER_WHISPER_BEAM_SIZE=1`
 - `FASTER_WHISPER_BATCH_SIZE=16`
+- `FASTER_WHISPER_VAD_MIN_SILENCE_MS=1000`
+- `FASTER_WHISPER_VAD_SPEECH_PAD_MS=400`
+- `FASTER_WHISPER_VAD_THRESHOLD=0.5`
 - `FASTER_WHISPER_CHUNKING_ENABLED=0`
 - `FASTER_WHISPER_POOL_SIZE=1`
 
@@ -71,11 +74,13 @@ worker loop 調整:
 速度優先の補足:
 
 - 1 本最速を狙うときは `FASTER_WHISPER_BEAM_SIZE=1` を基本にする
+- VAD は `min_silence_duration_ms=1000` を基準にし、必要なら `500 / 1000 / 2000` を比較する
 - `compute_type=auto` のままでよいが、worker image は `CTranslate2 4.7.1 + CUDA 12.8` 前提にする
 - `RTX 4090` など pre-Blackwell では `int8_float16` 系を優先する
 - `RTX 5090` など Blackwell では `float16` 系を優先する
 - benchmark 専用に 1 session だけ処理したいときは `RUNPOD_WORKER_ONLY_SESSION_ID` を使う
 - STT だけ見たいときは `RUNPOD_WORKER_CONVERSATION_LIMIT=0` で conversation job を止められる
+- `npm run runpod:measure-summary -- --dir .tmp/runpod-ux --out .tmp/runpod-ux-summary.md` で p50 / p95 を見られる
 
 ## GHCR へ worker image を publish
 

@@ -79,6 +79,7 @@
     "runpod:terminate": "tsx scripts/runpod-manage.ts terminate",
     "runpod:status": "tsx scripts/runpod-manage.ts status",
     "runpod:measure-ux": "tsx scripts/runpod-measure-ux.ts",
+    "runpod:measure-summary": "tsx scripts/summarize-runpod-ux.ts",
     "backup:db": "tsx scripts/backup-db.ts",
     "backup:blob": "tsx scripts/backup-blob-runtime.ts",
     "backup:all": "npm run backup:db && npm run backup:blob",

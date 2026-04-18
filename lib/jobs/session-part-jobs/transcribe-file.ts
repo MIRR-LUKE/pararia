@@ -17,6 +17,8 @@ async function transcribeStoredFile(part: SessionPartPayload) {
   }
 
   const startedAt = Date.now();
+  let firstTranscribeStartedAt: number | null = null;
+  let totalTranscribeMs = 0;
   let localAudio: Awaited<ReturnType<typeof materializeStorageFile>> | null = null;
   let liveMeta =
     part.qualityMetaJson && typeof part.qualityMetaJson === "object" && !Array.isArray(part.qualityMetaJson)
@@ -52,7 +54,7 @@ async function transcribeStoredFile(part: SessionPartPayload) {
 
   await queueMetaPatch({});
 
-  let stt: Awaited<ReturnType<typeof transcribeAudioForPipeline>>;
+  let stt: Awaited<ReturnType<typeof transcribeAudioForPipeline>> | null = null;
   let normalizedRetryUsed = false;
   let measuredDurationSeconds: number | null = null;
   const uploadedDurationSecondsRaw =
@@ -99,12 +101,15 @@ async function transcribeStoredFile(part: SessionPartPayload) {
       transcriptionPhase: "TRANSCRIBING_EXTERNAL",
       transcriptionPhaseUpdatedAt: new Date().toISOString(),
     });
+    firstTranscribeStartedAt ??= Date.now();
+    const transcribeStartedAt = Date.now();
     stt = await transcribeAudioForPipeline({
       filePath: localAudio.filePath,
       filename: part.fileName || "audio.webm",
       mimeType: part.mimeType || "audio/webm",
       language: "ja",
     });
+    totalTranscribeMs += Date.now() - transcribeStartedAt;
   } catch (error) {
     if (!isUnsupportedAudioError(error)) throw error;
     if (!localAudio) throw error;
@@ -115,12 +120,15 @@ async function transcribeStoredFile(part: SessionPartPayload) {
         transcriptionPhase: "TRANSCRIBING_EXTERNAL",
         transcriptionPhaseUpdatedAt: new Date().toISOString(),
       });
+      firstTranscribeStartedAt ??= Date.now();
+      const transcribeStartedAt = Date.now();
       stt = await transcribeAudioForPipeline({
         filePath: normalizedPath,
         filename: "audio-normalized.m4a",
         mimeType: "audio/mp4",
         language: "ja",
       });
+      totalTranscribeMs += Date.now() - transcribeStartedAt;
       normalizedRetryUsed = true;
     } finally {
       await rm(normalizedPath, { force: true }).catch(() => {});
@@ -130,22 +138,40 @@ async function transcribeStoredFile(part: SessionPartPayload) {
     await metaPersistChain;
   }
 
+  if (!stt) {
+    throw new Error("faster-whisper transcription did not return a result");
+  }
+
+  const finalizeStartedAt = Date.now();
   const pre =
     stt.segments.length > 0
       ? preprocessTranscriptWithSegments(stt.rawTextOriginal, stt.segments ?? [])
       : preprocessTranscript(stt.rawTextOriginal);
+  const prepareMs =
+    typeof firstTranscribeStartedAt === "number"
+      ? Math.max(0, firstTranscribeStartedAt - startedAt)
+      : null;
   await queueMetaPatch({
     transcriptionPhase: "FINALIZING_TRANSCRIPT",
     transcriptionPhaseUpdatedAt: new Date().toISOString(),
   });
   await metaPersistChain;
+  const finishedAt = Date.now();
+  const sttTotalMs = Math.max(0, finishedAt - startedAt);
+  const finalizePhaseMs = Math.max(0, finishedAt - finalizeStartedAt);
 
   return {
     pre,
     segments: stt.segments ?? [],
     qualityMeta: {
       ...(part.qualityMetaJson ?? {}),
-      sttSeconds: Math.round((Date.now() - startedAt) / 1000),
+      sttSeconds: Math.round(sttTotalMs / 1000),
+      sttTotalMs,
+      sttPrepareMs: prepareMs,
+      sttTranscribeMs: totalTranscribeMs,
+      sttFinalizeMs: finalizePhaseMs,
+      sttTranscribeWorkerMs: stt.meta.transcribeElapsedMs,
+      sttVadParameters: stt.meta.vadParameters,
       sttModel: stt.meta.model,
       sttResponseFormat: stt.meta.responseFormat,
       sttDevice: stt.meta.device,

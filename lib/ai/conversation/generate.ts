@@ -1,9 +1,7 @@
 import { calculateOpenAiTextCostUsd } from "@/lib/ai/openai-pricing";
 import { renderConversationArtifactMarkdown } from "@/lib/conversation-artifact";
 import {
-  buildDraftRetrySystemPrompt,
   buildDraftSystemPrompt,
-  buildInterviewMarkdownRetrySystemPrompt,
   buildInterviewMarkdownSystemPrompt,
   buildStructuredArtifactJsonSchema,
 } from "./spec";
@@ -90,7 +88,7 @@ export async function generateConversationDraftFast(input: DraftGenerationInput)
       const retryResult = await callTextGeneration({
         model,
         messages: [
-          { role: "system", content: buildInterviewMarkdownRetrySystemPrompt() },
+          { role: "system", content: system },
           { role: "user", content: user },
           { role: "user", content: buildInterviewMarkdownRepairPrompt(validationErrors) },
         ],
@@ -236,7 +234,7 @@ export async function generateConversationDraftFast(input: DraftGenerationInput)
     const markdownResult = await callTextGeneration({
       model,
       messages: [
-        { role: "system", content: buildDraftRetrySystemPrompt(sessionType) },
+        { role: "system", content: system },
         { role: "user", content: user },
         { role: "user", content: buildMarkdownRecoveryUserPrompt(sessionType, validationErrors) },
       ],

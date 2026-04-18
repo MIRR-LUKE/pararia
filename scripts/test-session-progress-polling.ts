@@ -15,13 +15,13 @@ assert.equal(getSessionProgressPollIntervalMs(0, true), 8000, "hidden tabs shoul
 assert.equal(getSessionProgressPollIntervalMs(90_000, true), 12000, "hidden tabs should back off further");
 assert.equal(getSessionProgressPollIntervalMs(180_000, true), 15000, "hidden tabs should stay quiet later");
 
-assert.equal(getSessionProgressWakeIntervalMs(0, false), 8000, "worker wake POSTs should no longer fire every second");
-assert.equal(getSessionProgressWakeIntervalMs(30_000, false), 8000, "worker wake POSTs should stay calm through STT handoff");
-assert.equal(getSessionProgressWakeIntervalMs(120_000, false), 15000, "worker wake POSTs should taper once generation is underway");
-assert.equal(getSessionProgressWakeIntervalMs(320_000, false), 25000, "worker wake POSTs should remain sparse late");
+assert.equal(getSessionProgressWakeIntervalMs(0, false), 20000, "worker wake POSTs should be explicit and sparse");
+assert.equal(getSessionProgressWakeIntervalMs(30_000, false), 20000, "worker wake POSTs should stay calm through STT handoff");
+assert.equal(getSessionProgressWakeIntervalMs(120_000, false), 30000, "worker wake POSTs should taper once generation is underway");
+assert.equal(getSessionProgressWakeIntervalMs(320_000, false), 45000, "worker wake POSTs should remain sparse late");
 
-assert.equal(getSessionProgressWakeIntervalMs(0, true), 15000, "hidden tabs should wake workers only occasionally");
-assert.equal(getSessionProgressWakeIntervalMs(120_000, true), 30000, "hidden tabs should stay quiet");
+assert.equal(getSessionProgressWakeIntervalMs(0, true), 30000, "hidden tabs should wake workers only occasionally");
+assert.equal(getSessionProgressWakeIntervalMs(120_000, true), 45000, "hidden tabs should stay quiet");
 
 const now = Date.now();
 assert.equal(
@@ -38,11 +38,11 @@ assert.equal(
   shouldKickSessionProgressWorker({
     elapsedMs: 5_000,
     pageHidden: false,
-    lastKickAt: now,
+    lastKickAt: now - 25_000,
     stage: "TRANSCRIBING",
   }),
   false,
-  "wake should not repeat inside the cooldown window"
+  "transcribing sessions should stop sending repeated wake requests"
 );
 assert.equal(
   shouldKickSessionProgressWorker({
@@ -61,8 +61,18 @@ assert.equal(
     lastKickAt: now - 20_000,
     stage: "RECEIVED",
   }),
+  false,
+  "received sessions should not retry wake too early"
+);
+assert.equal(
+  shouldKickSessionProgressWorker({
+    elapsedMs: 25_000,
+    pageHidden: false,
+    lastKickAt: now - 25_000,
+    stage: "RECEIVED",
+  }),
   true,
-  "received sessions may still need a wake retry after the cooldown"
+  "received sessions may retry wake after the stall threshold and cooldown"
 );
 
 console.log("session progress polling cadence regression checks passed");

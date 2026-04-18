@@ -3,7 +3,7 @@
 PARARIA は、塾・個別指導・学習コーチング向けの `Teaching OS` です。  
 現在の実装は、**録音や会話メモから `面談ログ` または `指導報告ログ` を 1 本生成し、その保存済みログを選んで `保護者レポート` を作る** ことに絞っています。
 
-この README は、**2026-04-15 時点の現行コードと一致する運用仕様書** です。
+この README は、**2026-04-18 時点の現行コードと一致する運用仕様書** です。
 
 ## 0. いまの読み方
 
@@ -32,7 +32,7 @@ PARARIA は、塾・個別指導・学習コーチング向けの `Teaching OS` 
    - DB backup だけでは足りないため、DB dump と Blob backup を両方取る
    - production / shared DB へ `prisma migrate dev` は打たない
 
-## 0.1 2026-04-15 の安定化
+## 0.1 2026-04-18 の安定化
 
 今回の速度・安定性の見直しで、次を入れています。
 
@@ -41,9 +41,9 @@ PARARIA は、塾・個別指導・学習コーチング向けの `Teaching OS` 
 - 生徒詳細は最初に `scope: "summary"` で軽く開き、画面が見えているときだけ既存の `useStudentDetailRefresh()` が `full` を静かに取り直す
 - session progress の polling は、表示中は 1秒台を維持し、処理中の見た目を止めない
 - タブが非表示のときだけ polling を 5秒、10秒、15秒へ落とす
-- worker を起こす `POST /api/sessions/[id]/progress` も、表示中は 1〜5 秒で刻み、STT 完了直後の引き継ぎ待ちを作らない
+- worker を起こす `POST /api/sessions/[id]/progress` は初回と stalled な `RECEIVED` の再始動だけに絞り、通常監視は `GET` の read-only polling に寄せる
 - session promotion が終わったら、その場で app 側の conversation job を起動し、次の poll を待たずに面談ログ生成へ進める
-- 手入力 transcript は保存 API で review / promotion / finalize を抱え込まず、保存はすぐ返して `POST /api/sessions/[id]/progress` 側でまとめて進める
+- 手入力 transcript は保存 API が promotion 開始まで責任を持ち、`POST /api/sessions/[id]/progress` の追加キックに依存しない
 - 独自 RUM は既定で送らない。送るときだけ `NEXT_PUBLIC_PARARIA_RUM_ENABLED=1` を立てる
 - RUM の送信量は `NEXT_PUBLIC_PARARIA_RUM_SAMPLE_RATE` で間引ける
 - RUM のサーバーログは既定で書かない。必要なときだけ `PARARIA_RUM_LOG_ENABLED=1` を立てる
@@ -78,6 +78,11 @@ npm run verify
 npm run test:migration-safety
 npm run test:generation-preservation
 npm run test:session-progress-polling
+npm run test:session-part-ingest-dispatch
+npm run test:promote-session-dispatch
+npm run test:conversation-app-dispatch
+npm run test:session-progress-worker-wake
+npm run test:runpod-queue-ownership
 npm run test:rum-route
 npm run test:student-directory-route
 npm run test:student-room-route
@@ -375,7 +380,7 @@ npm run test:student-room-route
 - UI は `文字起こし中 -> 取りまとめ中 -> ログ生成中` を分けて表示する
 - session progress API で UI を早く戻す
 - poll は処理中だけ動かし、経過時間とタブ表示状態で間隔を広げる
-- worker 再キックも 1〜5 秒台で細かく刻み、STT 完了後の引き継ぎ待ちを残さない
+- worker 再キックは初回と stalled な `RECEIVED` の再始動だけに絞り、通常は read-only polling で追う
 
 ### 7.1 ローカル web / 本番 web 共通の Runpod 構成
 
@@ -388,7 +393,7 @@ npm run test:student-room-route
   - job を `QUEUED` に積む
   - 必要なら Runpod Pod を自動 wake する
   - 進捗 API を返す
-  - 手入力 transcript は保存を先に返し、progress API の 1 本の導線で promotion -> review -> finalize を進める
+  - 手入力 transcript は保存 API が promotion 開始まで責任を持ち、その後の review / finalize は通常の progress 導線で追う
   - STT 完了後は app 側で conversation job を即起動する
 - Runpod worker 側
   - 同じ DB と Blob を見る
@@ -544,6 +549,9 @@ STT 推奨値:
 - `FASTER_WHISPER_COMPUTE_TYPE=auto`
 - `FASTER_WHISPER_BEAM_SIZE=1`
 - `FASTER_WHISPER_BATCH_SIZE=16`
+- `FASTER_WHISPER_VAD_MIN_SILENCE_MS=1000`
+- `FASTER_WHISPER_VAD_SPEECH_PAD_MS=400`
+- `FASTER_WHISPER_VAD_THRESHOLD=0.5`
 - `FASTER_WHISPER_CHUNKING_ENABLED=0`
 - `FASTER_WHISPER_POOL_SIZE=1`
 
@@ -555,11 +563,13 @@ GPU が強いときの最初の目安:
 速度優先の補足:
 
 - `beam_size=1` を既定にし、精度より 1 本の完了速度を優先する
+- VAD は `min_silence_duration_ms=1000` を基準にし、切り詰め比較は `500 / 1000 / 2000` で見る
 - `compute_type=auto` のままでよいが、worker image は `CTranslate2 4.7.1 + CUDA 12.8` 前提にする
 - `RTX 4090` など pre-Blackwell では `int8_float16` 系を優先する
 - `RTX 5090` など Blackwell では `cuBLAS` の制約を避けるため `float16` 系を優先する
 - production queue から特定の session だけ処理したいときは `RUNPOD_WORKER_ONLY_SESSION_ID` を使う
 - 通常運用の既定値は `RUNPOD_WORKER_CONVERSATION_LIMIT=0` で、Runpod は STT 専用に固定する
+- 計測 JSON は `npm run runpod:measure-summary -- --dir .tmp/runpod-ux --out .tmp/runpod-ux-summary.md` で p50 / p95 にまとめる
 
 まずは `chunking off / pool 1` のまま、1 本の音声をそのまま GPU に流すのが安全です。
   - 終盤 `6` 行
@@ -1028,6 +1038,7 @@ PARARIA_AUDIO_RETENTION_DAYS=14
 - `RUNPOD_API_KEY` を web 側にも入れると、upload / regenerate 時に Pod を自動 wake できる
 - `RUNPOD_WORKER_AUTO_STOP_IDLE_MS` を入れておくと、queue が空のまま一定時間たった Pod を自動 stop できる。既定は 1 分
 - stop 判定は `SessionPartJob` と `ConversationJob` の `QUEUED / RUNNING` が両方ゼロの時だけ掛ける
+- progress 画面と log 画面は read-only polling を基本にし、起動キックは upload / regenerate / 明示再開だけで出す
 
 開発機で worker を直接検証したいときだけ、次を使う:
 
@@ -1236,7 +1247,7 @@ npm run restore:db -- --backup-dir <backup-dir> --database-url <restore-db-url>
 
 ## 17. 現在の smoke check
 
-2026-04-15 時点の主な smoke / regression:
+2026-04-18 時点の主な smoke / regression:
 
 - `npm run typecheck`
 - `npm run scan:secrets`

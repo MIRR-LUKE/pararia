@@ -44,6 +44,11 @@ type RunpodMeasureResult = {
   queueToSttMs?: number | null;
   queueToConversationMs?: number | null;
   sttSeconds?: number | null;
+  sttPrepareMs?: number | null;
+  sttTranscribeMs?: number | null;
+  sttTranscribeWorkerMs?: number | null;
+  sttFinalizeMs?: number | null;
+  sttVadParameters?: Record<string, number> | null;
   sttModel?: string | null;
   sttDevice?: string | null;
   sttComputeType?: string | null;
@@ -52,6 +57,11 @@ type RunpodMeasureResult = {
   transcriptChars?: number | null;
   finalizeDurationMs?: number | null;
   finalizeQueueLagMs?: number | null;
+  llmApiCalls?: number | null;
+  llmInputTokens?: number | null;
+  llmCachedInputTokens?: number | null;
+  llmCachedInputRatio?: number | null;
+  llmOutputTokens?: number | null;
   llmCostUsd?: number | null;
   finalizeModel?: string | null;
   artifactChars?: number | null;
@@ -440,6 +450,15 @@ async function main() {
         result.sttCompletedAt = completedAt.toISOString();
         result.queueToSttMs = completedAt.getTime() - enqueueStartedAt.getTime();
         result.sttSeconds = typeof partMeta.sttSeconds === "number" ? partMeta.sttSeconds : null;
+        result.sttPrepareMs = typeof partMeta.sttPrepareMs === "number" ? partMeta.sttPrepareMs : null;
+        result.sttTranscribeMs = typeof partMeta.sttTranscribeMs === "number" ? partMeta.sttTranscribeMs : null;
+        result.sttTranscribeWorkerMs =
+          typeof partMeta.sttTranscribeWorkerMs === "number" ? partMeta.sttTranscribeWorkerMs : null;
+        result.sttFinalizeMs = typeof partMeta.sttFinalizeMs === "number" ? partMeta.sttFinalizeMs : null;
+        result.sttVadParameters =
+          partMeta.sttVadParameters && typeof partMeta.sttVadParameters === "object" && !Array.isArray(partMeta.sttVadParameters)
+            ? (partMeta.sttVadParameters as Record<string, number>)
+            : null;
         result.sttModel = typeof partMeta.sttModel === "string" ? partMeta.sttModel : null;
         result.sttDevice = typeof partMeta.sttDevice === "string" ? partMeta.sttDevice : null;
         result.sttComputeType = typeof partMeta.sttComputeType === "string" ? partMeta.sttComputeType : null;
@@ -459,6 +478,15 @@ async function main() {
         result.queueToConversationMs = completedAt.getTime() - enqueueStartedAt.getTime();
         result.finalizeDurationMs = typeof finalizeJob.lastRunDurationMs === "number" ? finalizeJob.lastRunDurationMs : null;
         result.finalizeQueueLagMs = typeof finalizeJob.lastQueueLagMs === "number" ? finalizeJob.lastQueueLagMs : null;
+        result.llmApiCalls = typeof qualityMeta.llmApiCallsFinalize === "number" ? qualityMeta.llmApiCallsFinalize : null;
+        result.llmInputTokens = typeof qualityMeta.llmInputTokensActual === "number" ? qualityMeta.llmInputTokensActual : null;
+        result.llmCachedInputTokens =
+          typeof qualityMeta.llmCachedInputTokensActual === "number" ? qualityMeta.llmCachedInputTokensActual : null;
+        result.llmCachedInputRatio =
+          result.llmInputTokens && result.llmCachedInputTokens !== null && result.llmInputTokens > 0
+            ? Math.round((result.llmCachedInputTokens / result.llmInputTokens) * 1000) / 1000
+            : null;
+        result.llmOutputTokens = typeof qualityMeta.llmOutputTokensActual === "number" ? qualityMeta.llmOutputTokensActual : null;
         result.llmCostUsd = typeof qualityMeta.llmCostUsd === "number" ? qualityMeta.llmCostUsd : null;
         result.finalizeModel = typeof qualityMeta.modelFinalize === "string" ? qualityMeta.modelFinalize : null;
         result.artifactChars = currentConversation.summaryMarkdown?.length ?? null;

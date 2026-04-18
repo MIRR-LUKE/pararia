@@ -12,6 +12,9 @@ const timing = buildSessionProgressTimingSnapshot({
         lastAcceptedAt: "2026-04-17T11:00:01.000Z",
         lastCompletedAt: "2026-04-17T11:00:10.000Z",
         sttSeconds: 9,
+        sttPrepareMs: 1800,
+        sttTranscribeWorkerMs: 5200,
+        sttFinalizeMs: 900,
         audioDurationSeconds: 65,
       },
     },
@@ -57,7 +60,10 @@ assert.equal(timing.transcriptReadyAt, "2026-04-17T11:00:10.000Z");
 assert.equal(timing.logReadyAt, "2026-04-17T11:00:24.000Z");
 assert.equal(timing.nextMeetingMemoReadyAt, "2026-04-17T11:00:30.000Z");
 assert.equal(timing.audioSeconds, 65);
+assert.equal(timing.sttPrepareSeconds, 1.8);
 assert.equal(timing.transcriptionSeconds, 9);
+assert.equal(timing.sttWorkerSeconds, 5.2);
+assert.equal(timing.sttFinalizeSeconds, 0.9);
 assert.equal(timing.acceptedToTranscriptSeconds, 9);
 assert.equal(timing.logGenerationSeconds, 12);
 assert.equal(timing.transcriptToLogSeconds, 14);
@@ -94,7 +100,10 @@ const fallbackTiming = buildSessionProgressTimingSnapshot({
 });
 
 assert.equal(fallbackTiming.traceId, "conversation-2");
+assert.equal(fallbackTiming.sttPrepareSeconds, null);
 assert.equal(fallbackTiming.transcriptionSeconds, 10);
+assert.equal(fallbackTiming.sttWorkerSeconds, null);
+assert.equal(fallbackTiming.sttFinalizeSeconds, null);
 assert.equal(fallbackTiming.logGenerationSeconds, null);
 assert.equal(fallbackTiming.totalPipelineSeconds, 23);
 

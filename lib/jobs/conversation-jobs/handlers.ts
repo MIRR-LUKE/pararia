@@ -355,6 +355,8 @@ async function executeNextMeetingMemoJob(job: JobPayload, convo: ConversationPay
         apiCalls: memo.apiCalls,
         tokenUsage: memo.tokenUsage,
         llmCostUsd: memo.llmCostUsd,
+        promptCacheKey: memo.promptCacheKey ?? null,
+        promptCacheRetention: memo.promptCacheRetention ?? null,
         sourceSections: memo.sourceSections,
       }),
       model: memo.model,

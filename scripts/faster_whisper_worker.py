@@ -25,6 +25,26 @@ def env_bool(name: str, default: bool) -> bool:
     return raw.strip().lower() not in {"0", "false", "no", "off"}
 
 
+def env_int(name: str, default: int) -> int:
+    raw = os.environ.get(name)
+    if raw is None or not raw.strip():
+        return default
+    try:
+        return int(raw.strip())
+    except ValueError:
+        return default
+
+
+def env_float(name: str, default: float) -> float:
+    raw = os.environ.get(name)
+    if raw is None or not raw.strip():
+        return default
+    try:
+        return float(raw.strip())
+    except ValueError:
+        return default
+
+
 def resolve_download_root() -> str | None:
     explicit = os.environ.get("FASTER_WHISPER_DOWNLOAD_ROOT", "").strip()
     if explicit:
@@ -315,6 +335,14 @@ DEFAULT_BEAM_SIZE = max(1, int(os.environ.get("FASTER_WHISPER_BEAM_SIZE", "1")))
 DEFAULT_VAD_FILTER = env_bool("FASTER_WHISPER_VAD_FILTER", True)
 DEFAULT_CONDITION_ON_PREVIOUS_TEXT = env_bool("FASTER_WHISPER_CONDITION_ON_PREVIOUS_TEXT", True)
 DEFAULT_BATCH_SIZE = max(1, int(os.environ.get("FASTER_WHISPER_BATCH_SIZE", "8")))
+DEFAULT_VAD_PARAMETERS = {
+    "min_silence_duration_ms": env_int("FASTER_WHISPER_VAD_MIN_SILENCE_MS", 1000),
+    "speech_pad_ms": env_int("FASTER_WHISPER_VAD_SPEECH_PAD_MS", 400),
+    "threshold": env_float("FASTER_WHISPER_VAD_THRESHOLD", 0.5),
+}
+DEFAULT_MIN_SPEECH_DURATION_MS = env_int("FASTER_WHISPER_VAD_MIN_SPEECH_MS", 0)
+if DEFAULT_MIN_SPEECH_DURATION_MS > 0:
+    DEFAULT_VAD_PARAMETERS["min_speech_duration_ms"] = DEFAULT_MIN_SPEECH_DURATION_MS
 BATCHED_PIPELINE = BatchedInferencePipeline(model=MODEL) if MODEL_DEVICE == "cuda" and DEFAULT_BATCH_SIZE > 1 else None
 
 sys.stdout.write(
@@ -329,6 +357,7 @@ sys.stdout.write(
             "batch_size": DEFAULT_BATCH_SIZE if BATCHED_PIPELINE is not None else 1,
             "gpu_name": PRIMARY_GPU_NAME,
             "gpu_compute_capability": PRIMARY_GPU_COMPUTE_CAPABILITY,
+            "vad_parameters": DEFAULT_VAD_PARAMETERS,
             "download_root": DOWNLOAD_ROOT,
         },
         ensure_ascii=False,
@@ -343,6 +372,7 @@ def transcribe(audio_path: str, language: str) -> Dict[str, Any]:
         language=language or "ja",
         beam_size=DEFAULT_BEAM_SIZE,
         vad_filter=DEFAULT_VAD_FILTER,
+        vad_parameters=DEFAULT_VAD_PARAMETERS,
         condition_on_previous_text=DEFAULT_CONDITION_ON_PREVIOUS_TEXT,
     )
     gpu_snapshot_before = read_primary_gpu_snapshot()
@@ -359,6 +389,7 @@ def transcribe(audio_path: str, language: str) -> Dict[str, Any]:
         gpu_monitor_thread.start()
 
     try:
+        transcribe_started_at = time.perf_counter()
         if BATCHED_PIPELINE is not None:
             segments_iter, info = BATCHED_PIPELINE.transcribe(
                 audio_path,
@@ -378,6 +409,8 @@ def transcribe(audio_path: str, language: str) -> Dict[str, Any]:
         if gpu_monitor_thread is not None:
             gpu_monitor_stop.set()
             gpu_monitor_thread.join(timeout=2.0)
+
+    transcribe_elapsed_ms = int((time.perf_counter() - transcribe_started_at) * 1000)
 
     gpu_snapshot_after = read_primary_gpu_snapshot()
     gpu_monitor_summary = summarize_gpu_samples(gpu_samples)
@@ -410,6 +443,8 @@ def transcribe(audio_path: str, language: str) -> Dict[str, Any]:
         "gpu_snapshot_before": gpu_snapshot_before,
         "gpu_snapshot_after": gpu_snapshot_after,
         "gpu_monitor": gpu_monitor_summary,
+        "vad_parameters": DEFAULT_VAD_PARAMETERS,
+        "transcribe_elapsed_ms": transcribe_elapsed_ms,
     }
 
 

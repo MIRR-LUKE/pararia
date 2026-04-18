@@ -30,6 +30,14 @@ rl.on("line", (line) => {
     model: "large-v3",
     device: "cuda",
     compute_type: "int8_float16",
+    pipeline: "batched",
+    batch_size: 8,
+    vad_parameters: {
+      min_silence_duration_ms: 1000,
+      speech_pad_ms: 400,
+      threshold: 0.5,
+    },
+    transcribe_elapsed_ms: 1234,
   };
   process.stdout.write(`${JSON.stringify(response)}\n`);
 });

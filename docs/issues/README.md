@@ -1,6 +1,6 @@
 # 直近で切る Issue 一覧
 
-更新日: 2026-04-14
+更新日: 2026-04-18
 
 今回の前提:
 
@@ -184,3 +184,19 @@ close / defer に回した考え方:
 - このディレクトリの Markdown は GitHub Issue の本文更新にも使う
 - `#38` と `#40` は `2026-04-13` 時点で main に反映済み
 - `#13` は backlog 整理の役割を終えたため close 済み
+
+今回追加して完了した Runpod / generation issue:
+
+1. `#152` Runpod + faster-whisper の STT latency を VAD と phase 計測で詰める
+2. `#153` progress / log polling を read-only に寄せ、手入力 transcript を one-shot で進める
+3. `#154` ログ生成 retry と next meeting memo を prompt cache 前提で安定させる
+4. `#155` duplicate enqueue でも active job と last good artifact を壊さない
+5. `#156` Runpod UX 計測を p50 / p95 / cost までまとめて見えるようにする
+
+今回追加した issue docs:
+
+1. [74-runpod-stt-latency-and-vad-tuning.md](./74-runpod-stt-latency-and-vad-tuning.md)
+2. [75-progress-readonly-polling-and-manual-transcript-start.md](./75-progress-readonly-polling-and-manual-transcript-start.md)
+3. [76-stable-prompt-cache-and-memo-roundtrip.md](./76-stable-prompt-cache-and-memo-roundtrip.md)
+4. [77-preserve-active-jobs-and-last-good-artifacts.md](./77-preserve-active-jobs-and-last-good-artifacts.md)
+5. [78-runpod-ux-percentiles-and-cost-summary.md](./78-runpod-ux-percentiles-and-cost-summary.md)

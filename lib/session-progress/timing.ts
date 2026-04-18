@@ -31,7 +31,10 @@ export type SessionProgressTimingSnapshot = {
   logReadyAt: string | null;
   nextMeetingMemoReadyAt: string | null;
   audioSeconds: number | null;
+  sttPrepareSeconds: number | null;
   transcriptionSeconds: number | null;
+  sttWorkerSeconds: number | null;
+  sttFinalizeSeconds: number | null;
   acceptedToTranscriptSeconds: number | null;
   logGenerationSeconds: number | null;
   transcriptToLogSeconds: number | null;
@@ -117,6 +120,19 @@ function readTranscriptionSeconds(parts: SessionTimingPartLike[], transcriptRead
     return Math.round(total * 10) / 10;
   }
   return diffSeconds(transcriptReadyAtMs, pipelineStartedAtMs);
+}
+
+function readAccumulatedSeconds(parts: SessionTimingPartLike[], key: string) {
+  let total = 0;
+  let found = false;
+  for (const part of parts) {
+    const meta = readSessionPartMeta(part.qualityMetaJson);
+    const milliseconds = readNonNegativeNumber(meta[key]);
+    if (milliseconds === null) continue;
+    total += milliseconds;
+    found = true;
+  }
+  return found ? toRoundedSecondsOrNull(total) : null;
 }
 
 function readConversationQualityMeta(value: unknown) {
@@ -212,7 +228,10 @@ export function buildSessionProgressTimingSnapshot(
     logReadyAt: toIsoOrNull(logReadyAtMs),
     nextMeetingMemoReadyAt: toIsoOrNull(nextMeetingMemoReadyAtMs),
     audioSeconds: readTotalAudioSeconds(parts),
+    sttPrepareSeconds: readAccumulatedSeconds(parts, "sttPrepareMs"),
     transcriptionSeconds: readTranscriptionSeconds(parts, transcriptReadyAtMs, pipelineStartedAtMs),
+    sttWorkerSeconds: readAccumulatedSeconds(parts, "sttTranscribeWorkerMs"),
+    sttFinalizeSeconds: readAccumulatedSeconds(parts, "sttFinalizeMs"),
     acceptedToTranscriptSeconds: diffSeconds(transcriptReadyAtMs, pipelineStartedAtMs),
     logGenerationSeconds: toRoundedSecondsOrNull(logGenerationMs),
     transcriptToLogSeconds: diffSeconds(logReadyAtMs, transcriptReadyAtMs),

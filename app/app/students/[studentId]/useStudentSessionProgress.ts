@@ -26,6 +26,10 @@ function isPageHidden() {
   return typeof document !== "undefined" && document.visibilityState !== "visible";
 }
 
+function getSessionProgressReceivedWakeRetryDelayMs(pageHidden: boolean) {
+  return pageHidden ? 30_000 : 20_000;
+}
+
 export function getSessionProgressPollIntervalMs(elapsedMs: number, pageHidden: boolean) {
   if (pageHidden) {
     if (elapsedMs < 60_000) return 8_000;
@@ -41,13 +45,13 @@ export function getSessionProgressPollIntervalMs(elapsedMs: number, pageHidden: 
 
 export function getSessionProgressWakeIntervalMs(elapsedMs: number, pageHidden: boolean) {
   if (pageHidden) {
-    if (elapsedMs < 120_000) return 15_000;
-    return 30_000;
+    if (elapsedMs < 120_000) return 30_000;
+    return 45_000;
   }
 
-  if (elapsedMs < 45_000) return 8_000;
-  if (elapsedMs < 180_000) return 15_000;
-  return 25_000;
+  if (elapsedMs < 90_000) return 20_000;
+  if (elapsedMs < 180_000) return 30_000;
+  return 45_000;
 }
 
 export function shouldKickSessionProgressWorker(input: {
@@ -65,7 +69,10 @@ export function shouldKickSessionProgressWorker(input: {
     return true;
   }
 
-  return input.stage === "RECEIVED" || input.stage === "TRANSCRIBING";
+  return (
+    input.stage === "RECEIVED" &&
+    input.elapsedMs >= getSessionProgressReceivedWakeRetryDelayMs(input.pageHidden)
+  );
 }
 
 export function useStudentSessionProgress({

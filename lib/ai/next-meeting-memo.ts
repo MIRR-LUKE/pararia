@@ -33,6 +33,8 @@ export type NextMeetingMemoResult = {
   tokenUsage: NextMeetingMemoTokenUsage;
   llmCostUsd: number;
   sourceSections: Array<{ title: string; lines: string[] }>;
+  promptCacheKey?: string;
+  promptCacheRetention?: "in_memory" | "24h";
 };
 
 type NextMeetingMemoInput = {
@@ -306,6 +308,17 @@ function buildSystemPrompt() {
   ].join("\n");
 }
 
+function supportsExtendedPromptCaching(model: string) {
+  return /^gpt-5(?:\.|$|-)/i.test(model) || /^gpt-4\.1(?:$|-)/i.test(model);
+}
+
+function resolveNextMeetingMemoPromptCacheSettings(model: string) {
+  return {
+    promptCacheKey: ["next-meeting-memo", PROMPT_VERSION, "memo"].join(":"),
+    promptCacheRetention: supportsExtendedPromptCaching(model) ? ("24h" as const) : ("in_memory" as const),
+  };
+}
+
 function buildUserPrompt(input: {
   studentName: string;
   sessionDate: string;
@@ -416,6 +429,7 @@ export async function generateNextMeetingMemo(input: NextMeetingMemoInput): Prom
   const studentName = input.studentName?.trim() || "生徒";
   const sessionDate = formatSessionDate(input.sessionDate);
   const model = NEXT_MEETING_MEMO_MODEL;
+  const { promptCacheKey, promptCacheRetention } = resolveNextMeetingMemoPromptCacheSettings(model);
   let apiCalls = 0;
   let tokenUsage = emptyLlmTokenUsage();
   let previousRaw = "";
@@ -431,6 +445,8 @@ export async function generateNextMeetingMemo(input: NextMeetingMemoInput): Prom
       ],
       timeoutMs: Number(process.env.LLM_CALL_TIMEOUT_MS ?? 90000),
       max_output_tokens: 500,
+      prompt_cache_key: promptCacheKey,
+      prompt_cache_retention: promptCacheRetention,
       temperature: 0.1,
       json_schema: {
         name: "next_meeting_memo",
@@ -461,6 +477,8 @@ export async function generateNextMeetingMemo(input: NextMeetingMemoInput): Prom
       tokenUsage,
       llmCostUsd: calculateOpenAiTextCostUsd(model, tokenUsage),
       sourceSections: source.sections,
+      promptCacheKey,
+      promptCacheRetention,
     };
   }
 

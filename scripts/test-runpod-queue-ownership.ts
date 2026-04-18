@@ -28,6 +28,8 @@ try {
 
   const env = buildRunpodWorkerEnv(300000);
   assert.equal(env.RUNPOD_WORKER_CONVERSATION_LIMIT, "0");
+  assert.equal(env.FASTER_WHISPER_VAD_MIN_SILENCE_MS, "1000");
+  assert.equal(env.FASTER_WHISPER_VAD_THRESHOLD, "0.5");
   assert.equal(
     getRunpodWorkerConfig()?.image,
     "ghcr.io/mirr-luke/pararia-runpod-worker:sha-abc123"

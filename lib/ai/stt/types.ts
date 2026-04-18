@@ -46,6 +46,13 @@ export type WorkerSegment = {
   text?: string;
 };
 
+export type WorkerVadParameters = {
+  min_silence_duration_ms?: number;
+  speech_pad_ms?: number;
+  threshold?: number;
+  min_speech_duration_ms?: number;
+};
+
 export type WorkerRequest = {
   id: string;
   audio_path: string;
@@ -67,6 +74,8 @@ export type WorkerSuccessResponse = {
   gpu_snapshot_before?: WorkerGpuSnapshot;
   gpu_snapshot_after?: WorkerGpuSnapshot;
   gpu_monitor?: WorkerGpuMonitor;
+  vad_parameters?: WorkerVadParameters;
+  transcribe_elapsed_ms?: number;
 };
 
 export type WorkerErrorResponse = {
@@ -87,6 +96,7 @@ export type WorkerReadyResponse = {
   batch_size?: number;
   gpu_name?: string;
   gpu_compute_capability?: string;
+  vad_parameters?: WorkerVadParameters;
 };
 
 export type FasterWhisperWorkerHandle = {
@@ -117,5 +127,7 @@ export type PipelineTranscriptionResult = SegmentedTranscriptResult & {
     gpuSnapshotBefore?: WorkerGpuSnapshot;
     gpuSnapshotAfter?: WorkerGpuSnapshot;
     gpuMonitor?: WorkerGpuMonitor;
+    vadParameters?: WorkerVadParameters;
+    transcribeElapsedMs?: number;
   };
 };

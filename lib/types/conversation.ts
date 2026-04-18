@@ -9,6 +9,12 @@ export type ConversationQualityMeta = {
   sttSegmentCount?: number;
   sttSpeakerCount?: number;
   sttQualityWarnings?: string[];
+  sttPrepareMs?: number;
+  sttTranscribeMs?: number;
+  sttTranscribeWorkerMs?: number;
+  sttFinalizeMs?: number;
+  sttTotalMs?: number;
+  sttVadParameters?: Record<string, number>;
   preprocessSeconds?: number;
   jobSecondsFinalize?: number;
   jobSecondsFormat?: number;
