@@ -2,9 +2,14 @@
 
 ## 状態
 
-- Open
+- Closed
 - GitHub Issue: `#168`
 - 最終更新: `2026-04-19`
+
+## 結論
+
+Teacher 録音 app の本命方針が完全ネイティブへ変わったため、この issue は superseded。  
+web `/teacher` の改善は検証用導線としてのみ残し、本番の録音 app は native 側で作る。
 
 ## 目的
 

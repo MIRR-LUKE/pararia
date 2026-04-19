@@ -2,9 +2,14 @@
 
 ## 状態
 
-- Open
+- Closed
 - GitHub Issue: `#166`
 - 最終更新: `2026-04-19`
+
+## 結論
+
+Capacitor wrapper 方針は採用しない。  
+Teacher 録音 app は完全ネイティブで進めるため、この issue は superseded。
 
 ## 目的
 

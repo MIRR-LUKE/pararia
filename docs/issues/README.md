@@ -222,8 +222,12 @@ Teacher App 仕様の新規 issue docs:
 3. `#160` [85-teacher-app-recording-flow-and-temporary-session.md](./85-teacher-app-recording-flow-and-temporary-session.md)
 4. `#162` [86-teacher-app-student-suggestion-and-finalize-gate.md](./86-teacher-app-student-suggestion-and-finalize-gate.md)
 5. `#163` [87-teacher-app-unsent-queue-and-recovery.md](./87-teacher-app-unsent-queue-and-recovery.md)
-6. `#169` [88-teacher-app-ios-android-capacitor-parent-plan.md](./88-teacher-app-ios-android-capacitor-parent-plan.md)
-7. `#168` [89-teacher-app-mobile-shell-hardening.md](./89-teacher-app-mobile-shell-hardening.md)
-8. `#166` [90-teacher-app-capacitor-wrapper-and-native-permissions.md](./90-teacher-app-capacitor-wrapper-and-native-permissions.md)
+6. `#169` [88-teacher-app-ios-android-capacitor-parent-plan.md](./88-teacher-app-ios-android-capacitor-parent-plan.md) - Closed / superseded
+7. `#168` [89-teacher-app-mobile-shell-hardening.md](./89-teacher-app-mobile-shell-hardening.md) - Closed / superseded
+8. `#166` [90-teacher-app-capacitor-wrapper-and-native-permissions.md](./90-teacher-app-capacitor-wrapper-and-native-permissions.md) - Closed / superseded
 9. `#165` [91-teacher-app-mobile-recording-lifecycle-hardening.md](./91-teacher-app-mobile-recording-lifecycle-hardening.md)
 10. `#167` [92-teacher-app-internal-distribution-and-device-qa.md](./92-teacher-app-internal-distribution-and-device-qa.md)
+11. `#171` [93-teacher-native-app-parent-plan.md](./93-teacher-native-app-parent-plan.md)
+12. `#172` [94-teacher-native-app-backend-contract-and-device-auth.md](./94-teacher-native-app-backend-contract-and-device-auth.md)
+13. `#173` [95-ios-native-teacher-app-recording-foundation.md](./95-ios-native-teacher-app-recording-foundation.md)
+14. `#170` [96-android-native-teacher-app-recording-foundation.md](./96-android-native-teacher-app-recording-foundation.md)
