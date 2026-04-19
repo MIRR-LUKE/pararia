@@ -1,5 +1,8 @@
 # Teacher App を録音専用 mobile app として分離する
 
+> 注記: この web-first / `/teacher` provisional flow の親 issue は `#164` で完了しています。  
+> 現在の本命は **完全ネイティブ** へ切り替えた `#171` です。
+
 ## 状態
 
 - Closed

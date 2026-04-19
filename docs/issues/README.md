@@ -217,7 +217,7 @@ close / defer に回した考え方:
 
 Teacher App 仕様の新規 issue docs:
 
-1. `#164` [83-teacher-app-recording-mobile-parent-plan.md](./83-teacher-app-recording-mobile-parent-plan.md)
+1. `#164` [83-teacher-app-recording-mobile-parent-plan.md](./83-teacher-app-recording-mobile-parent-plan.md) - Closed / web-first provisional flow
 2. `#161` [84-teacher-app-foundation-and-device-auth.md](./84-teacher-app-foundation-and-device-auth.md)
 3. `#160` [85-teacher-app-recording-flow-and-temporary-session.md](./85-teacher-app-recording-flow-and-temporary-session.md)
 4. `#162` [86-teacher-app-student-suggestion-and-finalize-gate.md](./86-teacher-app-student-suggestion-and-finalize-gate.md)

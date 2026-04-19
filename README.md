@@ -121,10 +121,11 @@ npm run test:student-room-route
 - `/api/teacher/recordings/[id]/audio` は `Idempotency-Key` を受け取り、同一録音の二重送信を抑止する
 - Teacher App の端末認証は `TeacherAppDevice` で永続化し、signed cookie / bearer token の両方で `deviceId` を検証する
 - 録音 app の本命方針は `完全ネイティブ` で、`/teacher` は flow 検証と backend 契約確認のための web 導線として残す
+- native app の source foundation は `native/ios/TeacherNativeApp` と `native/android/app/src/main/java/jp/pararia/teacherapp` に置く
 - 管理画面、レポート確認、設定、監査は引き続き web のまま運用する
 - native app 用の auth / recording 契約は [docs/teacher-app-native-auth-contract.md](./docs/teacher-app-native-auth-contract.md) を正本にする
-- 親 issue は `#164`、子 issue は `#161`, `#160`, `#162`, `#163`
-- 詳細な仕様と進捗メモは [docs/issues/83-teacher-app-recording-mobile-parent-plan.md](./docs/issues/83-teacher-app-recording-mobile-parent-plan.md) から辿る
+- native-first の親 issue は `#171`、子 issue は `#172`, `#173`, `#170`, `#165`, `#167`
+- `#172` は backend 契約と device auth まで完了済み
 
 ## 1. 先に結論
 

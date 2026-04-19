@@ -18,3 +18,12 @@ tsconfig.tsbuildinfo
 
 .env*.local
 .vercel
+
+# native app build outputs
+native/android/.gradle/
+native/android/**/build/
+native/android/local.properties
+native/ios/**/DerivedData/
+native/ios/**/*.xcuserstate
+native/ios/**/*.xcworkspace/xcuserdata/
+native/ios/**/*.xcodeproj/xcuserdata/
