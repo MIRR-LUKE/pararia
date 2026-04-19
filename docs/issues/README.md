@@ -222,3 +222,8 @@ Teacher App 仕様の新規 issue docs:
 3. `#160` [85-teacher-app-recording-flow-and-temporary-session.md](./85-teacher-app-recording-flow-and-temporary-session.md)
 4. `#162` [86-teacher-app-student-suggestion-and-finalize-gate.md](./86-teacher-app-student-suggestion-and-finalize-gate.md)
 5. `#163` [87-teacher-app-unsent-queue-and-recovery.md](./87-teacher-app-unsent-queue-and-recovery.md)
+6. `#169` [88-teacher-app-ios-android-capacitor-parent-plan.md](./88-teacher-app-ios-android-capacitor-parent-plan.md)
+7. `#168` [89-teacher-app-mobile-shell-hardening.md](./89-teacher-app-mobile-shell-hardening.md)
+8. `#166` [90-teacher-app-capacitor-wrapper-and-native-permissions.md](./90-teacher-app-capacitor-wrapper-and-native-permissions.md)
+9. `#165` [91-teacher-app-mobile-recording-lifecycle-hardening.md](./91-teacher-app-mobile-recording-lifecycle-hardening.md)
+10. `#167` [92-teacher-app-internal-distribution-and-device-qa.md](./92-teacher-app-internal-distribution-and-device-qa.md)
