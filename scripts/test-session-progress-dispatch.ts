@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import {
   kickSessionWorkerOrFallback,
+  shouldContinueSessionProgressInBackground,
   shouldKickConversationJobsNow,
   shouldProcessConversationInlineDuringProgress,
   shouldProcessSessionProgressInline,
@@ -80,6 +81,43 @@ assert.equal(
   }),
   false,
   "audio-backed sessions should keep background progress handling in external mode"
+);
+
+assert.equal(
+  shouldContinueSessionProgressInBackground({
+    id: "session-processing",
+    organizationId: "org",
+    type: "INTERVIEW" as any,
+    status: "PROCESSING" as any,
+    createdAt: new Date(),
+    parts: [],
+    conversation: null,
+    nextMeetingMemo: null,
+  }),
+  true,
+  "processing sessions should keep background progress checks alive on GET"
+);
+
+assert.equal(
+  shouldContinueSessionProgressInBackground({
+    id: "session-ready",
+    organizationId: "org",
+    type: "INTERVIEW" as any,
+    status: "COMPLETED" as any,
+    createdAt: new Date(),
+    parts: [],
+    conversation: {
+      id: "conversation-ready",
+      status: "DONE" as any,
+      summaryMarkdown: null,
+      createdAt: new Date(),
+      qualityMetaJson: null,
+      jobs: [],
+    },
+    nextMeetingMemo: null,
+  }),
+  false,
+  "ready sessions should not keep scheduling background progress checks"
 );
 
 const sessionKickCache = new Map<string, number>();

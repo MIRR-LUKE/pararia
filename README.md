@@ -618,6 +618,14 @@ GPU が強いときの最初の目安:
   - `#159`: STT 後の handoff / queue lag を分解して短くする
   - `#158`: Runpod worker 計測を本番一致にして STT subphase null をなくす
   - `#157`: prompt cache を本番でも効かせて cached input を回復する
+- 2026-04-19 時点では、この 3 本の実装自体は入っている
+  - `runpod:measure-ux` JSON に `promotionCompletedAt / conversationKickRequestedAt / conversationAppDispatchStartedAt / conversationJobClaimedAt / reviewCompletedAt / finalizeStartedAt / finalizeCompletedAt` が残る
+  - `runpod:measure-summary` は `## Warnings` に missing metric を出し、`## Post-STT breakdown` で post-STT 内訳を p50 / p95 で出す
+  - prompt cache 診断として `promptCacheKey / promptCacheRetention / promptCacheStablePrefixTokensEstimate` も残る
+- 親 issue `#151` をきれいに閉じる最後の作業は:
+  - publish 済み worker image を指定して `runpod:measure-ux` を 3 本取り直す
+  - `runpod:measure-summary` の `Queue->Conversation p50` と `post-STT unknown p50` が baseline `163.8秒` 比でどこまで縮んだかを issue に追記する
+  - `sttPrepareMs` が non-null、`llmCachedInputTokens` が 0 固定から外れたことを確認して `#157 / #158 / #159` を close する
 
 ### 7.5 prompt cache と実コストの見方
 
@@ -628,6 +636,12 @@ GPU が強いときの最初の目安:
   - 構造化 JSON schema に関する固定指示
   - repair 時の共通 prefix
   をできるだけ前に寄せ、cache が効きやすい形にしている
+- 2026-04-19 以降の面談ログ prompt は、固定契約を前に、`生徒名 / 面談日 / 面談時間 / transcript` のような可変情報を後ろに寄せる
+- そのため cache miss を見るときは、`cachedInputTokens` だけでなく:
+  - `promptCacheKey`
+  - `promptCacheRetention`
+  - `promptCacheStablePrefixTokensEstimate`
+  も一緒に見る
 - そのため、実コストを見るときは次の 2 つを分けて見る
   - `cold`: その cache namespace で最初の 1 回
   - `warm`: 直後に同じ条件でもう 1 回流したとき

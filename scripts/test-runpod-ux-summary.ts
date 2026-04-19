@@ -29,9 +29,27 @@ async function main() {
           sttFinalizeMs: 1200,
           sttVadParameters: null,
           queueToConversationMs: 145000,
+          postSttTotalMs: 94000,
+          sttToPromotionMs: 800,
+          promotionToKickMs: 45000,
+          kickToAppDispatchMs: 2000,
+          appDispatchToClaimMs: 6000,
+          claimToReviewStartMs: 200,
+          reviewDurationMs: 3000,
+          reviewToFinalizeMs: 400,
+          finalizeActiveMs: 16500,
+          postSttUnknownMs: 20100,
+          promotionCompletedAt: "2026-04-19T00:00:51.800Z",
+          conversationKickRequestedAt: "2026-04-19T00:01:36.800Z",
+          conversationAppDispatchStartedAt: "2026-04-19T00:01:38.800Z",
+          conversationJobClaimedAt: "2026-04-19T00:01:44.800Z",
+          reviewCompletedAt: "2026-04-19T00:01:48.000Z",
+          finalizeStartedAt: "2026-04-19T00:01:48.400Z",
+          finalizeCompletedAt: "2026-04-19T00:02:04.900Z",
           finalizeDurationMs: 16000,
           llmCachedInputRatio: 0,
           llmCostUsd: 0.0476,
+          promptCacheStablePrefixTokensEstimate: 1320,
         },
         null,
         2
@@ -53,6 +71,9 @@ async function main() {
     assert.match(output, /sttPrepareMs 1\/1/);
     assert.match(output, /sttTranscribeWorkerMs 1\/1/);
     assert.match(output, /sttVadParameters 1\/1/);
+    assert.match(output, /## Post-STT breakdown/);
+    assert.match(output, /post-STT unknown p50\/p95: 20100ms \/ 20100ms/);
+    assert.match(output, /promptCacheKey 1\/1/);
 
     console.log("runpod UX summary warning regression check passed");
   } finally {

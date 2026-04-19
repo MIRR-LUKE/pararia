@@ -19,11 +19,11 @@ import {
 } from "./generate/normalize";
 import {
   buildInterviewMarkdownRepairPrompt,
-  buildInterviewMarkdownUserPrompt,
+  buildInterviewMarkdownUserPromptBundle,
   buildDraftPromptInput,
   buildMarkdownRecoveryUserPrompt,
   buildRepairUserPrompt,
-  buildStructuredUserPrompt,
+  buildStructuredUserPromptBundle,
   getFastModel,
   getPromptVersion as getConversationPromptVersion,
   resolvePromptCacheSettings,
@@ -31,6 +31,24 @@ import {
 import { estimateTokens } from "./shared";
 import type { StructuredDraftPayload } from "./generate/normalize";
 import type { DraftGenerationInput, DraftGenerationResult } from "./types";
+
+function buildPromptCacheDiagnostics(params: {
+  system: string;
+  cacheStablePrefix: string;
+  promptCacheKey?: string;
+  promptCacheRetention?: "in_memory" | "24h";
+}) {
+  const stablePrefix = [params.system, params.cacheStablePrefix].join("\n");
+  return {
+    promptCacheKey: params.promptCacheKey,
+    promptCacheRetention: params.promptCacheRetention,
+    promptCacheStablePrefixChars: stablePrefix.length,
+    promptCacheStablePrefixTokensEstimate: estimateTokens(stablePrefix),
+  } satisfies Pick<
+    DraftGenerationResult,
+    "promptCacheKey" | "promptCacheRetention" | "promptCacheStablePrefixChars" | "promptCacheStablePrefixTokensEstimate"
+  >;
+}
 
 export async function generateConversationDraftFast(input: DraftGenerationInput): Promise<DraftGenerationResult> {
   const sessionType = input.sessionType ?? "INTERVIEW";
@@ -44,7 +62,14 @@ export async function generateConversationDraftFast(input: DraftGenerationInput)
 
   if (sessionType === "INTERVIEW") {
     const system = buildInterviewMarkdownSystemPrompt();
-    const user = buildInterviewMarkdownUserPrompt(input, draftInput);
+    const promptBundle = buildInterviewMarkdownUserPromptBundle(input, draftInput);
+    const user = promptBundle.userPrompt;
+    const promptCacheDiagnostics = buildPromptCacheDiagnostics({
+      system,
+      cacheStablePrefix: promptBundle.cacheStablePrefix,
+      promptCacheKey,
+      promptCacheRetention,
+    });
     const promptInputTokensEstimate = estimateTokens(system) + estimateTokens(user);
 
     try {
@@ -74,7 +99,7 @@ export async function generateConversationDraftFast(input: DraftGenerationInput)
           tokenUsage,
           markdown,
         });
-        if (built) return built;
+        if (built) return { ...built, ...promptCacheDiagnostics };
         validationErrors.push("interview markdown が弱く、逐語転写や重複が残った。");
       } else {
         validationErrors.push("interview markdown が空だった。");
@@ -111,7 +136,7 @@ export async function generateConversationDraftFast(input: DraftGenerationInput)
           tokenUsage,
           markdown,
         });
-        if (built) return built;
+        if (built) return { ...built, ...promptCacheDiagnostics };
         validationErrors.push("retry 後の interview markdown でも重複や逐語転写が残った。");
       } else {
         validationErrors.push("retry 後の interview markdown が空だった。");
@@ -136,13 +161,21 @@ export async function generateConversationDraftFast(input: DraftGenerationInput)
       inputTokensEstimate: promptInputTokensEstimate,
       tokenUsage,
       llmCostUsd: calculateOpenAiTextCostUsd(model, tokenUsage),
+      ...promptCacheDiagnostics,
     };
   }
 
   const system = buildDraftSystemPrompt(sessionType);
-  const user = buildStructuredUserPrompt(input, draftInput);
+  const promptBundle = buildStructuredUserPromptBundle(input, draftInput);
+  const user = promptBundle.userPrompt;
   const jsonSchema = buildStructuredArtifactJsonSchema(sessionType);
   const promptInputTokensEstimate = estimateTokens(system) + estimateTokens(user);
+  const promptCacheDiagnostics = buildPromptCacheDiagnostics({
+    system,
+    cacheStablePrefix: promptBundle.cacheStablePrefix,
+    promptCacheKey,
+    promptCacheRetention,
+  });
 
   try {
     apiCalls += 1;
@@ -173,6 +206,7 @@ export async function generateConversationDraftFast(input: DraftGenerationInput)
           inputTokensEstimate: promptInputTokensEstimate,
           tokenUsage,
           llmCostUsd: calculateOpenAiTextCostUsd(model, tokenUsage),
+          ...promptCacheDiagnostics,
         };
       }
       validationErrors.push("構造化出力は得られたが、render 後に長すぎる行や unsafe な断片が残った。");
@@ -216,6 +250,7 @@ export async function generateConversationDraftFast(input: DraftGenerationInput)
           inputTokensEstimate: promptInputTokensEstimate,
           tokenUsage,
           llmCostUsd: calculateOpenAiTextCostUsd(model, tokenUsage),
+          ...promptCacheDiagnostics,
         };
       }
       validationErrors.push("repair 後も長すぎる行や unsafe な断片が残った。");
@@ -258,7 +293,7 @@ export async function generateConversationDraftFast(input: DraftGenerationInput)
         markdown,
       });
       if (rendered) {
-        return rendered;
+        return { ...rendered, ...promptCacheDiagnostics };
       }
       validationErrors.push("markdown 再生成でも unsafe な逐語転写が残った。");
     } else {
@@ -284,6 +319,7 @@ export async function generateConversationDraftFast(input: DraftGenerationInput)
     inputTokensEstimate: promptInputTokensEstimate,
     tokenUsage,
     llmCostUsd: calculateOpenAiTextCostUsd(model, tokenUsage),
+    ...promptCacheDiagnostics,
   };
 }
 

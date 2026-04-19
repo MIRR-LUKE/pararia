@@ -18,6 +18,8 @@ export type LlmTokenUsage = {
   reasoningTokens: number;
 };
 
+export type PromptCacheRetention = "in_memory" | "24h";
+
 export type DraftGenerationInput = {
   transcript: string;
   studentName?: string;
@@ -27,7 +29,7 @@ export type DraftGenerationInput = {
   minSummaryChars: number;
   sessionType?: SessionMode;
   promptCacheNamespace?: string | null;
-  promptCacheRetention?: "in_memory" | "24h" | null;
+  promptCacheRetention?: PromptCacheRetention | null;
 };
 
 export type DraftGenerationResult = {
@@ -40,4 +42,8 @@ export type DraftGenerationResult = {
   inputTokensEstimate: number;
   tokenUsage: LlmTokenUsage;
   llmCostUsd: number;
+  promptCacheKey?: string;
+  promptCacheRetention?: PromptCacheRetention;
+  promptCacheStablePrefixChars?: number;
+  promptCacheStablePrefixTokensEstimate?: number;
 };

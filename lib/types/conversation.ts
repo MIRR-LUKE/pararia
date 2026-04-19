@@ -27,6 +27,10 @@ export type ConversationQualityMeta = {
   llmCachedInputTokensActual?: number;
   llmOutputTokensActual?: number;
   llmCostUsd?: number;
+  promptCacheKey?: string | null;
+  promptCacheRetention?: "in_memory" | "24h" | null;
+  promptCacheStablePrefixChars?: number;
+  promptCacheStablePrefixTokensEstimate?: number;
   usedFallbackSummary?: boolean;
   reviewReasonCodes?: string[];
   usedReviewedTranscript?: boolean;

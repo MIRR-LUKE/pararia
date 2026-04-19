@@ -45,8 +45,32 @@ type RunpodMeasureResult = {
   enqueueStartedAt: string;
   sttCompletedAt?: string | null;
   conversationCompletedAt?: string | null;
+  promotionCompletedAt?: string | null;
+  conversationKickRequestedAt?: string | null;
+  conversationKickDeferredAt?: string | null;
+  conversationKickDeferredReason?: string | null;
+  conversationAppDispatchStartedAt?: string | null;
+  conversationAppDispatchBlockedAt?: string | null;
+  conversationAppDispatchBlockedReason?: string | null;
+  conversationAppDispatchCompletedAt?: string | null;
+  conversationJobClaimedAt?: string | null;
+  reviewStartedAt?: string | null;
+  reviewCompletedAt?: string | null;
+  finalizeStartedAt?: string | null;
+  finalizeCompletedAt?: string | null;
   queueToSttMs?: number | null;
   queueToConversationMs?: number | null;
+  postSttTotalMs?: number | null;
+  sttToPromotionMs?: number | null;
+  promotionToKickMs?: number | null;
+  kickDeferredToKickMs?: number | null;
+  kickToAppDispatchMs?: number | null;
+  appDispatchToClaimMs?: number | null;
+  claimToReviewStartMs?: number | null;
+  reviewDurationMs?: number | null;
+  reviewToFinalizeMs?: number | null;
+  finalizeActiveMs?: number | null;
+  postSttUnknownMs?: number | null;
   sttSeconds?: number | null;
   sttPrepareMs?: number | null;
   sttTranscribeMs?: number | null;
@@ -67,6 +91,10 @@ type RunpodMeasureResult = {
   llmCachedInputRatio?: number | null;
   llmOutputTokens?: number | null;
   llmCostUsd?: number | null;
+  promptCacheKey?: string | null;
+  promptCacheRetention?: "in_memory" | "24h" | null;
+  promptCacheStablePrefixChars?: number | null;
+  promptCacheStablePrefixTokensEstimate?: number | null;
   finalizeModel?: string | null;
   artifactChars?: number | null;
   studentId?: string | null;
@@ -82,6 +110,31 @@ function asObjectRecord(value: unknown) {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : null;
+}
+
+function readIsoString(value: unknown) {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
+}
+
+function diffIsoMs(start: string | null | undefined, end: string | null | undefined) {
+  if (!start || !end) return null;
+  const startMs = Date.parse(start);
+  const endMs = Date.parse(end);
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) return null;
+  return Math.max(0, endMs - startMs);
+}
+
+function sumNumbers(values: Array<number | null | undefined>) {
+  let total = 0;
+  for (const value of values) {
+    if (typeof value !== "number" || !Number.isFinite(value)) {
+      return null;
+    }
+    total += value;
+  }
+  return total;
 }
 
 function applyRunpodWorkerMetadata(result: RunpodMeasureResult, source: unknown) {
@@ -520,9 +573,11 @@ async function main() {
           currentConversation.qualityMetaJson && typeof currentConversation.qualityMetaJson === "object" && !Array.isArray(currentConversation.qualityMetaJson)
             ? (currentConversation.qualityMetaJson as Record<string, unknown>)
             : {};
+        const finalizeMeta = asObjectRecord(qualityMeta.finalizeJob);
 
         result.conversationCompletedAt = completedAt.toISOString();
         result.queueToConversationMs = completedAt.getTime() - enqueueStartedAt.getTime();
+        result.finalizeCompletedAt = readIsoString(finalizeMeta?.finalizeCompletedAt) ?? result.conversationCompletedAt;
         result.finalizeDurationMs = typeof finalizeJob.lastRunDurationMs === "number" ? finalizeJob.lastRunDurationMs : null;
         result.finalizeQueueLagMs = typeof finalizeJob.lastQueueLagMs === "number" ? finalizeJob.lastQueueLagMs : null;
         result.llmApiCalls = typeof qualityMeta.llmApiCallsFinalize === "number" ? qualityMeta.llmApiCallsFinalize : null;
@@ -535,8 +590,61 @@ async function main() {
             : null;
         result.llmOutputTokens = typeof qualityMeta.llmOutputTokensActual === "number" ? qualityMeta.llmOutputTokensActual : null;
         result.llmCostUsd = typeof qualityMeta.llmCostUsd === "number" ? qualityMeta.llmCostUsd : null;
+        result.promptCacheKey = typeof qualityMeta.promptCacheKey === "string" ? qualityMeta.promptCacheKey : null;
+        result.promptCacheRetention =
+          qualityMeta.promptCacheRetention === "in_memory" || qualityMeta.promptCacheRetention === "24h"
+            ? qualityMeta.promptCacheRetention
+            : null;
+        result.promptCacheStablePrefixChars =
+          typeof qualityMeta.promptCacheStablePrefixChars === "number"
+            ? qualityMeta.promptCacheStablePrefixChars
+            : null;
+        result.promptCacheStablePrefixTokensEstimate =
+          typeof qualityMeta.promptCacheStablePrefixTokensEstimate === "number"
+            ? qualityMeta.promptCacheStablePrefixTokensEstimate
+            : null;
         result.finalizeModel = typeof qualityMeta.modelFinalize === "string" ? qualityMeta.modelFinalize : null;
         result.artifactChars = currentConversation.summaryMarkdown?.length ?? null;
+        result.promotionCompletedAt = readIsoString(finalizeMeta?.promotionCompletedAt);
+        result.conversationKickRequestedAt = readIsoString(finalizeMeta?.conversationKickRequestedAt);
+        result.conversationKickDeferredAt = readIsoString(finalizeMeta?.conversationKickDeferredAt);
+        result.conversationKickDeferredReason = readIsoString(finalizeMeta?.conversationKickDeferredReason);
+        result.conversationAppDispatchStartedAt = readIsoString(finalizeMeta?.conversationAppDispatchStartedAt);
+        result.conversationAppDispatchBlockedAt = readIsoString(finalizeMeta?.conversationAppDispatchBlockedAt);
+        result.conversationAppDispatchBlockedReason = readIsoString(finalizeMeta?.conversationAppDispatchBlockedReason);
+        result.conversationAppDispatchCompletedAt = readIsoString(finalizeMeta?.conversationAppDispatchCompletedAt);
+        result.conversationJobClaimedAt = readIsoString(finalizeMeta?.conversationJobClaimedAt);
+        result.reviewStartedAt = readIsoString(finalizeMeta?.reviewStartedAt);
+        result.reviewCompletedAt = readIsoString(finalizeMeta?.reviewCompletedAt);
+        result.finalizeStartedAt = readIsoString(finalizeMeta?.finalizeStartedAt);
+        result.reviewDurationMs =
+          typeof finalizeMeta?.reviewDurationMs === "number" ? finalizeMeta.reviewDurationMs : null;
+        result.postSttTotalMs = diffIsoMs(result.sttCompletedAt, result.finalizeCompletedAt);
+        result.sttToPromotionMs = diffIsoMs(result.sttCompletedAt, result.promotionCompletedAt);
+        result.promotionToKickMs = diffIsoMs(result.promotionCompletedAt, result.conversationKickRequestedAt);
+        result.kickDeferredToKickMs = diffIsoMs(result.conversationKickDeferredAt, result.conversationKickRequestedAt);
+        result.kickToAppDispatchMs = diffIsoMs(result.conversationKickRequestedAt, result.conversationAppDispatchStartedAt);
+        result.appDispatchToClaimMs = diffIsoMs(result.conversationAppDispatchStartedAt, result.conversationJobClaimedAt);
+        result.claimToReviewStartMs = diffIsoMs(result.conversationJobClaimedAt, result.reviewStartedAt);
+        if (result.reviewDurationMs === null) {
+          result.reviewDurationMs = diffIsoMs(result.reviewStartedAt, result.reviewCompletedAt);
+        }
+        result.reviewToFinalizeMs = diffIsoMs(result.reviewCompletedAt, result.finalizeStartedAt);
+        result.finalizeActiveMs = diffIsoMs(result.finalizeStartedAt, result.finalizeCompletedAt);
+        const explainedPostSttMs = sumNumbers([
+          result.sttToPromotionMs,
+          result.promotionToKickMs,
+          result.kickToAppDispatchMs,
+          result.appDispatchToClaimMs,
+          result.claimToReviewStartMs,
+          result.reviewDurationMs,
+          result.reviewToFinalizeMs,
+          result.finalizeActiveMs,
+        ]);
+        result.postSttUnknownMs =
+          result.postSttTotalMs !== null && explainedPostSttMs !== null
+            ? Math.max(0, result.postSttTotalMs - explainedPostSttMs)
+            : null;
         result.ok = true;
         break;
       }

@@ -132,6 +132,24 @@ function hasOnlyManualParts(parts: Array<{ sourceType: ConversationSourceType }>
   return parts.length > 0 && parts.every((part) => part.sourceType === ConversationSourceType.MANUAL);
 }
 
+export function shouldContinueSessionProgressInBackground(
+  session: NonNullable<Awaited<ReturnType<typeof loadSessionProgressSnapshot>>>
+) {
+  if (session.status === "PROCESSING") return true;
+  if (
+    session.parts.some(
+      (part) =>
+        part.status === "PENDING" || part.status === "UPLOADING" || part.status === "TRANSCRIBING"
+    )
+  ) {
+    return true;
+  }
+  if (session.conversation?.status === "PROCESSING") return true;
+  return (
+    session.nextMeetingMemo?.status === "QUEUED" || session.nextMeetingMemo?.status === "GENERATING"
+  );
+}
+
 export function shouldWakeExternalSessionWorker(input: {
   partStatuses: string[];
   queuedSessionPartJobCount: number;
@@ -234,7 +252,12 @@ async function recoverMissingConversationJobs(conversationId: string | null | un
   return recovery;
 }
 
-async function processSessionProgress(session: NonNullable<Awaited<ReturnType<typeof loadSessionProgressSnapshot>>>) {
+async function processSessionProgress(
+  session: NonNullable<Awaited<ReturnType<typeof loadSessionProgressSnapshot>>>,
+  opts?: {
+    conversationKickLabel?: string;
+  }
+) {
   const inlineBackgroundMode = shouldRunBackgroundJobsInline();
   let currentSession = session;
   let manualOnlyParts = hasOnlyManualParts(currentSession.parts);
@@ -327,7 +350,7 @@ async function processSessionProgress(session: NonNullable<Awaited<ReturnType<ty
     if (shouldKickConversationJobsNow(currentSession.conversation.id)) {
       kickConversationJobsOutsideRunpod(
         currentSession.conversation.id,
-        "POST /api/sessions/[id]/progress app conversation processing"
+        opts?.conversationKickLabel ?? "POST /api/sessions/[id]/progress app conversation processing"
       );
     }
   }
@@ -430,6 +453,15 @@ export async function GET(_request: Request, { params }: { params: RouteParams }
   try {
     const loaded = await loadAuthorizedProgressSession(params);
     if (loaded.response) return loaded.response;
+    if (shouldContinueSessionProgressInBackground(loaded.session)) {
+      runAfterResponse(
+        () =>
+          processSessionProgress(loaded.session, {
+            conversationKickLabel: "GET /api/sessions/[id]/progress app conversation processing",
+          }),
+        "GET /api/sessions/[id]/progress"
+      );
+    }
     return buildSessionProgressResponse(loaded.session);
   } catch (error: any) {
     console.error("[GET /api/sessions/[id]/progress] Error:", error);
@@ -464,7 +496,10 @@ export async function POST(request: Request, { params }: { params: RouteParams }
     }
 
     runAfterResponse(
-      () => processSessionProgress(loaded.session),
+      () =>
+        processSessionProgress(loaded.session, {
+          conversationKickLabel: "POST /api/sessions/[id]/progress app conversation processing",
+        }),
       "POST /api/sessions/[id]/progress"
     );
     return buildSessionProgressResponse(loaded.session);

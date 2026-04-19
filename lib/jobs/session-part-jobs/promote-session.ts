@@ -14,6 +14,49 @@ type PromoteConversationDispatchDeps = {
   shouldRunBackgroundJobsInline: typeof shouldRunBackgroundJobsInline;
 };
 
+function readConversationMetaRecord(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {} as Record<string, unknown>;
+  }
+  return value as Record<string, unknown>;
+}
+
+function readFinalizeJobMeta(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {} as Record<string, unknown>;
+  }
+  return value as Record<string, unknown>;
+}
+
+async function mergeConversationFinalizeMeta(
+  conversationId: string,
+  patch: Record<string, unknown>
+) {
+  const existing = await prisma.conversationLog.findUnique({
+    where: { id: conversationId },
+    select: {
+      qualityMetaJson: true,
+    },
+  });
+  if (!existing) return;
+
+  const previousMeta = readConversationMetaRecord(existing.qualityMetaJson);
+  const previousFinalizeJob = readFinalizeJobMeta(previousMeta.finalizeJob);
+
+  await prisma.conversationLog.update({
+    where: { id: conversationId },
+    data: {
+      qualityMetaJson: toPrismaJson({
+        ...previousMeta,
+        finalizeJob: {
+          ...previousFinalizeJob,
+          ...patch,
+        },
+      }),
+    },
+  });
+}
+
 export async function dispatchPromotedConversationJobs(
   conversationId: string,
   deps: PromoteConversationDispatchDeps = {
@@ -128,6 +171,15 @@ export async function executePromoteSessionJob(job: SessionPartJobPayload, part:
     ensured.state === "unchanged"
       ? { mode: "reused" as const, workerWake: null }
       : await dispatchPromotedConversationJobs(ensured.conversationId);
+  const promotionCompletedAt = new Date().toISOString();
+  const requireRunpodStopped = part.sourceType !== ConversationSourceType.MANUAL;
+
+  await mergeConversationFinalizeMeta(ensured.conversationId, {
+    promotionCompletedAt,
+    conversationDispatchMode: dispatch.mode,
+    conversationEnsureState: ensured.state,
+    conversationKickRequireRunpodStopped: requireRunpodStopped,
+  });
 
   await prisma.sessionPartJob.update({
     where: { id: job.id },
@@ -143,8 +195,16 @@ export async function executePromoteSessionJob(job: SessionPartJobPayload, part:
     },
   });
   if (dispatch.mode === "external") {
-    kickPromotedConversationJobsOutsideRunpod(ensured.conversationId, dispatch.mode, {
-      requireRunpodStopped: part.sourceType !== ConversationSourceType.MANUAL,
+    const kicked = kickPromotedConversationJobsOutsideRunpod(ensured.conversationId, dispatch.mode, {
+      requireRunpodStopped,
     });
+    if (!kicked && process.env.RUNPOD_POD_ID?.trim()) {
+      await mergeConversationFinalizeMeta(ensured.conversationId, {
+        conversationKickRequestedAt: promotionCompletedAt,
+        conversationKickDeferredAt: promotionCompletedAt,
+        conversationKickDeferredReason: "runpod_worker_process",
+        conversationKickFollowup: "session_progress_background_dispatch",
+      });
+    }
   }
 }

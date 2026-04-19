@@ -4,7 +4,7 @@
 
 - Open
 - GitHub Issue: `#159`
-- 最終更新: `2026-04-18`
+- 最終更新: `2026-04-19`
 
 ## 何をするか
 
@@ -40,10 +40,20 @@ Runpod 側で STT が終わってから conversation finalize が実際に走り
 を conversation / job meta と `runpod:measure-ux` JSON に残す。
 
 - Runpod worker から app 側へ、poll 依存ではない明示 handoff を入れる
-  - 例: 内部 route / maintenance endpoint / queue signal / durable handoff record
+  - まずは `GET /api/sessions/[id]/progress` の `runAfterResponse` でも background dispatch を継続し、`POST` 待ちの hidden wait を減らす
 - `requireRunpodStopped` の待ちを別フェーズとして観測し、必要なら handoff と stop を分離する
 - `runpod:measure-summary` に post-STT breakdown を出す
 - `session-progress` 側でも hidden wait を見えるようにする
+
+## 2026-04-19 進捗
+
+- `promote-session.ts` で `promotionCompletedAt / conversationDispatchMode / conversationEnsureState / conversationKickDeferredAt` を `qualityMetaJson.finalizeJob` に残すようにした
+- `app-dispatch.ts` で `conversationKickRequestedAt / conversationAppDispatchStartedAt / conversationAppDispatchBlockedAt / conversationAppDispatchCompletedAt` を残すようにした
+- `handlers.ts` で `conversationJobClaimedAt / reviewStartedAt / reviewCompletedAt / finalizeStartedAt / finalizeCompletedAt` を残すようにした
+- `GET /api/sessions/[id]/progress` でも、まだ pipeline が進行中なら `runAfterResponse()` で background dispatch を継続するようにした
+- `runpod:measure-ux` は上の timestamp を JSON に残し、`runpod:measure-summary` は `## Post-STT breakdown` と missing timestamp warning を出すようにした
+
+残りは、publish 済み worker image を使った production 相当 3 run で `post-STT breakdown` がすべて埋まり、どれだけ短くなったかを issue に追記すること
 
 ## 完了条件
 
