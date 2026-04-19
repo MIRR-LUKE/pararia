@@ -11,10 +11,10 @@ export async function GET(request: Request) {
     const authResult = await requireTeacherAppSessionForRequest(request);
     if (authResult.response) return authResult.response;
 
-    const activeRecording = await loadLatestActiveTeacherRecording(
-      authResult.session.organizationId,
-      authResult.session.deviceLabel
-    );
+    const activeRecording = await loadLatestActiveTeacherRecording(authResult.session.organizationId, {
+      deviceId: authResult.session.deviceId,
+      deviceLabel: authResult.session.deviceLabel,
+    });
     return NextResponse.json({
       activeRecording,
     });

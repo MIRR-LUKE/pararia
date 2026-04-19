@@ -1,4 +1,6 @@
 import { DEFAULT_MIN_RECORDING_DURATION_SEC } from "@/lib/recording/policy";
+import type { PendingTeacherUploadItem } from "@/lib/teacher-app/types";
+import type { PendingTeacherUploadRecord } from "@/lib/teacher-app/pending-upload-store";
 
 export const TEACHER_MIN_RECORDING_SECONDS = DEFAULT_MIN_RECORDING_DURATION_SEC;
 
@@ -56,4 +58,30 @@ export function readAudioDurationSeconds(file: File) {
     };
     audio.src = url;
   });
+}
+
+export async function loadTeacherPendingUploadStoreModule() {
+  return import("@/lib/teacher-app/pending-upload-store");
+}
+
+export function formatTeacherPendingRecordedAt(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString("ja-JP", {
+    month: "numeric",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+export function toPendingTeacherUploadItem(record: PendingTeacherUploadRecord): PendingTeacherUploadItem {
+  return {
+    id: record.id,
+    recordingId: record.recordingId,
+    recordedAt: formatTeacherPendingRecordedAt(record.recordedAt),
+    status: record.status,
+    label: record.fileName,
+    errorMessage: record.errorMessage,
+  };
 }

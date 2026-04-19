@@ -7,6 +7,10 @@ import {
   getTeacherAppCookieName,
   parseTeacherAppSessionToken,
 } from "@/lib/teacher-app/device-auth";
+import {
+  loadActiveTeacherAppDevice,
+  touchTeacherAppDeviceLastSeen,
+} from "@/lib/teacher-app/device-registry";
 import type { TeacherAppDeviceSession } from "@/lib/teacher-app/types";
 
 function readTeacherAppCookieFromHeader(cookieHeader: string | null) {
@@ -23,13 +27,13 @@ function readTeacherAppCookieFromHeader(cookieHeader: string | null) {
 
 export async function getTeacherAppSession(): Promise<TeacherAppDeviceSession | null> {
   const cookieStore = await cookies();
-  return parseTeacherAppSessionToken(cookieStore.get(getTeacherAppCookieName())?.value);
+  return readVerifiedTeacherAppSession(cookieStore.get(getTeacherAppCookieName())?.value);
 }
 
 export async function requireTeacherAppSessionForRequest(request: Request) {
   const bearer = readBearerToken(request.headers.get("authorization"));
   const cookieToken = readTeacherAppCookieFromHeader(request.headers.get("cookie"));
-  const session = parseTeacherAppSessionToken(bearer || cookieToken);
+  const session = await readVerifiedTeacherAppSession(bearer || cookieToken);
   if (!session) {
     return {
       session: null,
@@ -61,4 +65,24 @@ export async function requireTeacherAppMutationSession(request: Request) {
 
 export function canConfigureTeacherAppDevice(role: string | null | undefined) {
   return canManageSettings(role);
+}
+
+async function readVerifiedTeacherAppSession(token: string | null | undefined): Promise<TeacherAppDeviceSession | null> {
+  const parsed = parseTeacherAppSessionToken(token);
+  if (!parsed) return null;
+
+  const device = await loadActiveTeacherAppDevice({
+    deviceId: parsed.deviceId,
+    organizationId: parsed.organizationId,
+  });
+  if (!device || device.label !== parsed.deviceLabel) {
+    return null;
+  }
+
+  void touchTeacherAppDeviceLastSeen({
+    deviceId: parsed.deviceId,
+    organizationId: parsed.organizationId,
+  }).catch(() => {});
+
+  return parsed;
 }

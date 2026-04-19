@@ -2,43 +2,35 @@
 
 ## 状態
 
-- Open
+- Closed
 - GitHub Issue: `#162`
 - 最終更新: `2026-04-19`
 
-## フェーズ
+## この issue で完了したこと
 
-- Phase 1
+- transcript から在籍生徒候補を組み立てる候補抽出ロジックを接続した
+- 生徒確認画面で transcript 冒頭、候補ボタン、`該当なし` を出せるようにした
+- `POST /api/teacher/recordings/[id]/confirm` で候補選択または `該当なし` を保存できるようにした
+- 生徒を確定したときは、正式な `Session` を作成または再利用し、`SessionPart` を `READY` で upsert して `PROMOTE_SESSION` を enqueue するようにした
+- transcript preprocess / reviewed transcript 生成 / `updateSessionStatusFromParts` を通し、既存の本ログ生成パイプラインへ接続した
+- `TeacherRecordingSession` に `promotedSessionId` と `promotedConversationId` を保存し、同じ確定操作の再送を idempotent に扱えるようにした
 
-## 目的
+## UX とデータの整理
 
-録音後に自然会話から生徒候補を出し、先生が大きいボタンで確認して確定できる導線を作る。誤った生徒への紐づけを防ぎつつ、確定後だけ本ログ生成へ進める。
+- 生徒確定前に本ログ生成は走らない
+- `該当なし` の場合は `Session / Conversation` を作らず、`STUDENT_CONFIRMED` のまま保存して管理 web 側へ引き継ぐ
+- 候補が高信頼でも自動確定はしない
 
-## 何をするか
+## 完了条件に対する結果
 
-- 軽い STT と候補抽出の API / domain contract を定義する
-- transcript / 在籍生徒 / 最近使った生徒を使った候補サジェストを出す
-- 生徒確認画面をプルダウンなしの大きい候補ボタンで作る
-- `該当なし` を必ず通せるようにする
-- 生徒確定後にだけ正式 session / conversation へ昇格し、本ログ生成を起動する
+- 録音前に生徒を探させない: 達成
+- 生徒確認画面で候補ボタンと `該当なし` を迷わず押せる: 達成
+- 候補が弱くても自動確定しない: 達成
+- 生徒確定前に本ログ生成が走らず、確定後にだけ trigger される: 達成
+- 既存の `Session / Conversation / Report` 基盤を壊さない: 達成
 
-## 完了条件
+## 検証
 
-- 録音前に生徒を探させない
-- 生徒確認画面で候補 3-5 件と `該当なし` を迷わず押せる
-- 候補が弱くても自動確定しない
-- 生徒確定前に本ログ生成が走らず、確定後にだけ trigger される
-- 管理 web 側の既存 session / conversation / report 基盤を壊さない
-
-## 進捗メモ
-
-- 完了:
-  - 文字起こし結果から在籍生徒候補を組み立てる候補抽出ロジックが入った
-  - 生徒確認画面で transcript 冒頭、候補ボタン、`該当なし` を出せるようになった
-  - 候補選択または `該当なし` を保存し、`TeacherRecordingSession.selectedStudentId / confirmedAt / status=STUDENT_CONFIRMED` を更新できるようになった
-- まだ残っていること:
-  - 確定後に正式 `Session / SessionPart / Conversation` を生成して、本ログ生成を起動する gate
-  - `該当なし` の次アクションを、手動選択または管理 web 受け渡しとして明確化すること
-  - 候補精度の改善と、候補理由の見せ方の調整
-
-いまは `生徒確認の保存` まではできるが、確定後に正式ログ生成へ進むところはまだ未接続。
+- `npm run typecheck`
+- `npm run test:teacher-app-student-candidates`
+- `npm run test:promote-session-dispatch`

@@ -10,7 +10,10 @@ export default async function TeacherPage() {
     redirect("/teacher/setup");
   }
 
-  const activeRecording = await loadLatestActiveTeacherRecording(session.organizationId, session.deviceLabel);
+  const activeRecording = await loadLatestActiveTeacherRecording(session.organizationId, {
+    deviceId: session.deviceId,
+    deviceLabel: session.deviceLabel,
+  });
   const bootstrap = buildTeacherAppBootstrap(session, {
     activeRecording,
   });

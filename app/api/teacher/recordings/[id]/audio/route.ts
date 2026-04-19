@@ -1,4 +1,10 @@
 import { NextResponse } from "next/server";
+import {
+  beginIdempotency,
+  completeIdempotency,
+  failIdempotency,
+  IdempotencyConflictError,
+} from "@/lib/idempotency";
 import { maybeEnsureRunpodWorker } from "@/lib/runpod/worker-control";
 import { shouldRunBackgroundJobsInline } from "@/lib/jobs/execution-mode";
 import { processQueuedTeacherRecordingJobs } from "@/lib/jobs/teacherRecordingJobs";
@@ -12,6 +18,9 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 export async function POST(request: Request, { params }: { params: RouteParams }) {
+  let idempotencyKey: string | null = null;
+  let idempotencyStarted = false;
+
   try {
     const authResult = await requireTeacherAppMutationSession(request);
     if (authResult.response) return authResult.response;
@@ -35,9 +44,35 @@ export async function POST(request: Request, { params }: { params: RouteParams }
       return NextResponse.json({ error: "file が必要です。" }, { status: 400 });
     }
     const durationSecondsHint = Number(formData.get("durationSecondsHint") ?? NaN);
+    idempotencyKey = request.headers.get("Idempotency-Key")?.trim() || recordingId;
+    const idempotency = await beginIdempotency({
+      scope: "teacher_recording_upload",
+      idempotencyKey,
+      requestBody: {
+        recordingId,
+        fileName: file.name,
+        mimeType: file.type,
+        fileSize: file.size,
+        durationSecondsHint: Number.isFinite(durationSecondsHint) ? durationSecondsHint : null,
+      },
+      organizationId: authResult.session.organizationId,
+      userId: authResult.session.userId,
+      ttlMs: 24 * 60 * 60 * 1000,
+    });
+    if (idempotency.state === "completed") {
+      return NextResponse.json(idempotency.responseBody ?? {}, { status: idempotency.responseStatus ?? 200 });
+    }
+    if (idempotency.state === "pending") {
+      return NextResponse.json(
+        { error: "同じ録音の送信がまだ進行中です。少し待ってから再読み込みしてください。" },
+        { status: 409 }
+      );
+    }
+    idempotencyStarted = true;
 
     await uploadTeacherRecordingAudio({
       organizationId: authResult.session.organizationId,
+      deviceId: authResult.session.deviceId,
       deviceLabel: authResult.session.deviceLabel,
       recordingId,
       file,
@@ -64,13 +99,30 @@ export async function POST(request: Request, { params }: { params: RouteParams }
 
     const recording = await loadTeacherRecordingSummary({
       organizationId: authResult.session.organizationId,
+      deviceId: authResult.session.deviceId,
       deviceLabel: authResult.session.deviceLabel,
       recordingId,
     });
-    return NextResponse.json({
+    const responseBody = {
       recording,
+    };
+    await completeIdempotency({
+      scope: "teacher_recording_upload",
+      idempotencyKey,
+      responseStatus: 200,
+      responseBody,
     });
+    return NextResponse.json(responseBody);
   } catch (error: any) {
+    if (error instanceof IdempotencyConflictError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
+    if (idempotencyStarted && idempotencyKey) {
+      await failIdempotency({
+        scope: "teacher_recording_upload",
+        idempotencyKey,
+      }).catch(() => {});
+    }
     console.error("[POST /api/teacher/recordings/[id]/audio] Error:", error);
     return NextResponse.json({ error: error?.message ?? "Internal Server Error" }, { status: 500 });
   }

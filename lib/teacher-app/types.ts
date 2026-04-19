@@ -1,6 +1,7 @@
 export type TeacherAppDeviceSession = {
   userId: string;
   organizationId: string;
+  deviceId: string;
   role: string;
   roleLabel: string;
   userName: string | null;
@@ -20,7 +21,7 @@ export type TeacherStudentCandidate = {
 
 export type PendingTeacherUploadItem = {
   id: string;
-  recordingId: string;
+  recordingId: string | null;
   recordedAt: string;
   status: "pending" | "failed";
   label: string;
@@ -54,7 +55,7 @@ export type TeacherFlowState =
   | { kind: "recording"; recordingId: string; seconds: number }
   | { kind: "analyzing"; recordingId: string; description: string }
   | { kind: "confirm"; recording: TeacherRecordingSummary }
-  | { kind: "done" }
+  | { kind: "done"; title: string; description: string }
   | { kind: "pending"; items: PendingTeacherUploadItem[] };
 
 export type TeacherAppBootstrap = {

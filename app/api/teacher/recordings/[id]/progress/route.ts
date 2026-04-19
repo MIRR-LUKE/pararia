@@ -42,6 +42,7 @@ async function loadAuthorizedRecording(request: Request, params: RouteParams, mu
 
   const recording = await loadTeacherRecordingSummary({
     organizationId: authResult.session.organizationId,
+    deviceId: authResult.session.deviceId,
     deviceLabel: authResult.session.deviceLabel,
     recordingId,
   });
@@ -154,6 +155,7 @@ export async function POST(request: Request, { params }: { params: RouteParams }
 
     const refreshed = await loadTeacherRecordingSummary({
       organizationId: loaded.authSession!.organizationId,
+      deviceId: loaded.authSession!.deviceId,
       deviceLabel: loaded.authSession!.deviceLabel,
       recordingId: loaded.recordingId!,
     });

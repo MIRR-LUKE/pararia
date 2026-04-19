@@ -2,6 +2,9 @@
 CREATE TYPE "TeacherRecordingJobType" AS ENUM ('TRANSCRIBE_AND_SUGGEST');
 
 -- CreateEnum
+CREATE TYPE "TeacherAppDeviceStatus" AS ENUM ('ACTIVE', 'REVOKED');
+
+-- CreateEnum
 CREATE TYPE "TeacherRecordingSessionStatus" AS ENUM (
     'RECORDING',
     'TRANSCRIBING',
@@ -12,11 +15,27 @@ CREATE TYPE "TeacherRecordingSessionStatus" AS ENUM (
 );
 
 -- CreateTable
+CREATE TABLE "TeacherAppDevice" (
+    "id" TEXT NOT NULL,
+    "organizationId" TEXT NOT NULL,
+    "configuredByUserId" TEXT NOT NULL,
+    "label" TEXT NOT NULL,
+    "status" "TeacherAppDeviceStatus" NOT NULL DEFAULT 'ACTIVE',
+    "lastAuthenticatedAt" TIMESTAMP(3),
+    "lastSeenAt" TIMESTAMP(3),
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "TeacherAppDevice_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
 CREATE TABLE "TeacherRecordingSession" (
     "id" TEXT NOT NULL,
     "organizationId" TEXT NOT NULL,
     "createdByUserId" TEXT NOT NULL,
     "selectedStudentId" TEXT,
+    "deviceId" TEXT,
     "deviceLabel" TEXT NOT NULL,
     "status" "TeacherRecordingSessionStatus" NOT NULL DEFAULT 'RECORDING',
     "audioFileName" TEXT,
@@ -33,6 +52,9 @@ CREATE TABLE "TeacherRecordingSession" (
     "uploadedAt" TIMESTAMP(3),
     "analyzedAt" TIMESTAMP(3),
     "confirmedAt" TIMESTAMP(3),
+    "promotionTriggeredAt" TIMESTAMP(3),
+    "promotedSessionId" TEXT,
+    "promotedConversationId" TEXT,
     "processingLeaseExecutionId" TEXT,
     "processingLeaseExpiresAt" TIMESTAMP(3),
     "processingLeaseStartedAt" TIMESTAMP(3),
@@ -65,6 +87,18 @@ CREATE TABLE "TeacherRecordingJob" (
 );
 
 -- CreateIndex
+CREATE UNIQUE INDEX "TeacherAppDevice_organizationId_label_key"
+ON "TeacherAppDevice"("organizationId", "label");
+
+-- CreateIndex
+CREATE INDEX "TeacherAppDevice_organizationId_status_updatedAt_idx"
+ON "TeacherAppDevice"("organizationId", "status", "updatedAt");
+
+-- CreateIndex
+CREATE INDEX "TeacherRecordingSession_organizationId_deviceId_status_createdAt_idx"
+ON "TeacherRecordingSession"("organizationId", "deviceId", "status", "createdAt");
+
+-- CreateIndex
 CREATE INDEX "TeacherRecordingSession_organizationId_deviceLabel_status_createdAt_idx"
 ON "TeacherRecordingSession"("organizationId", "deviceLabel", "status", "createdAt");
 
@@ -93,6 +127,16 @@ CREATE INDEX "TeacherRecordingJob_recordingSessionId_type_status_idx"
 ON "TeacherRecordingJob"("recordingSessionId", "type", "status");
 
 -- AddForeignKey
+ALTER TABLE "TeacherAppDevice"
+ADD CONSTRAINT "TeacherAppDevice_organizationId_fkey"
+FOREIGN KEY ("organizationId") REFERENCES "Organization"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "TeacherAppDevice"
+ADD CONSTRAINT "TeacherAppDevice_configuredByUserId_fkey"
+FOREIGN KEY ("configuredByUserId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
 ALTER TABLE "TeacherRecordingSession"
 ADD CONSTRAINT "TeacherRecordingSession_organizationId_fkey"
 FOREIGN KEY ("organizationId") REFERENCES "Organization"("id") ON DELETE CASCADE ON UPDATE CASCADE;
@@ -106,6 +150,11 @@ FOREIGN KEY ("createdByUserId") REFERENCES "User"("id") ON DELETE CASCADE ON UPD
 ALTER TABLE "TeacherRecordingSession"
 ADD CONSTRAINT "TeacherRecordingSession_selectedStudentId_fkey"
 FOREIGN KEY ("selectedStudentId") REFERENCES "Student"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "TeacherRecordingSession"
+ADD CONSTRAINT "TeacherRecordingSession_deviceId_fkey"
+FOREIGN KEY ("deviceId") REFERENCES "TeacherAppDevice"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "TeacherRecordingJob"

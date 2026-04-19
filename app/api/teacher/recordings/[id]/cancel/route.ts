@@ -27,7 +27,7 @@ export async function POST(request: Request, { params }: { params: RouteParams }
 
     await cancelTeacherRecordingSession({
       organizationId: authResult.session.organizationId,
-      deviceLabel: authResult.session.deviceLabel,
+      deviceId: authResult.session.deviceId,
       recordingId,
     });
 

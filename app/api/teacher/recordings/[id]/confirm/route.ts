@@ -28,8 +28,9 @@ export async function POST(request: Request, { params }: { params: RouteParams }
     const body = (await request.json().catch(() => null)) as { studentId?: string | null } | null;
     const studentId = typeof body?.studentId === "string" && body.studentId.trim() ? body.studentId.trim() : null;
 
-    await confirmTeacherRecordingStudent({
+    const result = await confirmTeacherRecordingStudent({
       organizationId: authResult.session.organizationId,
+      deviceId: authResult.session.deviceId,
       deviceLabel: authResult.session.deviceLabel,
       recordingId,
       studentId,
@@ -37,6 +38,7 @@ export async function POST(request: Request, { params }: { params: RouteParams }
 
     return NextResponse.json({
       ok: true,
+      result,
     });
   } catch (error: any) {
     console.error("[POST /api/teacher/recordings/[id]/confirm] Error:", error);

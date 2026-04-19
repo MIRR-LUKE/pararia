@@ -12,6 +12,7 @@ import {
   createTeacherAppDeviceSession,
   serializeTeacherAppSessionToken,
 } from "@/lib/teacher-app/device-auth";
+import { registerTeacherAppDevice } from "@/lib/teacher-app/device-registry";
 import { canConfigureTeacherAppDevice } from "@/lib/server/teacher-app-session";
 
 export async function POST(request: Request) {
@@ -68,7 +69,12 @@ export async function POST(request: Request) {
       await clearAuthThrottle("teacher_device_login_ip", ipAddress);
     }
 
-    const session = createTeacherAppDeviceSession(user, deviceLabel);
+    const device = await registerTeacherAppDevice({
+      organizationId: user.organizationId,
+      configuredByUserId: user.id,
+      label: deviceLabel,
+    });
+    const session = createTeacherAppDeviceSession(user, device);
     const token = serializeTeacherAppSessionToken(session);
     const response = NextResponse.json({
       session,

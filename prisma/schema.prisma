@@ -35,6 +35,7 @@ model Organization {
   nextMeetingMemos          NextMeetingMemo[]
   teacherRecordingSessions  TeacherRecordingSession[]
   teacherRecordingJobs      TeacherRecordingJob[]
+  teacherAppDevices         TeacherAppDevice[]
 }
 
 model User {
@@ -56,6 +57,7 @@ model User {
   invitationsCreated OrganizationInvitation[] @relation("InvitationCreator")
   properNounGlossaryEntries ProperNounGlossaryEntry[] @relation("GlossaryTutor")
   teacherRecordingSessionsCreated TeacherRecordingSession[] @relation("TeacherRecordingCreator")
+  teacherAppDevicesConfigured TeacherAppDevice[] @relation("TeacherAppDeviceConfiguredBy")
 }
 
 model Student {
@@ -278,11 +280,31 @@ model SessionPartJob {
   @@index([sessionPartId, type, status])
 }
 
+model TeacherAppDevice {
+  id                  String                 @id @default(cuid())
+  organizationId      String
+  configuredByUserId  String
+  label               String
+  status              TeacherAppDeviceStatus @default(ACTIVE)
+  lastAuthenticatedAt DateTime?
+  lastSeenAt          DateTime?
+  createdAt           DateTime               @default(now())
+  updatedAt           DateTime               @updatedAt
+
+  organization Organization              @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  configuredBy User                     @relation("TeacherAppDeviceConfiguredBy", fields: [configuredByUserId], references: [id], onDelete: Cascade)
+  recordings   TeacherRecordingSession[]
+
+  @@unique([organizationId, label])
+  @@index([organizationId, status, updatedAt])
+}
+
 model TeacherRecordingSession {
   id                        String                      @id @default(cuid())
   organizationId            String
   createdByUserId           String
   selectedStudentId         String?
+  deviceId                  String?
   deviceLabel               String
   status                    TeacherRecordingSessionStatus @default(RECORDING)
   audioFileName             String?
@@ -299,6 +321,9 @@ model TeacherRecordingSession {
   uploadedAt                DateTime?
   analyzedAt                DateTime?
   confirmedAt               DateTime?
+  promotionTriggeredAt      DateTime?
+  promotedSessionId         String?
+  promotedConversationId    String?
   processingLeaseExecutionId String?
   processingLeaseExpiresAt  DateTime?
   processingLeaseStartedAt  DateTime?
@@ -309,8 +334,10 @@ model TeacherRecordingSession {
   organization  Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   createdBy     User               @relation("TeacherRecordingCreator", fields: [createdByUserId], references: [id], onDelete: Cascade)
   selectedStudent Student?         @relation("TeacherRecordingSelectedStudent", fields: [selectedStudentId], references: [id], onDelete: SetNull)
+  device        TeacherAppDevice?  @relation(fields: [deviceId], references: [id], onDelete: SetNull)
   jobs          TeacherRecordingJob[]
 
+  @@index([organizationId, deviceId, status, createdAt])
   @@index([organizationId, deviceLabel, status, createdAt])
   @@index([createdByUserId, status, createdAt])
   @@index([selectedStudentId, createdAt])
@@ -674,6 +701,11 @@ enum SessionPartJobType {
 
 enum TeacherRecordingJobType {
   TRANSCRIBE_AND_SUGGEST
+}
+
+enum TeacherAppDeviceStatus {
+  ACTIVE
+  REVOKED
 }
 
 enum JobStatus {

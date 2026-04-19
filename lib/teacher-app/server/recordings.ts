@@ -1,11 +1,27 @@
 import { randomUUID } from "node:crypto";
-import { JobStatus, Prisma, TeacherRecordingJobType, TeacherRecordingSessionStatus } from "@prisma/client";
+import {
+  Prisma,
+  SessionType,
+  TeacherRecordingJobType,
+  TeacherRecordingSessionStatus,
+} from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { saveStorageBuffer, materializeStorageFile } from "@/lib/audio-storage";
 import { buildTeacherRecordingUploadPathname, sanitizeStorageFileName } from "@/lib/audio-storage-paths";
 import { toPrismaJson } from "@/lib/prisma-json";
 import { transcribeAudioForPipeline } from "@/lib/ai/stt";
+import { processAllSessionPartJobs } from "@/lib/jobs/sessionPartJobs";
+import { evaluateTranscriptSubstance } from "@/lib/recording/validation";
+import { updateSessionStatusFromParts } from "@/lib/session-service";
+import { ensureSessionPartReviewedTranscript } from "@/lib/transcript/review-service";
+import { preprocessTranscript } from "@/lib/transcript/preprocess";
 import { normalizeRawTranscriptText } from "@/lib/transcript/source";
+import {
+  findReusableInterviewSessionId,
+  upsertTeacherPromotionJob,
+  upsertTeacherRecordingJob,
+  upsertTeacherRecordingSessionPart,
+} from "@/lib/teacher-app/server/recording-session-ops";
 import { buildTeacherStudentCandidates } from "@/lib/teacher-app/student-candidates";
 import type {
   TeacherAppDeviceSession,
@@ -19,7 +35,27 @@ const ACTIVE_TEACHER_RECORDING_STATUSES = [
   TeacherRecordingSessionStatus.AWAITING_STUDENT_CONFIRMATION,
 ];
 
+export type TeacherRecordingConfirmationResult = {
+  state: "promoted" | "saved_without_student";
+  sessionId: string | null;
+  conversationId: string | null;
+  alreadyConfirmed: boolean;
+};
+
 type TeacherRecordingRow = Awaited<ReturnType<typeof loadTeacherRecordingRow>>;
+
+function buildTeacherRecordingDeviceWhere(input: {
+  deviceId?: string | null;
+  deviceLabel?: string | null;
+}) {
+  if (input.deviceId) {
+    return { deviceId: input.deviceId };
+  }
+  if (input.deviceLabel) {
+    return { deviceLabel: input.deviceLabel };
+  }
+  return {};
+}
 
 function parseCandidatesJson(value: Prisma.JsonValue | null | undefined) {
   if (!Array.isArray(value)) return [];
@@ -57,12 +93,16 @@ function toTeacherRecordingSummary(recording: NonNullable<TeacherRecordingRow>):
   };
 }
 
-async function loadTeacherRecordingRow(recordingId: string, organizationId: string, deviceLabel?: string) {
+async function loadTeacherRecordingRow(
+  recordingId: string,
+  organizationId: string,
+  deviceScope?: { deviceId?: string | null; deviceLabel?: string | null }
+) {
   return prisma.teacherRecordingSession.findFirst({
     where: {
       id: recordingId,
       organizationId,
-      ...(deviceLabel ? { deviceLabel } : {}),
+      ...buildTeacherRecordingDeviceWhere(deviceScope ?? {}),
     },
     select: {
       id: true,
@@ -106,14 +146,15 @@ async function loadTeacherRecordingForProcessing(
   recordingId: string,
   filters?: {
     organizationId?: string;
-    deviceLabel?: string;
+    deviceId?: string | null;
+    deviceLabel?: string | null;
   }
 ) {
   return prisma.teacherRecordingSession.findFirst({
     where: {
       id: recordingId,
       ...(filters?.organizationId ? { organizationId: filters.organizationId } : {}),
-      ...(filters?.deviceLabel ? { deviceLabel: filters.deviceLabel } : {}),
+      ...buildTeacherRecordingDeviceWhere(filters ?? {}),
     },
     select: {
       id: true,
@@ -135,6 +176,7 @@ export async function createTeacherRecordingSession(session: TeacherAppDeviceSes
     data: {
       organizationId: session.organizationId,
       createdByUserId: session.userId,
+      deviceId: session.deviceId,
       deviceLabel: session.deviceLabel,
       status: TeacherRecordingSessionStatus.RECORDING,
       recordedAt: new Date(),
@@ -145,14 +187,14 @@ export async function createTeacherRecordingSession(session: TeacherAppDeviceSes
 
 export async function cancelTeacherRecordingSession(input: {
   organizationId: string;
-  deviceLabel: string;
+  deviceId: string;
   recordingId: string;
 }) {
   await prisma.teacherRecordingSession.updateMany({
     where: {
       id: input.recordingId,
       organizationId: input.organizationId,
-      deviceLabel: input.deviceLabel,
+      deviceId: input.deviceId,
       status: TeacherRecordingSessionStatus.RECORDING,
     },
     data: {
@@ -164,19 +206,26 @@ export async function cancelTeacherRecordingSession(input: {
 
 export async function loadTeacherRecordingSummary(input: {
   organizationId: string;
-  deviceLabel: string;
+  deviceId?: string | null;
+  deviceLabel?: string | null;
   recordingId: string;
 }) {
-  const recording = await loadTeacherRecordingRow(input.recordingId, input.organizationId, input.deviceLabel);
+  const recording = await loadTeacherRecordingRow(input.recordingId, input.organizationId, {
+    deviceId: input.deviceId,
+    deviceLabel: input.deviceLabel,
+  });
   if (!recording) return null;
   return toTeacherRecordingSummary(recording);
 }
 
-export async function loadLatestActiveTeacherRecording(organizationId: string, deviceLabel: string) {
+export async function loadLatestActiveTeacherRecording(
+  organizationId: string,
+  deviceScope: { deviceId?: string | null; deviceLabel?: string | null }
+) {
   const recording = await prisma.teacherRecordingSession.findFirst({
     where: {
       organizationId,
-      deviceLabel,
+      ...buildTeacherRecordingDeviceWhere(deviceScope),
       status: {
         in: ACTIVE_TEACHER_RECORDING_STATUSES,
       },
@@ -223,13 +272,15 @@ export async function loadLatestActiveTeacherRecording(organizationId: string, d
 
 export async function uploadTeacherRecordingAudio(input: {
   organizationId: string;
-  deviceLabel: string;
+  deviceId?: string | null;
+  deviceLabel?: string | null;
   recordingId: string;
   file: File;
   durationSecondsHint?: number | null;
 }) {
   const recording = await loadTeacherRecordingForProcessing(input.recordingId, {
     organizationId: input.organizationId,
+    deviceId: input.deviceId,
     deviceLabel: input.deviceLabel,
   });
   if (!recording || recording.organizationId !== input.organizationId) {
@@ -274,10 +325,43 @@ export async function uploadTeacherRecordingAudio(input: {
 
 export async function confirmTeacherRecordingStudent(input: {
   organizationId: string;
-  deviceLabel: string;
+  deviceId?: string | null;
+  deviceLabel?: string | null;
   recordingId: string;
   studentId: string | null;
 }) {
+  const existing = await prisma.teacherRecordingSession.findFirst({
+    where: {
+      id: input.recordingId,
+      organizationId: input.organizationId,
+      ...buildTeacherRecordingDeviceWhere(input),
+    },
+    select: {
+      id: true,
+      status: true,
+      selectedStudentId: true,
+      promotedSessionId: true,
+      promotedConversationId: true,
+    },
+  });
+  if (!existing) {
+    throw new Error("録音セッションが見つかりません。");
+  }
+  if (
+    existing.status === TeacherRecordingSessionStatus.STUDENT_CONFIRMED &&
+    (existing.selectedStudentId ?? null) === (input.studentId ?? null)
+  ) {
+    return {
+      state: input.studentId ? "promoted" : "saved_without_student",
+      sessionId: existing.promotedSessionId ?? null,
+      conversationId: existing.promotedConversationId ?? null,
+      alreadyConfirmed: true,
+    } satisfies TeacherRecordingConfirmationResult;
+  }
+  if (existing.status !== TeacherRecordingSessionStatus.AWAITING_STUDENT_CONFIRMATION) {
+    throw new Error("この録音は確認できる状態ではありません。");
+  }
+
   if (input.studentId) {
     const student = await prisma.student.findFirst({
       where: {
@@ -292,73 +376,162 @@ export async function confirmTeacherRecordingStudent(input: {
     }
   }
 
-  const updated = await prisma.teacherRecordingSession.updateMany({
-    where: {
-      id: input.recordingId,
-      organizationId: input.organizationId,
-      deviceLabel: input.deviceLabel,
-      status: TeacherRecordingSessionStatus.AWAITING_STUDENT_CONFIRMATION,
-    },
-    data: {
-      status: TeacherRecordingSessionStatus.STUDENT_CONFIRMED,
-      selectedStudentId: input.studentId,
-      confirmedAt: new Date(),
-      errorMessage: null,
-    },
-  });
-  if (updated.count <= 0) {
-    throw new Error("この録音は確認できる状態ではありません。");
-  }
-}
+  const confirmedAt = new Date();
 
-async function upsertTeacherRecordingJob(
-  tx: Prisma.TransactionClient,
-  recordingId: string,
-  organizationId: string,
-  type: TeacherRecordingJobType
-) {
-  const existing = await tx.teacherRecordingJob.findUnique({
-    where: {
-      recordingSessionId_type: {
-        recordingSessionId: recordingId,
-        type,
+  if (!input.studentId) {
+    await prisma.teacherRecordingSession.update({
+      where: { id: input.recordingId },
+      data: {
+        status: TeacherRecordingSessionStatus.STUDENT_CONFIRMED,
+        selectedStudentId: null,
+        confirmedAt,
+        errorMessage: null,
       },
-    },
+    });
+    return {
+      state: "saved_without_student",
+      sessionId: null,
+      conversationId: null,
+      alreadyConfirmed: false,
+    } satisfies TeacherRecordingConfirmationResult;
+  }
+
+  const selectedStudentId = input.studentId;
+
+  const promotion = await prisma.$transaction(async (tx) => {
+    const recording = await tx.teacherRecordingSession.findFirst({
+      where: {
+        id: input.recordingId,
+        organizationId: input.organizationId,
+        ...buildTeacherRecordingDeviceWhere(input),
+        status: TeacherRecordingSessionStatus.AWAITING_STUDENT_CONFIRMATION,
+      },
+      select: {
+        id: true,
+        organizationId: true,
+        createdByUserId: true,
+        deviceLabel: true,
+        audioFileName: true,
+        audioMimeType: true,
+        audioByteSize: true,
+        audioStorageUrl: true,
+        transcriptText: true,
+        transcriptSegmentsJson: true,
+        transcriptMetaJson: true,
+        recordedAt: true,
+      },
+    });
+    if (!recording) {
+      throw new Error("この録音は確認できる状態ではありません。");
+    }
+
+    const transcriptText = normalizeRawTranscriptText(recording.transcriptText);
+    if (!transcriptText) {
+      throw new Error("文字起こし結果が見つかりません。");
+    }
+    const preprocessed = preprocessTranscript(transcriptText);
+    const substance = evaluateTranscriptSubstance(preprocessed.rawTextOriginal);
+    if (!substance.ok) {
+      throw new Error(substance.messageJa);
+    }
+    if (!recording.audioStorageUrl) {
+      throw new Error("録音データが見つかりません。");
+    }
+
+    const targetSessionId = await findReusableInterviewSessionId(tx, {
+      organizationId: input.organizationId,
+      studentId: selectedStudentId,
+    });
+    const sessionId =
+      targetSessionId ??
+      (
+        await tx.session.create({
+          data: {
+            organizationId: input.organizationId,
+            studentId: selectedStudentId,
+            userId: recording.createdByUserId ?? undefined,
+            type: SessionType.INTERVIEW,
+            sessionDate: recording.recordedAt ?? confirmedAt,
+          },
+          select: { id: true },
+        })
+      ).id;
+
+    const part = await upsertTeacherRecordingSessionPart(tx, {
+      sessionId,
+      recordingId: recording.id,
+      deviceLabel: recording.deviceLabel,
+      fileName: recording.audioFileName,
+      mimeType: recording.audioMimeType,
+      byteSize: recording.audioByteSize,
+      storageUrl: recording.audioStorageUrl,
+      transcriptText: preprocessed.rawTextOriginal,
+      displayTranscript: preprocessed.displayTranscript,
+      transcriptSegmentsJson: recording.transcriptSegmentsJson,
+      transcriptMetaJson: recording.transcriptMetaJson,
+      confirmedAt,
+    });
+
+    await tx.teacherRecordingSession.update({
+      where: { id: input.recordingId },
+      data: {
+        status: TeacherRecordingSessionStatus.STUDENT_CONFIRMED,
+        selectedStudentId,
+        confirmedAt,
+        promotionTriggeredAt: confirmedAt,
+        promotedSessionId: sessionId,
+        errorMessage: null,
+      },
+    });
+
+    await upsertTeacherPromotionJob(tx, part.id);
+
+    return {
+      sessionId,
+      sessionPartId: part.id,
+    };
+  });
+
+  await updateSessionStatusFromParts(promotion.sessionId).catch(() => {});
+  await ensureSessionPartReviewedTranscript(promotion.sessionPartId).catch((error) => {
+    console.error("[teacher-recordings] failed to build reviewed transcript", {
+      recordingId: input.recordingId,
+      sessionPartId: promotion.sessionPartId,
+      error,
+    });
+  });
+  await processAllSessionPartJobs(promotion.sessionId).catch((error) => {
+    console.error("[teacher-recordings] failed to process promoted session parts", {
+      recordingId: input.recordingId,
+      sessionId: promotion.sessionId,
+      error,
+    });
+  });
+
+  const promotedSession = await prisma.session.findUnique({
+    where: { id: promotion.sessionId },
     select: {
       id: true,
-      status: true,
-    },
-  });
-
-  if (existing && (existing.status === JobStatus.QUEUED || existing.status === JobStatus.RUNNING)) {
-    return tx.teacherRecordingJob.findUniqueOrThrow({
-      where: { id: existing.id },
-    });
-  }
-
-  if (existing) {
-    return tx.teacherRecordingJob.update({
-      where: { id: existing.id },
-      data: {
-        status: JobStatus.QUEUED,
-        executionId: null,
-        lastError: null,
-        outputJson: Prisma.DbNull,
-        costMetaJson: Prisma.DbNull,
-        startedAt: null,
-        finishedAt: null,
+      conversation: {
+        select: { id: true },
       },
-    });
-  }
-
-  return tx.teacherRecordingJob.create({
-    data: {
-      organizationId,
-      recordingSessionId: recordingId,
-      type,
-      status: JobStatus.QUEUED,
     },
   });
+  if (promotedSession?.conversation?.id) {
+    await prisma.teacherRecordingSession.update({
+      where: { id: input.recordingId },
+      data: {
+        promotedConversationId: promotedSession.conversation.id,
+      },
+    }).catch(() => {});
+  }
+
+  return {
+    state: "promoted",
+    sessionId: promotion.sessionId,
+    conversationId: promotedSession?.conversation?.id ?? null,
+    alreadyConfirmed: false,
+  } satisfies TeacherRecordingConfirmationResult;
 }
 
 async function acquireTeacherRecordingLease(recordingId: string, executionId: string) {

@@ -39,17 +39,21 @@ function signTokenSegment(value: string) {
   return createHmac("sha256", getTeacherAppSigningSecret()).update(value).digest();
 }
 
-export function createTeacherAppDeviceSession(user: SessionUser, deviceLabel: string): TeacherAppDeviceSession {
+export function createTeacherAppDeviceSession(
+  user: SessionUser,
+  device: { id: string; label: string }
+): TeacherAppDeviceSession {
   const issuedAt = new Date();
   const expiresAt = new Date(issuedAt.getTime() + TEACHER_APP_TOKEN_TTL_MS);
   return {
     userId: user.id,
     organizationId: user.organizationId,
+    deviceId: device.id,
     role: user.role,
     roleLabel: roleLabelJa(user.role),
     userName: user.name ?? null,
     userEmail: user.email ?? null,
-    deviceLabel: deviceLabel.trim(),
+    deviceLabel: device.label.trim(),
     issuedAt: issuedAt.toISOString(),
     expiresAt: expiresAt.toISOString(),
   };
@@ -99,6 +103,7 @@ export function parseTeacherAppSessionToken(token: string | null | undefined): T
     if (
       typeof parsed.userId !== "string" ||
       typeof parsed.organizationId !== "string" ||
+      typeof parsed.deviceId !== "string" ||
       typeof parsed.role !== "string" ||
       typeof parsed.roleLabel !== "string" ||
       typeof parsed.deviceLabel !== "string" ||
@@ -114,6 +119,7 @@ export function parseTeacherAppSessionToken(token: string | null | undefined): T
     return {
       userId: parsed.userId,
       organizationId: parsed.organizationId,
+      deviceId: parsed.deviceId,
       role: parsed.role,
       roleLabel: parsed.roleLabel,
       userName: typeof parsed.userName === "string" ? parsed.userName : null,

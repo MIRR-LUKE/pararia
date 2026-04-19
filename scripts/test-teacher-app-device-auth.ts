@@ -16,7 +16,10 @@ async function main() {
       role: "ADMIN",
       organizationId: "org_123",
     },
-    "渋谷校 iPhone"
+    {
+      id: "device_123",
+      label: "渋谷校 iPhone",
+    }
   );
 
   const token = serializeTeacherAppSessionToken(session);
@@ -24,6 +27,7 @@ async function main() {
   assert.ok(parsed);
   assert.equal(parsed.userId, session.userId);
   assert.equal(parsed.organizationId, session.organizationId);
+  assert.equal(parsed.deviceId, "device_123");
   assert.equal(parsed.deviceLabel, "渋谷校 iPhone");
 
   const tampered = token.replace("i", "j");

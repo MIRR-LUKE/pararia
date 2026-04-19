@@ -112,11 +112,14 @@ npm run test:student-room-route
 
 - 先生向けの録音専用導線は、管理 web の `/app/*` とは分けて `/teacher` に載せる
 - 初回の校舎共通端末設定は `/teacher/setup` で行い、通常利用時は待機画面から始める
-- いまは `/teacher` で `待機 -> 録音 -> 解析中 -> 生徒確認 -> 完了` の temporary recording flow が動く
+- `/teacher` で `待機 -> 録音 -> 解析中 -> 生徒確認 -> 完了 -> 未送信一覧` の provisional flow が通る
 - 録音開始時に `TeacherRecordingSession` を作り、録音停止後は音声 upload と `TeacherRecordingJob` で STT と候補抽出を進める
-- `TRANSCRIBING` / `AWAITING_STUDENT_CONFIRMATION` の途中で再読み込みしても、同じ端末の active recording を復元して続きから戻れる
-- main path は device scope で閉じ、別端末の in-flight recording を拾わない
-- まだ未完了なのは、生徒確定後に正式 `Session / SessionPart / Conversation` へ昇格して本ログ生成を始める部分と、未送信 queue の永続化 / 再送 / idempotency
+- `TRANSCRIBING` / `AWAITING_STUDENT_CONFIRMATION` の途中で再読み込みしても、同じ登録端末の active recording を復元して続きから戻れる
+- 生徒を確定すると、正式な `Session` と `SessionPart` を作成または再利用し、既存の `PROMOTE_SESSION` 導線で本ログ生成へ渡す
+- `該当なし` を選んだ録音は、生徒未確定のまま `STUDENT_CONFIRMED` として保存し、管理 web 側で後続確認できる
+- upload failure は IndexedDB 永続化の未送信キューへ退避し、未送信一覧から `再送 / 削除` を選べる
+- `/api/teacher/recordings/[id]/audio` は `Idempotency-Key` を受け取り、同一録音の二重送信を抑止する
+- Teacher App の端末認証は `TeacherAppDevice` で永続化し、signed cookie / bearer token の両方で `deviceId` を検証する
 - 親 issue は `#164`、子 issue は `#161`, `#160`, `#162`, `#163`
 - 詳細な仕様と進捗メモは [docs/issues/83-teacher-app-recording-mobile-parent-plan.md](./docs/issues/83-teacher-app-recording-mobile-parent-plan.md) から辿る
 

@@ -18,6 +18,7 @@ export async function GET(request: Request, { params }: { params: RouteParams })
 
     const recording = await loadTeacherRecordingSummary({
       organizationId: authResult.session.organizationId,
+      deviceId: authResult.session.deviceId,
       deviceLabel: authResult.session.deviceLabel,
       recordingId,
     });

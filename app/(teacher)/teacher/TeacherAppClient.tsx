@@ -40,9 +40,23 @@ export function TeacherAppClient({ bootstrap }: Props) {
       />
     );
   } else if (controller.state.kind === "done") {
-    content = <TeacherDoneScreen onBack={controller.returnToStandby} />;
+    content = (
+      <TeacherDoneScreen
+        description={controller.state.description}
+        onBack={controller.returnToStandby}
+        title={controller.state.title}
+      />
+    );
   } else if (controller.state.kind === "pending") {
-    content = <TeacherPendingListScreen items={controller.state.items} onBack={controller.returnToStandby} />;
+    content = (
+      <TeacherPendingListScreen
+        busyId={controller.pendingBusyId}
+        items={controller.state.items}
+        onBack={controller.returnToStandby}
+        onDelete={controller.deletePendingUpload}
+        onRetry={controller.retryPendingUpload}
+      />
+    );
   } else {
     content = (
       <TeacherStandbyScreen
