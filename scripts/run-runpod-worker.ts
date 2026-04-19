@@ -5,6 +5,7 @@ import { writeAuditLog } from "../lib/audit";
 import { processQueuedJobs } from "../lib/jobs/conversationJobs";
 import { processQueuedSessionPartJobs } from "../lib/jobs/sessionPartJobs";
 import { stopCurrentRunpodPod } from "../lib/runpod/worker-control";
+import { readRunpodWorkerRuntimeMetadata } from "../lib/runpod/runtime-metadata";
 import { saveStorageText } from "../lib/audio-storage";
 import { prisma } from "../lib/db";
 
@@ -75,6 +76,7 @@ async function recordWorkerStartupHeartbeat(input: {
     gpuComputeCapability?: string;
   } | null;
 }) {
+  const runtimeMetadata = readRunpodWorkerRuntimeMetadata();
   const payload = {
     event: "worker_process_started",
     podId: process.env.RUNPOD_POD_ID?.trim() || null,
@@ -89,6 +91,7 @@ async function recordWorkerStartupHeartbeat(input: {
     activeWaitMs: input.activeWaitMs,
     once: input.once,
     sttWarm: input.sttWarm ?? null,
+    ...runtimeMetadata,
   };
 
   await saveStorageText({

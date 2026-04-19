@@ -10,6 +10,10 @@ type RunpodMeasureResult = {
   startupMode?: string;
   workerImage?: string | null;
   workerName?: string | null;
+  runpodWorkerImage?: string | null;
+  runpodWorkerRuntimeRevision?: string | null;
+  runpodWorkerGitSha?: string | null;
+  runpodWorkerFeatureFlags?: Record<string, unknown> | null;
   podReadyMs?: number | null;
   queueToSttMs?: number | null;
   sttSeconds?: number | null;
@@ -17,6 +21,7 @@ type RunpodMeasureResult = {
   sttTranscribeMs?: number | null;
   sttTranscribeWorkerMs?: number | null;
   sttFinalizeMs?: number | null;
+  sttVadParameters?: Record<string, number> | null;
   queueToConversationMs?: number | null;
   finalizeDurationMs?: number | null;
   finalizeQueueLagMs?: number | null;
@@ -116,7 +121,7 @@ async function main() {
       row.profile || "unknown",
       row.startupMode || "unknown",
       row.gpu || "unknown",
-      row.workerImage || row.workerName || "default",
+      row.runpodWorkerRuntimeRevision || row.runpodWorkerImage || row.workerImage || row.workerName || "default",
     ].join(" | ");
     const current = groups.get(key) ?? [];
     current.push(row);
@@ -132,6 +137,7 @@ async function main() {
     "| Group | n | Success | Pod Ready p50/p95 | Queue->STT p50/p95 | STT p50 | Worker p50 | Queue->Conversation p50/p95 | Finalize p50 | Cache Hit p50 | Cost p50 |",
     "| --- | ---: | ---: | --- | --- | --- | --- | --- | --- | --- | --- |",
   ];
+  const warnings: string[] = [];
 
   for (const [groupKey, items] of [...groups.entries()].sort(([left], [right]) => left.localeCompare(right))) {
     const successes = items.filter((item) => item.ok);
@@ -158,6 +164,39 @@ async function main() {
     lines.push(
       `| ${groupKey} | ${items.length} | ${formatRatio(successRate)} | ${formatMs(percentile(podReady, 0.5))} / ${formatMs(percentile(podReady, 0.95))} | ${formatMs(percentile(queueToStt, 0.5))} / ${formatMs(percentile(queueToStt, 0.95))} | ${formatSeconds(percentile(sttSeconds, 0.5))} | ${formatMs(percentile(workerMs, 0.5))} | ${formatMs(percentile(queueToConversation, 0.5))} / ${formatMs(percentile(queueToConversation, 0.95))} | ${formatMs(percentile(finalize, 0.5))} | ${formatRatio(percentile(cacheHitRatio, 0.5))} | ${formatUsd(percentile(llmCost, 0.5))} |`
     );
+
+    const missingFieldCounts = new Map<string, number>();
+    const countMissing = (label: string, predicate: (item: RunpodMeasureResult) => boolean) => {
+      const count = successes.filter(predicate).length;
+      if (count > 0) {
+        missingFieldCounts.set(label, count);
+      }
+    };
+
+    countMissing("runpodWorkerRuntimeRevision", (item) => !item.runpodWorkerRuntimeRevision);
+    countMissing("sttPrepareMs", (item) => item.sttPrepareMs === null || item.sttPrepareMs === undefined);
+    countMissing("sttTranscribeMs", (item) => item.sttTranscribeMs === null || item.sttTranscribeMs === undefined);
+    countMissing(
+      "sttTranscribeWorkerMs",
+      (item) => item.sttTranscribeWorkerMs === null || item.sttTranscribeWorkerMs === undefined
+    );
+    countMissing("sttFinalizeMs", (item) => item.sttFinalizeMs === null || item.sttFinalizeMs === undefined);
+    countMissing("sttVadParameters", (item) => !item.sttVadParameters);
+
+    if (missingFieldCounts.size > 0) {
+      warnings.push(
+        `- ${groupKey}: ${[...missingFieldCounts.entries()].map(([label, count]) => `${label} ${count}/${successes.length}`).join(", ")}`
+      );
+    }
+  }
+
+  lines.push("");
+  lines.push("## Warnings");
+  lines.push("");
+  if (warnings.length === 0) {
+    lines.push("- none");
+  } else {
+    lines.push(...warnings);
   }
 
   const markdown = `${lines.join("\n")}\n`;

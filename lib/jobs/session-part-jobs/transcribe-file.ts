@@ -6,6 +6,7 @@ import { materializeStorageFile } from "@/lib/audio-storage";
 import { prisma } from "@/lib/db";
 import { evaluateDurationGate, evaluateTranscriptSubstance, getRecordingMaxDurationSeconds } from "@/lib/recording/validation";
 import { maybeStopRunpodWorkerWhenSessionPartQueueIdle } from "@/lib/runpod/idle-stop";
+import { readRunpodWorkerRuntimeMetadata } from "@/lib/runpod/runtime-metadata";
 import { preprocessTranscript, preprocessTranscriptWithSegments } from "@/lib/transcript/preprocess";
 import { ensureSessionPartReviewedTranscript } from "@/lib/transcript/review";
 import { toPrismaJson } from "@/lib/prisma-json";
@@ -26,6 +27,7 @@ async function transcribeStoredFile(part: SessionPartPayload) {
       : {};
   liveMeta = {
     ...liveMeta,
+    ...readRunpodWorkerRuntimeMetadata(),
     transcriptionPhase: "PREPARING_STT",
     transcriptionPhaseUpdatedAt: new Date().toISOString(),
     sttEngine: "faster-whisper",
@@ -193,6 +195,7 @@ async function transcribeStoredFile(part: SessionPartPayload) {
       audioDurationSeconds: measuredDurationSeconds,
       transcriptionPhase: "FINALIZING_TRANSCRIPT",
       sttEngine: "faster-whisper",
+      ...readRunpodWorkerRuntimeMetadata(),
     },
   };
 }

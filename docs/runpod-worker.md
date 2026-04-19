@@ -70,6 +70,13 @@ worker loop 調整:
 - `RUNPOD_WORKER_AUTO_STOP_IDLE_MS=60000`
 - `RUNPOD_WORKER_ONLY_SESSION_ID=...`
 - `RUNPOD_WORKER_ONLY_CONVERSATION_ID=...`
+- `RUNPOD_WORKER_RUNTIME_REVISION=...`
+
+version handshake 用:
+
+- `RUNPOD_WORKER_IMAGE`
+- `RUNPOD_WORKER_GIT_SHA`
+- `RUNPOD_WORKER_RUNTIME_REVISION`
 
 速度優先の補足:
 
@@ -180,6 +187,15 @@ upload / regenerate が入ると、次のようなログが出ます。
 [conversation-jobs] job_started
 [conversation-jobs] job_completed
 ```
+
+heartbeat の `startup.json` / `db-ok.json` には次も残る:
+
+- `runpodWorkerImage`
+- `runpodWorkerGitSha`
+- `runpodWorkerRuntimeRevision`
+- `runpodWorkerFeatureFlags`
+
+`runpod:measure-ux` と session part `qualityMetaJson` にも同じ runtime 情報を残すので、あとから「どの image / revision がこの結果を出したか」を追える。
 
 ## よく詰まる点
 

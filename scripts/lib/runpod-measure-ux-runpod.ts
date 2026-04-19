@@ -1,6 +1,7 @@
 import { loadEnvFile } from "./load-env-file";
 import { loadLocalEnvFiles } from "./load-local-env";
 import { readRequiredEnv, sleep } from "./runpod-measure-ux-core";
+import { buildRunpodWorkerRuntimeEnv } from "../../lib/runpod/runtime-metadata";
 
 export type GpuProfileName = "4090" | "5090";
 export type StartupMode = "direct" | "bootstrap" | "reuse";
@@ -80,6 +81,7 @@ export function buildWorkerEnv(input: {
   sessionId: string;
   autoStopIdleMs: number;
   profile: GpuProfile;
+  workerImage?: string | null;
 }) {
   return {
     DATABASE_URL: readRequiredEnv("DATABASE_URL"),
@@ -122,6 +124,7 @@ export function buildWorkerEnv(input: {
     RUNPOD_WORKER_ACTIVE_WAIT_MS: "200",
     RUNPOD_WORKER_AUTO_STOP_IDLE_MS: String(input.autoStopIdleMs),
     RUNPOD_WORKER_ONLY_SESSION_ID: input.sessionId,
+    ...buildRunpodWorkerRuntimeEnv(input.workerImage),
   };
 }
 
@@ -213,6 +216,7 @@ async function patchRunpodPodWorkerConfig(input: {
         sessionId: input.sessionId,
         autoStopIdleMs: input.autoStopIdleMs,
         profile: input.profile,
+        workerImage: process.env.RUNPOD_WORKER_IMAGE?.trim() || null,
       }),
     }),
   });

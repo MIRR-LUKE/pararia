@@ -26,6 +26,10 @@ type RunpodMeasureResult = {
   startupMode: StartupMode;
   workerImage?: string | null;
   workerName?: string | null;
+  runpodWorkerImage?: string | null;
+  runpodWorkerRuntimeRevision?: string | null;
+  runpodWorkerGitSha?: string | null;
+  runpodWorkerFeatureFlags?: Record<string, unknown> | null;
   interruptible: boolean;
   sourceAudioPath: string;
   clipAudioPath?: string;
@@ -73,6 +77,47 @@ type RunpodMeasureResult = {
   conversationId?: string | null;
   error?: string;
 };
+
+function asObjectRecord(value: unknown) {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function applyRunpodWorkerMetadata(result: RunpodMeasureResult, source: unknown) {
+  const record = asObjectRecord(source);
+  if (!record) return;
+
+  const workerImage =
+    typeof record.runpodWorkerImage === "string" && record.runpodWorkerImage.trim()
+      ? record.runpodWorkerImage.trim()
+      : null;
+  if (workerImage) {
+    result.runpodWorkerImage = workerImage;
+    result.workerImage = result.workerImage || workerImage;
+  }
+
+  const runtimeRevision =
+    typeof record.runpodWorkerRuntimeRevision === "string" && record.runpodWorkerRuntimeRevision.trim()
+      ? record.runpodWorkerRuntimeRevision.trim()
+      : null;
+  if (runtimeRevision) {
+    result.runpodWorkerRuntimeRevision = runtimeRevision;
+  }
+
+  const gitSha =
+    typeof record.runpodWorkerGitSha === "string" && record.runpodWorkerGitSha.trim()
+      ? record.runpodWorkerGitSha.trim()
+      : null;
+  if (gitSha) {
+    result.runpodWorkerGitSha = gitSha;
+  }
+
+  const featureFlags = asObjectRecord(record.runpodWorkerFeatureFlags);
+  if (featureFlags) {
+    result.runpodWorkerFeatureFlags = featureFlags;
+  }
+}
 
 const EXISTING_STUDENT_TARGET_OVERRIDE_ENV = "PARARIA_ALLOW_EXISTING_STUDENT_TARGET";
 
@@ -151,7 +196,7 @@ async function main() {
     profile: profile.name,
     gpu: profile.gpu,
     startupMode,
-    workerImage: startupMode === "direct" ? workerImage : null,
+    workerImage,
     workerName: startupMode === "reuse" ? workerName : null,
     interruptible,
     sourceAudioPath,
@@ -405,6 +450,7 @@ async function main() {
     const readiness = await waitForWorkerReady(podId, timeoutMs, pollMs, pod.requestedAt.getTime());
     result.podReadyAt = readiness.checkedAt.toISOString();
     result.podReadyMs = readiness.checkedAt.getTime() - pod.requestedAt.getTime();
+    applyRunpodWorkerMetadata(result, readiness.readiness);
 
     const timeoutAt = Date.now() + timeoutMs;
     while (Date.now() < timeoutAt) {
@@ -430,6 +476,7 @@ async function main() {
 
       const currentPart = currentSession.parts.find((item: any) => item.partType === SessionPartType.FULL) ?? null;
       const partMeta = readSessionPartMeta(currentPart?.qualityMetaJson);
+      applyRunpodWorkerMetadata(result, partMeta);
       const currentConversation = currentSession.conversation;
       const finalizeJob = currentConversation?.jobs.find((job: any) => job.type === "FINALIZE") ?? null;
 

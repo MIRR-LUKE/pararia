@@ -37,6 +37,7 @@ export async function createBootstrapWorkerPod(input: {
             sessionId: input.sessionId,
             autoStopIdleMs: input.autoStopIdleMs,
             profile: input.profile,
+            workerImage: process.env.RUNPOD_WORKER_IMAGE?.trim() || null,
           }),
         }),
       });
@@ -111,6 +112,7 @@ export async function createDirectWorkerPod(input: {
             sessionId: input.sessionId,
             autoStopIdleMs: input.autoStopIdleMs,
             profile: input.profile,
+            workerImage: input.image,
           }),
         }),
       });

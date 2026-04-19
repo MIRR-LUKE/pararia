@@ -2,6 +2,7 @@ import type {
   RunpodPod,
   RunpodWorkerConfig,
 } from "./worker-control-core";
+import { buildRunpodWorkerRuntimeEnv } from "./runtime-metadata";
 
 const RUNPOD_API_BASE = "https://rest.runpod.io/v1";
 const DEFAULT_WORKER_NAME = "pararia-gpu-worker";
@@ -258,6 +259,7 @@ export async function runpodRequest(pathname: string, config: RunpodWorkerConfig
 }
 
 export function buildRunpodWorkerEnv(autoStopIdleMs: number) {
+  const workerImage = resolveDefaultWorkerImage();
   const env = {
     RUNPOD_API_KEY: readRequiredEnv("RUNPOD_API_KEY"),
     DATABASE_URL: readRequiredEnv("DATABASE_URL"),
@@ -325,7 +327,7 @@ export function buildRunpodWorkerEnv(autoStopIdleMs: number) {
     RUNPOD_WORKER_AUTO_STOP_IDLE_MS: String(autoStopIdleMs),
     RUNPOD_WORKER_ONLY_SESSION_ID: readStringEnv("RUNPOD_WORKER_ONLY_SESSION_ID", ""),
     RUNPOD_WORKER_ONLY_CONVERSATION_ID: readStringEnv("RUNPOD_WORKER_ONLY_CONVERSATION_ID", ""),
-    RUNPOD_WORKER_RUNTIME_REVISION: readStringEnv("RUNPOD_WORKER_RUNTIME_REVISION", ""),
+    ...buildRunpodWorkerRuntimeEnv(workerImage),
   } satisfies Record<string, string>;
 
   return Object.fromEntries(Object.entries(env).filter(([, value]) => value !== ""));
