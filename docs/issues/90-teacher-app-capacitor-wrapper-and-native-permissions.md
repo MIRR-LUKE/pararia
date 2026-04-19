@@ -2,7 +2,7 @@
 
 ## 状態
 
-- Closed
+- Open
 - GitHub Issue: `#166`
 - 最終更新: `2026-04-19`
 
@@ -35,22 +35,6 @@
 
 - ここではまだ録音 lifecycle の細かい hardening は完了条件に含めない
 - まずは `開く / ログインする / 録音画面へ入る` までを確実に通す
-
-## 実装したこと
-
-- `@capacitor/core`, `@capacitor/cli`, `@capacitor/ios`, `@capacitor/android` を導入した
-- `capacitor.config.ts` を追加し、remote-hosted `/teacher` shell と env 切り替えを定義した
-- `ios/` と `android/` の native project を repo に追加した
-- `www/index.html` の最小 fallback bundle を追加し、`cap sync` がそのまま通るようにした
-- `ios/App/App/Info.plist` に `NSMicrophoneUsageDescription` を入れた
-- `android/app/src/main/AndroidManifest.xml` に `RECORD_AUDIO` と `MODIFY_AUDIO_SETTINGS` を入れた
-- README と `docs/teacher-app-capacitor.md` に setup / sync / open 手順を追加した
-
-## 確認
-
-- `npm run cap:doctor`
-- `npm run cap:sync`
-- `npm run typecheck`
 
 ## 完了条件
 

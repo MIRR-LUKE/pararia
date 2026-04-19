@@ -26,11 +26,7 @@ export function TeacherShell({ session, children, errorMessage, onLogout }: Prop
           端末を解除
         </Button>
       </header>
-      {errorMessage ? (
-        <div className={styles.feedbackError} aria-live="polite" role="status">
-          {errorMessage}
-        </div>
-      ) : null}
+      {errorMessage ? <div className={styles.feedbackError}>{errorMessage}</div> : null}
       <section className={styles.screen}>{children}</section>
     </div>
   );

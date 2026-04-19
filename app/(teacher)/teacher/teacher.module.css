@@ -1,13 +1,8 @@
 .page {
-  min-height: 100dvh;
-  padding:
-    calc(var(--safe-area-top) + 20px)
-    calc(var(--safe-area-right) + 16px)
-    calc(var(--safe-area-bottom) + 24px)
-    calc(var(--safe-area-left) + 16px);
+  min-height: 100vh;
+  padding: 24px 16px 40px;
   display: flex;
   justify-content: center;
-  align-items: flex-start;
   background:
     linear-gradient(180deg, rgba(219, 255, 75, 0.08), rgba(0, 0, 0, 0) 18%),
     #171717;
@@ -19,7 +14,6 @@
   display: flex;
   flex-direction: column;
   gap: 16px;
-  min-height: calc(100dvh - var(--safe-area-top) - var(--safe-area-bottom) - 44px);
 }
 
 .header {
@@ -27,7 +21,6 @@
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
-  flex-wrap: wrap;
 }
 
 .screen,
@@ -42,15 +35,6 @@
 .authCard {
   width: 100%;
   max-width: 460px;
-}
-
-.screen {
-  flex: 1;
-  display: flex;
-}
-
-.screen > * {
-  width: 100%;
 }
 
 .eyebrow {
@@ -85,41 +69,6 @@
   display: flex;
   flex-direction: column;
   gap: 16px;
-}
-
-.supportCard {
-  border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  padding: 16px 14px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.supportCardWarning {
-  background: rgba(219, 255, 75, 0.08);
-  border-color: rgba(219, 255, 75, 0.22);
-}
-
-.supportCardDanger {
-  background: rgba(255, 139, 132, 0.12);
-  border-color: rgba(255, 139, 132, 0.28);
-}
-
-.supportCardTitle {
-  font-size: 16px;
-  font-weight: 700;
-}
-
-.supportCardDescription {
-  margin: 0;
-  font-size: 14px;
-  color: rgba(255, 255, 255, 0.78);
-}
-
-.supportCardActions {
-  display: flex;
-  justify-content: flex-start;
 }
 
 .statusBlock {
@@ -163,28 +112,6 @@
   background: rgba(255, 255, 255, 0.06);
   color: rgba(255, 255, 255, 0.82);
   font-size: 13px;
-}
-
-.metaPillReady {
-  background: rgba(144, 246, 169, 0.12);
-  color: rgba(200, 255, 212, 0.92);
-}
-
-.metaPillWarning {
-  background: rgba(219, 255, 75, 0.12);
-  color: rgba(239, 255, 180, 0.92);
-}
-
-.metaPillDanger {
-  background: rgba(255, 139, 132, 0.14);
-  color: rgba(255, 217, 214, 0.94);
-}
-
-.metaPills {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
 }
 
 .linkButton {
@@ -291,29 +218,6 @@
   margin: 0;
   color: #ff8b84;
   font-size: 13px;
-}
-
-@media (max-width: 480px) {
-  .page {
-    padding:
-      calc(var(--safe-area-top) + 16px)
-      calc(var(--safe-area-right) + 12px)
-      calc(var(--safe-area-bottom) + 18px)
-      calc(var(--safe-area-left) + 12px);
-  }
-
-  .title {
-    font-size: 28px;
-  }
-
-  .heroButton {
-    min-height: 88px;
-    font-size: 24px;
-  }
-
-  .timer {
-    font-size: 48px;
-  }
 }
 
 @keyframes teacherPulse {

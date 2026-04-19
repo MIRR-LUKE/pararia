@@ -123,17 +123,6 @@ npm run test:student-room-route
 - 親 issue は `#164`、子 issue は `#161`, `#160`, `#162`, `#163`
 - 詳細な仕様と進捗メモは [docs/issues/83-teacher-app-recording-mobile-parent-plan.md](./docs/issues/83-teacher-app-recording-mobile-parent-plan.md) から辿る
 
-### Teacher App iOS / Android shell
-
-- iOS / Android app 化の最短ルートは、React Native への作り直しではなく Capacitor で native shell を被せること
-- 初期構成は remote-hosted で、native shell から deployed PARARIA origin の `/teacher` を開く
-- repo には `ios/` と `android/` の native project を追加済みで、`npm run cap:sync` まで通る
-- `www/index.html` の最小 fallback bundle を置いているので、local web export がなくても Capacitor sync が詰まりにくい
-- iOS `Info.plist` と Android `AndroidManifest.xml` には Teacher App 録音用の microphone permission を反映済み
-- Capacitor config は [capacitor.config.ts](./capacitor.config.ts) に置き、接続先は `PARARIA_CAPACITOR_SERVER_ORIGIN` と `PARARIA_CAPACITOR_START_PATH` で切り替える
-- 基本コマンドは `npm run cap:doctor`, `npm run cap:add:ios`, `npm run cap:add:android`, `npm run cap:sync`, `npm run cap:open:ios`, `npm run cap:open:android`
-- 初回セットアップと native permission の入れ方は [docs/teacher-app-capacitor.md](./docs/teacher-app-capacitor.md)
-
 ## 1. 先に結論
 
 - 主導線は `Student Room`

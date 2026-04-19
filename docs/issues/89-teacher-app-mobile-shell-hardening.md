@@ -2,7 +2,7 @@
 
 ## 状態
 
-- Closed
+- Open
 - GitHub Issue: `#168`
 - 最終更新: `2026-04-19`
 
@@ -29,21 +29,6 @@ Capacitor 導入前に、viewport、safe-area、permission denied、unsupported 
 - PWA を最終目標にはしないが、manifest や metadata は Capacitor shell にも使えるので先に整える
 - 画面責務は増やさず、既存 `screen / hook / container` 境界を壊さない
 - ここでは native project はまだ作らない
-
-## 実装したこと
-
-- `app/manifest.ts` を追加して、`/teacher` start URL の standalone manifest を入れた
-- `app/icon.tsx` と `app/apple-icon.tsx` を追加して app icon metadata route を用意した
-- root metadata に `manifest`, `appleWebApp`, `viewportFit`, `themeColor` を追加した
-- Teacher App route metadata を追加して app shell 向けの title / description を分けた
-- safe-area CSS 変数と `100dvh` レイアウトを入れて、standalone 表示で崩れにくくした
-- standby 画面に録音 readiness と permission / unsupported explanation card を追加した
-- `useTeacherFlowController` に microphone support detection と開始失敗文言の正規化を入れた
-- `manifest`, `icon`, `apple-icon` を basic auth から除外して app shell で取りやすくした
-
-## 確認
-
-- `npm run typecheck`
 
 ## 完了条件
 

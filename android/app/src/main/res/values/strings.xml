@@ -1,7 +1,0 @@
-<?xml version='1.0' encoding='utf-8'?>
-<resources>
-    <string name="app_name">PARARIA Teacher</string>
-    <string name="title_activity_main">PARARIA Teacher</string>
-    <string name="package_name">jp.pararia.teacher</string>
-    <string name="custom_url_scheme">jp.pararia.teacher</string>
-</resources>

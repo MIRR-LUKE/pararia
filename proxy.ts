@@ -26,14 +26,7 @@ function hasMaintenanceAuthorization(request: NextRequest) {
 
 export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
-  if (
-    pathname.startsWith("/_next") ||
-    pathname.startsWith("/favicon") ||
-    pathname.startsWith("/robots.txt") ||
-    pathname.startsWith("/manifest.webmanifest") ||
-    pathname.startsWith("/icon") ||
-    pathname.startsWith("/apple-icon")
-  ) {
+  if (pathname.startsWith("/_next") || pathname.startsWith("/favicon") || pathname.startsWith("/robots.txt")) {
     return NextResponse.next();
   }
 
@@ -72,5 +65,5 @@ export function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|robots.txt|manifest.webmanifest|icon|apple-icon).*)"],
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|robots.txt).*)"],
 };
