@@ -1,6 +1,6 @@
 # 直近で切る Issue 一覧
 
-更新日: 2026-04-18
+更新日: 2026-04-19
 
 今回の前提:
 
@@ -223,7 +223,7 @@ Teacher App 仕様の新規 issue docs:
 4. `#162` [86-teacher-app-student-suggestion-and-finalize-gate.md](./86-teacher-app-student-suggestion-and-finalize-gate.md)
 5. `#163` [87-teacher-app-unsent-queue-and-recovery.md](./87-teacher-app-unsent-queue-and-recovery.md)
 6. `#169` [88-teacher-app-ios-android-capacitor-parent-plan.md](./88-teacher-app-ios-android-capacitor-parent-plan.md)
-7. `#168` [89-teacher-app-mobile-shell-hardening.md](./89-teacher-app-mobile-shell-hardening.md)
-8. `#166` [90-teacher-app-capacitor-wrapper-and-native-permissions.md](./90-teacher-app-capacitor-wrapper-and-native-permissions.md)
+7. `#168` [89-teacher-app-mobile-shell-hardening.md](./89-teacher-app-mobile-shell-hardening.md) - Closed
+8. `#166` [90-teacher-app-capacitor-wrapper-and-native-permissions.md](./90-teacher-app-capacitor-wrapper-and-native-permissions.md) - Closed
 9. `#165` [91-teacher-app-mobile-recording-lifecycle-hardening.md](./91-teacher-app-mobile-recording-lifecycle-hardening.md)
 10. `#167` [92-teacher-app-internal-distribution-and-device-qa.md](./92-teacher-app-internal-distribution-and-device-qa.md)

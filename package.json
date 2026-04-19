@@ -10,6 +10,14 @@
     "dev": "next dev",
     "build": "next build --webpack",
     "start": "next start",
+    "cap:doctor": "cap doctor",
+    "cap:add:ios": "cap add ios",
+    "cap:add:android": "cap add android",
+    "cap:sync": "cap sync",
+    "cap:sync:ios": "cap sync ios",
+    "cap:sync:android": "cap sync android",
+    "cap:open:ios": "cap open ios",
+    "cap:open:android": "cap open android",
     "lint": "eslint . --ext .js,.jsx,.ts,.tsx",
     "typecheck": "tsc --noEmit",
     "scan:secrets": "tsx scripts/scan-secrets.ts",
@@ -104,6 +112,7 @@
     "seed": "tsx prisma/seed.ts"
   },
   "dependencies": {
+    "@capacitor/core": "^8.3.1",
     "@node-rs/bcrypt": "^1.10.7",
     "@prisma/client": "^5.9.0",
     "@types/react-dom": "^19.2.3",
@@ -119,6 +128,9 @@
     "zod-validation-error": "^5.0.0"
   },
   "devDependencies": {
+    "@capacitor/android": "^8.3.1",
+    "@capacitor/cli": "^8.3.1",
+    "@capacitor/ios": "^8.3.1",
     "@types/node": "^20.10.5",
     "@types/react": "^19.2.14",
     "eslint": "^9.0.0",

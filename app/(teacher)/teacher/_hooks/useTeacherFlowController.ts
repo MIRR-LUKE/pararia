@@ -18,6 +18,17 @@ type Params = {
 
 type StopIntent = "save" | "cancel";
 
+type RecordingSupportTone = "ready" | "warning" | "danger";
+
+type RecordingSupportState = {
+  canStart: boolean;
+  description: string | null;
+  statusLabel: string;
+  title: string | null;
+  tone: RecordingSupportTone;
+  type: "ready" | "permission_prompt" | "permission_denied" | "microphone_missing" | "unsupported" | "insecure";
+};
+
 type MemoryPendingTeacherUpload = {
   id: string;
   recordingId: string | null;
@@ -46,9 +57,159 @@ function sortMemoryPendingUploads(items: MemoryPendingTeacherUpload[]) {
   return [...items].sort((left, right) => right.recordedAt.localeCompare(left.recordedAt));
 }
 
+function createRecordingSupportState(
+  input: RecordingSupportState["type"]
+): RecordingSupportState {
+  switch (input) {
+    case "permission_prompt":
+      return {
+        type: input,
+        canStart: true,
+        statusLabel: "マイク許可を確認",
+        tone: "warning",
+        title: "最初にマイクの許可が表示される場合があります",
+        description: "録音開始を押したあとに、端末の表示でマイクを許可してください。",
+      };
+    case "permission_denied":
+      return {
+        type: input,
+        canStart: false,
+        statusLabel: "マイク未許可",
+        tone: "danger",
+        title: "マイクの利用が許可されていません",
+        description: "Safari または Chrome の設定でマイクを許可すると、この端末で録音できます。",
+      };
+    case "microphone_missing":
+      return {
+        type: input,
+        canStart: false,
+        statusLabel: "マイク未接続",
+        tone: "danger",
+        title: "この端末でマイクが見つかりません",
+        description: "外部マイクを接続するか、マイク付きの端末に切り替えてください。",
+      };
+    case "unsupported":
+      return {
+        type: input,
+        canStart: false,
+        statusLabel: "録音非対応",
+        tone: "danger",
+        title: "この端末では録音できません",
+        description: "最新の Safari または Chrome が使える端末で開き直してください。",
+      };
+    case "insecure":
+      return {
+        type: input,
+        canStart: false,
+        statusLabel: "HTTPS が必要です",
+        tone: "danger",
+        title: "安全な接続で開いてください",
+        description: "録音は HTTPS または localhost の環境でのみ利用できます。",
+      };
+    case "ready":
+    default:
+      return {
+        type: "ready",
+        canStart: true,
+        statusLabel: "マイク準備完了",
+        tone: "ready",
+        title: null,
+        description: null,
+      };
+  }
+}
+
+async function detectRecordingSupport() {
+  if (typeof window === "undefined") {
+    return createRecordingSupportState("ready");
+  }
+
+  if (!window.isSecureContext) {
+    return createRecordingSupportState("insecure");
+  }
+
+  if (typeof MediaRecorder === "undefined" || !navigator.mediaDevices?.getUserMedia) {
+    return createRecordingSupportState("unsupported");
+  }
+
+  if (!pickRecordingMimeType()) {
+    return createRecordingSupportState("unsupported");
+  }
+
+  let permissionGranted = false;
+
+  if (navigator.permissions?.query) {
+    try {
+      const status = await navigator.permissions.query({
+        name: "microphone" as PermissionName,
+      });
+      if (status.state === "denied") {
+        return createRecordingSupportState("permission_denied");
+      }
+      if (status.state === "prompt") {
+        return createRecordingSupportState("permission_prompt");
+      }
+      permissionGranted = status.state === "granted";
+    } catch {
+      // noop
+    }
+  }
+
+  if (permissionGranted && navigator.mediaDevices.enumerateDevices) {
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      if (!devices.some((device) => device.kind === "audioinput")) {
+        return createRecordingSupportState("microphone_missing");
+      }
+    } catch {
+      // noop
+    }
+  }
+
+  return createRecordingSupportState("ready");
+}
+
+function getRecordingStartFailureState(error: unknown) {
+  const name = typeof error === "object" && error && "name" in error ? String(error.name) : null;
+
+  if (name === "NotAllowedError" || name === "SecurityError") {
+    return {
+      message: "マイクの利用が許可されていません。端末の設定で許可してからもう一度お試しください。",
+      support: createRecordingSupportState("permission_denied"),
+    };
+  }
+
+  if (name === "NotFoundError" || name === "DevicesNotFoundError") {
+    return {
+      message: "この端末でマイクが見つかりません。接続を確認してもう一度お試しください。",
+      support: createRecordingSupportState("microphone_missing"),
+    };
+  }
+
+  if (name === "NotSupportedError") {
+    return {
+      message: "この端末では録音できません。別の端末または最新ブラウザをお試しください。",
+      support: createRecordingSupportState("unsupported"),
+    };
+  }
+
+  if (name === "NotReadableError" || name === "TrackStartError") {
+    return {
+      message: "ほかのアプリがマイクを使っている可能性があります。マイクを閉じてからもう一度お試しください。",
+      support: null,
+    };
+  }
+
+  return {
+    message: null,
+    support: null,
+  };
+}
+
 export function useTeacherFlowController({ bootstrap }: Params) {
   const [state, setState] = useState<TeacherFlowState>(bootstrap.initialState);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [recordingSupport, setRecordingSupport] = useState<RecordingSupportState>(createRecordingSupportState("ready"));
   const [pendingItems, setPendingItems] = useState(
     bootstrap.initialState.kind === "pending" ? bootstrap.initialState.items : []
   );
@@ -69,6 +230,12 @@ export function useTeacherFlowController({ bootstrap }: Params) {
   useEffect(() => {
     setState(bootstrap.initialState);
   }, [bootstrap.initialState]);
+
+  const refreshRecordingSupport = useCallback(async () => {
+    const nextState = await detectRecordingSupport();
+    setRecordingSupport(nextState);
+    return nextState;
+  }, []);
 
   const syncPendingItems = useCallback((nextItems: typeof pendingItems) => {
     pendingItemsRef.current = nextItems;
@@ -119,6 +286,26 @@ export function useTeacherFlowController({ bootstrap }: Params) {
   useEffect(() => {
     void listPendingUploads();
   }, [listPendingUploads]);
+
+  useEffect(() => {
+    void refreshRecordingSupport();
+
+    const handleWindowFocus = () => {
+      void refreshRecordingSupport();
+    };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        void refreshRecordingSupport();
+      }
+    };
+
+    window.addEventListener("focus", handleWindowFocus);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      window.removeEventListener("focus", handleWindowFocus);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [refreshRecordingSupport]);
 
   useEffect(() => {
     if (state.kind !== "recording") return undefined;
@@ -421,15 +608,9 @@ export function useTeacherFlowController({ bootstrap }: Params) {
   const startRecording = useCallback(async () => {
     try {
       setErrorMessage(null);
-      if (typeof window === "undefined") return;
-      if (!window.isSecureContext) {
-        throw new Error("録音は HTTPS または localhost の環境でのみ利用できます。");
-      }
-      if (typeof MediaRecorder === "undefined") {
-        throw new Error("この端末は録音に対応していません。");
-      }
-      if (!navigator.mediaDevices?.getUserMedia) {
-        throw new Error("マイク入力に対応していません。");
+      const support = await refreshRecordingSupport();
+      if (!support.canStart) {
+        throw new Error(support.description ?? "この端末では録音を始められません。");
       }
 
       const recordingId = await createRecordingSession();
@@ -444,6 +625,7 @@ export function useTeacherFlowController({ bootstrap }: Params) {
           autoGainControl: true,
         },
       });
+      setRecordingSupport(createRecordingSupportState("ready"));
       mediaStreamRef.current = stream;
 
       const preferredMimeType = pickRecordingMimeType();
@@ -502,6 +684,7 @@ export function useTeacherFlowController({ bootstrap }: Params) {
         seconds: 0,
       });
     } catch (error: any) {
+      const failure = getRecordingStartFailureState(error);
       const currentRecordingId = recordingIdRef.current;
       if (currentRecordingId) {
         void fetch(`/api/teacher/recordings/${currentRecordingId}/cancel`, {
@@ -513,10 +696,13 @@ export function useTeacherFlowController({ bootstrap }: Params) {
       mediaStreamRef.current = null;
       mediaRecorderRef.current = null;
       chunksRef.current = [];
-      setErrorMessage(error?.message ?? "録音を開始できませんでした。");
+      if (failure.support) {
+        setRecordingSupport(failure.support);
+      }
+      setErrorMessage(failure.message ?? error?.message ?? "録音を開始できませんでした。");
       returnToStandby();
     }
-  }, [createRecordingSession, returnToStandby, uploadRecordedFile]);
+  }, [createRecordingSession, refreshRecordingSupport, returnToStandby, uploadRecordedFile]);
 
   const stopRecording = useCallback(() => {
     const recorder = mediaRecorderRef.current;
@@ -669,15 +855,21 @@ export function useTeacherFlowController({ bootstrap }: Params) {
   }, [bootstrap.activeRecording?.id, refreshActiveRecording]);
 
   return {
+    canStartRecording: recordingSupport.canStart,
     cancelRecording,
     confirmNoStudent: () => void confirmStudent(null),
     confirmStudent,
     deletePendingUpload,
     errorMessage,
+    microphoneDescription: recordingSupport.description,
+    microphoneStatusLabel: recordingSupport.statusLabel,
+    microphoneTitle: recordingSupport.title,
+    microphoneTone: recordingSupport.tone,
     logout,
     openPending,
     pendingBusyId,
     pendingItems,
+    refreshRecordingSupport,
     retryPendingUpload,
     returnToStandby,
     startRecording,

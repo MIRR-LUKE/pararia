@@ -6,6 +6,13 @@
 - GitHub Issue: `#169`
 - 最終更新: `2026-04-19`
 
+## 進捗
+
+- 完了 / close: `#168` / `89` Teacher App の mobile shell hardening
+- 完了 / close: `#166` / `90` Capacitor native shell と microphone permission
+- 残り: `#165` / `91` 録音 lifecycle の native hardening
+- 残り: `#167` / `92` 内部配布と実機 QA
+
 ## 先に結論
 
 最短ルートは React Native / Expo への作り直しではない。  

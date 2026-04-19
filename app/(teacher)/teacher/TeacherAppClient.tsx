@@ -60,6 +60,12 @@ export function TeacherAppClient({ bootstrap }: Props) {
   } else {
     content = (
       <TeacherStandbyScreen
+        canStartRecording={controller.canStartRecording}
+        microphoneDescription={controller.microphoneDescription}
+        microphoneStatusLabel={controller.microphoneStatusLabel}
+        microphoneTitle={controller.microphoneTitle}
+        microphoneTone={controller.microphoneTone}
+        onRefreshMicrophone={controller.refreshRecordingSupport}
         unsentCount={controller.unsentCount}
         onOpenPending={controller.openPending}
         onOpenRecordingPreview={controller.startRecording}
