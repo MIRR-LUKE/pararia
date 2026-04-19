@@ -1,0 +1,214 @@
+.page {
+  min-height: 100vh;
+  padding: 24px 16px 40px;
+  display: flex;
+  justify-content: center;
+  background:
+    linear-gradient(180deg, rgba(219, 255, 75, 0.08), rgba(0, 0, 0, 0) 18%),
+    #171717;
+}
+
+.shell {
+  width: 100%;
+  max-width: 460px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.screen,
+.authCard {
+  background: rgba(34, 34, 34, 0.96);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  padding: 20px 16px;
+  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.26);
+}
+
+.authCard {
+  width: 100%;
+  max-width: 460px;
+}
+
+.eyebrow {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.68);
+}
+
+.title {
+  margin: 6px 0 0;
+  font-size: 30px;
+  line-height: 1.1;
+}
+
+.subtitle,
+.description,
+.helper {
+  margin: 8px 0 0;
+  color: rgba(255, 255, 255, 0.74);
+  font-size: 14px;
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.statusBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.statusLabel {
+  font-size: 26px;
+  line-height: 1.15;
+  font-weight: 700;
+}
+
+.heroButton {
+  width: 100%;
+  min-height: 96px;
+  font-size: 28px;
+  border-radius: 8px;
+}
+
+.secondaryButton,
+.primaryButton {
+  width: 100%;
+}
+
+.metaRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.metaPill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 36px;
+  padding: 0 12px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.82);
+  font-size: 13px;
+}
+
+.linkButton {
+  min-height: 36px;
+  padding: 0 4px;
+  color: rgba(255, 255, 255, 0.82);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.timer {
+  font-size: 56px;
+  line-height: 1;
+  font-weight: 700;
+}
+
+.loadingDots {
+  display: flex;
+  gap: 10px;
+}
+
+.loadingDots span {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: #dbff4b;
+  animation: teacherPulse 1.1s infinite ease-in-out;
+}
+
+.loadingDots span:nth-child(2) {
+  animation-delay: 0.1s;
+}
+
+.loadingDots span:nth-child(3) {
+  animation-delay: 0.2s;
+}
+
+.candidateList,
+.pendingList {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.candidateButton,
+.pendingCard,
+.emptyState {
+  width: 100%;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.04);
+  padding: 16px 14px;
+  text-align: left;
+}
+
+.candidateButton {
+  cursor: pointer;
+}
+
+.candidateButton strong,
+.pendingCard strong {
+  display: block;
+  font-size: 18px;
+}
+
+.candidateButton span,
+.pendingCard span {
+  display: block;
+  margin-top: 6px;
+  color: rgba(255, 255, 255, 0.68);
+  font-size: 13px;
+}
+
+.form {
+  margin-top: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.field span {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.82);
+}
+
+.error {
+  margin: 0;
+  color: #ff8b84;
+  font-size: 13px;
+}
+
+@keyframes teacherPulse {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: scale(0.92);
+  }
+
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}

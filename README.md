@@ -108,6 +108,15 @@ npm run test:student-room-route
 - shape guard は `npm run check:code-shape`
 - 最低限の確認は `npm run typecheck && npm run scan:secrets && npm run test:migration-safety && npm run build`
 
+## Teacher App
+
+- 先生向けの録音専用導線は、管理 web の `/app/*` とは分けて `/teacher` に載せる
+- 初回の校舎共通端末設定は `/teacher/setup` で行い、通常利用時は待機画面から始める
+- 今入っている土台は、device login API、Teacher App 専用 cookie session、分離した app shell、provisional screen / hook / flow の境界まで
+- 録音本体、temporary session、候補サジェスト、本ログ生成トリガー、未送信キューは別 issue で順に進める
+- 親 issue は `#164`、子 issue は `#161`, `#160`, `#162`, `#163`
+- 詳細な仕様と進捗メモは [docs/issues/83-teacher-app-recording-mobile-parent-plan.md](./docs/issues/83-teacher-app-recording-mobile-parent-plan.md) から辿る
+
 ## 1. 先に結論
 
 - 主導線は `Student Room`

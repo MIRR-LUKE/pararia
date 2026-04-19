@@ -214,3 +214,11 @@ close / defer に回した考え方:
 1. `#159` [80-post-stt-handoff-and-queue-lag.md](./80-post-stt-handoff-and-queue-lag.md)
 2. `#158` [81-runpod-worker-observability-parity.md](./81-runpod-worker-observability-parity.md)
 3. `#157` [82-production-prompt-cache-recovery.md](./82-production-prompt-cache-recovery.md)
+
+Teacher App 仕様の新規 issue docs:
+
+1. `#164` [83-teacher-app-recording-mobile-parent-plan.md](./83-teacher-app-recording-mobile-parent-plan.md)
+2. `#161` [84-teacher-app-foundation-and-device-auth.md](./84-teacher-app-foundation-and-device-auth.md)
+3. `#160` [85-teacher-app-recording-flow-and-temporary-session.md](./85-teacher-app-recording-flow-and-temporary-session.md)
+4. `#162` [86-teacher-app-student-suggestion-and-finalize-gate.md](./86-teacher-app-student-suggestion-and-finalize-gate.md)
+5. `#163` [87-teacher-app-unsent-queue-and-recovery.md](./87-teacher-app-unsent-queue-and-recovery.md)
