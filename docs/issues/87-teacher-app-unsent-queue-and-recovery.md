@@ -30,3 +30,9 @@
 - 同じ録音を二重に送っても session / conversation が壊れない
 - 先生向け app では詳細エラーを見せすぎず、やることが `再送` に絞られている
 - 管理 web 側で必要最低限の監査情報を追える
+
+## 進捗メモ
+
+- いまは未送信一覧の画面枠だけあり、`items` はまだ空で `unsentCount` も仮値のまま
+- 端末内 queue、再送、再起動後復元、idempotency はまだ未接続
+- temporary recording flow の main path を先に通し、その後に recovery をここへ寄せる

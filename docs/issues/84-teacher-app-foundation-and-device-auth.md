@@ -39,7 +39,9 @@ Teacher App を web 管理画面の延長ではなく、校舎共通端末で使
   - Teacher App 専用の signed cookie session と session reader を追加した
   - `TeacherAppClient`、screen components、flow hook を分けて provisional UI の差し替え境界を作った
   - 管理者または室長だけが端末設定できる role guard を入れた
+  - provisional flow を、実録音 / temporary recording session / active recording 復元まで接続した
 - まだ残っていること:
   - device registration の永続化と監査項目の追加
   - mobile bearer lifecycle を含む API 契約の整理
-  - provisional flow を実録音 / temporary session / 未送信 queue と接続すること
+  - 未送信 queue の永続化と再送
+  - confirm 後に正式 `Session / Conversation` へ渡す昇格処理

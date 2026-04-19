@@ -22,15 +22,21 @@ export function TeacherAppClient({ bootstrap }: Props) {
 
   let content: React.ReactNode;
   if (controller.state.kind === "recording") {
-    content = <TeacherRecordingScreen seconds={controller.state.seconds} onStop={controller.openDonePreview} />;
+    content = (
+      <TeacherRecordingScreen
+        seconds={controller.state.seconds}
+        onCancel={controller.cancelRecording}
+        onStop={controller.stopRecording}
+      />
+    );
   } else if (controller.state.kind === "analyzing") {
-    content = <TeacherAnalyzingScreen onReady={controller.openConfirmPreview} />;
+    content = <TeacherAnalyzingScreen description={controller.state.description} />;
   } else if (controller.state.kind === "confirm") {
     content = (
       <TeacherStudentConfirmScreen
-        candidates={controller.state.candidates}
-        onChoose={controller.openDonePreview}
-        onChooseNone={controller.openDonePreview}
+        recording={controller.state.recording}
+        onChoose={controller.confirmStudent}
+        onChooseNone={controller.confirmNoStudent}
       />
     );
   } else if (controller.state.kind === "done") {
@@ -42,14 +48,18 @@ export function TeacherAppClient({ bootstrap }: Props) {
       <TeacherStandbyScreen
         unsentCount={controller.unsentCount}
         onOpenPending={controller.openPending}
-        onOpenRecordingPreview={controller.openRecordingPreview}
+        onOpenRecordingPreview={controller.startRecording}
       />
     );
   }
 
   return (
     <main className={styles.page}>
-      <TeacherShell session={bootstrap.session} onLogout={() => void controller.logout()}>
+      <TeacherShell
+        session={bootstrap.session}
+        errorMessage={controller.errorMessage}
+        onLogout={() => void controller.logout()}
+      >
         {content}
       </TeacherShell>
     </main>

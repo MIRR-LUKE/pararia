@@ -32,10 +32,10 @@
 
 ## 進捗メモ
 
-- `#161` は着手済み。`/teacher` route group、`/teacher/setup`、Teacher App 専用 auth API、device session cookie、provisional shell を追加した
-- `#160` は次の本線。MediaRecorder 導線、temporary session、upload 開始、解析中画面の実接続をここで入れる
-- `#162` は domain contract を切り出して進める。生徒候補抽出、confirm 画面の実データ接続、本ログ生成トリガーをここへ寄せる
-- `#163` は recovery 専用のまとまりとして維持する。pending queue、replay、idempotency、再起動復元を main flow から独立して詰める
+- `#161` は土台として成立した。`/teacher` route group、`/teacher/setup`、Teacher App 専用 auth API、device session cookie、provisional shell までつながった
+- `#160` は main flow 完了。MediaRecorder、temporary recording session、音声 upload、解析中 progress、cancel、active recording 復元まで入り、残りは `#162` と `#163` に寄せた
+- `#162` は部分着手済み。文字起こしからの生徒候補抽出、候補確認画面、`該当なし`、`selectedStudentId / confirmedAt` の保存までは入った
+- 残りの本線は、生徒確定後の正式 `Session / SessionPart / Conversation` 昇格と、`#163` の未送信 queue / 再送 / 再起動復旧
 
 ## 完了条件
 

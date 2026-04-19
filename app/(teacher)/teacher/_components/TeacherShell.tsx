@@ -7,10 +7,11 @@ import styles from "../teacher.module.css";
 type Props = {
   session: TeacherAppDeviceSession;
   children: React.ReactNode;
+  errorMessage?: string | null;
   onLogout: () => void;
 };
 
-export function TeacherShell({ session, children, onLogout }: Props) {
+export function TeacherShell({ session, children, errorMessage, onLogout }: Props) {
   return (
     <div className={styles.shell}>
       <header className={styles.header}>
@@ -25,6 +26,7 @@ export function TeacherShell({ session, children, onLogout }: Props) {
           端末を解除
         </Button>
       </header>
+      {errorMessage ? <div className={styles.feedbackError}>{errorMessage}</div> : null}
       <section className={styles.screen}>{children}</section>
     </div>
   );

@@ -33,6 +33,8 @@ model Organization {
   properNounGlossaryEntries ProperNounGlossaryEntry[]
   properNounSuggestions     ProperNounSuggestion[]
   nextMeetingMemos          NextMeetingMemo[]
+  teacherRecordingSessions  TeacherRecordingSession[]
+  teacherRecordingJobs      TeacherRecordingJob[]
 }
 
 model User {
@@ -53,6 +55,7 @@ model User {
   recordingLocksHeld StudentRecordingLock[] @relation("RecordingLockHolder")
   invitationsCreated OrganizationInvitation[] @relation("InvitationCreator")
   properNounGlossaryEntries ProperNounGlossaryEntry[] @relation("GlossaryTutor")
+  teacherRecordingSessionsCreated TeacherRecordingSession[] @relation("TeacherRecordingCreator")
 }
 
 model Student {
@@ -81,6 +84,7 @@ model Student {
   properNounGlossaryEntries ProperNounGlossaryEntry[]
   properNounSuggestions     ProperNounSuggestion[]
   nextMeetingMemos          NextMeetingMemo[]
+  teacherRecordingSelections TeacherRecordingSession[] @relation("TeacherRecordingSelectedStudent")
 
   @@index([organizationId, archivedAt, createdAt])
   @@index([organizationId, archivedAt, name])
@@ -272,6 +276,70 @@ model SessionPartJob {
   @@unique([sessionPartId, type])
   @@index([status, type])
   @@index([sessionPartId, type, status])
+}
+
+model TeacherRecordingSession {
+  id                        String                      @id @default(cuid())
+  organizationId            String
+  createdByUserId           String
+  selectedStudentId         String?
+  deviceLabel               String
+  status                    TeacherRecordingSessionStatus @default(RECORDING)
+  audioFileName             String?
+  audioMimeType             String?
+  audioByteSize             Int?
+  audioStorageUrl           String?
+  durationSeconds           Float?
+  transcriptText            String?
+  transcriptSegmentsJson    Json?
+  transcriptMetaJson        Json?
+  suggestedStudentsJson     Json?
+  errorMessage              String?
+  recordedAt                DateTime?
+  uploadedAt                DateTime?
+  analyzedAt                DateTime?
+  confirmedAt               DateTime?
+  processingLeaseExecutionId String?
+  processingLeaseExpiresAt  DateTime?
+  processingLeaseStartedAt  DateTime?
+  processingLeaseHeartbeatAt DateTime?
+  createdAt                 DateTime                    @default(now())
+  updatedAt                 DateTime                    @updatedAt
+
+  organization  Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdBy     User               @relation("TeacherRecordingCreator", fields: [createdByUserId], references: [id], onDelete: Cascade)
+  selectedStudent Student?         @relation("TeacherRecordingSelectedStudent", fields: [selectedStudentId], references: [id], onDelete: SetNull)
+  jobs          TeacherRecordingJob[]
+
+  @@index([organizationId, deviceLabel, status, createdAt])
+  @@index([createdByUserId, status, createdAt])
+  @@index([selectedStudentId, createdAt])
+  @@index([processingLeaseExpiresAt])
+}
+
+model TeacherRecordingJob {
+  id                 String                 @id @default(cuid())
+  recordingSessionId String
+  organizationId     String
+  type               TeacherRecordingJobType
+  status             JobStatus              @default(QUEUED)
+  executionId        String?
+  attempts           Int                    @default(0)
+  maxAttempts        Int                    @default(3)
+  lastError          String?
+  outputJson         Json?
+  costMetaJson       Json?
+  startedAt          DateTime?
+  finishedAt         DateTime?
+  createdAt          DateTime               @default(now())
+  updatedAt          DateTime               @updatedAt
+
+  recordingSession TeacherRecordingSession @relation(fields: [recordingSessionId], references: [id], onDelete: Cascade)
+  organization     Organization            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([recordingSessionId, type])
+  @@index([status, type])
+  @@index([recordingSessionId, type, status])
 }
 
 model Report {
@@ -604,6 +672,10 @@ enum SessionPartJobType {
   PROMOTE_SESSION
 }
 
+enum TeacherRecordingJobType {
+  TRANSCRIBE_AND_SUGGEST
+}
+
 enum JobStatus {
   RUNNING
   QUEUED
@@ -676,6 +748,15 @@ enum SessionPartStatus {
   UPLOADING
   TRANSCRIBING
   READY
+  ERROR
+}
+
+enum TeacherRecordingSessionStatus {
+  RECORDING
+  TRANSCRIBING
+  AWAITING_STUDENT_CONFIRMATION
+  STUDENT_CONFIRMED
+  CANCELLED
   ERROR
 }
 

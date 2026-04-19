@@ -3,7 +3,7 @@
 PARARIA は、塾・個別指導・学習コーチング向けの `Teaching OS` です。  
 現在の実装は、**録音や会話メモから `面談ログ` または `指導報告ログ` を 1 本生成し、その保存済みログを選んで `保護者レポート` を作る** ことに絞っています。
 
-この README は、**2026-04-18 時点の現行コードと一致する運用仕様書** です。
+この README は、**2026-04-19 時点の現行コードと一致する運用仕様書** です。
 
 ## 0. いまの読み方
 
@@ -112,8 +112,11 @@ npm run test:student-room-route
 
 - 先生向けの録音専用導線は、管理 web の `/app/*` とは分けて `/teacher` に載せる
 - 初回の校舎共通端末設定は `/teacher/setup` で行い、通常利用時は待機画面から始める
-- 今入っている土台は、device login API、Teacher App 専用 cookie session、分離した app shell、provisional screen / hook / flow の境界まで
-- 録音本体、temporary session、候補サジェスト、本ログ生成トリガー、未送信キューは別 issue で順に進める
+- いまは `/teacher` で `待機 -> 録音 -> 解析中 -> 生徒確認 -> 完了` の temporary recording flow が動く
+- 録音開始時に `TeacherRecordingSession` を作り、録音停止後は音声 upload と `TeacherRecordingJob` で STT と候補抽出を進める
+- `TRANSCRIBING` / `AWAITING_STUDENT_CONFIRMATION` の途中で再読み込みしても、同じ端末の active recording を復元して続きから戻れる
+- main path は device scope で閉じ、別端末の in-flight recording を拾わない
+- まだ未完了なのは、生徒確定後に正式 `Session / SessionPart / Conversation` へ昇格して本ログ生成を始める部分と、未送信 queue の永続化 / 再送 / idempotency
 - 親 issue は `#164`、子 issue は `#161`, `#160`, `#162`, `#163`
 - 詳細な仕様と進捗メモは [docs/issues/83-teacher-app-recording-mobile-parent-plan.md](./docs/issues/83-teacher-app-recording-mobile-parent-plan.md) から辿る
 

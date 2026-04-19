@@ -2,6 +2,7 @@ import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { canManageSettings } from "@/lib/permissions";
 import { readBearerToken } from "@/lib/server/route-guards";
+import { requireSameOriginRequest } from "@/lib/server/request-security";
 import {
   getTeacherAppCookieName,
   parseTeacherAppSessionToken,
@@ -39,6 +40,23 @@ export async function requireTeacherAppSessionForRequest(request: Request) {
     session,
     response: null,
   } as const;
+}
+
+export async function requireTeacherAppMutationSession(request: Request) {
+  const sessionResult = await requireTeacherAppSessionForRequest(request);
+  if (sessionResult.response) {
+    return sessionResult;
+  }
+
+  const sameOriginResponse = requireSameOriginRequest(request);
+  if (sameOriginResponse) {
+    return {
+      session: null,
+      response: sameOriginResponse,
+    } as const;
+  }
+
+  return sessionResult;
 }
 
 export function canConfigureTeacherAppDevice(role: string | null | undefined) {

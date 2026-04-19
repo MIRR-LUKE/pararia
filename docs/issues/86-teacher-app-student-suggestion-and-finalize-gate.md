@@ -29,3 +29,16 @@
 - 候補が弱くても自動確定しない
 - 生徒確定前に本ログ生成が走らず、確定後にだけ trigger される
 - 管理 web 側の既存 session / conversation / report 基盤を壊さない
+
+## 進捗メモ
+
+- 完了:
+  - 文字起こし結果から在籍生徒候補を組み立てる候補抽出ロジックが入った
+  - 生徒確認画面で transcript 冒頭、候補ボタン、`該当なし` を出せるようになった
+  - 候補選択または `該当なし` を保存し、`TeacherRecordingSession.selectedStudentId / confirmedAt / status=STUDENT_CONFIRMED` を更新できるようになった
+- まだ残っていること:
+  - 確定後に正式 `Session / SessionPart / Conversation` を生成して、本ログ生成を起動する gate
+  - `該当なし` の次アクションを、手動選択または管理 web 受け渡しとして明確化すること
+  - 候補精度の改善と、候補理由の見せ方の調整
+
+いまは `生徒確認の保存` まではできるが、確定後に正式ログ生成へ進むところはまだ未接続。

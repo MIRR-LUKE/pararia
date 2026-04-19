@@ -30,6 +30,15 @@ export function buildSessionPartUploadPathname(sessionId: string, partType: stri
   );
 }
 
+export function buildTeacherRecordingUploadPathname(recordingId: string, fileName: string) {
+  return joinStoragePath(
+    "teacher-recordings",
+    "uploads",
+    recordingId,
+    `${Date.now()}-${sanitizeStorageFileName(fileName)}`
+  );
+}
+
 export function parseSessionPartUploadPathname(pathname: string): {
   sessionId: string;
   partType: SessionPartUploadPartType;
