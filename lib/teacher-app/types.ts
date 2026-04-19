@@ -11,6 +11,29 @@ export type TeacherAppDeviceSession = {
   expiresAt: string;
 };
 
+export type TeacherAppClientPlatform = "IOS" | "ANDROID" | "WEB" | "UNKNOWN";
+
+export type TeacherAppClientInfo = {
+  platform: TeacherAppClientPlatform;
+  appVersion: string | null;
+  buildNumber: string | null;
+};
+
+export type TeacherAppNativeAuthBundle = {
+  accessToken: string;
+  accessTokenExpiresAt: string;
+  refreshToken: string;
+  refreshTokenExpiresAt: string;
+  authSessionId: string;
+  tokenType: "Bearer";
+};
+
+export type TeacherAppNativeAuthResponse = {
+  session: TeacherAppDeviceSession;
+  client: TeacherAppClientInfo;
+  auth: TeacherAppNativeAuthBundle;
+};
+
 export type TeacherStudentCandidate = {
   id: string;
   name: string;

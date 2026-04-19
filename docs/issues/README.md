@@ -228,6 +228,6 @@ Teacher App 仕様の新規 issue docs:
 9. `#165` [91-teacher-app-mobile-recording-lifecycle-hardening.md](./91-teacher-app-mobile-recording-lifecycle-hardening.md)
 10. `#167` [92-teacher-app-internal-distribution-and-device-qa.md](./92-teacher-app-internal-distribution-and-device-qa.md)
 11. `#171` [93-teacher-native-app-parent-plan.md](./93-teacher-native-app-parent-plan.md)
-12. `#172` [94-teacher-native-app-backend-contract-and-device-auth.md](./94-teacher-native-app-backend-contract-and-device-auth.md)
+12. `#172` [94-teacher-native-app-backend-contract-and-device-auth.md](./94-teacher-native-app-backend-contract-and-device-auth.md) - Closed
 13. `#173` [95-ios-native-teacher-app-recording-foundation.md](./95-ios-native-teacher-app-recording-foundation.md)
 14. `#170` [96-android-native-teacher-app-recording-foundation.md](./96-android-native-teacher-app-recording-foundation.md)

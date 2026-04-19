@@ -122,6 +122,7 @@ npm run test:student-room-route
 - Teacher App の端末認証は `TeacherAppDevice` で永続化し、signed cookie / bearer token の両方で `deviceId` を検証する
 - 録音 app の本命方針は `完全ネイティブ` で、`/teacher` は flow 検証と backend 契約確認のための web 導線として残す
 - 管理画面、レポート確認、設定、監査は引き続き web のまま運用する
+- native app 用の auth / recording 契約は [docs/teacher-app-native-auth-contract.md](./docs/teacher-app-native-auth-contract.md) を正本にする
 - 親 issue は `#164`、子 issue は `#161`, `#160`, `#162`, `#163`
 - 詳細な仕様と進捗メモは [docs/issues/83-teacher-app-recording-mobile-parent-plan.md](./docs/issues/83-teacher-app-recording-mobile-parent-plan.md) から辿る
 

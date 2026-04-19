@@ -36,6 +36,7 @@ model Organization {
   teacherRecordingSessions  TeacherRecordingSession[]
   teacherRecordingJobs      TeacherRecordingJob[]
   teacherAppDevices         TeacherAppDevice[]
+  teacherAppAuthSessions    TeacherAppDeviceAuthSession[]
 }
 
 model User {
@@ -58,6 +59,7 @@ model User {
   properNounGlossaryEntries ProperNounGlossaryEntry[] @relation("GlossaryTutor")
   teacherRecordingSessionsCreated TeacherRecordingSession[] @relation("TeacherRecordingCreator")
   teacherAppDevicesConfigured TeacherAppDevice[] @relation("TeacherAppDeviceConfiguredBy")
+  teacherAppAuthSessions       TeacherAppDeviceAuthSession[]
 }
 
 model Student {
@@ -286,17 +288,49 @@ model TeacherAppDevice {
   configuredByUserId  String
   label               String
   status              TeacherAppDeviceStatus @default(ACTIVE)
+  lastClientPlatform  TeacherAppClientPlatform?
+  lastAppVersion      String?
+  lastBuildNumber     String?
   lastAuthenticatedAt DateTime?
   lastSeenAt          DateTime?
   createdAt           DateTime               @default(now())
   updatedAt           DateTime               @updatedAt
 
-  organization Organization              @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  configuredBy User                     @relation("TeacherAppDeviceConfiguredBy", fields: [configuredByUserId], references: [id], onDelete: Cascade)
+  organization Organization                 @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  configuredBy User                         @relation("TeacherAppDeviceConfiguredBy", fields: [configuredByUserId], references: [id], onDelete: Cascade)
   recordings   TeacherRecordingSession[]
+  authSessions TeacherAppDeviceAuthSession[]
 
   @@unique([organizationId, label])
   @@index([organizationId, status, updatedAt])
+}
+
+model TeacherAppDeviceAuthSession {
+  id                    String                           @id @default(cuid())
+  organizationId        String
+  userId                String
+  deviceId              String
+  status                TeacherAppDeviceAuthSessionStatus @default(ACTIVE)
+  clientPlatform        TeacherAppClientPlatform         @default(UNKNOWN)
+  appVersion            String?
+  buildNumber           String?
+  refreshTokenHash      String
+  refreshTokenExpiresAt DateTime
+  lastSeenAt            DateTime?
+  lastRefreshedAt       DateTime?
+  revokedAt             DateTime?
+  revokeReason          String?
+  createdAt             DateTime                         @default(now())
+  updatedAt             DateTime                         @updatedAt
+
+  organization Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  device       TeacherAppDevice @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@unique([refreshTokenHash])
+  @@index([organizationId, deviceId, status, updatedAt])
+  @@index([organizationId, userId, status, updatedAt])
+  @@index([refreshTokenExpiresAt])
 }
 
 model TeacherRecordingSession {
@@ -706,6 +740,18 @@ enum TeacherRecordingJobType {
 enum TeacherAppDeviceStatus {
   ACTIVE
   REVOKED
+}
+
+enum TeacherAppDeviceAuthSessionStatus {
+  ACTIVE
+  REVOKED
+}
+
+enum TeacherAppClientPlatform {
+  IOS
+  ANDROID
+  WEB
+  UNKNOWN
 }
 
 enum JobStatus {

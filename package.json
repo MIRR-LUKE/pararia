@@ -72,6 +72,7 @@
     "test:db-retry": "tsx scripts/test-db-retry.ts",
     "test:security-headers": "tsx scripts/test-security-headers.ts",
     "test:teacher-app-device-auth": "tsx scripts/test-teacher-app-device-auth.ts",
+    "test:teacher-app-native-auth": "tsx scripts/test-teacher-app-native-auth.ts",
     "test:teacher-app-student-candidates": "tsx scripts/test-teacher-app-student-candidates.ts",
     "benchmark:interview-log": "tsx scripts/run-interview-log-benchmark.ts",
     "worker:runpod": "tsx scripts/run-runpod-worker.ts",

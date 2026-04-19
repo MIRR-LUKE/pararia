@@ -1,3 +1,4 @@
+import { TeacherAppClientPlatform } from "@prisma/client";
 import { NextResponse } from "next/server";
 import { loginWithEmail } from "@/lib/auth";
 import {
@@ -73,6 +74,7 @@ export async function POST(request: Request) {
       organizationId: user.organizationId,
       configuredByUserId: user.id,
       label: deviceLabel,
+      clientPlatform: TeacherAppClientPlatform.WEB,
     });
     const session = createTeacherAppDeviceSession(user, device);
     const token = serializeTeacherAppSessionToken(session);
