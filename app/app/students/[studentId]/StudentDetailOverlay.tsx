@@ -1,8 +1,8 @@
 "use client";
 
 import { Button } from "@/components/ui/Button";
-import { StructuredMarkdown } from "@/components/ui/StructuredMarkdown";
 import { LogView } from "../../logs/LogView";
+import { ParentReportContent } from "./ParentReportContent";
 import { ReportStudio } from "./ReportStudio";
 import type { ReportItem, ReportStudioView, RoomResponse } from "./roomTypes";
 import { formatReportDate } from "./studentDetailFormatting";
@@ -171,9 +171,9 @@ export function StudentDetailOverlay({
                 ) : null}
 
                 <div className={styles.reportParagraph}>
-                  <StructuredMarkdown
+                  <ParentReportContent
+                    reportJson={activeParentReport.reportJson}
                     markdown={activeParentReport.reportMarkdown}
-                    emptyMessage="まだ保護者レポートは生成されていません。"
                   />
                 </div>
 

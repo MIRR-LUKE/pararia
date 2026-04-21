@@ -19,6 +19,7 @@ type GetStudentRoomOptions = {
 type DetailedReportRecord = {
   id: string;
   reportMarkdown: string | null;
+  reportJson: unknown;
   deliveryEvents: Array<{
     id: string;
     eventType: string;
@@ -101,6 +102,7 @@ function buildStudentRoomSelect(scope: StudentRoomScope) {
         select: {
           id: true,
           status: true,
+          reportJson: true,
           createdAt: true,
           sentAt: true,
           reviewedAt: true,
@@ -195,6 +197,7 @@ function buildStudentRoomSelect(scope: StudentRoomScope) {
       select: {
         id: true,
         status: true,
+        reportJson: true,
         createdAt: true,
         sentAt: true,
         reviewedAt: true,
@@ -230,6 +233,7 @@ async function getLatestDetailedReport(reportId: string, organizationId: string)
       select: {
         id: true,
         reportMarkdown: true,
+        reportJson: true,
         deliveryEvents: {
           orderBy: { createdAt: "asc" as const },
           select: {
@@ -391,6 +395,7 @@ export async function getStudentRoomData({
     const mappedReport = {
       ...report,
       reportMarkdown: detailedReport ? sanitizeReportMarkdown(detailedReport.reportMarkdown ?? "") : "",
+      reportJson: detailedReport ? detailedReport.reportJson ?? report.reportJson ?? null : report.reportJson ?? null,
       createdAt: report.createdAt.toISOString(),
       sentAt: report.sentAt?.toISOString() ?? null,
       reviewedAt: report.reviewedAt?.toISOString() ?? null,

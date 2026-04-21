@@ -30,6 +30,7 @@ export async function GET(
         id: true,
         status: true,
         reportMarkdown: true,
+        reportJson: true,
         createdAt: true,
         sentAt: true,
         reviewedAt: true,
@@ -62,6 +63,7 @@ export async function GET(
     const mappedReport = {
       ...report,
       reportMarkdown: sanitizeReportMarkdown(report.reportMarkdown ?? ""),
+      reportJson: report.reportJson ?? null,
       createdAt: report.createdAt.toISOString(),
       sentAt: report.sentAt?.toISOString() ?? null,
       reviewedAt: report.reviewedAt?.toISOString() ?? null,
