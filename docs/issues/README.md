@@ -186,6 +186,7 @@ close / defer に回した考え方:
 - `#80` は generation route smoke script / GitHub Actions workflow / `main` branch protection required checks 設定まで完了済み
 - `#150` は `verify` / `Conversation Quality` に generation-preservation gate を入れるところまで完了済み
 - `#174` は、closed 済みの `#82` を現行の generate-report 主経路向けに切り直した successor issue
+- `#174` は route 実装と error-contract smoke 追加まで push 済み。残りは PR / merge queue で `Generation Route Smoke` を踏む確認
 - `#83` は closed 済みだが、noncritical side effect の best-effort 化という論点自体は引き続き有効
 - いま active に残しているのは、generate-report observability hardening と native Teacher App の実装 / QA
 

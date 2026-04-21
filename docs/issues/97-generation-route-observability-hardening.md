@@ -6,6 +6,19 @@
 - GitHub Issue: `#174`
 - 最終更新: `2026-04-21`
 
+## 進捗
+
+- `POST /api/ai/generate-report` に `stage / operationId / reason` を返す failure shape を入れた
+- success response でも `operationId` と `stage: persist_report` を返すようにした
+- `GET /api/reports/[id]` と `GET /api/students/[id]/room` も同じ observability helper の語彙に寄せた
+- `report generated but audit log failed` と `revalidate failed` は warning log に落として main flow を守るようにした
+- `scripts/test-report-generation-route.ts` に success だけでなく error-contract smoke を追加した
+
+## 残り
+
+- `Generation Route Smoke` workflow が PR / merge queue / main push でこの新しい error-contract smoke を踏むことの確認
+- 必要なら UI 側に `operationId` を見せるかどうかの判断
+
 ## 何をするか
 
 `#80` で `generate-report -> 保存 -> /api/reports/[id] -> student room` の smoke は CI 必須になった。  
