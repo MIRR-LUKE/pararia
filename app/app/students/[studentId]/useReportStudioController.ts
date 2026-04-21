@@ -4,7 +4,6 @@ import { useEffect, useMemo, useState } from "react";
 import { buildParentReportGenerationProgress } from "@/lib/generation-progress";
 import { buildBundlePreview, buildBundleQualityEval, buildReportBundleLog, type ReportBundleLog } from "@/lib/operational-log";
 import { reportStatusLabel } from "@/lib/report-delivery";
-import { formatRouteOperationError } from "./routeOperationError";
 import type { ReportItem, ReportStudioView, SessionItem } from "./roomTypes";
 
 type UseReportStudioControllerProps = {
@@ -122,7 +121,7 @@ export function useReportStudioController({
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
-        throw new Error(formatRouteOperationError(body, "保護者レポートの生成に失敗しました。"));
+        throw new Error(body?.error ?? "保護者レポートの生成に失敗しました。");
       }
       setGenerationStage("saving");
       setDraftMarkdown(body?.report?.reportMarkdown ?? "");
@@ -155,7 +154,7 @@ export function useReportStudioController({
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
-        throw new Error(formatRouteOperationError(body, "共有状態の更新に失敗しました。"));
+        throw new Error(body?.error ?? "共有状態の更新に失敗しました。");
       }
       await onRefresh();
       if (action === "review") {

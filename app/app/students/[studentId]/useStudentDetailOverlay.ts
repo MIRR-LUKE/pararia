@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { UNSAVED_CONVERSATION_SUMMARY_MESSAGE } from "@/lib/conversation-editing";
-import { formatRouteOperationError } from "./routeOperationError";
 import { formatReportDate, formatSessionLabel } from "./studentDetailFormatting";
 import type { ReportItem, ReportStudioView, RoomResponse, SessionItem } from "./roomTypes";
 import {
@@ -154,7 +153,7 @@ export function useStudentDetailOverlay({
         const res = await fetch(`/api/reports/${reportId}`, { cache: "no-store" });
         const body = await res.json().catch(() => ({}));
         if (!res.ok) {
-          throw new Error(formatRouteOperationError(body, "保護者レポートの取得に失敗しました。"));
+          throw new Error(body?.error ?? "保護者レポートの取得に失敗しました。");
         }
         const nextReport = body?.report as ReportItem | undefined;
         if (!nextReport) {
@@ -284,10 +283,8 @@ export function useStudentDetailOverlay({
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
         throw new Error(
-          formatRouteOperationError(
-            body,
+          body?.error ??
             (deleteTarget.kind === "conversation" ? "ログの削除に失敗しました。" : "保護者レポートの削除に失敗しました。")
-          )
         );
       }
 
