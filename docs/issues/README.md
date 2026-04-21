@@ -116,11 +116,11 @@
 
 次の active open issue:
 
-- `#81` backend/perf ブランチで UI 変更を止める path guard を入れる
-- `#82` 主経路の失敗を stage / operationId 付きで可視化する
-- `#83` audit などの非本質 side effect を main flow から切り離す
-- `#86` 本番データ整合性を read-only audit と fixture isolation で守る
-- `#87` 生徒一覧から生徒情報編集へ直接入れる導線を追加する
+- `#174` generate-report 主経路に stage / operationId / failure taxonomy を入れて調査コストを下げる
+- `#173` iOS native Teacher App の録音基盤と最小 UI を作る
+- `#170` Android native Teacher App の録音基盤と最小 UI を作る
+- `#167` Teacher App を内部配布して実機 QA を回せるようにする
+- `#165` Teacher App の mobile 録音 lifecycle を harden する
 
 今回追加した issue docs:
 
@@ -185,7 +185,9 @@ close / defer に回した考え方:
 - `#79` は generation-preservation を protected path として README / engineering rules に明記するところまで完了済み
 - `#80` は generation route smoke script / GitHub Actions workflow / `main` branch protection required checks 設定まで完了済み
 - `#150` は `verify` / `Conversation Quality` に generation-preservation gate を入れるところまで完了済み
-- いま active に残しているのは、stage / operationId observability と main flow からの side effect 分離
+- `#174` は、closed 済みの `#82` を現行の generate-report 主経路向けに切り直した successor issue
+- `#83` は closed 済みだが、noncritical side effect の best-effort 化という論点自体は引き続き有効
+- いま active に残しているのは、generate-report observability hardening と native Teacher App の実装 / QA
 
 今回追加して完了した Runpod / generation issue:
 
