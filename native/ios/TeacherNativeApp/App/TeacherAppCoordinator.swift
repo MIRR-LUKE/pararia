@@ -96,11 +96,19 @@ final class TeacherAppCoordinator: ObservableObject {
                 errorMessage = "マイクを許可してください。"
                 return
             }
-            activeRecordingId = try await recordingRepository.createRecording()
-            try recorder.start()
+            let recordingId = try await recordingRepository.createRecording()
+            do {
+                try recorder.start()
+            } catch {
+                try? await recordingRepository.cancelRecording(recordingId: recordingId)
+                throw error
+            }
+            activeRecordingId = recordingId
             recordingStartedAt = Date()
             startTimer()
         } catch {
+            activeRecordingId = nil
+            recordingStartedAt = nil
             errorMessage = error.localizedDescription
         }
     }
@@ -112,11 +120,16 @@ final class TeacherAppCoordinator: ObservableObject {
             let fileURL = try recorder.stop()
             let duration = recordingStartedAt.map { Date().timeIntervalSince($0) }
             timerTask?.cancel()
+            activeRecordingId = nil
+            recordingStartedAt = nil
             route = .analyzing(recordingId: recordingId, message: "音声を送信しています。")
             _ = try await recordingRepository.uploadAudio(recordingId: recordingId, fileURL: fileURL, durationSeconds: duration)
             let summary = try await recordingRepository.pollRecording(recordingId: recordingId)
             apply(summary: summary)
         } catch {
+            activeRecordingId = nil
+            recordingStartedAt = nil
+            timerTask?.cancel()
             errorMessage = error.localizedDescription
             pendingUploads = (try? pendingStore.loadItems()) ?? pendingUploads
             route = .standby
@@ -163,6 +176,9 @@ final class TeacherAppCoordinator: ObservableObject {
 
     func logout() async {
         doneTask?.cancel()
+        timerTask?.cancel()
+        activeRecordingId = nil
+        recordingStartedAt = nil
         await authRepository.logout()
         session = nil
         route = .bootstrap

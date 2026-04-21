@@ -128,6 +128,7 @@ npm run test:student-room-route
 - native app の source foundation は `native/ios/TeacherNativeApp` と `native/android/app/src/main/java/jp/pararia/teacherapp` に置く
 - 管理画面、レポート確認、設定、監査は引き続き web のまま運用する
 - native app 用の auth / recording 契約は [docs/teacher-app-native-auth-contract.md](./docs/teacher-app-native-auth-contract.md) を正本にする
+- lifecycle 方針は [docs/teacher-app-lifecycle-policy.md](./docs/teacher-app-lifecycle-policy.md)、内部 QA / 配布メモは [docs/teacher-app-internal-testing.md](./docs/teacher-app-internal-testing.md) を正本にする
 - native-first の親 issue は `#171`、子 issue は `#172`, `#173`, `#170`, `#165`, `#167`
 - `#172` は backend 契約と device auth まで完了済み
 

@@ -100,7 +100,65 @@ struct PendingUpload: Codable, Identifiable, Hashable {
     let recordingId: String
     let fileURL: URL
     let createdAt: Date
+    let durationSeconds: Double?
+    let attemptCount: Int
+    let lastAttemptAt: Date?
     var errorMessage: String?
+
+    init(
+        id: String,
+        recordingId: String,
+        fileURL: URL,
+        createdAt: Date,
+        durationSeconds: Double? = nil,
+        attemptCount: Int = 0,
+        lastAttemptAt: Date? = nil,
+        errorMessage: String? = nil
+    ) {
+        self.id = id
+        self.recordingId = recordingId
+        self.fileURL = fileURL
+        self.createdAt = createdAt
+        self.durationSeconds = durationSeconds
+        self.attemptCount = attemptCount
+        self.lastAttemptAt = lastAttemptAt
+        self.errorMessage = errorMessage
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case recordingId
+        case fileURL
+        case createdAt
+        case durationSeconds
+        case attemptCount
+        case lastAttemptAt
+        case errorMessage
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        recordingId = try container.decode(String.self, forKey: .recordingId)
+        fileURL = try container.decode(URL.self, forKey: .fileURL)
+        createdAt = try container.decode(Date.self, forKey: .createdAt)
+        durationSeconds = try container.decodeIfPresent(Double.self, forKey: .durationSeconds)
+        attemptCount = try container.decodeIfPresent(Int.self, forKey: .attemptCount) ?? 0
+        lastAttemptAt = try container.decodeIfPresent(Date.self, forKey: .lastAttemptAt)
+        errorMessage = try container.decodeIfPresent(String.self, forKey: .errorMessage)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(recordingId, forKey: .recordingId)
+        try container.encode(fileURL, forKey: .fileURL)
+        try container.encode(createdAt, forKey: .createdAt)
+        try container.encodeIfPresent(durationSeconds, forKey: .durationSeconds)
+        try container.encode(attemptCount, forKey: .attemptCount)
+        try container.encodeIfPresent(lastAttemptAt, forKey: .lastAttemptAt)
+        try container.encodeIfPresent(errorMessage, forKey: .errorMessage)
+    }
 }
 
 struct DeviceLoginInput {
@@ -135,6 +193,7 @@ protocol TeacherAuthRepository {
     func currentSession() async -> TeacherSession?
     func login(input: DeviceLoginInput) async throws -> TeacherSession
     func refreshIfNeeded() async throws -> TeacherSession?
+    func forceRefresh() async throws -> TeacherSession?
     func logout() async
 }
 

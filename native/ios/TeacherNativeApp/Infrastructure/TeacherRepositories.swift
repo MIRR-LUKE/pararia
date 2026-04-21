@@ -41,10 +41,18 @@ final class DefaultTeacherAuthRepository: TeacherAuthRepository {
     }
 
     func refreshIfNeeded() async throws -> TeacherSession? {
+        try await refresh(forceRefresh: false)
+    }
+
+    func forceRefresh() async throws -> TeacherSession? {
+        try await refresh(forceRefresh: true)
+    }
+
+    private func refresh(forceRefresh: Bool) async throws -> TeacherSession? {
         guard let bundle = tokenStore.loadAuthBundle() else {
             return nil
         }
-        guard Date(bundle.accessTokenExpiresAt) ?? .distantPast <= Date().addingTimeInterval(30) else {
+        guard forceRefresh || Date(bundle.accessTokenExpiresAt) ?? .distantPast <= Date().addingTimeInterval(30) else {
             let response: TeacherSessionEnvelope = try await apiClient.send(path: "/api/teacher/native/auth/session")
             cachedSession = response.session
             return response.session
@@ -102,11 +110,18 @@ final class DefaultTeacherRecordingRepository: TeacherRecordingRepository {
 
     func uploadAudio(recordingId: String, fileURL: URL, durationSeconds: Double?) async throws -> TeacherRecordingSummary? {
         do {
-            return try await withAuthenticatedRequest {
+            let summary = try await withAuthenticatedRequest {
                 try await apiClient.uploadAudio(recordingId: recordingId, fileURL: fileURL, durationSeconds: durationSeconds)
             }
+            deleteLocalFile(fileURL)
+            return summary
         } catch {
-            try pendingStore.save(PendingUpload(id: UUID().uuidString, recordingId: recordingId, fileURL: fileURL, createdAt: Date(), errorMessage: error.localizedDescription))
+            try queuePendingUpload(
+                recordingId: recordingId,
+                fileURL: fileURL,
+                durationSeconds: durationSeconds,
+                errorMessage: error.localizedDescription
+            )
             throw error
         }
     }
@@ -143,9 +158,24 @@ final class DefaultTeacherRecordingRepository: TeacherRecordingRepository {
     }
 
     func retryPendingUploads() async throws {
+        var firstError: Error?
         for item in try pendingStore.loadItems() {
-            _ = try await uploadAudio(recordingId: item.recordingId, fileURL: item.fileURL, durationSeconds: nil)
-            try pendingStore.remove(id: item.id)
+            do {
+                _ = try await uploadAudio(
+                    recordingId: item.recordingId,
+                    fileURL: item.fileURL,
+                    durationSeconds: item.durationSeconds
+                )
+                try pendingStore.remove(id: item.id)
+            } catch {
+                if firstError == nil {
+                    firstError = error
+                }
+            }
+        }
+
+        if let firstError {
+            throw firstError
         }
     }
 
@@ -156,9 +186,34 @@ final class DefaultTeacherRecordingRepository: TeacherRecordingRepository {
         do {
             return try await operation()
         } catch let error as TeacherAPIError where error.statusCode == 401 {
-            _ = try await authRepository.refreshIfNeeded()
+            _ = try await authRepository.forceRefresh()
             return try await operation()
         }
+    }
+
+    private func queuePendingUpload(
+        recordingId: String,
+        fileURL: URL,
+        durationSeconds: Double?,
+        errorMessage: String
+    ) throws {
+        let existing = try pendingStore.loadItems().first(where: { $0.recordingId == recordingId })
+        try pendingStore.save(
+            PendingUpload(
+                id: existing?.id ?? UUID().uuidString,
+                recordingId: recordingId,
+                fileURL: fileURL,
+                createdAt: existing?.createdAt ?? Date(),
+                durationSeconds: durationSeconds ?? existing?.durationSeconds,
+                attemptCount: (existing?.attemptCount ?? 0) + 1,
+                lastAttemptAt: Date(),
+                errorMessage: errorMessage
+            )
+        )
+    }
+
+    private func deleteLocalFile(_ fileURL: URL) {
+        try? FileManager.default.removeItem(at: fileURL)
     }
 }
 
