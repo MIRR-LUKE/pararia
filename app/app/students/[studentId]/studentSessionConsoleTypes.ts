@@ -1,4 +1,5 @@
 import type { SessionPipelineInfo } from "./roomTypes";
+import type { SessionProgressTimingSnapshot } from "@/lib/session-progress/timing";
 
 export type SessionConsoleMode = "INTERVIEW" | "LESSON_REPORT";
 export type SessionConsoleLessonPart = "CHECK_IN" | "CHECK_OUT";
@@ -20,4 +21,5 @@ export type SessionProgressResponse = {
     status: string;
   } | null;
   progress: SessionPipelineInfo;
+  timing?: SessionProgressTimingSnapshot | null;
 };

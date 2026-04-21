@@ -1,8 +1,11 @@
 import assert from "node:assert/strict";
 import {
   kickSessionWorkerOrFallback,
+  shouldContinueSessionProgressInBackground,
+  shouldKickConversationJobsNow,
   shouldProcessConversationInlineDuringProgress,
   shouldProcessSessionProgressInline,
+  shouldKickSessionWorkerNow,
 } from "../app/api/sessions/[id]/progress/route";
 
 async function waitForMicrotask() {
@@ -78,6 +81,77 @@ assert.equal(
   }),
   false,
   "audio-backed sessions should keep background progress handling in external mode"
+);
+
+assert.equal(
+  shouldContinueSessionProgressInBackground({
+    id: "session-processing",
+    organizationId: "org",
+    type: "INTERVIEW" as any,
+    status: "PROCESSING" as any,
+    createdAt: new Date(),
+    parts: [],
+    conversation: null,
+    nextMeetingMemo: null,
+  }),
+  true,
+  "processing sessions should keep background progress checks alive on GET"
+);
+
+assert.equal(
+  shouldContinueSessionProgressInBackground({
+    id: "session-ready",
+    organizationId: "org",
+    type: "INTERVIEW" as any,
+    status: "COMPLETED" as any,
+    createdAt: new Date(),
+    parts: [],
+    conversation: {
+      id: "conversation-ready",
+      status: "DONE" as any,
+      summaryMarkdown: null,
+      createdAt: new Date(),
+      qualityMetaJson: null,
+      jobs: [],
+    },
+    nextMeetingMemo: null,
+  }),
+  false,
+  "ready sessions should not keep scheduling background progress checks"
+);
+
+const sessionKickCache = new Map<string, number>();
+assert.equal(
+  shouldKickSessionWorkerNow("session-a", 10_000, sessionKickCache),
+  true,
+  "first session worker kick should pass"
+);
+assert.equal(
+  shouldKickSessionWorkerNow("session-a", 12_000, sessionKickCache),
+  false,
+  "duplicate session worker kicks inside cooldown should be ignored"
+);
+assert.equal(
+  shouldKickSessionWorkerNow("session-a", 15_000, sessionKickCache),
+  true,
+  "session worker kicks should reopen after the cooldown"
+);
+
+const conversationKickCache = new Map<string, number>();
+assert.equal(
+  shouldKickConversationJobsNow("conversation-a", 20_000, conversationKickCache),
+  true,
+  "first conversation dispatch kick should pass"
+);
+assert.equal(
+  shouldKickConversationJobsNow("conversation-a", 22_000, conversationKickCache),
+  false,
+  "duplicate conversation dispatch kicks inside cooldown should be ignored"
+);
+assert.equal(
+  shouldKickConversationJobsNow("conversation-a", 25_000, conversationKickCache),
+  true,
+  "conversation dispatch kicks should reopen after the cooldown"
 );
 
 console.log("session progress dispatch regression checks passed");

@@ -2,6 +2,9 @@ name: Backend Scope Guard
 
 on:
   pull_request:
+  merge_group:
+    types:
+      - checks_requested
   push:
     branches:
       - backend/**
@@ -15,12 +18,18 @@ on:
       - guardrails/**
       - feature/**
 
+concurrency:
+  group: backend-scope-guard-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
 jobs:
   backend-scope-guard:
+    name: backend-scope-guard
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     env:
       BACKEND_SCOPE_GUARD_BRANCH: ${{ github.event_name == 'pull_request' && github.head_ref || github.ref_name }}
       BACKEND_SCOPE_GUARD_BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}

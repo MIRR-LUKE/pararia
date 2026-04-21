@@ -107,6 +107,12 @@ export async function transcribeAudioForPipeline(input: TranscribeInput): Promis
         gpuSnapshotBefore: primaryResponse?.gpu_snapshot_before,
         gpuSnapshotAfter: primaryResponse?.gpu_snapshot_after,
         gpuMonitor: primaryResponse?.gpu_monitor,
+        vadParameters: primaryResponse?.vad_parameters,
+        transcribeElapsedMs:
+          typeof primaryResponse?.transcribe_elapsed_ms === "number" &&
+          Number.isFinite(primaryResponse.transcribe_elapsed_ms)
+            ? primaryResponse.transcribe_elapsed_ms
+            : undefined,
       },
     };
   } finally {

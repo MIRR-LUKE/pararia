@@ -1,6 +1,6 @@
 # 直近で切る Issue 一覧
 
-更新日: 2026-04-14
+更新日: 2026-04-21
 
 今回の前提:
 
@@ -116,13 +116,11 @@
 
 次の active open issue:
 
-- `#79` ログ生成を protected critical path として repo で守る
-- `#80` 録音ロックから次回の面談メモまでの critical path smoke を CI で止める
-- `#81` backend/perf ブランチで UI 変更を止める path guard を入れる
-- `#82` 主経路の失敗を stage / operationId 付きで可視化する
-- `#83` audit などの非本質 side effect を main flow から切り離す
-- `#86` 本番データ整合性を read-only audit と fixture isolation で守る
-- `#87` 生徒一覧から生徒情報編集へ直接入れる導線を追加する
+- `#174` generate-report 主経路に stage / operationId / failure taxonomy を入れて調査コストを下げる
+- `#173` iOS native Teacher App の録音基盤と最小 UI を作る
+- `#170` Android native Teacher App の録音基盤と最小 UI を作る
+- `#167` Teacher App を内部配布して実機 QA を回せるようにする
+- `#165` Teacher App の mobile 録音 lifecycle を harden する
 
 今回追加した issue docs:
 
@@ -184,3 +182,57 @@ close / defer に回した考え方:
 - このディレクトリの Markdown は GitHub Issue の本文更新にも使う
 - `#38` と `#40` は `2026-04-13` 時点で main に反映済み
 - `#13` は backlog 整理の役割を終えたため close 済み
+- `#79` は generation-preservation を protected path として README / engineering rules に明記するところまで完了済み
+- `#80` は generation route smoke script / GitHub Actions workflow / `main` branch protection required checks 設定まで完了済み
+- `#150` は `verify` / `Conversation Quality` に generation-preservation gate を入れるところまで完了済み
+- `#174` は、closed 済みの `#82` を現行の generate-report 主経路向けに切り直した successor issue
+- `#174` は route 実装と error-contract smoke 追加まで push 済み。残りは PR / merge queue で `Generation Route Smoke` を踏む確認
+- `#83` は closed 済みだが、noncritical side effect の best-effort 化という論点自体は引き続き有効
+- いま active に残しているのは、generate-report observability hardening と native Teacher App の実装 / QA
+
+今回追加して完了した Runpod / generation issue:
+
+1. `#152` Runpod + faster-whisper の STT latency を VAD と phase 計測で詰める
+2. `#153` progress / log polling を read-only に寄せ、手入力 transcript を one-shot で進める
+3. `#154` ログ生成 retry と next meeting memo を prompt cache 前提で安定させる
+4. `#155` duplicate enqueue でも active job と last good artifact を壊さない
+5. `#156` Runpod UX 計測を p50 / p95 / cost までまとめて見えるようにする
+
+今回追加した issue docs:
+
+1. [74-runpod-stt-latency-and-vad-tuning.md](./74-runpod-stt-latency-and-vad-tuning.md)
+2. [75-progress-readonly-polling-and-manual-transcript-start.md](./75-progress-readonly-polling-and-manual-transcript-start.md)
+3. [76-stable-prompt-cache-and-memo-roundtrip.md](./76-stable-prompt-cache-and-memo-roundtrip.md)
+4. [77-preserve-active-jobs-and-last-good-artifacts.md](./77-preserve-active-jobs-and-last-good-artifacts.md)
+5. [78-runpod-ux-percentiles-and-cost-summary.md](./78-runpod-ux-percentiles-and-cost-summary.md)
+
+今回追加した親 issue doc:
+
+1. [79-interview-log-one-minute-parent-plan.md](./79-interview-log-one-minute-parent-plan.md)
+
+今回完了した親 issue:
+
+1. `#151` 面談ログ生成を本番で 1 分台に近づける全体計画を作る
+
+今回追加した改善 issue docs:
+
+1. `#159` [80-post-stt-handoff-and-queue-lag.md](./80-post-stt-handoff-and-queue-lag.md)
+2. `#158` [81-runpod-worker-observability-parity.md](./81-runpod-worker-observability-parity.md)
+3. `#157` [82-production-prompt-cache-recovery.md](./82-production-prompt-cache-recovery.md)
+
+Teacher App 仕様の新規 issue docs:
+
+1. `#164` [83-teacher-app-recording-mobile-parent-plan.md](./83-teacher-app-recording-mobile-parent-plan.md) - Closed / web-first provisional flow
+2. `#161` [84-teacher-app-foundation-and-device-auth.md](./84-teacher-app-foundation-and-device-auth.md)
+3. `#160` [85-teacher-app-recording-flow-and-temporary-session.md](./85-teacher-app-recording-flow-and-temporary-session.md)
+4. `#162` [86-teacher-app-student-suggestion-and-finalize-gate.md](./86-teacher-app-student-suggestion-and-finalize-gate.md)
+5. `#163` [87-teacher-app-unsent-queue-and-recovery.md](./87-teacher-app-unsent-queue-and-recovery.md)
+6. `#169` [88-teacher-app-ios-android-capacitor-parent-plan.md](./88-teacher-app-ios-android-capacitor-parent-plan.md) - Closed / superseded
+7. `#168` [89-teacher-app-mobile-shell-hardening.md](./89-teacher-app-mobile-shell-hardening.md) - Closed / superseded
+8. `#166` [90-teacher-app-capacitor-wrapper-and-native-permissions.md](./90-teacher-app-capacitor-wrapper-and-native-permissions.md) - Closed / superseded
+9. `#165` [91-teacher-app-mobile-recording-lifecycle-hardening.md](./91-teacher-app-mobile-recording-lifecycle-hardening.md)
+10. `#167` [92-teacher-app-internal-distribution-and-device-qa.md](./92-teacher-app-internal-distribution-and-device-qa.md)
+11. `#171` [93-teacher-native-app-parent-plan.md](./93-teacher-native-app-parent-plan.md)
+12. `#172` [94-teacher-native-app-backend-contract-and-device-auth.md](./94-teacher-native-app-backend-contract-and-device-auth.md) - Closed
+13. `#173` [95-ios-native-teacher-app-recording-foundation.md](./95-ios-native-teacher-app-recording-foundation.md)
+14. `#170` [96-android-native-teacher-app-recording-foundation.md](./96-android-native-teacher-app-recording-foundation.md)

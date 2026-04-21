@@ -38,7 +38,7 @@ fi
 
 echo "[runpod-worker] starting"
 echo "[runpod-worker] workspace=${workspace_dir} background_mode=${PARARIA_BACKGROUND_MODE:-external} audio_storage=${PARARIA_AUDIO_STORAGE_MODE:-blob} model=${FASTER_WHISPER_MODEL:-large-v3} batch=${FASTER_WHISPER_BATCH_SIZE:-8}"
-auto_stop_idle_ms="${RUNPOD_WORKER_AUTO_STOP_IDLE_MS:-${LOCAL_GPU_WORKER_AUTO_STOP_IDLE_MS:-300000}}"
+auto_stop_idle_ms="${RUNPOD_WORKER_AUTO_STOP_IDLE_MS:-${LOCAL_GPU_WORKER_AUTO_STOP_IDLE_MS:-60000}}"
 echo "[runpod-worker] auto_stop_idle_ms=${auto_stop_idle_ms}"
 
 tsx_bin="${workspace_dir}/node_modules/.bin/tsx"

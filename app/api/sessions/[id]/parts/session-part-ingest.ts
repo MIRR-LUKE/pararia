@@ -57,16 +57,37 @@ async function dispatchAudioSessionPartJobs(sessionId: string, partId: string) {
 
 type TextSessionPartDispatchDeps = {
   enqueueSessionPartJob?: typeof enqueueSessionPartJob;
+  processAllSessionPartJobs?: typeof processAllSessionPartJobs;
+  shouldRunBackgroundJobsInline?: typeof shouldRunBackgroundJobsInline;
 };
 
 export async function dispatchTextSessionPartJobs(
-  _sessionId: string,
+  sessionId: string,
   partId: string,
   deps: TextSessionPartDispatchDeps = {}
 ) {
   const enqueue = deps.enqueueSessionPartJob ?? enqueueSessionPartJob;
+  const processQueuedSessionPartJobs = deps.processAllSessionPartJobs ?? processAllSessionPartJobs;
+  const runInlineBackgroundJobs =
+    deps.shouldRunBackgroundJobsInline ?? shouldRunBackgroundJobsInline;
 
   await enqueue(partId, SessionPartJobType.PROMOTE_SESSION);
+
+  if (runInlineBackgroundJobs()) {
+    void processQueuedSessionPartJobs(sessionId).catch((error) => {
+      console.error("[POST /api/sessions/[id]/parts] Background manual session part processing failed:", error);
+    });
+    return {
+      mode: "inline" as const,
+      workerWake: null,
+    };
+  }
+
+  runAfterResponse(async () => {
+    await processQueuedSessionPartJobs(sessionId).catch((error) => {
+      console.error("[POST /api/sessions/[id]/parts] Deferred manual session part processing failed:", error);
+    });
+  }, "POST /api/sessions/[id]/parts process manual session part");
 
   return {
     mode: "external" as const,

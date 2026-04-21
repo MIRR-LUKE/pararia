@@ -69,6 +69,7 @@ export type ReportItem = {
   id: string;
   status: string;
   reportMarkdown: string;
+  reportJson?: unknown | null;
   createdAt: string;
   sentAt?: string | null;
   reviewedAt?: string | null;

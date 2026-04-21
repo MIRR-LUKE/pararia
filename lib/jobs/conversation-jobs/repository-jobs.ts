@@ -7,7 +7,35 @@ import { ACTIVE_JOB_TYPES, JOB_MAX_ATTEMPTS, getRetryDelayMs, isRetryableJobErro
 import type { JobPayload } from "./types";
 import { updateConversationStatus } from "./repository-status";
 
+type PrismaLike = Prisma.TransactionClient | typeof prisma;
+
+function buildConversationJobResetData() {
+  return {
+    status: JobStatus.QUEUED,
+    executionId: null,
+    attempts: 0,
+    maxAttempts: JOB_MAX_ATTEMPTS,
+    lastError: null,
+    nextRetryAt: null,
+    leaseExpiresAt: null,
+    lastHeartbeatAt: null,
+    failedAt: null,
+    completedAt: null,
+    lastRunDurationMs: null,
+    lastQueueLagMs: null,
+    outputJson: Prisma.DbNull,
+    costMetaJson: Prisma.DbNull,
+    startedAt: null,
+    finishedAt: null,
+  } satisfies Prisma.ConversationJobUpdateInput;
+}
+
+export function shouldPreserveActiveConversationJob(status: JobStatus | string | null | undefined) {
+  return status === JobStatus.QUEUED || status === JobStatus.RUNNING;
+}
+
 function upsertNextMeetingMemoRecord(input: {
+  db?: PrismaLike;
   conversationId: string;
   sessionId: string;
   organizationId: string;
@@ -15,7 +43,8 @@ function upsertNextMeetingMemoRecord(input: {
   status: NextMeetingMemoStatus;
   clearContent?: boolean;
 }) {
-  return prisma.nextMeetingMemo.upsert({
+  const db = input.db ?? prisma;
+  return db.nextMeetingMemo.upsert({
     where: { sessionId: input.sessionId },
     update: {
       conversationId: input.conversationId,
@@ -61,50 +90,52 @@ export async function enqueueNextMeetingMemoJob(conversationId: string) {
     return { queued: false, reason: "not_interview_session" as const };
   }
 
-  await prisma.$transaction([
-    prisma.conversationJob.upsert({
+  return prisma.$transaction(async (tx) => {
+    const existingJob = await tx.conversationJob.findUnique({
       where: {
         conversationId_type: {
           conversationId,
           type: ConversationJobType.GENERATE_NEXT_MEETING_MEMO,
         },
       },
-      update: {
-        status: JobStatus.QUEUED,
-        executionId: null,
-        attempts: 0,
-        maxAttempts: JOB_MAX_ATTEMPTS,
-        lastError: null,
-        nextRetryAt: null,
-        leaseExpiresAt: null,
-        lastHeartbeatAt: null,
-        failedAt: null,
-        completedAt: null,
-        lastRunDurationMs: null,
-        lastQueueLagMs: null,
-        outputJson: Prisma.DbNull,
-        costMetaJson: Prisma.DbNull,
-        startedAt: null,
-        finishedAt: null,
+      select: {
+        id: true,
+        status: true,
       },
-      create: {
-        conversationId,
-        type: ConversationJobType.GENERATE_NEXT_MEETING_MEMO,
-        status: JobStatus.QUEUED,
-        maxAttempts: JOB_MAX_ATTEMPTS,
-      },
-    }),
-    upsertNextMeetingMemoRecord({
+    });
+
+    if (existingJob && shouldPreserveActiveConversationJob(existingJob.status)) {
+      return { queued: false as const, reason: "already_active" as const };
+    }
+
+    if (existingJob) {
+      await tx.conversationJob.update({
+        where: { id: existingJob.id },
+        data: buildConversationJobResetData(),
+      });
+    } else {
+      await tx.conversationJob.create({
+        data: {
+          conversationId,
+          type: ConversationJobType.GENERATE_NEXT_MEETING_MEMO,
+          status: JobStatus.QUEUED,
+          maxAttempts: JOB_MAX_ATTEMPTS,
+        },
+      });
+    }
+
+    await upsertNextMeetingMemoRecord({
+      db: tx,
       conversationId,
-      sessionId: conversation.sessionId,
+      sessionId: conversation.sessionId!,
       organizationId: conversation.organizationId,
       studentId: conversation.studentId,
       status: NextMeetingMemoStatus.QUEUED,
       clearContent: true,
-    }),
-  ]);
+    });
 
-  return { queued: true as const };
+    return { queued: true as const };
+  });
 }
 
 export async function enqueueConversationJobs(
@@ -112,49 +143,57 @@ export async function enqueueConversationJobs(
   opts?: { includeFormat?: boolean }
 ) {
   const types = [ConversationJobType.FINALIZE, ...(opts?.includeFormat ? [ConversationJobType.FORMAT] : [])];
-  await prisma.conversationJob.deleteMany({
-    where: {
-      conversationId,
-      type: { notIn: types },
-    },
-  });
+  return prisma.$transaction(async (tx) => {
+    await tx.conversationJob.deleteMany({
+      where: {
+        conversationId,
+        type: { notIn: types },
+        status: {
+          notIn: [JobStatus.QUEUED, JobStatus.RUNNING],
+        },
+      },
+    });
 
-  return prisma.$transaction(
-    types.map((type) =>
-      prisma.conversationJob.upsert({
-        where: {
-          conversationId_type: {
-            conversationId,
-            type,
-          },
-        },
-        update: {
-          status: JobStatus.QUEUED,
-          executionId: null,
-          attempts: 0,
-          maxAttempts: JOB_MAX_ATTEMPTS,
-          lastError: null,
-          nextRetryAt: null,
-          leaseExpiresAt: null,
-          lastHeartbeatAt: null,
-          failedAt: null,
-          completedAt: null,
-          lastRunDurationMs: null,
-          lastQueueLagMs: null,
-          outputJson: Prisma.DbNull,
-          costMetaJson: Prisma.DbNull,
-          startedAt: null,
-          finishedAt: null,
-        },
-        create: {
-          conversationId,
-          type,
-          status: JobStatus.QUEUED,
-          maxAttempts: JOB_MAX_ATTEMPTS,
-        },
+    const existingJobs = await tx.conversationJob.findMany({
+      where: {
+        conversationId,
+        type: { in: types },
+      },
+      select: {
+        id: true,
+        type: true,
+        status: true,
+      },
+    });
+    const existingByType = new Map(existingJobs.map((job) => [job.type, job]));
+
+    return Promise.all(
+      types.map(async (type) => {
+        const existing = existingByType.get(type);
+        if (!existing) {
+          return tx.conversationJob.create({
+            data: {
+              conversationId,
+              type,
+              status: JobStatus.QUEUED,
+              maxAttempts: JOB_MAX_ATTEMPTS,
+            },
+          });
+        }
+
+        if (shouldPreserveActiveConversationJob(existing.status)) {
+          return tx.conversationJob.findUniqueOrThrow({
+            where: { id: existing.id },
+          });
+        }
+
+        return tx.conversationJob.update({
+          where: { id: existing.id },
+          data: buildConversationJobResetData(),
+        });
       })
-    )
-  );
+    );
+  });
 }
 
 export function shouldRecoverProcessingConversationJobs(input: {

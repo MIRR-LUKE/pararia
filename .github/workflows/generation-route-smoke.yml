@@ -1,0 +1,96 @@
+name: Generation Route Smoke
+
+on:
+  pull_request:
+  merge_group:
+    types:
+      - checks_requested
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: generation-route-smoke-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  generation-route-smoke:
+    name: generation-route-smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: pararia_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d pararia_ci"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      CI: true
+      NODE_ENV: test
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/pararia_ci?schema=public
+      DIRECT_URL: postgresql://postgres:postgres@127.0.0.1:5432/pararia_ci?schema=public
+      NEXTAUTH_SECRET: pararia-dev-auth-secret
+      CRITICAL_PATH_SMOKE_EMAIL: admin@demo.com
+      CRITICAL_PATH_SMOKE_PASSWORD: demo123
+      PARARIA_SMOKE_PARENT_REPORT_FIXTURE: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npm run prisma:generate
+
+      - name: Prepare test database
+        run: npm run prisma:test:prepare
+
+      - name: Seed test database
+        run: npm run prisma:seed
+
+      - name: Run generation route smoke
+        run: |
+          set -euo pipefail
+          mkdir -p .tmp
+          PARARIA_SMOKE_PARENT_REPORT_FIXTURE=1 npm run dev -- --hostname 127.0.0.1 --port 3000 > .tmp/generation-route-smoke-server.log 2>&1 &
+          server_pid=$!
+          cleanup() {
+            kill "$server_pid" 2>/dev/null || true
+          }
+          trap cleanup EXIT
+
+          for attempt in $(seq 1 90); do
+            if curl -fsS http://127.0.0.1:3000/api/auth/csrf >/dev/null; then
+              break
+            fi
+            if [ "$attempt" -eq 90 ]; then
+              echo "Next.js server did not become ready"
+              cat .tmp/generation-route-smoke-server.log
+              exit 1
+            fi
+            sleep 2
+          done
+
+          npm run test:report-generation-route -- --base-url http://127.0.0.1:3000
+
+      - name: Dump server log on failure
+        if: failure()
+        run: tail -n 200 .tmp/generation-route-smoke-server.log || true

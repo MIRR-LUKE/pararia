@@ -3,7 +3,7 @@
 PARARIA は、塾・個別指導・学習コーチング向けの `Teaching OS` です。  
 現在の実装は、**録音や会話メモから `面談ログ` または `指導報告ログ` を 1 本生成し、その保存済みログを選んで `保護者レポート` を作る** ことに絞っています。
 
-この README は、**2026-04-15 時点の現行コードと一致する運用仕様書** です。
+この README は、**2026-04-19 時点の現行コードと一致する運用仕様書** です。
 
 ## 0. いまの読み方
 
@@ -32,7 +32,7 @@ PARARIA は、塾・個別指導・学習コーチング向けの `Teaching OS` 
    - DB backup だけでは足りないため、DB dump と Blob backup を両方取る
    - production / shared DB へ `prisma migrate dev` は打たない
 
-## 0.1 2026-04-15 の安定化
+## 0.1 2026-04-18 の安定化
 
 今回の速度・安定性の見直しで、次を入れています。
 
@@ -41,9 +41,9 @@ PARARIA は、塾・個別指導・学習コーチング向けの `Teaching OS` 
 - 生徒詳細は最初に `scope: "summary"` で軽く開き、画面が見えているときだけ既存の `useStudentDetailRefresh()` が `full` を静かに取り直す
 - session progress の polling は、表示中は 1秒台を維持し、処理中の見た目を止めない
 - タブが非表示のときだけ polling を 5秒、10秒、15秒へ落とす
-- worker を起こす `POST /api/sessions/[id]/progress` も、表示中は 1〜5 秒で刻み、STT 完了直後の引き継ぎ待ちを作らない
+- worker を起こす `POST /api/sessions/[id]/progress` は初回と stalled な `RECEIVED` の再始動だけに絞り、通常監視は `GET` の read-only polling に寄せる
 - session promotion が終わったら、その場で app 側の conversation job を起動し、次の poll を待たずに面談ログ生成へ進める
-- 手入力 transcript は保存 API で review / promotion / finalize を抱え込まず、保存はすぐ返して `POST /api/sessions/[id]/progress` 側でまとめて進める
+- 手入力 transcript は保存 API が promotion 開始まで責任を持ち、`POST /api/sessions/[id]/progress` の追加キックに依存しない
 - 独自 RUM は既定で送らない。送るときだけ `NEXT_PUBLIC_PARARIA_RUM_ENABLED=1` を立てる
 - RUM の送信量は `NEXT_PUBLIC_PARARIA_RUM_SAMPLE_RATE` で間引ける
 - RUM のサーバーログは既定で書かない。必要なときだけ `PARARIA_RUM_LOG_ENABLED=1` を立てる
@@ -78,7 +78,13 @@ npm run verify
 npm run test:migration-safety
 npm run test:generation-preservation
 npm run test:session-progress-polling
+npm run test:session-part-ingest-dispatch
+npm run test:promote-session-dispatch
+npm run test:conversation-app-dispatch
+npm run test:session-progress-worker-wake
+npm run test:runpod-queue-ownership
 npm run test:rum-route
+npm run test:report-generation-route
 npm run test:student-directory-route
 npm run test:student-room-route
 ```
@@ -89,7 +95,10 @@ npm run test:student-room-route
 
 - コード品質と性能の基準は [docs/engineering-rules.md](./docs/engineering-rules.md)
 - DB / Blob の保全・復旧手順は [docs/db-backup-recovery.md](./docs/db-backup-recovery.md)
-- protected critical path は `録音ロック -> session part ingest -> session progress -> student room -> next meeting memo` として扱い、回帰確認は `npm run test:critical-path-smoke`
+- 生成保全の主経路は `ConversationLog.artifactJson -> 選択済みログ -> 保護者レポート` として扱い、契約の回帰確認は `npm run test:generation-preservation`
+- route の protected critical path は `録音ロック -> session part ingest -> session progress -> student room -> next meeting memo` として扱い、route smoke は `npm run test:critical-path-smoke`
+- `app/api/ai/generate-report` と保存済みレポート取得の E2E は `npm run test:report-generation-route` で見る
+- `main` の branch protection では `conversation-quality`, `critical-path-smoke`, `generation-route-smoke`, `backend-scope-guard` を required status checks にしてある
 - backend / perf 系ブランチは UI を触らない前提で進め、guard の自己確認は `npm run test:backend-scope-guard`
 - Node の正本は `.nvmrc` と `package.json` の `engines.node` の `22`
 - tracked ファイルに秘密値が混ざっていないかは `npm run scan:secrets` で見る
@@ -102,6 +111,25 @@ npm run test:student-room-route
 - `jobs/run` と `maintenance/cleanup` の定期実行は Vercel cron に頼らず、GitHub Actions から `POST` で叩く
 - shape guard は `npm run check:code-shape`
 - 最低限の確認は `npm run typecheck && npm run scan:secrets && npm run test:migration-safety && npm run build`
+
+## Teacher App
+
+- 先生向けの録音専用導線は、管理 web の `/app/*` とは分けて `/teacher` に載せる
+- 初回の校舎共通端末設定は `/teacher/setup` で行い、通常利用時は待機画面から始める
+- `/teacher` で `待機 -> 録音 -> 解析中 -> 生徒確認 -> 完了 -> 未送信一覧` の provisional flow が通る
+- 録音開始時に `TeacherRecordingSession` を作り、録音停止後は音声 upload と `TeacherRecordingJob` で STT と候補抽出を進める
+- `TRANSCRIBING` / `AWAITING_STUDENT_CONFIRMATION` の途中で再読み込みしても、同じ登録端末の active recording を復元して続きから戻れる
+- 生徒を確定すると、正式な `Session` と `SessionPart` を作成または再利用し、既存の `PROMOTE_SESSION` 導線で本ログ生成へ渡す
+- `該当なし` を選んだ録音は、生徒未確定のまま `STUDENT_CONFIRMED` として保存し、管理 web 側で後続確認できる
+- upload failure は IndexedDB 永続化の未送信キューへ退避し、未送信一覧から `再送 / 削除` を選べる
+- `/api/teacher/recordings/[id]/audio` は `Idempotency-Key` を受け取り、同一録音の二重送信を抑止する
+- Teacher App の端末認証は `TeacherAppDevice` で永続化し、signed cookie / bearer token の両方で `deviceId` を検証する
+- 録音 app の本命方針は `完全ネイティブ` で、`/teacher` は flow 検証と backend 契約確認のための web 導線として残す
+- native app の source foundation は `native/ios/TeacherNativeApp` と `native/android/app/src/main/java/jp/pararia/teacherapp` に置く
+- 管理画面、レポート確認、設定、監査は引き続き web のまま運用する
+- native app 用の auth / recording 契約は [docs/teacher-app-native-auth-contract.md](./docs/teacher-app-native-auth-contract.md) を正本にする
+- native-first の親 issue は `#171`、子 issue は `#172`, `#173`, `#170`, `#165`, `#167`
+- `#172` は backend 契約と device auth まで完了済み
 
 ## 1. 先に結論
 
@@ -375,7 +403,7 @@ npm run test:student-room-route
 - UI は `文字起こし中 -> 取りまとめ中 -> ログ生成中` を分けて表示する
 - session progress API で UI を早く戻す
 - poll は処理中だけ動かし、経過時間とタブ表示状態で間隔を広げる
-- worker 再キックも 1〜5 秒台で細かく刻み、STT 完了後の引き継ぎ待ちを残さない
+- worker 再キックは初回と stalled な `RECEIVED` の再始動だけに絞り、通常は read-only polling で追う
 
 ### 7.1 ローカル web / 本番 web 共通の Runpod 構成
 
@@ -388,7 +416,7 @@ npm run test:student-room-route
   - job を `QUEUED` に積む
   - 必要なら Runpod Pod を自動 wake する
   - 進捗 API を返す
-  - 手入力 transcript は保存を先に返し、progress API の 1 本の導線で promotion -> review -> finalize を進める
+  - 手入力 transcript は保存 API が promotion 開始まで責任を持ち、その後の review / finalize は通常の progress 導線で追う
   - STT 完了後は app 側で conversation job を即起動する
 - Runpod worker 側
   - 同じ DB と Blob を見る
@@ -515,7 +543,7 @@ RUNPOD_API_KEY="your-runpod-api-key"
 ```
 
 on-demand 運用のときは、worker は session part queue が空になった時点で自分の Pod を stop します。
-取りこぼし確認のための idle 停止も残しており、`RUNPOD_WORKER_AUTO_STOP_IDLE_MS` の既定は `300000` ms（5分）です。
+取りこぼし確認のための idle 停止も残しており、`RUNPOD_WORKER_AUTO_STOP_IDLE_MS` の既定は `60000` ms（1分）です。
 
 本番 web の upload / regenerate から自動で Pod を wake したい場合は、Vercel 側の server env にも `RUNPOD_API_KEY` を入れて deploy してください。
 それが未設定でも、ローカル端末から `npm run runpod:start -- --wait` で手動 wake はできます。
@@ -532,7 +560,7 @@ worker loop の調整 env:
 - `RUNPOD_WORKER_CONVERSATION_CONCURRENCY=1`
 - `RUNPOD_WORKER_IDLE_WAIT_MS=2500`
 - `RUNPOD_WORKER_ACTIVE_WAIT_MS=200`
-- `RUNPOD_WORKER_AUTO_STOP_IDLE_MS=300000`
+- `RUNPOD_WORKER_AUTO_STOP_IDLE_MS=60000`
 - `RUNPOD_WORKER_ONLY_SESSION_ID=...`
 - `RUNPOD_WORKER_ONLY_CONVERSATION_ID=...`
 
@@ -544,6 +572,9 @@ STT 推奨値:
 - `FASTER_WHISPER_COMPUTE_TYPE=auto`
 - `FASTER_WHISPER_BEAM_SIZE=1`
 - `FASTER_WHISPER_BATCH_SIZE=16`
+- `FASTER_WHISPER_VAD_MIN_SILENCE_MS=1000`
+- `FASTER_WHISPER_VAD_SPEECH_PAD_MS=400`
+- `FASTER_WHISPER_VAD_THRESHOLD=0.5`
 - `FASTER_WHISPER_CHUNKING_ENABLED=0`
 - `FASTER_WHISPER_POOL_SIZE=1`
 
@@ -555,11 +586,13 @@ GPU が強いときの最初の目安:
 速度優先の補足:
 
 - `beam_size=1` を既定にし、精度より 1 本の完了速度を優先する
+- VAD は `min_silence_duration_ms=1000` を基準にし、切り詰め比較は `500 / 1000 / 2000` で見る
 - `compute_type=auto` のままでよいが、worker image は `CTranslate2 4.7.1 + CUDA 12.8` 前提にする
 - `RTX 4090` など pre-Blackwell では `int8_float16` 系を優先する
 - `RTX 5090` など Blackwell では `cuBLAS` の制約を避けるため `float16` 系を優先する
 - production queue から特定の session だけ処理したいときは `RUNPOD_WORKER_ONLY_SESSION_ID` を使う
 - 通常運用の既定値は `RUNPOD_WORKER_CONVERSATION_LIMIT=0` で、Runpod は STT 専用に固定する
+- 計測 JSON は `npm run runpod:measure-summary -- --dir .tmp/runpod-ux --out .tmp/runpod-ux-summary.md` で p50 / p95 にまとめる
 
 まずは `chunking off / pool 1` のまま、1 本の音声をそのまま GPU に流すのが安全です。
   - 終盤 `6` 行
@@ -571,7 +604,53 @@ GPU が強いときの最初の目安:
   - 短い相づちだけの行
   - 英字が多いノイズ行
 
-### 7.3 prompt cache と実コストの見方
+### 7.4 面談ログ 1 分台 issue の進め方
+
+- GitHub の親 issue は `#151`
+- 2026-04-17 の本番マイク録音フロー baseline は:
+  - 録音開始まで `856ms`
+  - 録音停止可能になるまで `92.5秒`
+  - 停止後に成功表示まで `130.9秒`
+  - 合計 `163.8秒`
+- 同日の裏側計測では、OpenAI の面談ログ生成そのものは約 `11.7秒` で、主ボトルネックは `STT + 起動待ち + 進捗制御` に寄っていた
+- 2026-04-18 時点で、親 issue の子 issue `#152` `#153` `#154` `#155` `#156` は実装済み
+  - `#152`: STT subphase 計測と VAD env
+  - `#153`: read-only polling と手入力 transcript の one-shot 開始
+  - `#154`: prompt cache prefix 安定化
+  - `#155`: active job / last good artifact の保全
+  - `#156`: p50 / p95 / cost 集計
+- ここから親 issue を閉じるには、production 相当の 3 回連続計測を同じ条件で取り、どの改善で何秒縮んだかを issue か README に残す
+- Runpod / STT の内訳を見るときは:
+  - `npm run runpod:measure-ux -- --profile 5090 --startup-mode reuse --out-dir .tmp/runpod-ux`
+  - `npm run runpod:measure-summary -- --dir .tmp/runpod-ux --out .tmp/runpod-ux-summary.md`
+- アプリ全体の生成導線を remote で確認するときは:
+  - `PARARIA_ALLOW_REMOTE_GENERATION_SMOKE=1 npm run test:remote-generation-smoke -- --base-url https://pararia.vercel.app`
+- 既存のローカル長尺ベンチは `docs/interview-benchmarks/*.json` と `docs/stt-benchmarks/*.json` を参照する
+- 2026-04-18 に `5090 + reuse startup` で `runpod:measure-ux` を 3 本回した結果は:
+  - `Queue->Conversation`: `152.0秒 / 125.2秒 / 145.1秒`
+  - `p50`: `145.1秒`
+  - `p95`: `152.0秒`
+  - baseline `163.8秒` 比で `p50 -18.7秒`、`p95 -11.8秒`、best run `-38.6秒`
+- ただし、この 3 run では:
+  - `Queue->STT` は `41.7秒 / 51.6秒 / 56.0秒`
+  - `finalize duration` は `15.0秒 / 16.2秒 / 17.8秒`
+  - それでも STT 後に大きい空白待ちが残る
+  - `sttPrepareMs` など STT subphase は `null`
+  - `llmCachedInputTokens` も `0`
+- なので 2026-04-18 時点の次の改善 issue は:
+  - `#159`: STT 後の handoff / queue lag を分解して短くする
+  - `#158`: Runpod worker 計測を本番一致にして STT subphase null をなくす
+  - `#157`: prompt cache を本番でも効かせて cached input を回復する
+- 2026-04-19 時点では、この 3 本の実装自体は入っている
+  - `runpod:measure-ux` JSON に `promotionCompletedAt / conversationKickRequestedAt / conversationAppDispatchStartedAt / conversationJobClaimedAt / reviewCompletedAt / finalizeStartedAt / finalizeCompletedAt` が残る
+  - `runpod:measure-summary` は `## Warnings` に missing metric を出し、`## Post-STT breakdown` で post-STT 内訳を p50 / p95 で出す
+  - prompt cache 診断として `promptCacheKey / promptCacheRetention / promptCacheStablePrefixTokensEstimate` も残る
+- 親 issue `#151` をきれいに閉じる最後の作業は:
+  - publish 済み worker image を指定して `runpod:measure-ux` を 3 本取り直す
+  - `runpod:measure-summary` の `Queue->Conversation p50` と `post-STT unknown p50` が baseline `163.8秒` 比でどこまで縮んだかを issue に追記する
+  - `sttPrepareMs` が non-null、`llmCachedInputTokens` が 0 固定から外れたことを確認して `#157 / #158 / #159` を close する
+
+### 7.5 prompt cache と実コストの見方
 
 - OpenAI への会話ログ生成は、リクエストとしては毎回全文を送る
 - ただし `gpt-5.4` では prompt cache が効くので、同じ先頭部分は初回より安くなる
@@ -580,6 +659,12 @@ GPU が強いときの最初の目安:
   - 構造化 JSON schema に関する固定指示
   - repair 時の共通 prefix
   をできるだけ前に寄せ、cache が効きやすい形にしている
+- 2026-04-19 以降の面談ログ prompt は、固定契約を前に、`生徒名 / 面談日 / 面談時間 / transcript` のような可変情報を後ろに寄せる
+- そのため cache miss を見るときは、`cachedInputTokens` だけでなく:
+  - `promptCacheKey`
+  - `promptCacheRetention`
+  - `promptCacheStablePrefixTokensEstimate`
+  も一緒に見る
 - そのため、実コストを見るときは次の 2 つを分けて見る
   - `cold`: その cache namespace で最初の 1 回
   - `warm`: 直後に同じ条件でもう 1 回流したとき
@@ -598,7 +683,7 @@ GPU が強いときの最初の目安:
   - 生成物が弱い / 根拠が薄い場合は repair または deterministic recovery に進む
   - repair でもモデルは落とさず、同じ `gpt-5.4` で再試行する
 
-### 7.4 速度を落とすものとして明示的にやめたこと
+### 7.6 速度を落とすものとして明示的にやめたこと
 
 - analyze -> reduce -> finalize の多段 LLM
 - 自動の追加仕上げ job
@@ -1026,8 +1111,9 @@ PARARIA_AUDIO_RETENTION_DAYS=14
 - Pod の生成 / 起動 / 停止は `npm run runpod:deploy`, `npm run runpod:start`, `npm run runpod:stop`
 - worker image は `Dockerfile.runpod-worker` と `.github/workflows/publish-runpod-worker.yml` から GHCR へ publish する
 - `RUNPOD_API_KEY` を web 側にも入れると、upload / regenerate 時に Pod を自動 wake できる
-- `RUNPOD_WORKER_AUTO_STOP_IDLE_MS` を入れておくと、queue が空のまま一定時間たった Pod を自動 stop できる
+- `RUNPOD_WORKER_AUTO_STOP_IDLE_MS` を入れておくと、queue が空のまま一定時間たった Pod を自動 stop できる。既定は 1 分
 - stop 判定は `SessionPartJob` と `ConversationJob` の `QUEUED / RUNNING` が両方ゼロの時だけ掛ける
+- progress 画面と log 画面は read-only polling を基本にし、起動キックは upload / regenerate / 明示再開だけで出す
 
 開発機で worker を直接検証したいときだけ、次を使う:
 
@@ -1236,7 +1322,7 @@ npm run restore:db -- --backup-dir <backup-dir> --database-url <restore-db-url>
 
 ## 17. 現在の smoke check
 
-2026-04-15 時点の主な smoke / regression:
+2026-04-18 時点の主な smoke / regression:
 
 - `npm run typecheck`
 - `npm run scan:secrets`
@@ -1250,6 +1336,7 @@ npm run restore:db -- --backup-dir <backup-dir> --database-url <restore-db-url>
 - `npm run test:generation-progress`
 - `npm run test:local-stt`
 - `npm run test:next-meeting-memo-route`
+- `npm run test:report-generation-route`
 - `npm run test:recording-lock-route`
 - `npm run test:session-progress`
 - `npm run test:session-progress-polling`
@@ -1259,9 +1346,9 @@ npm run restore:db -- --backup-dir <backup-dir> --database-url <restore-db-url>
 
 ## 18. CI の品質ゲート
 
-- GitHub Actions の `Conversation Quality` で faithfulness 系の代表チェックを回す
-- `Conversation Quality` は `npm run test:generation-preservation` を先に通し、面談ログと保護者レポートの回帰をまとめて守る
+- GitHub Actions の `Conversation Quality` は `npm run test:generation-preservation` を先に通し、`ConversationLog.artifactJson -> 選択済みログ -> 保護者レポート` の契約回帰をまとめて守る
 - GitHub Actions の `Critical Path Smoke` で `録音ロック -> student room -> next meeting memo` の route smoke を回す
+- GitHub Actions の `Generation Route Smoke` で `面談ログ -> generate-report -> 保存済みレポート取得` の E2E smoke を回す
 - GitHub Actions の `Backend Scope Guard` で backend / perf 系 branch の UI 変更を止める
 - workflow では PostgreSQL service container を立てて、local と同じ Prisma 前提で回す
 - 実行内容:
@@ -1273,7 +1360,8 @@ npm run restore:db -- --backup-dir <backup-dir> --database-url <restore-db-url>
   - `npm run test:conversation-eval -- --out artifacts/conversation-eval-report.md`
   - `npm run prisma:seed`
   - `npm run test:critical-path-smoke`
-  - `npm run check:backend-scope`
+  - `npm run test:report-generation-route`
+  - `npm run test:backend-scope-guard`
 - `conversation-eval` のレポートは artifact として保存する
 - 目的は「コードは通るが、主経路が壊れた」や「backend branch に UI が混ざった」を PR 時点で止めること
 

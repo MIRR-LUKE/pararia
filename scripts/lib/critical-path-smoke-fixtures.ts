@@ -1,5 +1,6 @@
 import { ConversationSourceType, ConversationStatus, ReportDeliveryEventType, ReportStatus, SessionStatus, SessionType } from "@prisma/client";
 import { DEFAULT_ORGANIZATION_ID } from "@/lib/constants";
+import { buildConversationArtifactFromMarkdown, renderConversationArtifactMarkdown } from "@/lib/conversation-artifact";
 import { prisma } from "@/lib/db";
 import { assertMutatingFixtureEnvironment } from "./environment-safety";
 import {
@@ -169,6 +170,174 @@ export async function createNextMeetingMemoFixture(): Promise<
         "## 今回確認したこと\n長文読解は前より安定してきており、止まりにくさが減っている。\n\n## 講師の見立て\nいまの点数差は英語力そのものより、睡眠リズムの乱れに引っ張られている。\n\n## 次回までに進めること\n就寝時間を整えながら、読解の再現手順を言語化して固定する。",
       formattedTranscript: "## 面談\nsmoke memo transcript",
       qualityMetaJson: { smoke: true } as any,
+      createdAt: sessionDate,
+    },
+  });
+
+  return {
+    studentId,
+    sessionId,
+    conversationId,
+    cleanup: async () => {
+      await cleanupStudentFixtures([studentId]);
+    },
+  };
+}
+
+export async function createReportGenerationFixture(): Promise<
+  CriticalPathManagedFixture<{ studentId: string; sessionId: string; conversationId: string }>
+> {
+  assertMutatingFixtureEnvironment(
+    process.env.CRITICAL_PATH_BASE_URL || CRITICAL_PATH_BASE_URL,
+    "critical-path-report-generation"
+  );
+
+  const studentId = buildFixtureId("student-smoke-report");
+  const sessionId = buildFixtureId("session-smoke-report");
+  const conversationId = buildFixtureId("conversation-smoke-report");
+  const sessionDate = new Date("2026-04-18T10:00:00.000Z");
+  const summaryMarkdown = [
+    "## 今回確認したこと",
+    "- 英語は毎日音読を続ける形が合っていることを確認した。",
+    "- 世界史は今の教材を最後までやり切る方針を共有した。",
+    "",
+    "## 講師の見立て",
+    "- 目先の不安で教材を増やすより、いまのやり方を固める方が安定につながる。",
+    "- 本人が前より自分の状況を言葉にできるようになってきた。",
+    "",
+    "## 次回までに進めること",
+    "- 音読の手順を固定し、毎日の実行を続ける。",
+    "- 世界史は復習の順番を決めて迷いを減らす。",
+    "",
+    "## 保護者に共有したいこと",
+    "- 焦って新しいことを増やすより、続けられる形を固めることが大切な段階に入っている。",
+  ].join("\n");
+  const artifactJson = buildConversationArtifactFromMarkdown({
+    sessionType: "INTERVIEW",
+    summaryMarkdown,
+    generatedAt: sessionDate,
+  });
+
+  await prisma.student.create({
+    data: {
+      id: studentId,
+      organizationId: DEFAULT_ORGANIZATION_ID,
+      name: "保全 花子",
+      nameKana: "ホゼン ハナコ",
+      guardianNames: "保全 保護者",
+    },
+  });
+
+  await prisma.session.create({
+    data: {
+      id: sessionId,
+      organizationId: DEFAULT_ORGANIZATION_ID,
+      studentId,
+      userId: "user-demo-teacher",
+      type: SessionType.INTERVIEW,
+      status: SessionStatus.READY,
+      title: "Report generation smoke interview",
+      sessionDate,
+      heroStateLabel: "整理中",
+      heroOneLiner: "やり方を広げず、続けられる形を固めたい。",
+      latestSummary: "英語の音読と世界史の復習順を整理した。",
+      completedAt: sessionDate,
+      createdAt: sessionDate,
+    },
+  });
+
+  await prisma.conversationLog.create({
+    data: {
+      id: conversationId,
+      organizationId: DEFAULT_ORGANIZATION_ID,
+      studentId,
+      userId: "user-demo-teacher",
+      sessionId,
+      sourceType: ConversationSourceType.MANUAL,
+      status: ConversationStatus.DONE,
+      rawTextOriginal:
+        "英語は毎日音読を続ける。世界史は今の教材を最後までやる。焦って増やすより、やり切る形を固める。",
+      rawTextCleaned:
+        "英語は毎日音読を続ける。世界史は今の教材を最後までやる。焦って増やすより、やり切る形を固める。",
+      reviewedText:
+        "英語は毎日音読を続ける。世界史は今の教材を最後までやる。焦って増やすより、やり切る形を固める。",
+      rawSegments: [] as any,
+      summaryMarkdown: renderConversationArtifactMarkdown(artifactJson),
+      artifactJson: artifactJson as any,
+      formattedTranscript: "## 面談\n英語は毎日音読を続ける。世界史は今の教材を最後までやる。",
+      qualityMetaJson: { smoke: true } as any,
+      createdAt: sessionDate,
+    },
+  });
+
+  return {
+    studentId,
+    sessionId,
+    conversationId,
+    cleanup: async () => {
+      await cleanupStudentFixtures([studentId]);
+    },
+  };
+}
+
+export async function createInvalidReportGenerationFixture(): Promise<
+  CriticalPathManagedFixture<{ studentId: string; sessionId: string; conversationId: string }>
+> {
+  assertMutatingFixtureEnvironment(
+    process.env.CRITICAL_PATH_BASE_URL || CRITICAL_PATH_BASE_URL,
+    "critical-path-invalid-report-generation"
+  );
+
+  const studentId = buildFixtureId("student-smoke-report-invalid");
+  const sessionId = buildFixtureId("session-smoke-report-invalid");
+  const conversationId = buildFixtureId("conversation-smoke-report-invalid");
+  const sessionDate = new Date("2026-04-18T11:00:00.000Z");
+
+  await prisma.student.create({
+    data: {
+      id: studentId,
+      organizationId: DEFAULT_ORGANIZATION_ID,
+      name: "保全 不正花子",
+      nameKana: "ホゼン フセイハナコ",
+      guardianNames: "保全 不正保護者",
+    },
+  });
+
+  await prisma.session.create({
+    data: {
+      id: sessionId,
+      organizationId: DEFAULT_ORGANIZATION_ID,
+      studentId,
+      userId: "user-demo-teacher",
+      type: SessionType.INTERVIEW,
+      status: SessionStatus.READY,
+      title: "Invalid report generation smoke interview",
+      sessionDate,
+      heroStateLabel: "要再生成",
+      heroOneLiner: "artifact validation failure を確認する。",
+      latestSummary: "invalid artifact smoke",
+      completedAt: sessionDate,
+      createdAt: sessionDate,
+    },
+  });
+
+  await prisma.conversationLog.create({
+    data: {
+      id: conversationId,
+      organizationId: DEFAULT_ORGANIZATION_ID,
+      studentId,
+      userId: "user-demo-teacher",
+      sessionId,
+      sourceType: ConversationSourceType.MANUAL,
+      status: ConversationStatus.DONE,
+      rawTextOriginal: "invalid artifact smoke transcript",
+      rawTextCleaned: "invalid artifact smoke transcript",
+      reviewedText: "invalid artifact smoke transcript",
+      rawSegments: [] as any,
+      summaryMarkdown: "## invalid artifact smoke",
+      artifactJson: { smokeInvalidArtifact: true } as any,
+      formattedTranscript: "## 面談\ninvalid artifact smoke transcript",
+      qualityMetaJson: { smoke: true, invalidArtifact: true } as any,
       createdAt: sessionDate,
     },
   });

@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">PARARIA Teacher</string>
+    <string name="recording_notification_title">PARARIA 面談録音</string>
+    <string name="recording_notification_body">録音中です。面談が終わったら録音終了を押してください。</string>
+</resources>

@@ -3,12 +3,16 @@ import assert from "node:assert/strict";
 async function main() {
   const [
     { buildLessonDraftFallbackMarkdown, buildInterviewDraftFallbackMarkdown },
-    { buildDraftInputBlock },
+    { buildDraftInputBlock, estimateTokens },
     { isWeakDraftMarkdown },
+    { buildInterviewMarkdownUserPromptBundle, buildStructuredUserPromptBundle },
+    { buildDraftSystemPrompt, buildInterviewMarkdownSystemPrompt },
   ] = await Promise.all([
     import("../lib/ai/conversation/fallback"),
     import("../lib/ai/conversation/shared"),
     import("../lib/ai/conversation/normalize"),
+    import("../lib/ai/conversation/generate/prompt"),
+    import("../lib/ai/conversation/spec"),
   ]);
 
   const noisyLessonTranscript = [
@@ -91,6 +95,70 @@ async function main() {
   const interviewInput = buildDraftInputBlock("INTERVIEW", longInterviewTranscript);
   assert.match(interviewInput.label, /抽出済み重要発話 \+ 文字起こし全文/);
   assert.match(interviewInput.content, /文字起こし全文/);
+
+  const interviewPromptInput = buildDraftInputBlock("INTERVIEW", interviewTranscript);
+  const interviewPromptA = buildInterviewMarkdownUserPromptBundle(
+    {
+      transcript: interviewTranscript,
+      studentName: "山田花子",
+      teacherName: "佐藤先生",
+      sessionDate: "2026-03-25",
+      durationMinutes: 52,
+      minSummaryChars: 700,
+      sessionType: "INTERVIEW",
+    },
+    interviewPromptInput
+  );
+  const interviewPromptB = buildInterviewMarkdownUserPromptBundle(
+    {
+      transcript: interviewTranscript,
+      studentName: "鈴木太郎",
+      teacherName: "別の先生",
+      sessionDate: "2026-04-01",
+      durationMinutes: 48,
+      minSummaryChars: 700,
+      sessionType: "INTERVIEW",
+    },
+    interviewPromptInput
+  );
+  assert.equal(interviewPromptA.cacheStablePrefix, interviewPromptB.cacheStablePrefix);
+  assert.ok(interviewPromptA.userPrompt.indexOf("入力メタデータ:") > interviewPromptA.userPrompt.indexOf("固定仕様:"));
+  assert.doesNotMatch(interviewPromptA.cacheStablePrefix, /山田花子|佐藤先生|2026-03-25|52分/);
+  assert.ok(
+    estimateTokens(`${buildInterviewMarkdownSystemPrompt()}\n${interviewPromptA.cacheStablePrefix}`) >= 1024,
+    "interview prompt should keep at least ~1024 tokens of stable prefix before variable metadata"
+  );
+
+  const lessonPromptInput = buildDraftInputBlock("LESSON_REPORT", noisyLessonTranscript);
+  const lessonPromptA = buildStructuredUserPromptBundle(
+    {
+      transcript: noisyLessonTranscript,
+      studentName: "田中太郎",
+      teacherName: "PARARIA Admin",
+      sessionDate: "2026-03-27",
+      minSummaryChars: 600,
+      sessionType: "LESSON_REPORT",
+    },
+    lessonPromptInput
+  );
+  const lessonPromptB = buildStructuredUserPromptBundle(
+    {
+      transcript: noisyLessonTranscript,
+      studentName: "別の生徒",
+      teacherName: "別の講師",
+      sessionDate: "2026-04-02",
+      minSummaryChars: 600,
+      sessionType: "LESSON_REPORT",
+    },
+    lessonPromptInput
+  );
+  assert.equal(lessonPromptA.cacheStablePrefix, lessonPromptB.cacheStablePrefix);
+  assert.ok(lessonPromptA.userPrompt.indexOf("入力メタデータ:") > lessonPromptA.userPrompt.indexOf("固定仕様:"));
+  assert.doesNotMatch(lessonPromptA.cacheStablePrefix, /田中太郎|PARARIA Admin|2026-03-27/);
+  assert.ok(
+    estimateTokens(`${buildDraftSystemPrompt("LESSON_REPORT")}\n${lessonPromptA.cacheStablePrefix}`) >= 1024,
+    "lesson prompt should keep at least ~1024 tokens of stable prefix before variable metadata"
+  );
 
   console.log("conversation draft quality regression check passed");
 }

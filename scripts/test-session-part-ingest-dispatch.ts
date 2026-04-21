@@ -14,12 +14,17 @@ async function runInlineCase() {
       events.push(`enqueue:${partId}`);
       return {} as any;
     },
+    processAllSessionPartJobs: async (sessionId) => {
+      events.push(`process:${sessionId}`);
+      return { processed: 1, errors: [] };
+    },
+    shouldRunBackgroundJobsInline: () => true,
   });
 
   await waitForMicrotask();
-  assert.equal(result.mode, "external");
+  assert.equal(result.mode, "inline");
   assert.equal(result.workerWake, null);
-  assert.deepEqual(events, ["enqueue:part-inline"]);
+  assert.deepEqual(events, ["enqueue:part-inline", "process:session-inline"]);
 }
 
 async function runExternalCase() {
@@ -30,12 +35,17 @@ async function runExternalCase() {
       events.push(`enqueue:${partId}`);
       return {} as any;
     },
+    processAllSessionPartJobs: async (sessionId) => {
+      events.push(`process:${sessionId}`);
+      return { processed: 1, errors: [] };
+    },
+    shouldRunBackgroundJobsInline: () => false,
   });
 
   await waitForMicrotask();
   assert.equal(result.mode, "external");
   assert.equal(result.workerWake, null);
-  assert.deepEqual(events, ["enqueue:part-external"]);
+  assert.deepEqual(events, ["enqueue:part-external", "process:session-external"]);
 }
 
 await runInlineCase();

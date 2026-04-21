@@ -17,7 +17,6 @@ type PublicThrottleInput = {
 const LIGHT_MUTATION_THROTTLE_BYPASS_SCOPES = new Set([
   "recording-lock.heartbeat",
   "recording-lock.release",
-  "sessions.progress",
 ]);
 
 export async function applyLightMutationThrottle(input: LightMutationThrottleInput) {

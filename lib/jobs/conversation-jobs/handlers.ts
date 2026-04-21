@@ -28,6 +28,51 @@ type FinalizeSideEffectRunner = {
   syncSessionAfterConversation?: typeof syncSessionAfterConversation;
 };
 
+function readConversationMetaRecord(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {} as Record<string, unknown>;
+  }
+  return value as Record<string, unknown>;
+}
+
+function readFinalizeJobMeta(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {} as Record<string, unknown>;
+  }
+  return value as Record<string, unknown>;
+}
+
+async function loadConversationQualityMeta(conversationId: string) {
+  const conversation = await prisma.conversationLog.findUnique({
+    where: { id: conversationId },
+    select: {
+      qualityMetaJson: true,
+    },
+  });
+  return readConversationMetaRecord(conversation?.qualityMetaJson);
+}
+
+async function mergeConversationFinalizeMeta(
+  conversationId: string,
+  patch: Record<string, unknown>
+) {
+  const previousMeta = await loadConversationQualityMeta(conversationId);
+  const previousFinalizeJob = readFinalizeJobMeta(previousMeta.finalizeJob);
+
+  await prisma.conversationLog.update({
+    where: { id: conversationId },
+    data: {
+      qualityMetaJson: toPrismaJson({
+        ...previousMeta,
+        finalizeJob: {
+          ...previousFinalizeJob,
+          ...patch,
+        },
+      }),
+    },
+  });
+}
+
 export async function runFinalizeBestEffortSideEffects(
   convo: Pick<ConversationPayload, "id" | "sessionId">,
   opts?: {
@@ -71,7 +116,18 @@ export async function runFinalizeBestEffortSideEffects(
 }
 
 async function executeFinalizeJob(job: JobPayload, convo: ConversationPayload) {
+  const reviewStartedAt = new Date().toISOString();
+  await mergeConversationFinalizeMeta(convo.id, {
+    conversationJobClaimedAt: job.startedAt.toISOString(),
+    reviewStartedAt,
+  });
   const review = await ensureConversationReviewedTranscript(convo.id);
+  const reviewCompletedAt = new Date().toISOString();
+  const reviewDurationMs = Math.max(0, Date.parse(reviewCompletedAt) - Date.parse(reviewStartedAt));
+  await mergeConversationFinalizeMeta(convo.id, {
+    reviewCompletedAt,
+    reviewDurationMs,
+  });
   const sourceText = normalizeRawTranscriptText(review.reviewedText || review.rawTextOriginal || normalizeSourceText(convo));
   if (!sourceText.trim()) {
     throw new Error("raw transcript is missing");
@@ -83,6 +139,10 @@ async function executeFinalizeJob(job: JobPayload, convo: ConversationPayload) {
   });
   await touchJobLease(job);
 
+  const finalizeStartedAt = new Date().toISOString();
+  await mergeConversationFinalizeMeta(convo.id, {
+    finalizeStartedAt,
+  });
   const start = Date.now();
   const sessionType = convo.sessionType === SessionType.LESSON_REPORT ? "LESSON_REPORT" : "INTERVIEW";
   const {
@@ -95,6 +155,10 @@ async function executeFinalizeJob(job: JobPayload, convo: ConversationPayload) {
     inputTokensEstimate,
     tokenUsage,
     llmCostUsd,
+    promptCacheKey,
+    promptCacheRetention,
+    promptCacheStablePrefixChars,
+    promptCacheStablePrefixTokensEstimate,
   } = await generateConversationDraftFast({
     transcript: sourceText,
     studentName: convo.studentName ?? undefined,
@@ -111,9 +175,11 @@ async function executeFinalizeJob(job: JobPayload, convo: ConversationPayload) {
   }
 
   const renderedSummary = renderConversationArtifactMarkdown(artifact);
+  const latestQualityMeta = await loadConversationQualityMeta(convo.id);
+  const previousFinalizeJob = readFinalizeJobMeta(latestQualityMeta.finalizeJob);
 
   const qualityMeta: ConversationQualityMeta = {
-    ...(convo.qualityMetaJson ?? {}),
+    ...(latestQualityMeta as ConversationQualityMeta),
     modelFinalize: model,
     summaryCharCount: renderedSummary.length,
     jobSecondsFinalize: Math.round(duration / 1000),
@@ -126,17 +192,27 @@ async function executeFinalizeJob(job: JobPayload, convo: ConversationPayload) {
     llmCachedInputTokensActual: tokenUsage.cachedInputTokens,
     llmOutputTokensActual: tokenUsage.outputTokens,
     llmCostUsd,
+    promptCacheKey: promptCacheKey ?? null,
+    promptCacheRetention: promptCacheRetention ?? null,
+    promptCacheStablePrefixChars: promptCacheStablePrefixChars ?? undefined,
+    promptCacheStablePrefixTokensEstimate: promptCacheStablePrefixTokensEstimate ?? undefined,
     usedFallbackSummary: usedFallback,
     reviewReasonCodes: review.reasons.map((item) => item.code),
     usedReviewedTranscript: Boolean(review.reviewedText && review.reviewedText.trim()),
     finalizeJob: {
+      ...previousFinalizeJob,
       jobId: job.id,
       executionId: job.executionId,
       attempt: job.attempt,
       maxAttempts: job.maxAttempts,
       queueLagMs: job.lastQueueLagMs,
       durationMs: duration,
-    } as any,
+      conversationJobClaimedAt: job.startedAt.toISOString(),
+      reviewStartedAt,
+      reviewCompletedAt,
+      reviewDurationMs,
+      finalizeStartedAt,
+    } as Record<string, unknown>,
   };
 
   await touchJobLease(job);
@@ -148,7 +224,13 @@ async function executeFinalizeJob(job: JobPayload, convo: ConversationPayload) {
       status: ConversationStatus.DONE,
       artifactJson: toPrismaJson(artifact),
       summaryMarkdown: renderedSummary,
-      qualityMetaJson: toPrismaJson(qualityMeta),
+      qualityMetaJson: toPrismaJson({
+        ...qualityMeta,
+        finalizeJob: {
+          ...(qualityMeta.finalizeJob ?? {}),
+          finalizeCompletedAt: finishedAt.toISOString(),
+        },
+      }),
     },
   });
 
@@ -169,6 +251,10 @@ async function executeFinalizeJob(job: JobPayload, convo: ConversationPayload) {
         usedFallback,
         tokenUsage,
         llmCostUsd,
+        promptCacheKey: promptCacheKey ?? null,
+        promptCacheRetention: promptCacheRetention ?? null,
+        promptCacheStablePrefixChars: promptCacheStablePrefixChars ?? null,
+        promptCacheStablePrefixTokensEstimate: promptCacheStablePrefixTokensEstimate ?? null,
         executionId: job.executionId,
         attempt: job.attempt,
         studentId: convo.studentId,
@@ -182,6 +268,10 @@ async function executeFinalizeJob(job: JobPayload, convo: ConversationPayload) {
         cachedInputTokensActual: tokenUsage.cachedInputTokens,
         outputTokensActual: tokenUsage.outputTokens,
         llmCostUsd,
+        promptCacheKey: promptCacheKey ?? null,
+        promptCacheRetention: promptCacheRetention ?? null,
+        promptCacheStablePrefixChars: promptCacheStablePrefixChars ?? null,
+        promptCacheStablePrefixTokensEstimate: promptCacheStablePrefixTokensEstimate ?? null,
         seconds: Math.round(duration / 1000),
         llmApiCalls: apiCalls,
         queueLagMs: job.lastQueueLagMs,
@@ -355,6 +445,8 @@ async function executeNextMeetingMemoJob(job: JobPayload, convo: ConversationPay
         apiCalls: memo.apiCalls,
         tokenUsage: memo.tokenUsage,
         llmCostUsd: memo.llmCostUsd,
+        promptCacheKey: memo.promptCacheKey ?? null,
+        promptCacheRetention: memo.promptCacheRetention ?? null,
         sourceSections: memo.sourceSections,
       }),
       model: memo.model,

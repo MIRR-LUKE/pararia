@@ -2,13 +2,14 @@ import type {
   RunpodPod,
   RunpodWorkerConfig,
 } from "./worker-control-core";
+import { buildRunpodWorkerRuntimeEnv } from "./runtime-metadata";
 
 const RUNPOD_API_BASE = "https://rest.runpod.io/v1";
 const DEFAULT_WORKER_NAME = "pararia-gpu-worker";
 const DEFAULT_WORKER_IMAGE = "ghcr.io/mirr-luke/pararia-runpod-worker:latest";
 const DEFAULT_WORKER_GPU = "NVIDIA GeForce RTX 5090";
 const DEFAULT_WORKER_GPU_FALLBACK = "NVIDIA GeForce RTX 4090";
-const DEFAULT_AUTO_STOP_IDLE_MS = 5 * 60 * 1000;
+const DEFAULT_AUTO_STOP_IDLE_MS = 60 * 1000;
 const DEFAULT_WORKER_CONVERSATION_LIMIT = "0";
 
 function readStringEnv(name: string, fallback = "") {
@@ -258,6 +259,7 @@ export async function runpodRequest(pathname: string, config: RunpodWorkerConfig
 }
 
 export function buildRunpodWorkerEnv(autoStopIdleMs: number) {
+  const workerImage = resolveDefaultWorkerImage();
   const env = {
     RUNPOD_API_KEY: readRequiredEnv("RUNPOD_API_KEY"),
     DATABASE_URL: readRequiredEnv("DATABASE_URL"),
@@ -281,6 +283,10 @@ export function buildRunpodWorkerEnv(autoStopIdleMs: number) {
     FASTER_WHISPER_BEAM_SIZE: readStringEnv("FASTER_WHISPER_BEAM_SIZE", "1"),
     FASTER_WHISPER_BATCH_SIZE: readStringEnv("FASTER_WHISPER_BATCH_SIZE", "16"),
     FASTER_WHISPER_VAD_FILTER: readStringEnv("FASTER_WHISPER_VAD_FILTER", "1"),
+    FASTER_WHISPER_VAD_MIN_SILENCE_MS: readStringEnv("FASTER_WHISPER_VAD_MIN_SILENCE_MS", "1000"),
+    FASTER_WHISPER_VAD_SPEECH_PAD_MS: readStringEnv("FASTER_WHISPER_VAD_SPEECH_PAD_MS", "400"),
+    FASTER_WHISPER_VAD_THRESHOLD: readStringEnv("FASTER_WHISPER_VAD_THRESHOLD", "0.5"),
+    FASTER_WHISPER_VAD_MIN_SPEECH_MS: readStringEnv("FASTER_WHISPER_VAD_MIN_SPEECH_MS", ""),
     FASTER_WHISPER_CONDITION_ON_PREVIOUS_TEXT: readStringEnv("FASTER_WHISPER_CONDITION_ON_PREVIOUS_TEXT", "1"),
     FASTER_WHISPER_CHUNKING_ENABLED: readStringEnv("FASTER_WHISPER_CHUNKING_ENABLED", "0"),
     FASTER_WHISPER_CHUNK_SECONDS: readStringEnv("FASTER_WHISPER_CHUNK_SECONDS", "60"),
@@ -321,7 +327,7 @@ export function buildRunpodWorkerEnv(autoStopIdleMs: number) {
     RUNPOD_WORKER_AUTO_STOP_IDLE_MS: String(autoStopIdleMs),
     RUNPOD_WORKER_ONLY_SESSION_ID: readStringEnv("RUNPOD_WORKER_ONLY_SESSION_ID", ""),
     RUNPOD_WORKER_ONLY_CONVERSATION_ID: readStringEnv("RUNPOD_WORKER_ONLY_CONVERSATION_ID", ""),
-    RUNPOD_WORKER_RUNTIME_REVISION: readStringEnv("RUNPOD_WORKER_RUNTIME_REVISION", ""),
+    ...buildRunpodWorkerRuntimeEnv(workerImage),
   } satisfies Record<string, string>;
 
   return Object.fromEntries(Object.entries(env).filter(([, value]) => value !== ""));

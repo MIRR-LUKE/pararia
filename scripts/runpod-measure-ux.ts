@@ -26,6 +26,10 @@ type RunpodMeasureResult = {
   startupMode: StartupMode;
   workerImage?: string | null;
   workerName?: string | null;
+  runpodWorkerImage?: string | null;
+  runpodWorkerRuntimeRevision?: string | null;
+  runpodWorkerGitSha?: string | null;
+  runpodWorkerFeatureFlags?: Record<string, unknown> | null;
   interruptible: boolean;
   sourceAudioPath: string;
   clipAudioPath?: string;
@@ -41,9 +45,38 @@ type RunpodMeasureResult = {
   enqueueStartedAt: string;
   sttCompletedAt?: string | null;
   conversationCompletedAt?: string | null;
+  promotionCompletedAt?: string | null;
+  conversationKickRequestedAt?: string | null;
+  conversationKickDeferredAt?: string | null;
+  conversationKickDeferredReason?: string | null;
+  conversationAppDispatchStartedAt?: string | null;
+  conversationAppDispatchBlockedAt?: string | null;
+  conversationAppDispatchBlockedReason?: string | null;
+  conversationAppDispatchCompletedAt?: string | null;
+  conversationJobClaimedAt?: string | null;
+  reviewStartedAt?: string | null;
+  reviewCompletedAt?: string | null;
+  finalizeStartedAt?: string | null;
+  finalizeCompletedAt?: string | null;
   queueToSttMs?: number | null;
   queueToConversationMs?: number | null;
+  postSttTotalMs?: number | null;
+  sttToPromotionMs?: number | null;
+  promotionToKickMs?: number | null;
+  kickDeferredToKickMs?: number | null;
+  kickToAppDispatchMs?: number | null;
+  appDispatchToClaimMs?: number | null;
+  claimToReviewStartMs?: number | null;
+  reviewDurationMs?: number | null;
+  reviewToFinalizeMs?: number | null;
+  finalizeActiveMs?: number | null;
+  postSttUnknownMs?: number | null;
   sttSeconds?: number | null;
+  sttPrepareMs?: number | null;
+  sttTranscribeMs?: number | null;
+  sttTranscribeWorkerMs?: number | null;
+  sttFinalizeMs?: number | null;
+  sttVadParameters?: Record<string, number> | null;
   sttModel?: string | null;
   sttDevice?: string | null;
   sttComputeType?: string | null;
@@ -52,7 +85,16 @@ type RunpodMeasureResult = {
   transcriptChars?: number | null;
   finalizeDurationMs?: number | null;
   finalizeQueueLagMs?: number | null;
+  llmApiCalls?: number | null;
+  llmInputTokens?: number | null;
+  llmCachedInputTokens?: number | null;
+  llmCachedInputRatio?: number | null;
+  llmOutputTokens?: number | null;
   llmCostUsd?: number | null;
+  promptCacheKey?: string | null;
+  promptCacheRetention?: "in_memory" | "24h" | null;
+  promptCacheStablePrefixChars?: number | null;
+  promptCacheStablePrefixTokensEstimate?: number | null;
   finalizeModel?: string | null;
   artifactChars?: number | null;
   studentId?: string | null;
@@ -63,6 +105,72 @@ type RunpodMeasureResult = {
   conversationId?: string | null;
   error?: string;
 };
+
+function asObjectRecord(value: unknown) {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function readIsoString(value: unknown) {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
+}
+
+function diffIsoMs(start: string | null | undefined, end: string | null | undefined) {
+  if (!start || !end) return null;
+  const startMs = Date.parse(start);
+  const endMs = Date.parse(end);
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) return null;
+  return Math.max(0, endMs - startMs);
+}
+
+function sumNumbers(values: Array<number | null | undefined>) {
+  let total = 0;
+  for (const value of values) {
+    if (typeof value !== "number" || !Number.isFinite(value)) {
+      return null;
+    }
+    total += value;
+  }
+  return total;
+}
+
+function applyRunpodWorkerMetadata(result: RunpodMeasureResult, source: unknown) {
+  const record = asObjectRecord(source);
+  if (!record) return;
+
+  const workerImage =
+    typeof record.runpodWorkerImage === "string" && record.runpodWorkerImage.trim()
+      ? record.runpodWorkerImage.trim()
+      : null;
+  if (workerImage) {
+    result.runpodWorkerImage = workerImage;
+    result.workerImage = result.workerImage || workerImage;
+  }
+
+  const runtimeRevision =
+    typeof record.runpodWorkerRuntimeRevision === "string" && record.runpodWorkerRuntimeRevision.trim()
+      ? record.runpodWorkerRuntimeRevision.trim()
+      : null;
+  if (runtimeRevision) {
+    result.runpodWorkerRuntimeRevision = runtimeRevision;
+  }
+
+  const gitSha =
+    typeof record.runpodWorkerGitSha === "string" && record.runpodWorkerGitSha.trim()
+      ? record.runpodWorkerGitSha.trim()
+      : null;
+  if (gitSha) {
+    result.runpodWorkerGitSha = gitSha;
+  }
+
+  const featureFlags = asObjectRecord(record.runpodWorkerFeatureFlags);
+  if (featureFlags) {
+    result.runpodWorkerFeatureFlags = featureFlags;
+  }
+}
 
 const EXISTING_STUDENT_TARGET_OVERRIDE_ENV = "PARARIA_ALLOW_EXISTING_STUDENT_TARGET";
 
@@ -92,7 +200,7 @@ async function main() {
   const clipDurationSeconds = readNumberArg("clip-duration", 0);
   const timeoutMs = readNumberArg("timeout-ms", 45 * 60 * 1000);
   const pollMs = readNumberArg("poll-ms", 5000);
-  const autoStopIdleMs = readNumberArg("auto-stop-idle-ms", 5 * 60 * 1000);
+  const autoStopIdleMs = readNumberArg("auto-stop-idle-ms", 60 * 1000);
   const createRetries = readNumberArg("create-retries", 2);
   const createRetryWaitMs = readNumberArg("create-retry-wait-ms", 30000);
   const interruptible = readBoolArg("interruptible", false);
@@ -141,7 +249,7 @@ async function main() {
     profile: profile.name,
     gpu: profile.gpu,
     startupMode,
-    workerImage: startupMode === "direct" ? workerImage : null,
+    workerImage,
     workerName: startupMode === "reuse" ? workerName : null,
     interruptible,
     sourceAudioPath,
@@ -395,6 +503,7 @@ async function main() {
     const readiness = await waitForWorkerReady(podId, timeoutMs, pollMs, pod.requestedAt.getTime());
     result.podReadyAt = readiness.checkedAt.toISOString();
     result.podReadyMs = readiness.checkedAt.getTime() - pod.requestedAt.getTime();
+    applyRunpodWorkerMetadata(result, readiness.readiness);
 
     const timeoutAt = Date.now() + timeoutMs;
     while (Date.now() < timeoutAt) {
@@ -420,6 +529,7 @@ async function main() {
 
       const currentPart = currentSession.parts.find((item: any) => item.partType === SessionPartType.FULL) ?? null;
       const partMeta = readSessionPartMeta(currentPart?.qualityMetaJson);
+      applyRunpodWorkerMetadata(result, partMeta);
       const currentConversation = currentSession.conversation;
       const finalizeJob = currentConversation?.jobs.find((job: any) => job.type === "FINALIZE") ?? null;
 
@@ -440,6 +550,15 @@ async function main() {
         result.sttCompletedAt = completedAt.toISOString();
         result.queueToSttMs = completedAt.getTime() - enqueueStartedAt.getTime();
         result.sttSeconds = typeof partMeta.sttSeconds === "number" ? partMeta.sttSeconds : null;
+        result.sttPrepareMs = typeof partMeta.sttPrepareMs === "number" ? partMeta.sttPrepareMs : null;
+        result.sttTranscribeMs = typeof partMeta.sttTranscribeMs === "number" ? partMeta.sttTranscribeMs : null;
+        result.sttTranscribeWorkerMs =
+          typeof partMeta.sttTranscribeWorkerMs === "number" ? partMeta.sttTranscribeWorkerMs : null;
+        result.sttFinalizeMs = typeof partMeta.sttFinalizeMs === "number" ? partMeta.sttFinalizeMs : null;
+        result.sttVadParameters =
+          partMeta.sttVadParameters && typeof partMeta.sttVadParameters === "object" && !Array.isArray(partMeta.sttVadParameters)
+            ? (partMeta.sttVadParameters as Record<string, number>)
+            : null;
         result.sttModel = typeof partMeta.sttModel === "string" ? partMeta.sttModel : null;
         result.sttDevice = typeof partMeta.sttDevice === "string" ? partMeta.sttDevice : null;
         result.sttComputeType = typeof partMeta.sttComputeType === "string" ? partMeta.sttComputeType : null;
@@ -454,14 +573,78 @@ async function main() {
           currentConversation.qualityMetaJson && typeof currentConversation.qualityMetaJson === "object" && !Array.isArray(currentConversation.qualityMetaJson)
             ? (currentConversation.qualityMetaJson as Record<string, unknown>)
             : {};
+        const finalizeMeta = asObjectRecord(qualityMeta.finalizeJob);
 
         result.conversationCompletedAt = completedAt.toISOString();
         result.queueToConversationMs = completedAt.getTime() - enqueueStartedAt.getTime();
+        result.finalizeCompletedAt = readIsoString(finalizeMeta?.finalizeCompletedAt) ?? result.conversationCompletedAt;
         result.finalizeDurationMs = typeof finalizeJob.lastRunDurationMs === "number" ? finalizeJob.lastRunDurationMs : null;
         result.finalizeQueueLagMs = typeof finalizeJob.lastQueueLagMs === "number" ? finalizeJob.lastQueueLagMs : null;
+        result.llmApiCalls = typeof qualityMeta.llmApiCallsFinalize === "number" ? qualityMeta.llmApiCallsFinalize : null;
+        result.llmInputTokens = typeof qualityMeta.llmInputTokensActual === "number" ? qualityMeta.llmInputTokensActual : null;
+        result.llmCachedInputTokens =
+          typeof qualityMeta.llmCachedInputTokensActual === "number" ? qualityMeta.llmCachedInputTokensActual : null;
+        result.llmCachedInputRatio =
+          result.llmInputTokens && result.llmCachedInputTokens !== null && result.llmInputTokens > 0
+            ? Math.round((result.llmCachedInputTokens / result.llmInputTokens) * 1000) / 1000
+            : null;
+        result.llmOutputTokens = typeof qualityMeta.llmOutputTokensActual === "number" ? qualityMeta.llmOutputTokensActual : null;
         result.llmCostUsd = typeof qualityMeta.llmCostUsd === "number" ? qualityMeta.llmCostUsd : null;
+        result.promptCacheKey = typeof qualityMeta.promptCacheKey === "string" ? qualityMeta.promptCacheKey : null;
+        result.promptCacheRetention =
+          qualityMeta.promptCacheRetention === "in_memory" || qualityMeta.promptCacheRetention === "24h"
+            ? qualityMeta.promptCacheRetention
+            : null;
+        result.promptCacheStablePrefixChars =
+          typeof qualityMeta.promptCacheStablePrefixChars === "number"
+            ? qualityMeta.promptCacheStablePrefixChars
+            : null;
+        result.promptCacheStablePrefixTokensEstimate =
+          typeof qualityMeta.promptCacheStablePrefixTokensEstimate === "number"
+            ? qualityMeta.promptCacheStablePrefixTokensEstimate
+            : null;
         result.finalizeModel = typeof qualityMeta.modelFinalize === "string" ? qualityMeta.modelFinalize : null;
         result.artifactChars = currentConversation.summaryMarkdown?.length ?? null;
+        result.promotionCompletedAt = readIsoString(finalizeMeta?.promotionCompletedAt);
+        result.conversationKickRequestedAt = readIsoString(finalizeMeta?.conversationKickRequestedAt);
+        result.conversationKickDeferredAt = readIsoString(finalizeMeta?.conversationKickDeferredAt);
+        result.conversationKickDeferredReason = readIsoString(finalizeMeta?.conversationKickDeferredReason);
+        result.conversationAppDispatchStartedAt = readIsoString(finalizeMeta?.conversationAppDispatchStartedAt);
+        result.conversationAppDispatchBlockedAt = readIsoString(finalizeMeta?.conversationAppDispatchBlockedAt);
+        result.conversationAppDispatchBlockedReason = readIsoString(finalizeMeta?.conversationAppDispatchBlockedReason);
+        result.conversationAppDispatchCompletedAt = readIsoString(finalizeMeta?.conversationAppDispatchCompletedAt);
+        result.conversationJobClaimedAt = readIsoString(finalizeMeta?.conversationJobClaimedAt);
+        result.reviewStartedAt = readIsoString(finalizeMeta?.reviewStartedAt);
+        result.reviewCompletedAt = readIsoString(finalizeMeta?.reviewCompletedAt);
+        result.finalizeStartedAt = readIsoString(finalizeMeta?.finalizeStartedAt);
+        result.reviewDurationMs =
+          typeof finalizeMeta?.reviewDurationMs === "number" ? finalizeMeta.reviewDurationMs : null;
+        result.postSttTotalMs = diffIsoMs(result.sttCompletedAt, result.finalizeCompletedAt);
+        result.sttToPromotionMs = diffIsoMs(result.sttCompletedAt, result.promotionCompletedAt);
+        result.promotionToKickMs = diffIsoMs(result.promotionCompletedAt, result.conversationKickRequestedAt);
+        result.kickDeferredToKickMs = diffIsoMs(result.conversationKickDeferredAt, result.conversationKickRequestedAt);
+        result.kickToAppDispatchMs = diffIsoMs(result.conversationKickRequestedAt, result.conversationAppDispatchStartedAt);
+        result.appDispatchToClaimMs = diffIsoMs(result.conversationAppDispatchStartedAt, result.conversationJobClaimedAt);
+        result.claimToReviewStartMs = diffIsoMs(result.conversationJobClaimedAt, result.reviewStartedAt);
+        if (result.reviewDurationMs === null) {
+          result.reviewDurationMs = diffIsoMs(result.reviewStartedAt, result.reviewCompletedAt);
+        }
+        result.reviewToFinalizeMs = diffIsoMs(result.reviewCompletedAt, result.finalizeStartedAt);
+        result.finalizeActiveMs = diffIsoMs(result.finalizeStartedAt, result.finalizeCompletedAt);
+        const explainedPostSttMs = sumNumbers([
+          result.sttToPromotionMs,
+          result.promotionToKickMs,
+          result.kickToAppDispatchMs,
+          result.appDispatchToClaimMs,
+          result.claimToReviewStartMs,
+          result.reviewDurationMs,
+          result.reviewToFinalizeMs,
+          result.finalizeActiveMs,
+        ]);
+        result.postSttUnknownMs =
+          result.postSttTotalMs !== null && explainedPostSttMs !== null
+            ? Math.max(0, result.postSttTotalMs - explainedPostSttMs)
+            : null;
         result.ok = true;
         break;
       }

@@ -9,6 +9,12 @@ export type ConversationQualityMeta = {
   sttSegmentCount?: number;
   sttSpeakerCount?: number;
   sttQualityWarnings?: string[];
+  sttPrepareMs?: number;
+  sttTranscribeMs?: number;
+  sttTranscribeWorkerMs?: number;
+  sttFinalizeMs?: number;
+  sttTotalMs?: number;
+  sttVadParameters?: Record<string, number>;
   preprocessSeconds?: number;
   jobSecondsFinalize?: number;
   jobSecondsFormat?: number;
@@ -21,6 +27,10 @@ export type ConversationQualityMeta = {
   llmCachedInputTokensActual?: number;
   llmOutputTokensActual?: number;
   llmCostUsd?: number;
+  promptCacheKey?: string | null;
+  promptCacheRetention?: "in_memory" | "24h" | null;
+  promptCacheStablePrefixChars?: number;
+  promptCacheStablePrefixTokensEstimate?: number;
   usedFallbackSummary?: boolean;
   reviewReasonCodes?: string[];
   usedReviewedTranscript?: boolean;

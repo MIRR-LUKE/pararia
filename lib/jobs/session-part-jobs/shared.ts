@@ -185,25 +185,46 @@ export async function markPartReady(input: {
 }
 
 export async function enqueuePromotionJob(sessionPartId: string) {
-  return prisma.sessionPartJob.upsert({
-    where: {
-      sessionPartId_type: {
+  return prisma.$transaction(async (tx) => {
+    const existing = await tx.sessionPartJob.findUnique({
+      where: {
+        sessionPartId_type: {
+          sessionPartId,
+          type: SessionPartJobType.PROMOTE_SESSION,
+        },
+      },
+      select: {
+        id: true,
+        status: true,
+      },
+    });
+
+    if (existing && (existing.status === JobStatus.QUEUED || existing.status === JobStatus.RUNNING)) {
+      return tx.sessionPartJob.findUniqueOrThrow({
+        where: { id: existing.id },
+      });
+    }
+
+    if (existing) {
+      return tx.sessionPartJob.update({
+        where: { id: existing.id },
+        data: {
+          status: JobStatus.QUEUED,
+          lastError: null,
+          outputJson: Prisma.DbNull,
+          costMetaJson: Prisma.DbNull,
+          startedAt: null,
+          finishedAt: null,
+        },
+      });
+    }
+
+    return tx.sessionPartJob.create({
+      data: {
         sessionPartId,
         type: SessionPartJobType.PROMOTE_SESSION,
+        status: JobStatus.QUEUED,
       },
-    },
-    update: {
-      status: JobStatus.QUEUED,
-      lastError: null,
-      outputJson: Prisma.DbNull,
-      costMetaJson: Prisma.DbNull,
-      startedAt: null,
-      finishedAt: null,
-    },
-    create: {
-      sessionPartId,
-      type: SessionPartJobType.PROMOTE_SESSION,
-      status: JobStatus.QUEUED,
-    },
+    });
   });
 }

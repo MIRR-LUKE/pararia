@@ -1,6 +1,7 @@
 import { loadEnvFile } from "./load-env-file";
 import { loadLocalEnvFiles } from "./load-local-env";
 import { readRequiredEnv, sleep } from "./runpod-measure-ux-core";
+import { buildRunpodWorkerRuntimeEnv } from "../../lib/runpod/runtime-metadata";
 
 export type GpuProfileName = "4090" | "5090";
 export type StartupMode = "direct" | "bootstrap" | "reuse";
@@ -80,6 +81,7 @@ export function buildWorkerEnv(input: {
   sessionId: string;
   autoStopIdleMs: number;
   profile: GpuProfile;
+  workerImage?: string | null;
 }) {
   return {
     DATABASE_URL: readRequiredEnv("DATABASE_URL"),
@@ -105,6 +107,10 @@ export function buildWorkerEnv(input: {
     FASTER_WHISPER_BEAM_SIZE: input.profile.beamSize,
     FASTER_WHISPER_BATCH_SIZE: input.profile.batchSize,
     FASTER_WHISPER_VAD_FILTER: process.env.FASTER_WHISPER_VAD_FILTER?.trim() || "1",
+    FASTER_WHISPER_VAD_MIN_SILENCE_MS: process.env.FASTER_WHISPER_VAD_MIN_SILENCE_MS?.trim() || "1000",
+    FASTER_WHISPER_VAD_SPEECH_PAD_MS: process.env.FASTER_WHISPER_VAD_SPEECH_PAD_MS?.trim() || "400",
+    FASTER_WHISPER_VAD_THRESHOLD: process.env.FASTER_WHISPER_VAD_THRESHOLD?.trim() || "0.5",
+    FASTER_WHISPER_VAD_MIN_SPEECH_MS: process.env.FASTER_WHISPER_VAD_MIN_SPEECH_MS?.trim() || "",
     FASTER_WHISPER_CONDITION_ON_PREVIOUS_TEXT: process.env.FASTER_WHISPER_CONDITION_ON_PREVIOUS_TEXT?.trim() || "1",
     FASTER_WHISPER_CHUNKING_ENABLED: "0",
     FASTER_WHISPER_POOL_SIZE: "1",
@@ -118,6 +124,7 @@ export function buildWorkerEnv(input: {
     RUNPOD_WORKER_ACTIVE_WAIT_MS: "200",
     RUNPOD_WORKER_AUTO_STOP_IDLE_MS: String(input.autoStopIdleMs),
     RUNPOD_WORKER_ONLY_SESSION_ID: input.sessionId,
+    ...buildRunpodWorkerRuntimeEnv(input.workerImage),
   };
 }
 
@@ -209,6 +216,7 @@ async function patchRunpodPodWorkerConfig(input: {
         sessionId: input.sessionId,
         autoStopIdleMs: input.autoStopIdleMs,
         profile: input.profile,
+        workerImage: process.env.RUNPOD_WORKER_IMAGE?.trim() || null,
       }),
     }),
   });

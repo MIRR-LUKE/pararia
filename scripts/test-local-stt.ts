@@ -27,6 +27,10 @@ async function main() {
     assert.equal(result.meta.segmentCount, 2);
     assert.equal(result.meta.speakerCount, 0);
     assert.deepEqual(result.meta.qualityWarnings, []);
+    assert.equal(result.meta.pipeline, "batched");
+    assert.equal(result.meta.batchSize, 8);
+    assert.equal(result.meta.transcribeElapsedMs, 1234);
+    assert.equal(result.meta.vadParameters?.min_silence_duration_ms, 1000);
     assert.equal(result.segments.length, 2);
     assert.match(String(result.segments[0]?.text ?? ""), /英語長文/);
 

@@ -23,6 +23,7 @@ import {
   sanitizeParentReportJson,
 } from "./parentReport.content";
 import { buildParentReportRepairPrompt, evaluateParentReportQuality } from "./parentReport.quality";
+import { generateSmokeParentReport, isSmokeParentReportEnabled } from "./parentReport.smoke";
 
 const REPORT_PRIMARY_MODEL =
   process.env.LLM_MODEL_REPORT ||
@@ -144,6 +145,15 @@ export async function generateParentReport(input: ReportInput): Promise<ParentRe
   const evidenceLogs = buildReportEvidenceLogs(input);
   const evidencePrompt = buildEvidencePrompt(evidenceLogs);
   const { bundleQualityEval } = buildReportBundle(input);
+
+  if (isSmokeParentReportEnabled()) {
+    return generateSmokeParentReport({
+      createdAt,
+      context,
+      evidenceLogs,
+      bundleQualityEval,
+    });
+  }
 
   const systemPrompt = `あなたは、塾の担当講師が保護者へ送る月次レターの専任編集者です。
 出力は JSON object のみで、本文は必ず自然な日本語で書いてください。

@@ -35,6 +35,10 @@ function readClampedEnvInt(name: string, fallback: number, min: number, max: num
   return Math.max(min, Math.min(max, Math.floor(value)));
 }
 
+function shouldPreserveActiveSessionPartJob(status: JobStatus | string | null | undefined) {
+  return status === JobStatus.QUEUED || status === JobStatus.RUNNING;
+}
+
 async function executeJob(job: SessionPartJobPayload) {
   const part = await loadSessionPart(job);
   if (job.type === SessionPartJobType.TRANSCRIBE_FILE) {
@@ -95,26 +99,47 @@ async function claimNextJobForSession(sessionId: string): Promise<SessionPartJob
 }
 
 export async function enqueueSessionPartJob(sessionPartId: string, type: SessionPartJobType) {
-  return prisma.sessionPartJob.upsert({
-    where: {
-      sessionPartId_type: {
+  return prisma.$transaction(async (tx) => {
+    const existing = await tx.sessionPartJob.findUnique({
+      where: {
+        sessionPartId_type: {
+          sessionPartId,
+          type,
+        },
+      },
+      select: {
+        id: true,
+        status: true,
+      },
+    });
+
+    if (existing && shouldPreserveActiveSessionPartJob(existing.status)) {
+      return tx.sessionPartJob.findUniqueOrThrow({
+        where: { id: existing.id },
+      });
+    }
+
+    if (existing) {
+      return tx.sessionPartJob.update({
+        where: { id: existing.id },
+        data: {
+          status: JobStatus.QUEUED,
+          lastError: null,
+          outputJson: Prisma.DbNull,
+          costMetaJson: Prisma.DbNull,
+          startedAt: null,
+          finishedAt: null,
+        },
+      });
+    }
+
+    return tx.sessionPartJob.create({
+      data: {
         sessionPartId,
         type,
+        status: JobStatus.QUEUED,
       },
-    },
-    update: {
-      status: JobStatus.QUEUED,
-      lastError: null,
-      outputJson: Prisma.DbNull,
-      costMetaJson: Prisma.DbNull,
-      startedAt: null,
-      finishedAt: null,
-    },
-    create: {
-      sessionPartId,
-      type,
-      status: JobStatus.QUEUED,
-    },
+    });
   });
 }
 

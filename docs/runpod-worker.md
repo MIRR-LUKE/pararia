@@ -53,6 +53,9 @@ STT 推奨値:
 - `FASTER_WHISPER_COMPUTE_TYPE=auto`
 - `FASTER_WHISPER_BEAM_SIZE=1`
 - `FASTER_WHISPER_BATCH_SIZE=16`
+- `FASTER_WHISPER_VAD_MIN_SILENCE_MS=1000`
+- `FASTER_WHISPER_VAD_SPEECH_PAD_MS=400`
+- `FASTER_WHISPER_VAD_THRESHOLD=0.5`
 - `FASTER_WHISPER_CHUNKING_ENABLED=0`
 - `FASTER_WHISPER_POOL_SIZE=1`
 
@@ -64,18 +67,27 @@ worker loop 調整:
 - `RUNPOD_WORKER_CONVERSATION_CONCURRENCY=1`
 - `RUNPOD_WORKER_IDLE_WAIT_MS=2500`
 - `RUNPOD_WORKER_ACTIVE_WAIT_MS=200`
-- `RUNPOD_WORKER_AUTO_STOP_IDLE_MS=300000`
+- `RUNPOD_WORKER_AUTO_STOP_IDLE_MS=60000`
 - `RUNPOD_WORKER_ONLY_SESSION_ID=...`
 - `RUNPOD_WORKER_ONLY_CONVERSATION_ID=...`
+- `RUNPOD_WORKER_RUNTIME_REVISION=...`
+
+version handshake 用:
+
+- `RUNPOD_WORKER_IMAGE`
+- `RUNPOD_WORKER_GIT_SHA`
+- `RUNPOD_WORKER_RUNTIME_REVISION`
 
 速度優先の補足:
 
 - 1 本最速を狙うときは `FASTER_WHISPER_BEAM_SIZE=1` を基本にする
+- VAD は `min_silence_duration_ms=1000` を基準にし、必要なら `500 / 1000 / 2000` を比較する
 - `compute_type=auto` のままでよいが、worker image は `CTranslate2 4.7.1 + CUDA 12.8` 前提にする
 - `RTX 4090` など pre-Blackwell では `int8_float16` 系を優先する
 - `RTX 5090` など Blackwell では `float16` 系を優先する
 - benchmark 専用に 1 session だけ処理したいときは `RUNPOD_WORKER_ONLY_SESSION_ID` を使う
 - STT だけ見たいときは `RUNPOD_WORKER_CONVERSATION_LIMIT=0` で conversation job を止められる
+- `npm run runpod:measure-summary -- --dir .tmp/runpod-ux --out .tmp/runpod-ux-summary.md` で p50 / p95 を見られる
 
 ## GHCR へ worker image を publish
 
@@ -175,6 +187,15 @@ upload / regenerate が入ると、次のようなログが出ます。
 [conversation-jobs] job_started
 [conversation-jobs] job_completed
 ```
+
+heartbeat の `startup.json` / `db-ok.json` には次も残る:
+
+- `runpodWorkerImage`
+- `runpodWorkerGitSha`
+- `runpodWorkerRuntimeRevision`
+- `runpodWorkerFeatureFlags`
+
+`runpod:measure-ux` と session part `qualityMetaJson` にも同じ runtime 情報を残すので、あとから「どの image / revision がこの結果を出したか」を追える。
 
 ## よく詰まる点
 

@@ -4,7 +4,9 @@ import { stopFasterWhisperWorkers, warmFasterWhisperWorkers } from "../lib/ai/st
 import { writeAuditLog } from "../lib/audit";
 import { processQueuedJobs } from "../lib/jobs/conversationJobs";
 import { processQueuedSessionPartJobs } from "../lib/jobs/sessionPartJobs";
+import { processQueuedTeacherRecordingJobs } from "../lib/jobs/teacherRecordingJobs";
 import { stopCurrentRunpodPod } from "../lib/runpod/worker-control";
+import { readRunpodWorkerRuntimeMetadata } from "../lib/runpod/runtime-metadata";
 import { saveStorageText } from "../lib/audio-storage";
 import { prisma } from "../lib/db";
 
@@ -75,6 +77,7 @@ async function recordWorkerStartupHeartbeat(input: {
     gpuComputeCapability?: string;
   } | null;
 }) {
+  const runtimeMetadata = readRunpodWorkerRuntimeMetadata();
   const payload = {
     event: "worker_process_started",
     podId: process.env.RUNPOD_POD_ID?.trim() || null,
@@ -89,6 +92,7 @@ async function recordWorkerStartupHeartbeat(input: {
     activeWaitMs: input.activeWaitMs,
     once: input.once,
     sttWarm: input.sttWarm ?? null,
+    ...runtimeMetadata,
   };
 
   await saveStorageText({
@@ -145,6 +149,7 @@ async function recordWorkerStartupHeartbeat(input: {
 }
 
 async function processQueueOnce(
+  teacherRecordingLimit: number,
   sessionPartLimit: number,
   sessionPartConcurrency: number,
   conversationLimit: number,
@@ -152,6 +157,10 @@ async function processQueueOnce(
   scope: WorkerScope
 ) {
   const empty: QueueRunResult = { processed: 0, errors: [] };
+  const teacherRecordingJobs =
+    teacherRecordingLimit > 0
+      ? await processQueuedTeacherRecordingJobs(teacherRecordingLimit)
+      : empty;
   const sessionPartJobs =
     sessionPartLimit > 0
       ? await processQueuedSessionPartJobs(sessionPartLimit, sessionPartConcurrency, scope.sessionId ? { sessionId: scope.sessionId } : undefined)
@@ -170,14 +179,16 @@ async function processQueueOnce(
         )
       : empty;
   return {
+    teacherRecordingJobs,
     sessionPartJobs,
     conversationJobs,
-    processed: sessionPartJobs.processed + conversationJobs.processed,
-    errors: [...sessionPartJobs.errors, ...conversationJobs.errors],
+    processed: teacherRecordingJobs.processed + sessionPartJobs.processed + conversationJobs.processed,
+    errors: [...teacherRecordingJobs.errors, ...sessionPartJobs.errors, ...conversationJobs.errors],
   };
 }
 
 async function stopPodWhenQueuesDrain(
+  teacherRecordingLimit: number,
   sessionPartLimit: number,
   sessionPartConcurrency: number,
   conversationLimit: number,
@@ -185,6 +196,7 @@ async function stopPodWhenQueuesDrain(
   scope: WorkerScope
 ) {
   const confirm = await processQueueOnce(
+    teacherRecordingLimit,
     sessionPartLimit,
     sessionPartConcurrency,
     conversationLimit,
@@ -215,6 +227,7 @@ async function stopPodWhenQueuesDrain(
 
   console.log("[runpod-worker] queues_drained_stop_aborted", {
     processed: confirm.processed,
+    teacherRecordingProcessed: confirm.teacherRecordingJobs.processed,
     sessionPartProcessed: confirm.sessionPartJobs.processed,
     conversationProcessed: confirm.conversationJobs.processed,
     errorCount: confirm.errors.length,
@@ -226,6 +239,11 @@ async function stopPodWhenQueuesDrain(
 }
 
 async function main() {
+  const teacherRecordingLimit = readNonNegativeIntEnvWithLegacy(
+    "RUNPOD_WORKER_TEACHER_RECORDING_LIMIT",
+    "LOCAL_GPU_WORKER_TEACHER_RECORDING_LIMIT",
+    4
+  );
   const sessionPartLimit = readNonNegativeIntEnvWithLegacy("RUNPOD_WORKER_SESSION_PART_LIMIT", "LOCAL_GPU_WORKER_SESSION_PART_LIMIT", 8);
   const sessionPartConcurrency = readIntEnvWithLegacy(
     "RUNPOD_WORKER_SESSION_PART_CONCURRENCY",
@@ -245,7 +263,7 @@ async function main() {
   );
   const idleWaitMs = readIntEnvWithLegacy("RUNPOD_WORKER_IDLE_WAIT_MS", "LOCAL_GPU_WORKER_IDLE_WAIT_MS", 2500);
   const activeWaitMs = readIntEnvWithLegacy("RUNPOD_WORKER_ACTIVE_WAIT_MS", "LOCAL_GPU_WORKER_ACTIVE_WAIT_MS", 200);
-  const defaultAutoStopIdleMs = process.env.RUNPOD_POD_ID?.trim() ? 5 * 60 * 1000 : 0;
+  const defaultAutoStopIdleMs = process.env.RUNPOD_POD_ID?.trim() ? 60 * 1000 : 0;
   const autoStopIdleMs = readNonNegativeIntEnvWithLegacy(
     "RUNPOD_WORKER_AUTO_STOP_IDLE_MS",
     "LOCAL_GPU_WORKER_AUTO_STOP_IDLE_MS",
@@ -274,6 +292,7 @@ async function main() {
 
   console.log("[runpod-worker] started", {
     mode: getConversationWorkerMode(conversationLimit),
+    teacherRecordingLimit,
     sessionPartLimit,
     sessionPartConcurrency,
     configuredConversationLimit,
@@ -321,6 +340,7 @@ async function main() {
 
   while (!stopped) {
     const tick = await processQueueOnce(
+      teacherRecordingLimit,
       sessionPartLimit,
       sessionPartConcurrency,
       conversationLimit,
@@ -332,6 +352,7 @@ async function main() {
       lastActiveAt = Date.now();
       console.log("[runpod-worker] tick", {
         processed: tick.processed,
+        teacherRecordingProcessed: tick.teacherRecordingJobs.processed,
         sessionPartProcessed: tick.sessionPartJobs.processed,
         conversationProcessed: tick.conversationJobs.processed,
         errorCount: tick.errors.length,
@@ -340,6 +361,7 @@ async function main() {
 
     if (canStopCurrentPod && tick.processed > 0 && tick.errors.length === 0) {
       const drained = await stopPodWhenQueuesDrain(
+        teacherRecordingLimit,
         sessionPartLimit,
         sessionPartConcurrency,
         conversationLimit,
@@ -357,6 +379,7 @@ async function main() {
 
     if (autoStopIdleMs > 0 && tick.processed === 0 && tick.errors.length === 0 && Date.now() - lastActiveAt >= autoStopIdleMs) {
       const confirm = await processQueueOnce(
+        teacherRecordingLimit,
         sessionPartLimit,
         sessionPartConcurrency,
         conversationLimit,
@@ -385,6 +408,7 @@ async function main() {
       lastActiveAt = Date.now();
       console.log("[runpod-worker] idle_auto_stop_aborted", {
         processed: confirm.processed,
+        teacherRecordingProcessed: confirm.teacherRecordingJobs.processed,
         sessionPartProcessed: confirm.sessionPartJobs.processed,
         conversationProcessed: confirm.conversationJobs.processed,
         errorCount: confirm.errors.length,

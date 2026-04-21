@@ -14,6 +14,12 @@ const BENCHMARK_META = {
   sessionDate: "2026-02-20",
 };
 
+const BENCHMARK_META_VARIANT = {
+  studentName: "田中 由紀子（再計測）",
+  teacherName: "浅見",
+  sessionDate: "2026-02-27",
+};
+
 function resolveInputPath() {
   const argPath = process.argv[2]?.trim();
   return path.resolve(argPath || DEFAULT_AUDIO_PATH);
@@ -68,14 +74,19 @@ async function runDraftBenchmark(
   options?: {
     promptCacheNamespace?: string | null;
     promptCacheRetention?: "in_memory" | "24h" | null;
+    metaOverride?: Partial<typeof BENCHMARK_META>;
   }
 ) {
+  const meta = {
+    ...BENCHMARK_META,
+    ...(options?.metaOverride ?? {}),
+  };
   const llmStartedAt = Date.now();
   const draft = await generateConversationDraftFast({
     transcript,
-    studentName: BENCHMARK_META.studentName,
-    teacherName: BENCHMARK_META.teacherName,
-    sessionDate: BENCHMARK_META.sessionDate,
+    studentName: meta.studentName,
+    teacherName: meta.teacherName,
+    sessionDate: meta.sessionDate,
     durationMinutes: Math.max(1, Math.round(audioDurationSeconds / 60)),
     minSummaryChars: 700,
     sessionType: "INTERVIEW",
@@ -117,9 +128,15 @@ async function main() {
     promptCacheNamespace,
     promptCacheRetention: "24h",
   });
+  const metadataVariantRun = await runDraftBenchmark(sttResult.rawTextOriginal, audioDurationSeconds, {
+    promptCacheNamespace,
+    promptCacheRetention: "24h",
+    metaOverride: BENCHMARK_META_VARIANT,
+  });
   const draft = warmRun.draft;
   const totalElapsedSecondsCold = sttElapsedSeconds + coldRun.llmElapsedSeconds;
   const totalElapsedSecondsWarm = sttElapsedSeconds + warmRun.llmElapsedSeconds;
+  const totalElapsedSecondsMetadataVariant = sttElapsedSeconds + metadataVariantRun.llmElapsedSeconds;
   const coldCachedRatio =
     coldRun.draft.tokenUsage.inputTokens > 0
       ? coldRun.draft.tokenUsage.cachedInputTokens / coldRun.draft.tokenUsage.inputTokens
@@ -128,6 +145,12 @@ async function main() {
     warmRun.draft.tokenUsage.inputTokens > 0
       ? warmRun.draft.tokenUsage.cachedInputTokens / warmRun.draft.tokenUsage.inputTokens
       : 0;
+  const metadataVariantCachedRatio =
+    metadataVariantRun.draft.tokenUsage.inputTokens > 0
+      ? metadataVariantRun.draft.tokenUsage.cachedInputTokens / metadataVariantRun.draft.tokenUsage.inputTokens
+      : 0;
+  const stablePrefixChars = draft.promptCacheStablePrefixChars ?? 0;
+  const stablePrefixTokensEstimate = draft.promptCacheStablePrefixTokensEstimate ?? 0;
 
   const transcriptMd = [
     `# ${baseName} 生文字起こし`,
@@ -156,6 +179,12 @@ async function main() {
     },
     llm: {
       model: draft.model,
+      promptCache: {
+        key: draft.promptCacheKey ?? null,
+        retention: draft.promptCacheRetention ?? null,
+        stablePrefixChars,
+        stablePrefixTokensEstimate,
+      },
       cold: {
         elapsedSeconds: coldRun.llmElapsedSeconds,
         apiCalls: coldRun.draft.apiCalls,
@@ -172,15 +201,27 @@ async function main() {
         costUsd: warmRun.draft.llmCostUsd,
         cachedInputRatio: warmCachedRatio,
       },
+      metadataVariant: {
+        elapsedSeconds: metadataVariantRun.llmElapsedSeconds,
+        apiCalls: metadataVariantRun.draft.apiCalls,
+        usedFallback: metadataVariantRun.draft.usedFallback,
+        tokenUsage: metadataVariantRun.draft.tokenUsage,
+        costUsd: metadataVariantRun.draft.llmCostUsd,
+        cachedInputRatio: metadataVariantCachedRatio,
+        meta: BENCHMARK_META_VARIANT,
+      },
       externalApiCostUsdCold: coldRun.draft.llmCostUsd,
       externalApiCostUsdWarm: warmRun.draft.llmCostUsd,
+      externalApiCostUsdMetadataVariant: metadataVariantRun.draft.llmCostUsd,
       localSttApiCostUsd: 0,
     },
     totals: {
       coldElapsedSeconds: totalElapsedSecondsCold,
       warmElapsedSeconds: totalElapsedSecondsWarm,
+      metadataVariantElapsedSeconds: totalElapsedSecondsMetadataVariant,
       externalApiCostUsdCold: coldRun.draft.llmCostUsd,
       externalApiCostUsdWarm: warmRun.draft.llmCostUsd,
+      externalApiCostUsdMetadataVariant: metadataVariantRun.draft.llmCostUsd,
       sttApiCostUsd: 0,
     },
     generatedAt: new Date().toISOString(),
@@ -207,6 +248,9 @@ async function main() {
     "",
     "## LLM 計測",
     `- モデル: ${draft.model}`,
+    `- prompt cache key: ${draft.promptCacheKey ?? "なし"}`,
+    `- prompt cache retention: ${draft.promptCacheRetention ?? "なし"}`,
+    `- cache-stable prefix 推定長: ${stablePrefixTokensEstimate.toLocaleString()} tokens / ${stablePrefixChars.toLocaleString()} chars`,
     "",
     "### 初回（cold）",
     `- 実行時間: ${coldRun.llmElapsedSeconds.toFixed(1)}秒 (${formatSeconds(coldRun.llmElapsedSeconds)})`,
@@ -229,14 +273,27 @@ async function main() {
     `- 1回あたりの LLM コスト: ${formatUsd(warmRun.draft.llmCostUsd)}`,
     `- 価格根拠: OpenAI API Pricing（2026-04-05 時点） GPT-5.4 入力 $2.50 / 1M tokens, Cached input $0.25 / 1M tokens, Output $15.00 / 1M tokens`,
     "",
+    "### 3回目（warm, metadata variant）",
+    `- 変更したメタデータ: 生徒=${BENCHMARK_META_VARIANT.studentName}, 面談日=${BENCHMARK_META_VARIANT.sessionDate}`,
+    `- 実行時間: ${metadataVariantRun.llmElapsedSeconds.toFixed(1)}秒 (${formatSeconds(metadataVariantRun.llmElapsedSeconds)})`,
+    `- API 呼び出し回数: ${metadataVariantRun.draft.apiCalls}`,
+    `- fallback 使用: ${metadataVariantRun.draft.usedFallback ? "あり" : "なし"}`,
+    `- 入力トークン: ${metadataVariantRun.draft.tokenUsage.inputTokens.toLocaleString()}`,
+    `- うちキャッシュ入力: ${metadataVariantRun.draft.tokenUsage.cachedInputTokens.toLocaleString()} (${formatPercent(metadataVariantCachedRatio)})`,
+    `- 出力トークン: ${metadataVariantRun.draft.tokenUsage.outputTokens.toLocaleString()}`,
+    `- 合計トークン: ${metadataVariantRun.draft.tokenUsage.totalTokens.toLocaleString()}`,
+    `- 1回あたりの LLM コスト: ${formatUsd(metadataVariantRun.draft.llmCostUsd)}`,
+    "",
     "## 合計",
     `- STT の外部 API コスト: ${formatUsd(0)}`,
     `- 初回（cold）の外部 API コスト合計: ${formatUsd(coldRun.draft.llmCostUsd)}`,
     `- 2回目（warm）の外部 API コスト合計: ${formatUsd(warmRun.draft.llmCostUsd)}`,
+    `- 3回目（warm, metadata variant）の外部 API コスト合計: ${formatUsd(metadataVariantRun.draft.llmCostUsd)}`,
     `- STT + LLM 合計時間（cold）: ${totalElapsedSecondsCold.toFixed(1)}秒 (${formatSeconds(totalElapsedSecondsCold)})`,
     `- STT + LLM 合計時間（warm）: ${totalElapsedSecondsWarm.toFixed(1)}秒 (${formatSeconds(totalElapsedSecondsWarm)})`,
+    `- STT + LLM 合計時間（warm, metadata variant）: ${totalElapsedSecondsMetadataVariant.toFixed(1)}秒 (${formatSeconds(totalElapsedSecondsMetadataVariant)})`,
     "- メモ: STT は faster-whisper の GPU worker 実行なので外部 API 課金は 0。インフラ費用はこのベンチには含めない。",
-    "- メモ: cold はその cache namespace で最初の 1 回、warm は直後に同じ条件でもう 1 回流した結果。",
+    "- メモ: cold はその cache namespace で最初の 1 回、warm は直後に同じ条件でもう 1 回、metadata variant は生徒名と面談日だけ変えてもう 1 回流した結果。",
     "",
     "## 生成された面談ログ",
     "",

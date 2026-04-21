@@ -174,14 +174,45 @@ export function isSessionReady(sessionType: SessionType, parts: SessionPartLike[
   return hasCheckIn && hasCheckOut;
 }
 
-export async function ensureConversationForSession(sessionId: string) {
+function shouldReuseExistingConversation(input: {
+  conversationStatus: ConversationStatus;
+  existingRawTextOriginal?: string | null;
+  existingReviewedText?: string | null;
+  nextRawTextOriginal: string;
+  nextReviewedText: string;
+}) {
+  if (
+    input.conversationStatus !== ConversationStatus.PROCESSING &&
+    input.conversationStatus !== ConversationStatus.DONE
+  ) {
+    return false;
+  }
+
+  return (
+    normalizeRawTranscriptText(input.existingRawTextOriginal) === input.nextRawTextOriginal &&
+    normalizeRawTranscriptText(input.existingReviewedText || input.existingRawTextOriginal) ===
+      input.nextReviewedText
+  );
+}
+
+export async function ensureConversationForSession(sessionId: string): Promise<{
+  conversationId: string;
+  state: "created" | "updated" | "unchanged";
+}> {
   const session = await prisma.session.findUnique({
     where: { id: sessionId },
     include: {
       parts: true,
       student: { select: { id: true } },
       user: { select: { id: true } },
-      conversation: { select: { id: true } },
+      conversation: {
+        select: {
+          id: true,
+          status: true,
+          rawTextOriginal: true,
+          reviewedText: true,
+        },
+      },
     },
   });
   if (!session) throw new Error("session not found");
@@ -192,6 +223,7 @@ export async function ensureConversationForSession(sessionId: string) {
   const combinedRawText = buildSessionRawTranscript(session.type, session.parts);
   if (!combinedRawText) throw new Error("session transcript is empty");
   const combinedReviewedText = buildSessionEvidenceTranscript(session.type, session.parts);
+  const combinedReviewedOrRawText = combinedReviewedText || combinedRawText;
   const combinedSegments = buildSessionTranscriptSegments(session.type, session.parts);
 
   const readyParts = getReadyPartsForConversation(session.type, session.parts);
@@ -213,6 +245,21 @@ export async function ensureConversationForSession(sessionId: string) {
   };
 
   if (session.conversation?.id) {
+    if (
+      shouldReuseExistingConversation({
+        conversationStatus: session.conversation.status,
+        existingRawTextOriginal: session.conversation.rawTextOriginal,
+        existingReviewedText: session.conversation.reviewedText,
+        nextRawTextOriginal: combinedRawText,
+        nextReviewedText: combinedReviewedOrRawText,
+      })
+    ) {
+      return {
+        conversationId: session.conversation.id,
+        state: "unchanged",
+      };
+    }
+
     const conversation = await prisma.conversationLog.update({
       where: { id: session.conversation.id },
       data: {
@@ -224,14 +271,20 @@ export async function ensureConversationForSession(sessionId: string) {
       },
       select: { id: true },
     });
-    return conversation.id;
+    return {
+      conversationId: conversation.id,
+      state: "updated",
+    };
   }
 
   const conversation = await prisma.conversationLog.create({
     data,
     select: { id: true },
   });
-  return conversation.id;
+  return {
+    conversationId: conversation.id,
+    state: "created",
+  };
 }
 
 function mapConversationToSessionStatus(status: ConversationStatus): SessionStatus {

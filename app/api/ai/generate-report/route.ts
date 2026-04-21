@@ -15,6 +15,12 @@ import {
   IdempotencyConflictError,
 } from "@/lib/idempotency";
 import { getLogListCacheTag } from "@/lib/logs/get-log-list-page-data";
+import {
+  createOperationContext,
+  logOperationError,
+  operationErrorResponse,
+  withOperationMeta,
+} from "@/lib/observability/operation-errors";
 import { RequestValidationError, parseJsonWithSchema } from "@/lib/server/request-validation";
 import { requireAuthorizedMutationSession } from "@/lib/server/request-auth";
 import { withActiveStudentWhere } from "@/lib/students/student-lifecycle";
@@ -28,18 +34,48 @@ const generateReportBodySchema = z.object({
   sessionIds: z.array(z.string().trim().min(1)).optional(),
 });
 
+async function readResponseErrorMessage(response: Response, fallbackMessage: string) {
+  const body = await response
+    .clone()
+    .json()
+    .catch(() => null);
+  if (body && typeof body === "object" && typeof (body as { error?: unknown }).error === "string") {
+    const error = String((body as { error: string }).error).trim();
+    if (error.length > 0) return error;
+  }
+  return fallbackMessage;
+}
+
 export async function POST(request: Request) {
+  const operation = createOperationContext("generate-report");
+  let stage = "auth";
   let idempotencyKey: string | null = null;
   let idempotencyStarted = false;
+  let idempotencyCompleted = false;
+  let studentIdForLog: string | null = null;
 
   try {
     const sessionResult = await requireAuthorizedMutationSession(request);
-    if (sessionResult.response) return sessionResult.response;
+    if (sessionResult.response) {
+      const status = sessionResult.response.status;
+      return operationErrorResponse(operation, {
+        stage,
+        message: await readResponseErrorMessage(
+          sessionResult.response,
+          status === 401 ? "Unauthorized" : "この操作は許可されていません。"
+        ),
+        status,
+        reason: status === 401 ? "unauthorized" : "forbidden",
+      });
+    }
     const session = sessionResult.session;
 
+    stage = "validate_input";
     const body = await parseJsonWithSchema(request, generateReportBodySchema, "レポート生成");
     const studentId = body.studentId;
+    studentIdForLog = studentId;
 
+    stage = "student_lookup";
     const student = await prisma.student.findFirst({
       where: withActiveStudentWhere({ id: studentId, organizationId: session.user.organizationId }),
       select: {
@@ -55,19 +91,29 @@ export async function POST(request: Request) {
       },
     });
     if (!student) {
-      return NextResponse.json({ error: "student not found" }, { status: 404 });
+      return operationErrorResponse(operation, {
+        stage,
+        message: "student not found",
+        status: 404,
+        reason: "student_not_found",
+        extra: { studentId },
+      });
     }
 
     const resolvedLogIds = Array.from(new Set((body.logIds ?? []).filter(Boolean))).sort();
     const resolvedSessionIds = Array.from(new Set((body.sessionIds ?? []).filter(Boolean))).sort();
 
     if (resolvedLogIds.length === 0 && resolvedSessionIds.length === 0) {
-      return NextResponse.json(
-        { error: "logIds or sessionIds is required for report generation" },
-        { status: 400 }
-      );
+      return operationErrorResponse(operation, {
+        stage: "validate_selection",
+        message: "logIds or sessionIds is required for report generation",
+        status: 400,
+        reason: "missing_log_selection",
+        extra: { studentId },
+      });
     }
 
+    stage = "validate_input";
     const from = body.fromDate ? new Date(body.fromDate) : undefined;
     const to = body.toDate ? new Date(body.toDate) : undefined;
     if (from && Number.isNaN(from.getTime())) {
@@ -84,6 +130,7 @@ export async function POST(request: Request) {
       sessionIds: resolvedSessionIds,
     };
 
+    stage = "consume_quota";
     await consumeApiQuota({
       scope: "report_generate:user",
       rawKey: session.user.id,
@@ -95,6 +142,7 @@ export async function POST(request: Request) {
       rule: API_THROTTLE_RULES.reportGenerateOrg,
     });
 
+    stage = "begin_idempotency";
     idempotencyKey = request.headers.get("Idempotency-Key")?.trim() || buildStableRequestHash(normalizedRequest);
     const idempotency = await beginIdempotency({
       scope: "report_generate",
@@ -108,13 +156,17 @@ export async function POST(request: Request) {
       return NextResponse.json(idempotency.responseBody ?? {}, { status: idempotency.responseStatus ?? 200 });
     }
     if (idempotency.state === "pending") {
-      return NextResponse.json(
-        { error: "同じレポート生成がまだ進行中です。少し待ってから再読み込みしてください。" },
-        { status: 409 }
-      );
+      return operationErrorResponse(operation, {
+        stage,
+        message: "同じレポート生成がまだ進行中です。少し待ってから再読み込みしてください。",
+        status: 409,
+        reason: "idempotency_pending",
+        extra: { studentId },
+      });
     }
     idempotencyStarted = true;
 
+    stage = "load_selected_logs";
     const selectedLogs = await prisma.conversationLog.findMany({
       where: withVisibleConversationWhere({
         organizationId: session.user.organizationId,
@@ -145,9 +197,20 @@ export async function POST(request: Request) {
     });
 
     if (selectedLogs.length === 0) {
-      return NextResponse.json({ error: "selected logs not found" }, { status: 400 });
+      return operationErrorResponse(operation, {
+        stage,
+        message: "selected logs not found",
+        status: 400,
+        reason: "selected_logs_not_found",
+        extra: {
+          studentId,
+          selectedLogCount: resolvedLogIds.length,
+          selectedSessionCount: resolvedSessionIds.length,
+        },
+      });
     }
 
+    stage = "validate_artifact";
     const invalidLogs = selectedLogs
       .map((log) => {
         try {
@@ -163,19 +226,24 @@ export async function POST(request: Request) {
       .filter((entry): entry is { id: string; message: string } => entry !== null);
 
     if (invalidLogs.length > 0) {
-      return NextResponse.json(
-        {
-          error:
-            `保護者レポートに使えない面談ログがあります。` +
-            ` 面談ログを再生成してから再実行してください。` +
-            ` 対象: ${invalidLogs.map((log) => log.id).join(", ")}`,
+      return operationErrorResponse(operation, {
+        stage,
+        message:
+          `保護者レポートに使えない面談ログがあります。` +
+          ` 面談ログを再生成してから再実行してください。` +
+          ` 対象: ${invalidLogs.map((log) => log.id).join(", ")}`,
+        status: 400,
+        reason: "invalid_selected_artifact",
+        extra: {
+          studentId,
+          invalidLogIds: invalidLogs.map((log) => log.id),
         },
-        { status: 400 }
-      );
+      });
     }
 
     const logs = selectedLogs;
 
+    stage = "build_report";
     const { markdown, reportJson, bundleQualityEval, generationMeta } = await generateParentReport({
       studentName: student.name,
       guardianNames: student.guardianNames,
@@ -189,9 +257,10 @@ export async function POST(request: Request) {
         date: log.createdAt.toISOString().slice(0, 10),
         mode: log.session?.type === "LESSON_REPORT" ? "LESSON_REPORT" : "INTERVIEW",
         artifactJson: log.artifactJson,
-      })),
+        })),
     });
 
+    stage = "persist_report";
     const report = await prisma.$transaction(async (tx) => {
       const created = await tx.report.create({
         data: {
@@ -231,76 +300,130 @@ export async function POST(request: Request) {
       return created;
     });
 
-    await writeAuditLog({
-      organizationId: student.organizationId,
-      userId: session.user.id,
-      action: "report.generate",
-      targetType: "report",
-      targetId: report.id,
-      detail: {
-        reportId: report.id,
-        studentId,
-        sourceLogCount: logs.length,
-      },
-    });
-
-    revalidateTag(`student-directory:${student.organizationId}`, "max");
-    revalidateTag(`dashboard-snapshot:${student.organizationId}`, "max");
-    revalidateTag(getLogListCacheTag(student.organizationId), "max");
-    revalidatePath("/app/dashboard");
-    revalidatePath("/app/students");
-    revalidatePath("/app/logs");
-    revalidatePath("/app/reports");
-    revalidatePath(`/app/students/${studentId}`);
-
-    const responseBody = JSON.parse(JSON.stringify({ report }));
+    stage = "complete_idempotency";
+    const responseBody = JSON.parse(JSON.stringify(withOperationMeta(operation, "persist_report", { report })));
     await completeIdempotency({
       scope: "report_generate",
       idempotencyKey,
       responseStatus: 200,
       responseBody,
     });
+    idempotencyCompleted = true;
+
+    stage = "audit_log";
+    try {
+      await writeAuditLog({
+        organizationId: student.organizationId,
+        userId: session.user.id,
+        action: "report.generate",
+        targetType: "report",
+        targetId: report.id,
+        detail: {
+          reportId: report.id,
+          studentId,
+          sourceLogCount: logs.length,
+          operationId: operation.operationId,
+        },
+      });
+    } catch (error) {
+      logOperationError(operation, {
+        stage,
+        message: "report generated but audit log failed",
+        error,
+        extra: {
+          reason: "audit_log_failed",
+          reportId: report.id,
+          studentId,
+        },
+      });
+    }
+
+    stage = "revalidate";
+    try {
+      revalidateTag(`student-directory:${student.organizationId}`, "max");
+      revalidateTag(`dashboard-snapshot:${student.organizationId}`, "max");
+      revalidateTag(getLogListCacheTag(student.organizationId), "max");
+      revalidatePath("/app/dashboard");
+      revalidatePath("/app/students");
+      revalidatePath("/app/logs");
+      revalidatePath("/app/reports");
+      revalidatePath(`/app/students/${studentId}`);
+    } catch (error) {
+      logOperationError(operation, {
+        stage,
+        message: "report generated but cache revalidation failed",
+        error,
+        extra: {
+          reason: "revalidate_failed",
+          reportId: report.id,
+          studentId,
+        },
+      });
+    }
 
     return NextResponse.json(responseBody);
   } catch (error: any) {
-    if (idempotencyStarted && idempotencyKey) {
+    if (idempotencyStarted && idempotencyKey && !idempotencyCompleted) {
       await failIdempotency({
         scope: "report_generate",
         idempotencyKey,
       }).catch(() => {});
     }
 
-    console.error("[POST /api/ai/generate-report] Error:", {
-      error: error?.message,
-      stack: error?.stack,
-    });
-
     if (error instanceof RequestValidationError) {
-      return NextResponse.json({ error: error.message }, { status: error.status });
+      return operationErrorResponse(operation, {
+        stage,
+        message: error.message,
+        status: error.status,
+        reason: "request_validation_error",
+        error,
+        extra: studentIdForLog ? { studentId: studentIdForLog } : undefined,
+      });
     }
 
     if (error instanceof ApiQuotaExceededError) {
-      return NextResponse.json(
-        {
-          error: error.message,
+      const responseBody = withOperationMeta(operation, stage, {
+        error: error.message,
+        route: operation.route,
+        reason: "quota_exceeded",
+        retryAfterSeconds: error.retryAfterSeconds,
+      });
+      logOperationError(operation, {
+        stage,
+        message: error.message,
+        reason: "quota_exceeded",
+        error,
+        extra: {
           retryAfterSeconds: error.retryAfterSeconds,
+          ...(studentIdForLog ? { studentId: studentIdForLog } : {}),
         },
-        {
-          status: 429,
-          headers: {
-            "Retry-After": String(error.retryAfterSeconds),
-          },
-        }
-      );
+      });
+      return NextResponse.json(responseBody, {
+        status: 429,
+        headers: {
+          "Retry-After": String(error.retryAfterSeconds),
+        },
+      });
     }
 
     if (error instanceof IdempotencyConflictError) {
-      return NextResponse.json({ error: error.message }, { status: error.status });
+      return operationErrorResponse(operation, {
+        stage,
+        message: error.message,
+        status: error.status,
+        reason: "idempotency_conflict",
+        error,
+        extra: studentIdForLog ? { studentId: studentIdForLog } : undefined,
+      });
     }
 
-    return NextResponse.json(
-      { error: error?.message ?? "Internal Server Error" },
-      { status: 500 }
-    );
+    return operationErrorResponse(operation, {
+      stage,
+      message: error?.message ?? "Internal Server Error",
+      status: 500,
+      reason: "unexpected_error",
+      error,
+      extra: studentIdForLog ? { studentId: studentIdForLog } : undefined,
+    });
   }
 }
