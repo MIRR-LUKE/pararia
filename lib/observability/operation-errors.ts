@@ -17,6 +17,7 @@ type OperationErrorOptions = {
   stage: string;
   message: string;
   status?: number;
+  reason?: string;
   error?: unknown;
   extra?: Record<string, unknown>;
 };
@@ -24,6 +25,7 @@ type OperationErrorOptions = {
 type OperationLogOptions = {
   stage: string;
   message?: string;
+  reason?: string;
   error?: unknown;
   extra?: Record<string, unknown>;
 };
@@ -51,6 +53,7 @@ export function logOperationIssue(input: {
   context: OperationErrorContext;
   stage: OperationErrorStage;
   message: string;
+  reason?: string;
   error?: unknown;
   level?: OperationErrorLevel;
   extra?: Record<string, unknown>;
@@ -61,6 +64,7 @@ export function logOperationIssue(input: {
     operationId: input.context.operationId,
     stage: input.stage,
     message: input.message,
+    reason: input.reason ?? null,
     error: normalizeError(input.error),
     ...(input.extra ?? {}),
   });
@@ -71,6 +75,7 @@ export function respondWithOperationError(input: {
   stage: OperationErrorStage;
   message: string;
   status: number;
+  reason?: string;
   error?: unknown;
   level?: OperationErrorLevel;
   extra?: Record<string, unknown>;
@@ -79,6 +84,7 @@ export function respondWithOperationError(input: {
     context: input.context,
     stage: input.stage,
     message: input.message,
+    reason: input.reason,
     error: input.error,
     level: input.level ?? (input.status >= 500 ? "error" : "warn"),
     extra: input.extra,
@@ -87,8 +93,10 @@ export function respondWithOperationError(input: {
   return NextResponse.json(
     {
       error: input.message,
+      route: input.context.operation,
       operationId: input.context.operationId,
       stage: input.stage,
+      ...(input.reason ? { reason: input.reason } : {}),
     },
     { status: input.status }
   );
@@ -121,6 +129,7 @@ export function logOperationError(context: OperationContext, options: OperationL
     },
     stage: options.stage,
     message: options.message ?? (options.error instanceof Error ? options.error.message : "Unexpected error"),
+    reason: options.reason,
     error: options.error,
     extra: options.extra,
   });
@@ -131,6 +140,8 @@ export function operationErrorResponse(context: OperationContext, options: Opera
   return NextResponse.json(
     withOperationMeta(context, options.stage, {
       error: options.message,
+      route: context.route,
+      ...(options.reason ? { reason: options.reason } : {}),
       ...(options.extra ?? {}),
     }),
     { status: options.status ?? 500 }

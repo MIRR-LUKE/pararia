@@ -5,6 +5,7 @@ import { withVisibleReportWhere } from "@/lib/content-visibility";
 import { prisma } from "@/lib/db";
 import { buildReportDeliverySummary } from "@/lib/report-delivery";
 import { getLogListCacheTag } from "@/lib/logs/get-log-list-page-data";
+import { createOperationErrorContext, respondWithOperationError } from "@/lib/observability/operation-errors";
 import { requireAuthorizedMutationSession, requireAuthorizedSession } from "@/lib/server/request-auth";
 import { sanitizeReportMarkdown } from "@/lib/user-facing-japanese";
 import { applyLightMutationThrottle } from "@/lib/server/request-throttle";
@@ -18,12 +19,33 @@ export async function GET(
   _request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const context = createOperationErrorContext("report-detail");
+  let stage = "auth";
   try {
     const { id } = await Promise.resolve(params);
     const authResult = await requireAuthorizedSession();
-    if (authResult.response) return authResult.response;
+    if (authResult.response) {
+      return respondWithOperationError({
+        context,
+        stage,
+        message: "Unauthorized",
+        status: 401,
+        reason: "unauthorized",
+      });
+    }
     const organizationId = authResult.session.user.organizationId;
+    if (!id?.trim()) {
+      return respondWithOperationError({
+        context,
+        stage: "params",
+        message: "reportId が必要です。",
+        status: 400,
+        level: "warn",
+        reason: "missing_report_id",
+      });
+    }
 
+    stage = "load_report_detail";
     const report = await prisma.report.findFirst({
       where: withVisibleReportWhere({ id, organizationId }),
       select: {
@@ -57,9 +79,17 @@ export async function GET(
     });
 
     if (!report) {
-      return NextResponse.json({ error: "report not found" }, { status: 404 });
+      return respondWithOperationError({
+        context,
+        stage,
+        message: "report not found",
+        status: 404,
+        level: "warn",
+        reason: "report_not_found",
+      });
     }
 
+    stage = "build_response";
     const mappedReport = {
       ...report,
       reportMarkdown: sanitizeReportMarkdown(report.reportMarkdown ?? ""),
@@ -81,11 +111,14 @@ export async function GET(
       },
     });
   } catch (error: any) {
-    console.error("[GET /api/reports/[id]] Error:", error);
-    return NextResponse.json(
-      { error: error?.message ?? "Internal Server Error" },
-      { status: 500 }
-    );
+    return respondWithOperationError({
+      context,
+      stage,
+      message: error?.message ?? "Internal Server Error",
+      status: 500,
+      error,
+      reason: "unexpected_error",
+    });
   }
 }
 

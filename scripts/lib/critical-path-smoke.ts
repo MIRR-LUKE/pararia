@@ -34,6 +34,7 @@ export {
 } from "./critical-path-smoke-session-route";
 
 export {
+  createInvalidReportGenerationFixture,
   createNextMeetingMemoFixture,
   createRecordingLockFixture,
   createReportGenerationFixture,

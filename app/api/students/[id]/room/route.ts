@@ -21,6 +21,7 @@ export async function GET(
         stage,
         message: "Unauthorized",
         status: 401,
+        reason: "unauthorized",
       });
     }
     const authSession = authResult.session;
@@ -32,6 +33,7 @@ export async function GET(
         message: "生徒IDが必要です。",
         status: 400,
         level: "warn",
+        reason: "missing_student_id",
       });
     }
 
@@ -51,6 +53,7 @@ export async function GET(
         message: "生徒が見つかりません。",
         status: 404,
         level: "warn",
+        reason: "student_not_found",
       });
     }
 
@@ -62,6 +65,7 @@ export async function GET(
       message: error?.message ?? "Internal Server Error",
       status: 500,
       error,
+      reason: "unexpected_error",
     });
   }
 }

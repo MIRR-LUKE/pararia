@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { formatRouteOperationError } from "./routeOperationError";
 import type { RoomResponse } from "./roomTypes";
 
 type Params = {
@@ -39,7 +40,7 @@ export function useStudentDetailRefresh({ initialRoom, studentId }: Params): Res
       try {
         const res = await fetch(`/api/students/${studentId}/room`, { cache: "no-store" });
         const body = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(body?.error ?? "生徒ルームの取得に失敗しました。");
+        if (!res.ok) throw new Error(formatRouteOperationError(body, "生徒ルームの取得に失敗しました。"));
         setRoom(body);
         hasLoadedRoomRef.current = true;
       } catch (nextError: any) {

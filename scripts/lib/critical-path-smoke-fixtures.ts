@@ -279,3 +279,75 @@ export async function createReportGenerationFixture(): Promise<
     },
   };
 }
+
+export async function createInvalidReportGenerationFixture(): Promise<
+  CriticalPathManagedFixture<{ studentId: string; sessionId: string; conversationId: string }>
+> {
+  assertMutatingFixtureEnvironment(
+    process.env.CRITICAL_PATH_BASE_URL || CRITICAL_PATH_BASE_URL,
+    "critical-path-invalid-report-generation"
+  );
+
+  const studentId = buildFixtureId("student-smoke-report-invalid");
+  const sessionId = buildFixtureId("session-smoke-report-invalid");
+  const conversationId = buildFixtureId("conversation-smoke-report-invalid");
+  const sessionDate = new Date("2026-04-18T11:00:00.000Z");
+
+  await prisma.student.create({
+    data: {
+      id: studentId,
+      organizationId: DEFAULT_ORGANIZATION_ID,
+      name: "保全 不正花子",
+      nameKana: "ホゼン フセイハナコ",
+      guardianNames: "保全 不正保護者",
+    },
+  });
+
+  await prisma.session.create({
+    data: {
+      id: sessionId,
+      organizationId: DEFAULT_ORGANIZATION_ID,
+      studentId,
+      userId: "user-demo-teacher",
+      type: SessionType.INTERVIEW,
+      status: SessionStatus.READY,
+      title: "Invalid report generation smoke interview",
+      sessionDate,
+      heroStateLabel: "要再生成",
+      heroOneLiner: "artifact validation failure を確認する。",
+      latestSummary: "invalid artifact smoke",
+      completedAt: sessionDate,
+      createdAt: sessionDate,
+    },
+  });
+
+  await prisma.conversationLog.create({
+    data: {
+      id: conversationId,
+      organizationId: DEFAULT_ORGANIZATION_ID,
+      studentId,
+      userId: "user-demo-teacher",
+      sessionId,
+      sourceType: ConversationSourceType.MANUAL,
+      status: ConversationStatus.DONE,
+      rawTextOriginal: "invalid artifact smoke transcript",
+      rawTextCleaned: "invalid artifact smoke transcript",
+      reviewedText: "invalid artifact smoke transcript",
+      rawSegments: [] as any,
+      summaryMarkdown: "## invalid artifact smoke",
+      artifactJson: { smokeInvalidArtifact: true } as any,
+      formattedTranscript: "## 面談\ninvalid artifact smoke transcript",
+      qualityMetaJson: { smoke: true, invalidArtifact: true } as any,
+      createdAt: sessionDate,
+    },
+  });
+
+  return {
+    studentId,
+    sessionId,
+    conversationId,
+    cleanup: async () => {
+      await cleanupStudentFixtures([studentId]);
+    },
+  };
+}
