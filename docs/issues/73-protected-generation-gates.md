@@ -1,6 +1,12 @@
 # 面談ログと保護者レポートの保全チェックを verify と CI の必須ゲートに入れる
 
-## 何がつらいか
+## 状態
+
+- 実装済み
+- GitHub Issue: `#150`
+- 最終更新: `2026-04-21`
+
+## 何がつらかったか
 
 - いまも個別テストはあるが、普段の `verify` では生成の中核が毎回は走っていない
 - そのため、別の改修で生成まわりを壊しても、気づくのが遅れることがある
@@ -24,3 +30,14 @@
 - `verify` で生成まわりの主要回帰を落とせる
 - CI でも同じ保全チェックが走る
 - README に分かりやすく書かれている
+
+## 今回入ったもの
+
+- `package.json` の `verify` に `npm run test:generation-preservation` を入れた
+- `Conversation Quality` workflow で同じ `npm run test:generation-preservation` を回すようにした
+- README に `generation-preservation` を生成保全の主ゲートとして追記した
+
+## ここでは扱わない残り
+
+- `面談ログ -> generate-report -> 保存済みレポート取得` の E2E smoke は別 issue で扱う
+- route の protected critical path (`録音ロック -> student room -> next meeting memo`) も別 issue で扱う

@@ -1,6 +1,6 @@
 # Engineering Rules
 
-更新日: `2026-04-15`
+更新日: `2026-04-21`
 
 この repo のコードを「速い」「読みやすい」「壊れにくい」状態で保つための基準です。  
 雰囲気ではなく、設計・実装・計測の 3 つを揃えて守ります。
@@ -113,9 +113,13 @@
 
 ### 5.1 再確認が必須の主経路
 
-- protected critical path は `録音ロック -> session part ingest -> session progress -> student room -> next meeting memo`
+- 生成保全の主経路は `ConversationLog.artifactJson -> 選択済みログ -> 保護者レポート`
+- `lib/ai/parentReport*`, `lib/operational-log*`, `app/api/ai/generate-report*`, `app/api/reports*`, `ConversationLog.artifactJson` の契約、再生成 / finalize 保全を触ったら `npm run test:generation-preservation` を回す
+- `app/api/ai/generate-report*`, `app/api/reports*`, student room の report 集約を触ったら `npm run test:report-generation-route` も回す
+- route の protected critical path は `録音ロック -> session part ingest -> session progress -> student room -> next meeting memo`
 - auth、dynamic route params、student room 集約、recording lock、session progress、next meeting memo のどれかを触ったら `npm run test:critical-path-smoke` を回す
-- CI でも同じ語彙で `Critical Path Smoke` を回し、ローカルと PR の確認対象をずらさない
+- CI でも同じ語彙で `Conversation Quality` と `Critical Path Smoke` を回し、ローカルと PR の確認対象をずらさない
+- GitHub の `main` branch protection では `conversation-quality`, `critical-path-smoke`, `generation-route-smoke`, `backend-scope-guard` を required status checks に固定する
 - 指定した `conversationId / reportId / sessionId` が別の生徒データに化けないことは `npm run test:conversation-route` でも止める
 
 ### 5.2 backend/perf branch の path guard

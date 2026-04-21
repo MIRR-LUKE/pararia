@@ -47,6 +47,7 @@
     "test:transcript-preprocess": "tsx scripts/test-transcript-preprocess.ts",
     "test:conversation-draft-quality": "tsx scripts/test-conversation-draft-quality.ts",
     "test:parent-report-generation": "tsx scripts/test-parent-report-generation.ts",
+    "test:report-generation-route": "tsx scripts/test-report-generation-route.ts",
     "test:promote-session-dispatch": "tsx scripts/test-promote-session-dispatch.ts",
     "test:log-editing": "tsx scripts/test-log-editing.ts",
     "test:conversation-route": "tsx scripts/test-conversation-route.ts",

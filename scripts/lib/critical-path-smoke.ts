@@ -36,5 +36,6 @@ export {
 export {
   createNextMeetingMemoFixture,
   createRecordingLockFixture,
+  createReportGenerationFixture,
   createStudentRoomFixture,
 } from "./critical-path-smoke-fixtures";

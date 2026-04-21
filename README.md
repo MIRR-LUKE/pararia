@@ -84,6 +84,7 @@ npm run test:conversation-app-dispatch
 npm run test:session-progress-worker-wake
 npm run test:runpod-queue-ownership
 npm run test:rum-route
+npm run test:report-generation-route
 npm run test:student-directory-route
 npm run test:student-room-route
 ```
@@ -94,7 +95,10 @@ npm run test:student-room-route
 
 - コード品質と性能の基準は [docs/engineering-rules.md](./docs/engineering-rules.md)
 - DB / Blob の保全・復旧手順は [docs/db-backup-recovery.md](./docs/db-backup-recovery.md)
-- protected critical path は `録音ロック -> session part ingest -> session progress -> student room -> next meeting memo` として扱い、回帰確認は `npm run test:critical-path-smoke`
+- 生成保全の主経路は `ConversationLog.artifactJson -> 選択済みログ -> 保護者レポート` として扱い、契約の回帰確認は `npm run test:generation-preservation`
+- route の protected critical path は `録音ロック -> session part ingest -> session progress -> student room -> next meeting memo` として扱い、route smoke は `npm run test:critical-path-smoke`
+- `app/api/ai/generate-report` と保存済みレポート取得の E2E は `npm run test:report-generation-route` で見る
+- `main` の branch protection では `conversation-quality`, `critical-path-smoke`, `generation-route-smoke`, `backend-scope-guard` を required status checks にしてある
 - backend / perf 系ブランチは UI を触らない前提で進め、guard の自己確認は `npm run test:backend-scope-guard`
 - Node の正本は `.nvmrc` と `package.json` の `engines.node` の `22`
 - tracked ファイルに秘密値が混ざっていないかは `npm run scan:secrets` で見る
@@ -1332,6 +1336,7 @@ npm run restore:db -- --backup-dir <backup-dir> --database-url <restore-db-url>
 - `npm run test:generation-progress`
 - `npm run test:local-stt`
 - `npm run test:next-meeting-memo-route`
+- `npm run test:report-generation-route`
 - `npm run test:recording-lock-route`
 - `npm run test:session-progress`
 - `npm run test:session-progress-polling`
@@ -1341,9 +1346,9 @@ npm run restore:db -- --backup-dir <backup-dir> --database-url <restore-db-url>
 
 ## 18. CI の品質ゲート
 
-- GitHub Actions の `Conversation Quality` で faithfulness 系の代表チェックを回す
-- `Conversation Quality` は `npm run test:generation-preservation` を先に通し、面談ログと保護者レポートの回帰をまとめて守る
+- GitHub Actions の `Conversation Quality` は `npm run test:generation-preservation` を先に通し、`ConversationLog.artifactJson -> 選択済みログ -> 保護者レポート` の契約回帰をまとめて守る
 - GitHub Actions の `Critical Path Smoke` で `録音ロック -> student room -> next meeting memo` の route smoke を回す
+- GitHub Actions の `Generation Route Smoke` で `面談ログ -> generate-report -> 保存済みレポート取得` の E2E smoke を回す
 - GitHub Actions の `Backend Scope Guard` で backend / perf 系 branch の UI 変更を止める
 - workflow では PostgreSQL service container を立てて、local と同じ Prisma 前提で回す
 - 実行内容:
@@ -1355,7 +1360,8 @@ npm run restore:db -- --backup-dir <backup-dir> --database-url <restore-db-url>
   - `npm run test:conversation-eval -- --out artifacts/conversation-eval-report.md`
   - `npm run prisma:seed`
   - `npm run test:critical-path-smoke`
-  - `npm run check:backend-scope`
+  - `npm run test:report-generation-route`
+  - `npm run test:backend-scope-guard`
 - `conversation-eval` のレポートは artifact として保存する
 - 目的は「コードは通るが、主経路が壊れた」や「backend branch に UI が混ざった」を PR 時点で止めること
 

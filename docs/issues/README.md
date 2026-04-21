@@ -1,6 +1,6 @@
 # 直近で切る Issue 一覧
 
-更新日: 2026-04-18
+更新日: 2026-04-21
 
 今回の前提:
 
@@ -116,8 +116,6 @@
 
 次の active open issue:
 
-- `#79` ログ生成を protected critical path として repo で守る
-- `#80` 録音ロックから次回の面談メモまでの critical path smoke を CI で止める
 - `#81` backend/perf ブランチで UI 変更を止める path guard を入れる
 - `#82` 主経路の失敗を stage / operationId 付きで可視化する
 - `#83` audit などの非本質 side effect を main flow から切り離す
@@ -184,6 +182,10 @@ close / defer に回した考え方:
 - このディレクトリの Markdown は GitHub Issue の本文更新にも使う
 - `#38` と `#40` は `2026-04-13` 時点で main に反映済み
 - `#13` は backlog 整理の役割を終えたため close 済み
+- `#79` は generation-preservation を protected path として README / engineering rules に明記するところまで完了済み
+- `#80` は generation route smoke script / GitHub Actions workflow / `main` branch protection required checks 設定まで完了済み
+- `#150` は `verify` / `Conversation Quality` に generation-preservation gate を入れるところまで完了済み
+- いま active に残しているのは、stage / operationId observability と main flow からの side effect 分離
 
 今回追加して完了した Runpod / generation issue:
 

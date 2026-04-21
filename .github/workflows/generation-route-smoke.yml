@@ -1,4 +1,4 @@
-name: Critical Path Smoke
+name: Generation Route Smoke
 
 on:
   pull_request:
@@ -10,15 +10,15 @@ on:
       - main
 
 concurrency:
-  group: critical-path-smoke-${{ github.event.pull_request.number || github.ref }}
+  group: generation-route-smoke-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 permissions:
   contents: read
 
 jobs:
-  critical-path-smoke:
-    name: critical-path-smoke
+  generation-route-smoke:
+    name: generation-route-smoke
     runs-on: ubuntu-latest
     timeout-minutes: 20
     services:
@@ -40,10 +40,10 @@ jobs:
       NODE_ENV: test
       DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/pararia_ci?schema=public
       DIRECT_URL: postgresql://postgres:postgres@127.0.0.1:5432/pararia_ci?schema=public
-      PARARIA_BACKGROUND_MODE: external
       NEXTAUTH_SECRET: pararia-dev-auth-secret
       CRITICAL_PATH_SMOKE_EMAIL: admin@demo.com
       CRITICAL_PATH_SMOKE_PASSWORD: demo123
+      PARARIA_SMOKE_PARENT_REPORT_FIXTURE: "1"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -66,11 +66,11 @@ jobs:
       - name: Seed test database
         run: npm run prisma:seed
 
-      - name: Run critical path smoke
+      - name: Run generation route smoke
         run: |
           set -euo pipefail
           mkdir -p .tmp
-          npm run dev -- --hostname 127.0.0.1 --port 3000 > .tmp/critical-path-smoke-server.log 2>&1 &
+          PARARIA_SMOKE_PARENT_REPORT_FIXTURE=1 npm run dev -- --hostname 127.0.0.1 --port 3000 > .tmp/generation-route-smoke-server.log 2>&1 &
           server_pid=$!
           cleanup() {
             kill "$server_pid" 2>/dev/null || true
@@ -83,19 +83,14 @@ jobs:
             fi
             if [ "$attempt" -eq 90 ]; then
               echo "Next.js server did not become ready"
-              cat .tmp/critical-path-smoke-server.log
+              cat .tmp/generation-route-smoke-server.log
               exit 1
             fi
             sleep 2
           done
 
-          npm run test:critical-path-smoke -- --base-url http://127.0.0.1:3000
-          npm run test:conversation-route -- --base-url http://127.0.0.1:3000
-          npm run test:student-directory-route -- --base-url http://127.0.0.1:3000
-
-      - name: Run student directory UI smoke
-        run: npm run test:student-directory-ui -- --base-url http://127.0.0.1:3000
+          npm run test:report-generation-route -- --base-url http://127.0.0.1:3000
 
       - name: Dump server log on failure
         if: failure()
-        run: tail -n 200 .tmp/critical-path-smoke-server.log || true
+        run: tail -n 200 .tmp/generation-route-smoke-server.log || true
