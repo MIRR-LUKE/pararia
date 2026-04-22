@@ -17,7 +17,7 @@ RUN apt-get update \
     && npm install -g npm@10 \
     && rm -rf /var/lib/apt/lists/*
 
-COPY package.json package-lock.json ./
+COPY package.json package-lock.json tsconfig.json ./
 COPY prisma ./prisma
 RUN npm ci
 
@@ -25,7 +25,8 @@ COPY scripts/requirements.runpod-worker.txt /tmp/requirements.runpod-worker.txt
 RUN python3 -m pip install --no-cache-dir --upgrade pip \
     && python3 -m pip install --no-cache-dir -r /tmp/requirements.runpod-worker.txt
 
-COPY . .
+COPY lib ./lib
+COPY scripts ./scripts
 
 ENV NODE_ENV=production
 

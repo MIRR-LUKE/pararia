@@ -9,6 +9,13 @@ node_modules
 .runtime
 artifacts
 coverage
+app
+components
+docs
+fixtures
+native
+pages
+public
 *.log
 .env
 .env.*
