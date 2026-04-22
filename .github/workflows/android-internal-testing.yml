@@ -1,10 +1,10 @@
-name: Android Internal Testing
+name: Android Device Handoff
 
 on:
   workflow_dispatch:
     inputs:
       upload_to_play:
-        description: Upload the signed AAB to the Google Play internal testing track
+        description: Also build a signed AAB and upload it to the Google Play internal testing track
         required: true
         type: boolean
         default: false
@@ -34,7 +34,7 @@ concurrency:
 
 jobs:
   internal-testing:
-    name: Android Internal Testing
+    name: Android Device Handoff
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -135,7 +135,23 @@ jobs:
             echo "release_name=$release_name"
           } >> "$GITHUB_OUTPUT"
 
+      - name: Build signed release APK
+        env:
+          ORG_GRADLE_PROJECT_ANDROID_UPLOAD_STORE_PASSWORD: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_PASSWORD }}
+          ORG_GRADLE_PROJECT_ANDROID_UPLOAD_KEY_ALIAS: ${{ secrets.ANDROID_UPLOAD_KEY_ALIAS }}
+          ORG_GRADLE_PROJECT_ANDROID_UPLOAD_KEY_PASSWORD: ${{ secrets.ANDROID_UPLOAD_KEY_PASSWORD }}
+        run: gradle :app:assembleRelease --stacktrace
+
+      - name: Upload signed APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: teacher-android-apk-${{ steps.meta.outputs.version_name }}
+          path: native/android/app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: error
+          retention-days: 14
+
       - name: Build signed release bundle
+        if: ${{ inputs.upload_to_play }}
         env:
           ORG_GRADLE_PROJECT_ANDROID_UPLOAD_STORE_PASSWORD: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_PASSWORD }}
           ORG_GRADLE_PROJECT_ANDROID_UPLOAD_KEY_ALIAS: ${{ secrets.ANDROID_UPLOAD_KEY_ALIAS }}
@@ -143,6 +159,7 @@ jobs:
         run: gradle :app:bundleRelease --stacktrace
 
       - name: Upload signed bundle artifact
+        if: ${{ inputs.upload_to_play }}
         uses: actions/upload-artifact@v4
         with:
           name: teacher-android-aab-${{ steps.meta.outputs.version_name }}
@@ -172,3 +189,26 @@ jobs:
           status: ${{ inputs.release_status }}
           releaseName: ${{ steps.meta.outputs.release_name }}
           whatsNewDirectory: native/android/distribution/whatsnew
+
+      - name: Write handoff summary
+        if: always()
+        run: |
+          {
+            echo "## Android handoff"
+            echo ""
+            echo "- versionName: \`${{ steps.meta.outputs.version_name }}\`"
+            echo "- versionCode: \`${{ steps.meta.outputs.version_code }}\`"
+            echo "- base URL: \`${{ steps.meta.outputs.base_url }}\`"
+            echo "- APK artifact: \`teacher-android-apk-${{ steps.meta.outputs.version_name }}\`"
+            if [[ "${{ inputs.upload_to_play }}" == "true" ]]; then
+              echo "- Play upload: attempted"
+              echo "- AAB artifact: \`teacher-android-aab-${{ steps.meta.outputs.version_name }}\`"
+            else
+              echo "- Play upload: skipped"
+            fi
+            echo ""
+            echo "### Install on a connected device"
+            echo '```bash'
+            echo 'adb install -r app-release.apk'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

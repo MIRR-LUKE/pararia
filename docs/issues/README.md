@@ -187,7 +187,7 @@ close / defer に回した考え方:
 - `#174` は `2026-04-21` に main 反映と issue close まで完了済み
 - `#83` は closed 済みだが、noncritical side effect の best-effort 化という論点自体は引き続き有効
 - いま active に残しているのは、native Teacher App の実装 / lifecycle hardening / internal QA
-- `#167` は `2026-04-22` に Android Play Internal Testing workflow と secret 契約を repo へ追加済み。残りは Play Console 側の資格情報投入と実 upload / 実機 QA
+- `#167` は `2026-04-22` に Android handoff workflow と release signing 契約を repo へ追加済み。残りは keystore secrets 投入と signed APK の実機 QA。Play 拡張は任意
 
 今回追加して完了した Runpod / generation issue:
 
