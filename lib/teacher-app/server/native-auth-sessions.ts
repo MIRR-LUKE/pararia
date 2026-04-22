@@ -4,6 +4,7 @@ import {
   TeacherAppDeviceStatus,
 } from "@prisma/client";
 import { prisma } from "@/lib/db";
+import { runWithDatabaseRetry } from "@/lib/db-retry";
 import type { SessionUser } from "@/lib/auth";
 import {
   createTeacherAppAccessToken,
@@ -21,6 +22,7 @@ import type {
 } from "@/lib/teacher-app/types";
 
 type AuthSessionRecord = Awaited<ReturnType<typeof loadTeacherAppDeviceAuthSessionById>>;
+const TEACHER_APP_AUTH_LAST_SEEN_TOUCH_INTERVAL_MS = 60_000;
 
 function toPrismaPlatform(platform: TeacherAppClientPlatformValue): TeacherAppClientPlatform {
   switch (platform) {
@@ -178,72 +180,76 @@ export async function issueTeacherAppNativeAuthSession(input: {
 }
 
 async function loadTeacherAppDeviceAuthSessionByRefreshTokenHash(refreshTokenHash: string) {
-  return prisma.teacherAppDeviceAuthSession.findUnique({
-    where: {
-      refreshTokenHash,
-    },
-    select: {
-      id: true,
-      organizationId: true,
-      status: true,
-      clientPlatform: true,
-      appVersion: true,
-      buildNumber: true,
-      refreshTokenExpiresAt: true,
-      device: {
-        select: {
-          id: true,
-          label: true,
-          organizationId: true,
-          status: true,
+  return runWithDatabaseRetry("teacher-app-native-auth-refresh-load", () =>
+    prisma.teacherAppDeviceAuthSession.findUnique({
+      where: {
+        refreshTokenHash,
+      },
+      select: {
+        id: true,
+        organizationId: true,
+        status: true,
+        clientPlatform: true,
+        appVersion: true,
+        buildNumber: true,
+        refreshTokenExpiresAt: true,
+        device: {
+          select: {
+            id: true,
+            label: true,
+            organizationId: true,
+            status: true,
+          },
+        },
+        user: {
+          select: {
+            id: true,
+            email: true,
+            name: true,
+            organizationId: true,
+            role: true,
+          },
         },
       },
-      user: {
-        select: {
-          id: true,
-          email: true,
-          name: true,
-          organizationId: true,
-          role: true,
-        },
-      },
-    },
-  });
+    })
+  );
 }
 
 async function loadTeacherAppDeviceAuthSessionById(input: { authSessionId: string; organizationId: string }) {
-  return prisma.teacherAppDeviceAuthSession.findFirst({
-    where: {
-      id: input.authSessionId,
-      organizationId: input.organizationId,
-    },
-    select: {
-      id: true,
-      organizationId: true,
-      status: true,
-      clientPlatform: true,
-      appVersion: true,
-      buildNumber: true,
-      refreshTokenExpiresAt: true,
-      device: {
-        select: {
-          id: true,
-          label: true,
-          organizationId: true,
-          status: true,
+  return runWithDatabaseRetry("teacher-app-native-auth-load", () =>
+    prisma.teacherAppDeviceAuthSession.findFirst({
+      where: {
+        id: input.authSessionId,
+        organizationId: input.organizationId,
+      },
+      select: {
+        id: true,
+        organizationId: true,
+        status: true,
+        clientPlatform: true,
+        appVersion: true,
+        buildNumber: true,
+        refreshTokenExpiresAt: true,
+        device: {
+          select: {
+            id: true,
+            label: true,
+            organizationId: true,
+            status: true,
+          },
+        },
+        user: {
+          select: {
+            id: true,
+            email: true,
+            name: true,
+            organizationId: true,
+            role: true,
+          },
         },
       },
-      user: {
-        select: {
-          id: true,
-          email: true,
-          name: true,
-          organizationId: true,
-          role: true,
-        },
-      },
-    },
-  });
+    })
+  );
 }
 
 function isActiveAuthSessionRecord(record: AuthSessionRecord): record is NonNullable<AuthSessionRecord> {
@@ -344,6 +350,14 @@ export async function touchTeacherAppNativeAuthSessionLastSeen(input: {
       id: input.authSessionId,
       organizationId: input.organizationId,
       status: TeacherAppDeviceAuthSessionStatus.ACTIVE,
+      OR: [
+        { lastSeenAt: null },
+        {
+          lastSeenAt: {
+            lt: new Date(Date.now() - TEACHER_APP_AUTH_LAST_SEEN_TOUCH_INTERVAL_MS),
+          },
+        },
+      ],
     },
     data: {
       lastSeenAt: new Date(),
