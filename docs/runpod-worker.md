@@ -85,10 +85,13 @@ version handshake 用:
 - 1 本最速を狙うときは `FASTER_WHISPER_BEAM_SIZE=1` を基本にする
 - VAD は `min_silence_duration_ms=1000` を基準にし、必要なら `500 / 1000 / 2000` を比較する
 - `compute_type=auto` のままでよいが、worker image は `CTranslate2 4.7.1 + CUDA 12.8` 前提にする
+- worker image は devDependencies を抱え込まず、`tsx` だけ global に持つ軽量 runtime を正本にする
 - `RTX 4090` など pre-Blackwell では `int8_float16` 系を優先する
 - `RTX 5090` など Blackwell では `float16` 系を優先する
 - benchmark 専用に 1 session だけ処理したいときは `RUNPOD_WORKER_ONLY_SESSION_ID` を使う
 - STT だけ見たいときは `RUNPOD_WORKER_CONVERSATION_LIMIT=0` で conversation job を止められる
+- native app は access token 有効中の `/api/teacher/native/auth/session` 往復を増やさず、401 か token 更新直前だけ refresh する
+- native / provisional teacher 録音の progress poll は `1.5s -> 2.5s -> 4s` の段階 backoff を正本にする
 - `npm run runpod:measure-summary -- --dir .tmp/runpod-ux --out .tmp/runpod-ux-summary.md` で p50 / p95 を見られる
 
 ## GHCR へ worker image を publish

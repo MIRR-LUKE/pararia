@@ -1,5 +1,10 @@
 import Foundation
 
+private let teacherRecordingPollTimeout: TimeInterval = 10 * 60
+private let teacherRecordingPollFastDelay: Duration = .milliseconds(1500)
+private let teacherRecordingPollWarmDelay: Duration = .milliseconds(2500)
+private let teacherRecordingPollSlowDelay: Duration = .milliseconds(4000)
+
 final class DefaultTeacherAuthRepository: TeacherAuthRepository {
     private let apiClient: TeacherAPIClient
     private let tokenStore: TeacherTokenStore
@@ -12,7 +17,7 @@ final class DefaultTeacherAuthRepository: TeacherAuthRepository {
 
     func currentSession() async -> TeacherSession? {
         if let cachedSession { return cachedSession }
-        return try? await refreshIfNeeded()
+        return try? await fetchCurrentSession()
     }
 
     func login(input: DeviceLoginInput) async throws -> TeacherSession {
@@ -52,10 +57,8 @@ final class DefaultTeacherAuthRepository: TeacherAuthRepository {
         guard let bundle = tokenStore.loadAuthBundle() else {
             return nil
         }
-        guard forceRefresh || Date(bundle.accessTokenExpiresAt) ?? .distantPast <= Date().addingTimeInterval(30) else {
-            let response: TeacherSessionEnvelope = try await apiClient.send(path: "/api/teacher/native/auth/session")
-            cachedSession = response.session
-            return response.session
+        guard forceRefresh || accessTokenExpiresSoon(bundle) else {
+            return cachedSession
         }
 
         struct RefreshBody: Encodable {
@@ -72,6 +75,25 @@ final class DefaultTeacherAuthRepository: TeacherAuthRepository {
         try tokenStore.save(authBundle: response.auth)
         cachedSession = response.session
         return response.session
+    }
+
+    private func fetchCurrentSession() async throws -> TeacherSession? {
+        if let cachedSession { return cachedSession }
+        guard let bundle = tokenStore.loadAuthBundle() else {
+            return nil
+        }
+
+        if accessTokenExpiresSoon(bundle) {
+            return try await refresh(forceRefresh: true)
+        }
+
+        let response: TeacherSessionEnvelope = try await apiClient.send(path: "/api/teacher/native/auth/session")
+        cachedSession = response.session
+        return response.session
+    }
+
+    private func accessTokenExpiresSoon(_ bundle: TeacherAuthBundle) -> Bool {
+        (Date(bundle.accessTokenExpiresAt) ?? .distantPast) <= Date().addingTimeInterval(30)
     }
 
     func logout() async {
@@ -101,7 +123,6 @@ final class DefaultTeacherRecordingRepository: TeacherRecordingRepository {
     }
 
     func createRecording() async throws -> String {
-        try await authRepository.refreshIfNeeded()
         let response: TeacherCreateRecordingResponse = try await withAuthenticatedRequest {
             try await apiClient.send(path: "/api/teacher/recordings", method: "POST")
         }
@@ -127,7 +148,8 @@ final class DefaultTeacherRecordingRepository: TeacherRecordingRepository {
     }
 
     func pollRecording(recordingId: String) async throws -> TeacherRecordingSummary {
-        let deadline = Date().addingTimeInterval(120)
+        let startedAt = Date()
+        let deadline = startedAt.addingTimeInterval(teacherRecordingPollTimeout)
         while Date() < deadline {
             let envelope: TeacherRecordingEnvelope = try await withAuthenticatedRequest {
                 try await apiClient.send(path: "/api/teacher/recordings/\(recordingId)/progress")
@@ -138,7 +160,7 @@ final class DefaultTeacherRecordingRepository: TeacherRecordingRepository {
             if summary.status != .transcribing && summary.status != .recording {
                 return summary
             }
-            try await Task.sleep(for: .seconds(1.5))
+            try await Task.sleep(for: nextTeacherRecordingPollDelay(startedAt: startedAt))
         }
         throw TeacherAPIError.http(statusCode: 408, message: "処理に時間がかかっています。")
     }
@@ -214,6 +236,18 @@ final class DefaultTeacherRecordingRepository: TeacherRecordingRepository {
 
     private func deleteLocalFile(_ fileURL: URL) {
         try? FileManager.default.removeItem(at: fileURL)
+    }
+
+    private func nextTeacherRecordingPollDelay(startedAt: Date) -> Duration {
+        let elapsed = Date().timeIntervalSince(startedAt)
+        switch elapsed {
+        case ..<45:
+            return teacherRecordingPollFastDelay
+        case ..<180:
+            return teacherRecordingPollWarmDelay
+        default:
+            return teacherRecordingPollSlowDelay
+        }
     }
 }
 

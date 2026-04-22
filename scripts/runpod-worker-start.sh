@@ -47,5 +47,10 @@ if [[ -x "${tsx_bin}" ]]; then
   exec "${tsx_bin}" "${worker_script}"
 fi
 
+if command -v tsx >/dev/null 2>&1; then
+  echo "[runpod-worker] exec=tsx-global"
+  exec tsx "${worker_script}"
+fi
+
 echo "[runpod-worker] exec=npm-fallback"
 exec npm --prefix "${workspace_dir}" run worker:runpod

@@ -1,4 +1,4 @@
-import { prisma } from "@/lib/db";
+import { acquireRunpodWorkerWakeLease, releaseRunpodWorkerWakeLease } from "./wake-lease";
 
 import {
   buildRunpodWorkerCreateBody,
@@ -29,20 +29,6 @@ export function requireRunpodWorkerConfig() {
     throw new Error("RUNPOD_API_KEY が必要です。");
   }
   return config;
-}
-
-async function withRunpodWakeLock<T>(config: RunpodWorkerConfig, callback: () => Promise<T>) {
-  const lockKey = `pararia-runpod-worker-wake:${config.name}`;
-  return prisma.$transaction(
-    async (tx) => {
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`;
-      return callback();
-    },
-    {
-      maxWait: config.apiTimeoutMs,
-      timeout: config.apiTimeoutMs * 2,
-    }
-  );
 }
 
 async function applyRunpodWorkerRuntimeConfig(podId: string, config: RunpodWorkerConfig) {
@@ -296,8 +282,20 @@ export async function maybeEnsureRunpodWorker(): Promise<RunpodWorkerWakeResult>
   }
 
   const wakePromise = (async () => {
+    const lease = await acquireRunpodWorkerWakeLease(config.name, config.image);
+    if (!lease.acquired) {
+      return {
+        attempted: false,
+        ok: true,
+        skipped: `Runpod worker wake is already in progress for ${config.name}.`,
+        name: config.name,
+      } satisfies RunpodWorkerWakeResult;
+    }
+
+    let ok = false;
     try {
-      const ensured = await withRunpodWakeLock(config, () => ensureRunpodWorker(config));
+      const ensured = await ensureRunpodWorker(config);
+      ok = true;
       return {
         attempted: true,
         ok: true,
@@ -314,6 +312,7 @@ export async function maybeEnsureRunpodWorker(): Promise<RunpodWorkerWakeResult>
         name: config.name,
       } satisfies RunpodWorkerWakeResult;
     } finally {
+      await releaseRunpodWorkerWakeLease(config.name, lease.ownerToken, ok).catch(() => {});
       pendingManagedWorkerWakeByName.delete(config.name);
     }
   })();

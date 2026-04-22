@@ -105,6 +105,8 @@ npm run test:student-room-route
 - mutating fixture を使う smoke / UI script は local app + local DB でしか動かさない。remote で明示的に許可するときだけ `PARARIA_ALLOW_REMOTE_FIXTURES=1`
 - 面談ログ / 保護者レポートを remote で実動確認する `npm run test:remote-generation-smoke -- --base-url https://pararia.vercel.app` は、明示的に `PARARIA_ALLOW_REMOTE_GENERATION_SMOKE=1` を付けたときだけ動く
 - native teacher 録音導線の deploy 後確認は `npm run test:teacher-recording-smoke` を正本 smoke として扱う
+- native teacher app は access token 有効中の `/api/teacher/native/auth/session` を毎 poll で叩かず、401 または refresh 直前だけ token 更新する
+- teacher recording progress poll は native / provisional web とも `1.5s -> 2.5s -> 4s` の段階 backoff、timeout は 10 分を正本にする
 - production / shared tenant の整合性確認は read-only の `npm run test:student-integrity-audit -- --base-url https://pararia.vercel.app`
 - 公開 RUM API は本文上限と軽い回数制限をかけ、検索文字列をログに残さない。RUM 送信もサーバーログも既定ではオフ
 - 生徒 / 会話 / 設定 / レポート送信 / 招待 / 復元系の書き込み API は軽い回数制限を通す

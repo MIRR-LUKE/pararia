@@ -35,6 +35,11 @@ private val repositoryJson = Json {
     explicitNulls = false
 }
 
+private const val TEACHER_RECORDING_POLL_TIMEOUT_MS = 10 * 60 * 1000L
+private const val TEACHER_RECORDING_POLL_FAST_MS = 1_500L
+private const val TEACHER_RECORDING_POLL_WARM_MS = 2_500L
+private const val TEACHER_RECORDING_POLL_SLOW_MS = 4_000L
+
 private fun currentClientInfo(): TeacherClientInfo =
     TeacherClientInfo(
         platform = TeacherClientPlatform.ANDROID,
@@ -70,7 +75,7 @@ class DefaultTeacherAuthRepository(
 
     override suspend fun currentSession(): TeacherSession? {
         cachedSession?.let { return it }
-        return runCatching { refreshIfNeeded() }.getOrNull()
+        return runCatching { fetchCurrentSession() }.getOrNull()
     }
 
     override suspend fun login(input: DeviceLoginInput): TeacherSession = lock.withLock {
@@ -98,21 +103,13 @@ class DefaultTeacherAuthRepository(
 
     private suspend fun refresh(forceRefresh: Boolean): TeacherSession? = lock.withLock {
         val bundle = tokenStore.loadAuthBundle() ?: return null
-        val expiresSoon = runCatching {
-            Instant.parse(bundle.accessTokenExpiresAt).isBefore(Instant.now().plusSeconds(30))
-        }.getOrDefault(true)
-
-        val session = if (forceRefresh || expiresSoon) {
-            refreshAuthBundle(bundle).session
-        } else {
-            val response: TeacherSessionEnvelope = apiClient.requestJson(
-                path = "/api/teacher/native/auth/session",
-                deserializer = TeacherSessionEnvelope.serializer(),
-            )
-            response.session
+        if (!forceRefresh && !accessTokenExpiresSoon(bundle)) {
+            return cachedSession
         }
+
+        val session = refreshAuthBundle(bundle).session
         cachedSession = session
-        session
+        return session
     }
 
     override suspend fun logout() {
@@ -142,6 +139,27 @@ class DefaultTeacherAuthRepository(
         tokenStore.saveAuthBundle(response.auth)
         return response
     }
+
+    private suspend fun fetchCurrentSession(): TeacherSession? = lock.withLock {
+        cachedSession?.let { return it }
+        val bundle = tokenStore.loadAuthBundle() ?: return null
+        if (accessTokenExpiresSoon(bundle)) {
+            val session = refreshAuthBundle(bundle).session
+            cachedSession = session
+            return session
+        }
+
+        val response: TeacherSessionEnvelope = apiClient.requestJson(
+            path = "/api/teacher/native/auth/session",
+            deserializer = TeacherSessionEnvelope.serializer(),
+        )
+        cachedSession = response.session
+        return response.session
+    }
+
+    private fun accessTokenExpiresSoon(bundle: TeacherAuthBundle): Boolean = runCatching {
+        Instant.parse(bundle.accessTokenExpiresAt).isBefore(Instant.now().plusSeconds(30))
+    }.getOrDefault(true)
 }
 
 class DefaultTeacherRecordingRepository(
@@ -197,7 +215,8 @@ class DefaultTeacherRecordingRepository(
     }
 
     override suspend fun pollRecording(recordingId: String): TeacherRecordingSummary {
-        val deadline = Instant.now().plusSeconds(120)
+        val startedAt = Instant.now()
+        val deadline = startedAt.plusMillis(TEACHER_RECORDING_POLL_TIMEOUT_MS)
         while (Instant.now().isBefore(deadline)) {
             val envelope: TeacherRecordingEnvelope = withAuthenticatedRequest {
                 apiClient.requestJson(
@@ -212,7 +231,7 @@ class DefaultTeacherRecordingRepository(
             ) {
                 return summary
             }
-            delay(1_500)
+            delay(nextTeacherRecordingPollDelayMs(startedAt))
         }
         throw TeacherApiException(408, "処理に時間がかかっています。")
     }
@@ -296,6 +315,15 @@ class DefaultTeacherRecordingRepository(
     private fun deleteLocalFile(filePath: String) {
         runCatching {
             File(filePath).takeIf { it.exists() }?.delete()
+        }
+    }
+
+    private fun nextTeacherRecordingPollDelayMs(startedAt: Instant): Long {
+        val elapsedMs = Instant.now().toEpochMilli() - startedAt.toEpochMilli()
+        return when {
+            elapsedMs < 45_000L -> TEACHER_RECORDING_POLL_FAST_MS
+            elapsedMs < 3 * 60_000L -> TEACHER_RECORDING_POLL_WARM_MS
+            else -> TEACHER_RECORDING_POLL_SLOW_MS
         }
     }
 }

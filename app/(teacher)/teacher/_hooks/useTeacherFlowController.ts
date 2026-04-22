@@ -42,6 +42,13 @@ function sleep(ms: number) {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
+function teacherRecordingPollDelayMs(startedAt: number, now = Date.now()) {
+  const elapsedMs = now - startedAt;
+  if (elapsedMs < 45_000) return 1_500;
+  if (elapsedMs < 3 * 60_000) return 2_500;
+  return 4_000;
+}
+
 function sortMemoryPendingUploads(items: MemoryPendingTeacherUpload[]) {
   return [...items].sort((left, right) => right.recordedAt.localeCompare(left.recordedAt));
 }
@@ -308,7 +315,7 @@ export function useTeacherFlowController({ bootstrap }: Params) {
           }
         }
 
-        await sleep(1500);
+        await sleep(teacherRecordingPollDelayMs(startedAt));
       }
 
       setErrorMessage("処理に時間がかかっています。少し待ってからもう一度確認してください。");
