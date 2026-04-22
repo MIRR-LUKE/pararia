@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
+import { isRetryableDatabaseError } from "@/lib/db-retry";
 
 type ApiThrottleRule = {
   windowMs: number;
@@ -22,6 +23,7 @@ type PrismaMissingTableMeta = {
 };
 
 let missingApiThrottleBucketWarningShown = false;
+let apiThrottleSaturationWarningShown = false;
 
 export class ApiQuotaExceededError extends Error {
   retryAfterSeconds: number;
@@ -71,6 +73,13 @@ function warnMissingApiThrottleBucketTable() {
   if (missingApiThrottleBucketWarningShown) return;
   missingApiThrottleBucketWarningShown = true;
   console.warn("[api-throttle] ApiThrottleBucket table is missing. Throttling is temporarily bypassed until migrations are applied.");
+}
+
+function warnApiThrottleSaturation(error: unknown) {
+  if (apiThrottleSaturationWarningShown) return;
+  apiThrottleSaturationWarningShown = true;
+  const message = error instanceof Error ? error.message : String(error ?? "unknown error");
+  console.warn(`[api-throttle] ApiThrottleBucket is temporarily bypassed because the database pool is saturated. ${message}`);
 }
 
 function isApiThrottleConflictError(error: unknown) {
@@ -161,6 +170,10 @@ async function consumeApiQuotaInternal(input: ConsumeApiQuotaInput, attempt: num
     }
     if (isMissingApiThrottleBucketTableError(error)) {
       warnMissingApiThrottleBucketTable();
+      return;
+    }
+    if (isRetryableDatabaseError(error)) {
+      warnApiThrottleSaturation(error);
       return;
     }
     if (attempt < 1 && isApiThrottleConflictError(error)) {

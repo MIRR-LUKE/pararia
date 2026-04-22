@@ -120,6 +120,23 @@ try {
     "missing throttle table warning should be emitted once"
   );
 
+  (prisma.apiThrottleBucket.findUnique as any) = async () => {
+    throw new Error("Invalid `prisma.apiThrottleBucket.findUnique()` invocation: Timed out fetching a new connection from the connection pool. More info: http://pris.ly/d/connection-pool (Current connection pool timeout: 20, connection limit: 1)");
+  };
+
+  const saturationResponse = await applyLightMutationThrottle({
+    request,
+    scope: "students.update",
+    userId: "teacher-3",
+    organizationId: "org-1",
+  });
+  assert.equal(saturationResponse, null, "database pool saturation in throttle should not break writes");
+  assert.equal(
+    warningMessages.filter((message) => message.includes("ApiThrottleBucket is temporarily bypassed because the database pool is saturated")).length,
+    1,
+    "database pool saturation warning should be emitted once"
+  );
+
   console.log("write throttle regression checks passed");
 } finally {
   console.warn = originalWarn;
