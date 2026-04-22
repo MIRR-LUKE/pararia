@@ -69,9 +69,14 @@ export function resolveRunpodWorkerRuntimeRevision(defaultImage?: string | null)
 }
 
 export function buildRunpodWorkerRuntimeEnv(defaultImage?: string | null) {
-  const image = readStringEnv("RUNPOD_WORKER_IMAGE", defaultImage?.trim() || "");
-  const gitSha = resolveRunpodWorkerGitSha(defaultImage);
-  const runtimeRevision = resolveRunpodWorkerRuntimeRevision(defaultImage);
+  const explicitDefaultImage = defaultImage?.trim() || "";
+  const image = explicitDefaultImage || readStringEnv("RUNPOD_WORKER_IMAGE");
+  const explicitDefaultRevision = explicitDefaultImage ? extractRevisionFromImage(explicitDefaultImage) : null;
+  const gitSha =
+    explicitDefaultRevision?.startsWith("git-")
+      ? explicitDefaultRevision.slice("git-".length)
+      : resolveRunpodWorkerGitSha(defaultImage);
+  const runtimeRevision = explicitDefaultRevision || resolveRunpodWorkerRuntimeRevision(defaultImage);
 
   return Object.fromEntries(
     Object.entries({
