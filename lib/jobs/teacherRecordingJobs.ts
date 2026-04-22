@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { JobStatus, TeacherRecordingJobType, TeacherRecordingSessionStatus } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { runTeacherRecordingAnalysis } from "@/lib/teacher-app/server/recordings";
+import { maybeStopRunpodWorkerWhenGpuQueuesIdle } from "@/lib/runpod/idle-stop";
 
 type ProcessTeacherRecordingJobsOptions = {
   recordingId?: string;
@@ -85,6 +86,9 @@ export async function processQueuedTeacherRecordingJobs(
           finishedAt: new Date(),
         },
       });
+      await maybeStopRunpodWorkerWhenGpuQueuesIdle().catch((stopError) => {
+        console.warn("[teacher-recording-jobs] failed to stop Runpod worker after teacher STT", stopError);
+      });
       processed += 1;
     } catch (error: any) {
       const lastError = error?.message ?? "teacher recording job failed";
@@ -106,6 +110,9 @@ export async function processQueuedTeacherRecordingJobs(
           lastError,
           finishedAt: shouldRetry ? null : new Date(),
         },
+      });
+      await maybeStopRunpodWorkerWhenGpuQueuesIdle().catch((stopError) => {
+        console.warn("[teacher-recording-jobs] failed to stop Runpod worker after teacher STT error", stopError);
       });
     }
   }

@@ -1,5 +1,8 @@
 import { TeacherAppClientPlatform, TeacherAppDeviceStatus } from "@prisma/client";
 import { prisma } from "@/lib/db";
+import { runWithDatabaseRetry } from "@/lib/db-retry";
+
+const TEACHER_APP_LAST_SEEN_TOUCH_INTERVAL_MS = 60_000;
 
 export async function registerTeacherAppDevice(input: {
   organizationId: string;
@@ -47,21 +50,23 @@ export async function registerTeacherAppDevice(input: {
 }
 
 export async function loadActiveTeacherAppDevice(input: { deviceId: string; organizationId: string }) {
-  return prisma.teacherAppDevice.findFirst({
-    where: {
-      id: input.deviceId,
-      organizationId: input.organizationId,
-      status: TeacherAppDeviceStatus.ACTIVE,
-    },
-    select: {
-      id: true,
-      organizationId: true,
-      label: true,
-      status: true,
-      lastSeenAt: true,
-      lastAuthenticatedAt: true,
-    },
-  });
+  return runWithDatabaseRetry("teacher-app-device-load", () =>
+    prisma.teacherAppDevice.findFirst({
+      where: {
+        id: input.deviceId,
+        organizationId: input.organizationId,
+        status: TeacherAppDeviceStatus.ACTIVE,
+      },
+      select: {
+        id: true,
+        organizationId: true,
+        label: true,
+        status: true,
+        lastSeenAt: true,
+        lastAuthenticatedAt: true,
+      },
+    })
+  );
 }
 
 export async function touchTeacherAppDeviceLastSeen(input: { deviceId: string; organizationId: string }) {
@@ -70,6 +75,14 @@ export async function touchTeacherAppDeviceLastSeen(input: { deviceId: string; o
       id: input.deviceId,
       organizationId: input.organizationId,
       status: TeacherAppDeviceStatus.ACTIVE,
+      OR: [
+        { lastSeenAt: null },
+        {
+          lastSeenAt: {
+            lt: new Date(Date.now() - TEACHER_APP_LAST_SEEN_TOUCH_INTERVAL_MS),
+          },
+        },
+      ],
     },
     data: {
       lastSeenAt: new Date(),

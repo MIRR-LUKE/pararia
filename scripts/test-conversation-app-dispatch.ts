@@ -24,6 +24,7 @@ async function runExternalBlockedCase() {
       return {
         attempted: false as const,
         reason: "pending_session_part_jobs" as const,
+        pendingTeacherRecordingJobs: 0,
         pendingSessionPartJobs: 1,
       };
     },
@@ -64,6 +65,7 @@ async function runExternalDispatchCase() {
       return {
         attempted: true as const,
         reason: "stopped_or_already_stopped" as const,
+        pendingTeacherRecordingJobs: 0,
         pendingSessionPartJobs: 0,
         stopResult: { ok: true, podId: "pod-stopped" },
       };
@@ -104,6 +106,7 @@ async function runExternalManualDispatchCase() {
       return {
         attempted: true as const,
         reason: "stopped_or_already_stopped" as const,
+        pendingTeacherRecordingJobs: 0,
         pendingSessionPartJobs: 0,
         stopResult: { ok: true, podId: "pod-skipped" },
       };

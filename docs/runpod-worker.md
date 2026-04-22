@@ -2,7 +2,7 @@
 
 Pararia の STT 主導線は `web -> queue -> Runpod worker -> LLM finalize` です。
 `localhost` でも `Vercel production` でも、web 側は同じ contract を使い、Runpod 側が STT と後段ジョブを処理します。
-deploy 後に production の録音主導線を 1 本だけ確認するときは、GitHub Actions `Production Recording Smoke` を正本 smoke にします。手動再確認は `npm run test:recording-ui -- --base-url https://pararia.vercel.app --env-file .tmp/.env.production.runpod --skip-navigation-dialog --require-runpod-stop --expect-completion-state success --expect-observed-states uploading,processing,success` を使います。
+deploy 後に production の録音主導線を 1 本だけ確認するときは、GitHub Actions `Production Recording Smoke` を正本 smoke にします。手動再確認は `npm run test:teacher-recording-smoke -- --base-url https://pararia.vercel.app --env-file .tmp/.env.production.runpod` を使います。
 workflow を自動で回すには、GitHub Secrets に `SUPABASE_DB_URL`, `BLOB_READ_WRITE_TOKEN`, `PRODUCTION_INTEGRITY_AUDIT_EMAIL`, `PRODUCTION_INTEGRITY_AUDIT_PASSWORD`, `RUNPOD_API_KEY` が必要です。
 
 ## いまの前提
@@ -33,7 +33,7 @@ workflow を自動で回すには、GitHub Secrets に `SUPABASE_DB_URL`, `BLOB_
 本番 web から自動 wake したいときは、さらに:
 
 - `RUNPOD_API_KEY`
-- `RUNPOD_WORKER_GPU_CANDIDATES` 例: `NVIDIA GeForce RTX 5090,NVIDIA GeForce RTX 4090`
+- `RUNPOD_WORKER_GPU_CANDIDATES` 例: `NVIDIA GeForce RTX 5090,NVIDIA GeForce RTX 4090,NVIDIA GeForce RTX 3090`
 
 ## Runpod Pod に入れる env
 

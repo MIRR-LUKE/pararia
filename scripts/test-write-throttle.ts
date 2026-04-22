@@ -71,6 +71,24 @@ try {
     },
   });
 
+  const bypassResponse = await applyLightMutationThrottle({
+    request,
+    scope: "sessions.progress",
+    userId: "teacher-progress",
+    organizationId: "org-progress",
+  });
+  assert.equal(bypassResponse, null, "progress wake scopes should bypass write throttle");
+  assert.equal(store.size, 0, "bypass scopes should not touch ApiThrottleBucket");
+
+  const teacherBypassResponse = await applyLightMutationThrottle({
+    request,
+    scope: "teacher.recordings.progress",
+    userId: "teacher-native",
+    organizationId: "org-progress",
+  });
+  assert.equal(teacherBypassResponse, null, "teacher progress wake scopes should bypass write throttle");
+  assert.equal(store.size, 0, "teacher bypass scopes should not touch ApiThrottleBucket");
+
   const firstResponse = await applyLightMutationThrottle({
     request,
     scope: "students.create",

@@ -8,11 +8,24 @@ try {
   assert.deepEqual(
     evaluateRunpodStopEligibility({
       inlineMode: false,
+      pendingTeacherRecordingJobs: 0,
       pendingSessionPartJobs: 0,
     }),
     {
       attempted: true,
-      reason: "session_part_queue_drained",
+      reason: "gpu_work_queue_drained",
+    }
+  );
+
+  assert.deepEqual(
+    evaluateRunpodStopEligibility({
+      inlineMode: false,
+      pendingTeacherRecordingJobs: 1,
+      pendingSessionPartJobs: 0,
+    }),
+    {
+      attempted: false,
+      reason: "pending_teacher_recording_jobs",
     }
   );
 
@@ -42,6 +55,11 @@ try {
     60000,
     "Runpod の既定 idle stop は 1 分にする"
   );
+  assert.deepEqual(getRunpodWorkerConfig()?.gpuCandidates, [
+    "NVIDIA GeForce RTX 5090",
+    "NVIDIA GeForce RTX 4090",
+    "NVIDIA GeForce RTX 3090",
+  ]);
 
   process.env.RUNPOD_WORKER_CONVERSATION_LIMIT = "0";
   const sttOnlyEnv = buildRunpodWorkerEnv(300000);
