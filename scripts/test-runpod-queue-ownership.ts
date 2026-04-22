@@ -8,11 +8,24 @@ try {
   assert.deepEqual(
     evaluateRunpodStopEligibility({
       inlineMode: false,
+      pendingTeacherRecordingJobs: 0,
       pendingSessionPartJobs: 0,
     }),
     {
       attempted: true,
-      reason: "session_part_queue_drained",
+      reason: "gpu_work_queue_drained",
+    }
+  );
+
+  assert.deepEqual(
+    evaluateRunpodStopEligibility({
+      inlineMode: false,
+      pendingTeacherRecordingJobs: 1,
+      pendingSessionPartJobs: 0,
+    }),
+    {
+      attempted: false,
+      reason: "pending_teacher_recording_jobs",
     }
   );
 
