@@ -1,0 +1,152 @@
+name: Production Recording Smoke
+
+on:
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: "Smoke target URL"
+        required: false
+        default: "https://pararia.vercel.app"
+  deployment_status:
+
+concurrency:
+  group: production-recording-smoke
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  production-recording-smoke:
+    name: production-recording-smoke
+    if: github.event_name == 'workflow_dispatch' || (github.event.deployment_status.state == 'success' && github.event.deployment.environment == 'Production')
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      CI: true
+      NODE_ENV: test
+      DATABASE_URL: ${{ secrets.SUPABASE_DB_URL }}
+      DIRECT_URL: ${{ secrets.SUPABASE_DB_URL }}
+      BLOB_READ_WRITE_TOKEN: ${{ secrets.BLOB_READ_WRITE_TOKEN }}
+      CRITICAL_PATH_SMOKE_EMAIL: ${{ secrets.PRODUCTION_INTEGRITY_AUDIT_EMAIL }}
+      CRITICAL_PATH_SMOKE_PASSWORD: ${{ secrets.PRODUCTION_INTEGRITY_AUDIT_PASSWORD }}
+      PARARIA_ALLOW_REMOTE_FIXTURES: "1"
+      RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
+      RUNPOD_WORKER_NAME: ${{ vars.RUNPOD_WORKER_NAME }}
+      RECORDING_UI_OUTPUT: .tmp/recording-ui-production-post-deploy.json
+    steps:
+      - name: Check smoke secrets
+        id: recording_smoke_secrets
+        shell: bash
+        run: |
+          missing=()
+          for key in DATABASE_URL BLOB_READ_WRITE_TOKEN CRITICAL_PATH_SMOKE_EMAIL CRITICAL_PATH_SMOKE_PASSWORD RUNPOD_API_KEY; do
+            if [ -z "${!key}" ]; then
+              missing+=("$key")
+            fi
+          done
+          if [ "${#missing[@]}" -gt 0 ]; then
+            echo "::warning::Production recording smoke skipped because required GitHub secrets are missing: ${missing[*]}"
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout
+        if: ${{ steps.recording_smoke_secrets.outputs.ready == 'true' }}
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        if: ${{ steps.recording_smoke_secrets.outputs.ready == 'true' }}
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install dependencies
+        if: ${{ steps.recording_smoke_secrets.outputs.ready == 'true' }}
+        run: npm ci
+
+      - name: Generate Prisma client
+        if: ${{ steps.recording_smoke_secrets.outputs.ready == 'true' }}
+        run: npm run prisma:generate
+
+      - name: Resolve smoke target
+        if: ${{ steps.recording_smoke_secrets.outputs.ready == 'true' }}
+        id: target
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "base_url=${{ github.event.inputs.base_url || 'https://pararia.vercel.app' }}" >> "$GITHUB_OUTPUT"
+          elif [ -n "${{ github.event.deployment_status.environment_url }}" ]; then
+            echo "base_url=${{ github.event.deployment_status.environment_url }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "base_url=https://pararia.vercel.app" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Write recording smoke env file
+        if: ${{ steps.recording_smoke_secrets.outputs.ready == 'true' }}
+        shell: bash
+        run: |
+          mkdir -p .tmp
+          cat <<EOF > .tmp/.env.production.recording-smoke
+          DATABASE_URL=${DATABASE_URL}
+          DIRECT_URL=${DIRECT_URL}
+          BLOB_READ_WRITE_TOKEN=${BLOB_READ_WRITE_TOKEN}
+          RUNPOD_API_KEY=${RUNPOD_API_KEY}
+          RUNPOD_WORKER_NAME=${RUNPOD_WORKER_NAME}
+          EOF
+
+      - name: Run production recording smoke
+        if: ${{ steps.recording_smoke_secrets.outputs.ready == 'true' }}
+        run: >
+          npm run test:recording-ui --
+          --label production-post-deploy-${{ github.run_id }}
+          --base-url "${{ steps.target.outputs.base_url }}"
+          --env-file .tmp/.env.production.recording-smoke
+          --skip-navigation-dialog
+          --require-runpod-stop
+          --expect-completion-state success
+          --expect-next-meeting-memo-status READY
+          --expect-observed-states uploading,processing,success
+          --output "${RECORDING_UI_OUTPUT}"
+
+      - name: Summarize recording smoke result
+        if: ${{ always() && steps.recording_smoke_secrets.outputs.ready == 'true' }}
+        shell: bash
+        run: |
+          if [ ! -f "${RECORDING_UI_OUTPUT}" ]; then
+            echo "No recording smoke artifact was produced." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          node --input-type=module <<'EOF'
+          import { readFileSync, appendFileSync } from "node:fs";
+
+          const outputPath = process.env.RECORDING_UI_OUTPUT;
+          const summaryPath = process.env.GITHUB_STEP_SUMMARY;
+          const result = JSON.parse(readFileSync(outputPath, "utf8"));
+          const lines = [
+            "## Production Recording Smoke",
+            "",
+            `- Base URL: ${result.baseUrl}`,
+            `- Completion: ${result.completionState}`,
+            `- Runpod stopped after run: ${result.runpodStoppedAfterRun}`,
+            `- Next meeting memo status: ${result.nextMeetingMemoStatus ?? "null"}`,
+            `- Observed states: ${(result.observedStates ?? []).join(" -> ")}`,
+            `- Total ms: ${result.totalMs}`,
+            `- Session ID: ${result.createdSessionId ?? "null"}`,
+            `- Conversation ID: ${result.createdConversationId ?? "null"}`,
+            `- Console errors: ${(result.consoleErrors ?? []).length}`,
+            "",
+          ];
+          appendFileSync(summaryPath, `${lines.join("\n")}\n`, "utf8");
+          EOF
+
+      - name: Upload recording smoke artifact
+        if: ${{ always() && steps.recording_smoke_secrets.outputs.ready == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-recording-smoke
+          path: .tmp/recording-ui-production-post-deploy.json
+          if-no-files-found: warn
