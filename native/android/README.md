@@ -31,3 +31,5 @@
 - pending upload は `duration / attempt count / last attempt` を保持し、retry queue でメタデータを落とさないようにしています。
 - foreground service は `ServiceCompat.startForeground(..., FOREGROUND_SERVICE_TYPE_MICROPHONE)` 前提に寄せています。
 - local build / emulator verification は Android SDK と JDK が入った端末で続けます。この workspace では Java / Gradle が未導入のため source review までです。
+- Play Internal Testing 用の GitHub Actions workflow は `.github/workflows/android-internal-testing.yml` です。
+- GitHub Secrets / Variables と Play Console 側の準備は `docs/teacher-app-internal-testing.md` にまとめています。
