@@ -1,0 +1,214 @@
+name: Android Device Handoff
+
+on:
+  workflow_dispatch:
+    inputs:
+      upload_to_play:
+        description: Also build a signed AAB and upload it to the Google Play internal testing track
+        required: true
+        type: boolean
+        default: false
+      release_status:
+        description: Play release status to use when upload_to_play is true
+        required: true
+        type: choice
+        default: completed
+        options:
+          - completed
+          - draft
+      release_name:
+        description: Optional Play release name override
+        required: false
+        type: string
+      base_url:
+        description: Optional API base URL override for this build
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-internal-testing
+  cancel-in-progress: false
+
+jobs:
+  internal-testing:
+    name: Android Device Handoff
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+        working-directory: native/android
+    env:
+      DEFAULT_PARARIA_BASE_URL: https://pararia.vercel.app
+      REPO_PARARIA_BASE_URL: ${{ vars.PARARIA_ANDROID_BASE_URL }}
+      WORKFLOW_PARARIA_BASE_URL: ${{ inputs.base_url }}
+      WORKFLOW_RELEASE_NAME: ${{ inputs.release_name }}
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v5
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle 8.9
+        uses: gradle/actions/setup-gradle@v6
+        with:
+          gradle-version: "8.9"
+          add-job-summary: on-failure
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: >-
+            platform-tools
+            platforms;android-35
+            build-tools;34.0.0
+
+      - name: Validate signing and Play secrets
+        env:
+          ANDROID_UPLOAD_KEYSTORE_BASE64: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_BASE64 }}
+          ANDROID_UPLOAD_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_PASSWORD }}
+          ANDROID_UPLOAD_KEY_ALIAS: ${{ secrets.ANDROID_UPLOAD_KEY_ALIAS }}
+          ANDROID_UPLOAD_KEY_PASSWORD: ${{ secrets.ANDROID_UPLOAD_KEY_PASSWORD }}
+          ANDROID_PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.ANDROID_PLAY_SERVICE_ACCOUNT_JSON }}
+          UPLOAD_TO_PLAY: ${{ inputs.upload_to_play }}
+        run: |
+          required_signing=(
+            ANDROID_UPLOAD_KEYSTORE_BASE64
+            ANDROID_UPLOAD_KEYSTORE_PASSWORD
+            ANDROID_UPLOAD_KEY_ALIAS
+            ANDROID_UPLOAD_KEY_PASSWORD
+          )
+
+          missing=()
+          for name in "${required_signing[@]}"; do
+            if [[ -z "${!name}" ]]; then
+              missing+=("$name")
+            fi
+          done
+
+          if [[ "${#missing[@]}" -gt 0 ]]; then
+            printf 'Missing required signing secrets:\n' >&2
+            printf '  - %s\n' "${missing[@]}" >&2
+            exit 1
+          fi
+
+          if [[ "${UPLOAD_TO_PLAY}" == "true" && -z "${ANDROID_PLAY_SERVICE_ACCOUNT_JSON}" ]]; then
+            echo "ANDROID_PLAY_SERVICE_ACCOUNT_JSON is required when upload_to_play=true" >&2
+            exit 1
+          fi
+
+      - name: Decode upload keystore
+        env:
+          ANDROID_UPLOAD_KEYSTORE_BASE64: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_BASE64 }}
+        run: |
+          keystore_path="$RUNNER_TEMP/pararia-upload-key.jks"
+          printf '%s' "$ANDROID_UPLOAD_KEYSTORE_BASE64" | base64 --decode > "$keystore_path"
+          echo "ORG_GRADLE_PROJECT_ANDROID_UPLOAD_STORE_FILE=$keystore_path" >> "$GITHUB_ENV"
+
+      - name: Prepare build metadata
+        id: meta
+        run: |
+          base_url="${WORKFLOW_PARARIA_BASE_URL:-${REPO_PARARIA_BASE_URL:-$DEFAULT_PARARIA_BASE_URL}}"
+          version_code=$((1000 + GITHUB_RUN_NUMBER))
+          version_name="1.0.0-internal.${GITHUB_RUN_NUMBER}"
+          release_name="$WORKFLOW_RELEASE_NAME"
+          if [[ -z "$release_name" ]]; then
+            release_name="android-internal-${version_name}"
+          fi
+
+          {
+            echo "ORG_GRADLE_PROJECT_PARARIA_BASE_URL=$base_url"
+            echo "ORG_GRADLE_PROJECT_PARARIA_ANDROID_VERSION_CODE=$version_code"
+            echo "ORG_GRADLE_PROJECT_PARARIA_ANDROID_VERSION_NAME=$version_name"
+          } >> "$GITHUB_ENV"
+
+          {
+            echo "base_url=$base_url"
+            echo "version_code=$version_code"
+            echo "version_name=$version_name"
+            echo "release_name=$release_name"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Build signed release APK
+        env:
+          ORG_GRADLE_PROJECT_ANDROID_UPLOAD_STORE_PASSWORD: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_PASSWORD }}
+          ORG_GRADLE_PROJECT_ANDROID_UPLOAD_KEY_ALIAS: ${{ secrets.ANDROID_UPLOAD_KEY_ALIAS }}
+          ORG_GRADLE_PROJECT_ANDROID_UPLOAD_KEY_PASSWORD: ${{ secrets.ANDROID_UPLOAD_KEY_PASSWORD }}
+        run: gradle :app:assembleRelease --stacktrace
+
+      - name: Upload signed APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: teacher-android-apk-${{ steps.meta.outputs.version_name }}
+          path: native/android/app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Build signed release bundle
+        if: ${{ inputs.upload_to_play }}
+        env:
+          ORG_GRADLE_PROJECT_ANDROID_UPLOAD_STORE_PASSWORD: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_PASSWORD }}
+          ORG_GRADLE_PROJECT_ANDROID_UPLOAD_KEY_ALIAS: ${{ secrets.ANDROID_UPLOAD_KEY_ALIAS }}
+          ORG_GRADLE_PROJECT_ANDROID_UPLOAD_KEY_PASSWORD: ${{ secrets.ANDROID_UPLOAD_KEY_PASSWORD }}
+        run: gradle :app:bundleRelease --stacktrace
+
+      - name: Upload signed bundle artifact
+        if: ${{ inputs.upload_to_play }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: teacher-android-aab-${{ steps.meta.outputs.version_name }}
+          path: native/android/app/build/outputs/bundle/release/app-release.aab
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload build reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: teacher-android-build-reports-${{ github.run_id }}
+          path: |
+            native/android/app/build/reports
+            native/android/app/build/outputs/logs
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Publish to Google Play internal testing
+        if: ${{ inputs.upload_to_play }}
+        uses: r0adkll/upload-google-play@v1
+        with:
+          serviceAccountJsonPlainText: ${{ secrets.ANDROID_PLAY_SERVICE_ACCOUNT_JSON }}
+          packageName: jp.pararia.teacherapp
+          releaseFiles: native/android/app/build/outputs/bundle/release/app-release.aab
+          track: internal
+          status: ${{ inputs.release_status }}
+          releaseName: ${{ steps.meta.outputs.release_name }}
+          whatsNewDirectory: native/android/distribution/whatsnew
+
+      - name: Write handoff summary
+        if: always()
+        run: |
+          {
+            echo "## Android handoff"
+            echo ""
+            echo "- versionName: \`${{ steps.meta.outputs.version_name }}\`"
+            echo "- versionCode: \`${{ steps.meta.outputs.version_code }}\`"
+            echo "- base URL: \`${{ steps.meta.outputs.base_url }}\`"
+            echo "- APK artifact: \`teacher-android-apk-${{ steps.meta.outputs.version_name }}\`"
+            if [[ "${{ inputs.upload_to_play }}" == "true" ]]; then
+              echo "- Play upload: attempted"
+              echo "- AAB artifact: \`teacher-android-aab-${{ steps.meta.outputs.version_name }}\`"
+            else
+              echo "- Play upload: skipped"
+            fi
+            echo ""
+            echo "### Install on a connected device"
+            echo '```bash'
+            echo 'adb install -r app-release.apk'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

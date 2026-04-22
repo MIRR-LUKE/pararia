@@ -2,10 +2,10 @@ import { access, writeFile } from "node:fs/promises";
 import { constants as fsConstants } from "node:fs";
 import { spawnSync } from "node:child_process";
 import ffmpegPath from "ffmpeg-static";
-import { chromium } from "playwright-core";
 import { loadEnvFile } from "./load-env-file";
 import { assertMeasurementStudent } from "./measurement-student-guard";
 import { assertMutatingFixtureEnvironment } from "./environment-safety";
+import { createCriticalPathBrowserContext } from "./critical-path-smoke-browser";
 
 export type RecordingUiResult = {
   label: string;
@@ -72,17 +72,6 @@ export async function ensureFakeAudioFile(wavPath: string, mp3Path: string) {
     );
   }
   return wavPath;
-}
-
-function requireRecordingUiCredentials() {
-  const email = process.env.CRITICAL_PATH_SMOKE_EMAIL?.trim() || "";
-  const password = process.env.CRITICAL_PATH_SMOKE_PASSWORD?.trim() || "";
-  if (!email || !password) {
-    throw new Error(
-      "録音UI検証のログイン情報が必要です。CRITICAL_PATH_SMOKE_EMAIL / CRITICAL_PATH_SMOKE_PASSWORD を設定してください。固定の demo ログインは廃止しました。"
-    );
-  }
-  return { email, password };
 }
 
 export function detectBrowserExecutable() {
@@ -233,21 +222,23 @@ export type RunRecordingUiSmokeOptions = {
 export async function runRecordingUiSmoke(options: RunRecordingUiSmokeOptions) {
   await loadEnvFile(options.envFile, { overrideExisting: true, optional: true });
   assertMutatingFixtureEnvironment(options.baseUrl, options.label);
-  const browser = await chromium.launch({
-    headless: true,
-    executablePath: detectBrowserExecutable(),
-    args: [
-      "--use-fake-ui-for-media-stream",
-      "--use-fake-device-for-media-stream",
-      `--use-file-for-fake-audio-capture=${options.fakeAudioPath}`,
-    ],
+  const browserSession = await createCriticalPathBrowserContext(options.baseUrl, {
+    launch: {
+      headless: true,
+      executablePath: detectBrowserExecutable(),
+      args: [
+        "--use-fake-ui-for-media-stream",
+        "--use-fake-device-for-media-stream",
+        `--use-file-for-fake-audio-capture=${options.fakeAudioPath}`,
+      ],
+    },
+    context: {
+      ignoreHTTPSErrors: true,
+      permissions: ["microphone"],
+      viewport: { width: 1440, height: 1100 },
+    },
   });
-
-  const context = await browser.newContext({
-    ignoreHTTPSErrors: true,
-    permissions: ["microphone"],
-    viewport: { width: 1440, height: 1100 },
-  });
+  const { context } = browserSession;
   const page = await context.newPage();
   const consoleErrors: string[] = [];
   page.on("console", (message) => {
@@ -262,17 +253,6 @@ export async function runRecordingUiSmoke(options: RunRecordingUiSmokeOptions) {
   let studentId = "";
 
   try {
-    const credentials = requireRecordingUiCredentials();
-    await page.goto(`${options.baseUrl}/login`, { waitUntil: "domcontentloaded" });
-    await page.locator('input[type="email"]').fill(credentials.email);
-    await page.locator('input[type="password"]').fill(credentials.password);
-    await page.locator('button[type="submit"]').first().click();
-    await waitForCondition(
-      20_000,
-      async () => page.url().includes("/app/"),
-      "ログイン後にアプリ画面へ遷移しませんでした。"
-    );
-
     const createStudentResponse = await context.request.post(`${options.baseUrl}/api/students`, {
       data: {
         name: `[${options.label}] 直接録音UI検証 ${new Date().toISOString().slice(11, 19)}`,
@@ -448,8 +428,7 @@ export async function runRecordingUiSmoke(options: RunRecordingUiSmokeOptions) {
     return result;
   } finally {
     await page.close().catch(() => {});
-    await context.close().catch(() => {});
-    await browser.close().catch(() => {});
+    await browserSession.close().catch(() => {});
     if (studentId && !options.keepArtifacts) {
       await cleanupRecordingArtifacts(options.envFile, studentId).catch(() => {});
     }

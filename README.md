@@ -104,6 +104,7 @@ npm run test:student-room-route
 - tracked ファイルに秘密値が混ざっていないかは `npm run scan:secrets` で見る
 - mutating fixture を使う smoke / UI script は local app + local DB でしか動かさない。remote で明示的に許可するときだけ `PARARIA_ALLOW_REMOTE_FIXTURES=1`
 - 面談ログ / 保護者レポートを remote で実動確認する `npm run test:remote-generation-smoke -- --base-url https://pararia.vercel.app` は、明示的に `PARARIA_ALLOW_REMOTE_GENERATION_SMOKE=1` を付けたときだけ動く
+- 録音開始から upload / STT / Runpod stop / app finalize / next meeting memo までの deploy 後確認は `npm run test:recording-ui` を正本 smoke として扱う
 - production / shared tenant の整合性確認は read-only の `npm run test:student-integrity-audit -- --base-url https://pararia.vercel.app`
 - 公開 RUM API は本文上限と軽い回数制限をかけ、検索文字列をログに残さない。RUM 送信もサーバーログも既定ではオフ
 - 生徒 / 会話 / 設定 / レポート送信 / 招待 / 復元系の書き込み API は軽い回数制限を通す
@@ -1128,6 +1129,7 @@ PARARIA_AUDIO_RETENTION_DAYS=14
   - 宛名、自己紹介、本文 4 段落、締め、固定あいさつ、署名の並びまで確認する
 - ログ本文の手動編集 save payload / dirty 判定のスモークは `npm run test:log-editing`
 - 直接録音 UI の本番相当確認は `npm run test:recording-ui -- --base-url http://localhost:3000 --skip-navigation-dialog`
+- deploy 後に production の録音主導線を 1 本だけ確認するときは `npm run test:recording-ui -- --base-url https://pararia.vercel.app --env-file .tmp/.env.production.runpod --fake-audio-path .tmp/recording-ui-70s.wav --skip-navigation-dialog`
 - 途中離脱ガードだけ確認するときは `npm run test:recording-ui -- --base-url http://localhost:3000 --leave-safety-only`
 
 現行の STT 実行は次の前提です。

@@ -1,9 +1,30 @@
+import org.gradle.api.provider.Provider
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
     id("org.jetbrains.kotlin.plugin.serialization")
 }
+
+fun ProviderFactory.gradleOrEnv(name: String): Provider<String> =
+    gradleProperty(name).orElse(environmentVariable(name))
+
+fun ProviderFactory.gradleOrEnvValue(name: String): String? =
+    gradleOrEnv(name).orNull?.takeIf { it.isNotBlank() }
+
+val androidVersionCode = providers.gradleOrEnv("PARARIA_ANDROID_VERSION_CODE").orElse("1")
+val androidVersionName = providers.gradleOrEnv("PARARIA_ANDROID_VERSION_NAME").orElse("1.0.0")
+val parariaBaseUrl = providers.gradleOrEnv("PARARIA_BASE_URL").orElse("https://pararia.vercel.app")
+
+val uploadStoreFile = providers.gradleOrEnvValue("ANDROID_UPLOAD_STORE_FILE")
+val uploadStorePassword = providers.gradleOrEnvValue("ANDROID_UPLOAD_STORE_PASSWORD")
+val uploadKeyAlias = providers.gradleOrEnvValue("ANDROID_UPLOAD_KEY_ALIAS")
+val uploadKeyPassword = providers.gradleOrEnvValue("ANDROID_UPLOAD_KEY_PASSWORD")
+
+val hasReleaseSigning =
+    listOf(uploadStoreFile, uploadStorePassword, uploadKeyAlias, uploadKeyPassword)
+        .all { !it.isNullOrBlank() }
 
 android {
     namespace = "jp.pararia.teacherapp"
@@ -13,18 +34,32 @@ android {
         applicationId = "jp.pararia.teacherapp"
         minSdk = 29
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = androidVersionCode.get().toInt()
+        versionName = androidVersionName.get()
         buildConfigField(
             "String",
             "PARARIA_BASE_URL",
-            "\"${providers.gradleProperty("PARARIA_BASE_URL").orNull ?: "https://pararia.vercel.app"}\""
+            "\"${parariaBaseUrl.get()}\""
         )
+    }
+
+    signingConfigs {
+        if (hasReleaseSigning) {
+            create("release") {
+                storeFile = file(requireNotNull(uploadStoreFile))
+                storePassword = requireNotNull(uploadStorePassword)
+                keyAlias = requireNotNull(uploadKeyAlias)
+                keyPassword = requireNotNull(uploadKeyPassword)
+            }
+        }
     }
 
     buildTypes {
         release {
             isMinifyEnabled = false
+            if (hasReleaseSigning) {
+                signingConfig = signingConfigs.getByName("release")
+            }
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -49,6 +84,21 @@ android {
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
+        }
+    }
+}
+
+val releaseSigningHelp = """
+    Release signing properties are missing.
+    Provide ANDROID_UPLOAD_STORE_FILE, ANDROID_UPLOAD_STORE_PASSWORD,
+    ANDROID_UPLOAD_KEY_ALIAS, and ANDROID_UPLOAD_KEY_PASSWORD
+    via Gradle properties or environment variables before building release artifacts.
+""".trimIndent()
+
+tasks.configureEach {
+    if (name in setOf("assembleRelease", "bundleRelease")) {
+        doFirst {
+            check(hasReleaseSigning) { releaseSigningHelp }
         }
     }
 }

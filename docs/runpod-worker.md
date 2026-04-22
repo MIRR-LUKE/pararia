@@ -2,6 +2,7 @@
 
 Pararia の STT 主導線は `web -> queue -> Runpod worker -> LLM finalize` です。
 `localhost` でも `Vercel production` でも、web 側は同じ contract を使い、Runpod 側が STT と後段ジョブを処理します。
+deploy 後に production の録音主導線を 1 本だけ確認するときは、`npm run test:recording-ui -- --base-url https://pararia.vercel.app --env-file .tmp/.env.production.runpod --fake-audio-path .tmp/recording-ui-70s.wav --skip-navigation-dialog` を正本 smoke にします。
 
 ## いまの前提
 
