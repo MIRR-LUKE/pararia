@@ -310,7 +310,8 @@ async function main() {
     const observedStates = new Set<string>(["device_login"]);
 
     try {
-      const deviceLabel = `[${label}] Teacher Smoke Device ${randomUUID().slice(0, 8)}`;
+      const labelPrefix = label.replace(/[^a-zA-Z0-9_-]+/g, "-").slice(0, 24) || "teacher-smoke";
+      const deviceLabel = `teacher-smoke-${labelPrefix}-${randomUUID().slice(0, 8)}`.slice(0, 60);
       const loginResponse = await fetch(`${baseUrl}/api/teacher/native/auth/device-login`, {
         method: "POST",
         headers: {
