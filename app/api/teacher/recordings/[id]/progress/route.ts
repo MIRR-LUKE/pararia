@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { JobStatus, TeacherRecordingJobType } from "@prisma/client";
+import { prisma } from "@/lib/db";
 import { shouldRunBackgroundJobsInline } from "@/lib/jobs/execution-mode";
 import { processQueuedTeacherRecordingJobs } from "@/lib/jobs/teacherRecordingJobs";
 import { maybeEnsureRunpodWorker } from "@/lib/runpod/worker-control";
@@ -9,12 +11,15 @@ import {
   requireTeacherAppMutationSession,
   requireTeacherAppSessionForRequest,
 } from "@/lib/server/teacher-app-session";
+import {
+  TEACHER_RECORDING_PROGRESS_WAKE_COOLDOWN_MS,
+  shouldRecoverTeacherRecordingProcessing,
+} from "@/lib/teacher-app/server/recording-progress-recovery";
 import { loadTeacherRecordingSummary } from "@/lib/teacher-app/server/recordings";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-const TEACHER_RECORDING_PROGRESS_WAKE_COOLDOWN_MS = 4_000;
 const recentTeacherRecordingWakeAt = new Map<string, number>();
 
 async function loadAuthorizedRecording(request: Request, params: RouteParams, mutation = false) {
@@ -67,6 +72,37 @@ function shouldContinueTeacherRecordingInBackground(status: string) {
   return status === "TRANSCRIBING";
 }
 
+async function shouldRecoverTeacherRecordingNow(recordingId: string) {
+  const wakeState = await prisma.teacherRecordingSession.findUnique({
+    where: { id: recordingId },
+    select: {
+      uploadedAt: true,
+      processingLeaseExpiresAt: true,
+      jobs: {
+        where: {
+          type: TeacherRecordingJobType.TRANSCRIBE_AND_SUGGEST,
+          status: {
+            in: [JobStatus.QUEUED, JobStatus.RUNNING],
+          },
+        },
+        orderBy: [{ updatedAt: "desc" }, { createdAt: "desc" }],
+        take: 1,
+        select: {
+          status: true,
+        },
+      },
+    },
+  });
+  if (!wakeState) {
+    return false;
+  }
+  return shouldRecoverTeacherRecordingProcessing({
+    uploadedAt: wakeState.uploadedAt,
+    processingLeaseExpiresAt: wakeState.processingLeaseExpiresAt,
+    jobStatus: wakeState.jobs[0]?.status ?? null,
+  });
+}
+
 function shouldWakeTeacherRecordingNow(recordingId: string, now = Date.now()) {
   for (const [entryKey, lastTriggeredAt] of recentTeacherRecordingWakeAt.entries()) {
     if (now - lastTriggeredAt >= TEACHER_RECORDING_PROGRESS_WAKE_COOLDOWN_MS) {
@@ -86,7 +122,14 @@ function shouldWakeTeacherRecordingNow(recordingId: string, now = Date.now()) {
   return true;
 }
 
-function kickTeacherRecordingProcessing(recordingId: string) {
+async function kickTeacherRecordingProcessing(recordingId: string, force = false) {
+  if (!force) {
+    const shouldRecover = await shouldRecoverTeacherRecordingNow(recordingId).catch(() => false);
+    if (!shouldRecover) {
+      return;
+    }
+  }
+
   if (!shouldWakeTeacherRecordingNow(recordingId)) {
     return;
   }
@@ -120,7 +163,7 @@ export async function GET(request: Request, { params }: { params: RouteParams })
     if (loaded.response) return loaded.response;
 
     if (shouldContinueTeacherRecordingInBackground(loaded.recording.status)) {
-      kickTeacherRecordingProcessing(loaded.recordingId!);
+      void kickTeacherRecordingProcessing(loaded.recordingId!);
     }
 
     return NextResponse.json({
@@ -149,7 +192,7 @@ export async function POST(request: Request, { params }: { params: RouteParams }
       if (shouldRunBackgroundJobsInline()) {
         await processQueuedTeacherRecordingJobs(1, { recordingId: loaded.recordingId! }).catch(() => {});
       } else {
-        kickTeacherRecordingProcessing(loaded.recordingId!);
+        await kickTeacherRecordingProcessing(loaded.recordingId!, true);
       }
     }
 

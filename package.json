@@ -75,6 +75,8 @@
     "test:teacher-app-device-auth": "tsx scripts/test-teacher-app-device-auth.ts",
     "test:teacher-app-native-auth": "tsx scripts/test-teacher-app-native-auth.ts",
     "test:teacher-app-student-candidates": "tsx scripts/test-teacher-app-student-candidates.ts",
+    "test:teacher-recording-progress-recovery": "tsx scripts/test-teacher-recording-progress-recovery.ts",
+    "test:teacher-recording-smoke": "tsx scripts/test-teacher-recording-smoke.ts",
     "benchmark:interview-log": "tsx scripts/run-interview-log-benchmark.ts",
     "worker:runpod": "tsx scripts/run-runpod-worker.ts",
     "worker:runpod:once": "tsx scripts/run-runpod-worker.ts --once",

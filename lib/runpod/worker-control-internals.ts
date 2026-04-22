@@ -9,6 +9,7 @@ const DEFAULT_WORKER_NAME = "pararia-gpu-worker";
 const DEFAULT_WORKER_IMAGE = "ghcr.io/mirr-luke/pararia-runpod-worker:latest";
 const DEFAULT_WORKER_GPU = "NVIDIA GeForce RTX 5090";
 const DEFAULT_WORKER_GPU_FALLBACK = "NVIDIA GeForce RTX 4090";
+const DEFAULT_WORKER_GPU_SECOND_FALLBACK = "NVIDIA GeForce RTX 3090";
 const DEFAULT_AUTO_STOP_IDLE_MS = 60 * 1000;
 const DEFAULT_WORKER_CONVERSATION_LIMIT = "0";
 
@@ -206,6 +207,7 @@ export function getRunpodWorkerConfig(): RunpodWorkerConfig | null {
   const gpuCandidates = readStringListEnv("RUNPOD_WORKER_GPU_CANDIDATES", [
     DEFAULT_WORKER_GPU,
     legacyGpu || DEFAULT_WORKER_GPU_FALLBACK,
+    DEFAULT_WORKER_GPU_SECOND_FALLBACK,
   ]);
   const config = {
     apiKey,

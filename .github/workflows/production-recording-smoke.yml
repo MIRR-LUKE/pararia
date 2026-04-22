@@ -100,14 +100,10 @@ jobs:
       - name: Run production recording smoke
         if: ${{ steps.recording_smoke_secrets.outputs.ready == 'true' }}
         run: >
-          npm run test:recording-ui --
+          npm run test:teacher-recording-smoke --
           --label production-post-deploy-${{ github.run_id }}
           --base-url "${{ steps.target.outputs.base_url }}"
           --env-file .tmp/.env.production.recording-smoke
-          --skip-navigation-dialog
-          --require-runpod-stop
-          --expect-completion-state success
-          --expect-observed-states uploading,processing,success
           --output "${RECORDING_UI_OUTPUT}"
 
       - name: Summarize recording smoke result
@@ -130,9 +126,11 @@ jobs:
             "",
             `- Base URL: ${result.baseUrl}`,
             `- Completion: ${result.completionState}`,
+            `- Runpod stopped after STT: ${result.runpodStoppedAfterStt ?? "n/a"}`,
             `- Runpod stopped after run: ${result.runpodStoppedAfterRun}`,
             `- Next meeting memo status: ${result.nextMeetingMemoStatus ?? "null"}`,
             `- Observed states: ${(result.observedStates ?? []).join(" -> ")}`,
+            `- Candidate count: ${result.candidateCount ?? "n/a"}`,
             `- Total ms: ${result.totalMs}`,
             `- Session ID: ${result.createdSessionId ?? "null"}`,
             `- Conversation ID: ${result.createdConversationId ?? "null"}`,
