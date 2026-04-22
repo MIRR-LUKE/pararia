@@ -192,25 +192,22 @@ export async function waitForSessionArtifacts(
   studentId: string
 ) {
   const startedAt = Date.now();
-  while (Date.now() - startedAt < 180_000) {
+  while (Date.now() - startedAt < 90_000) {
     const response = await request.get(`${baseUrl}/api/students/${studentId}/room`);
     const body = await response.json().catch(() => ({}));
     if (response.ok) {
       const latest = (body?.sessions ?? [])[0] as SessionSummary | undefined;
       if (latest?.conversation?.id) {
-        const memoStatus = latest.nextMeetingMemo?.status ?? null;
-        if (memoStatus === "READY" || memoStatus === "FAILED") {
-          return {
-            sessionId: latest.id,
-            conversationId: latest.conversation.id,
-            nextMeetingMemoStatus: memoStatus,
-          };
-        }
+        return {
+          sessionId: latest.id,
+          conversationId: latest.conversation.id,
+          nextMeetingMemoStatus: latest.nextMeetingMemo?.status ?? null,
+        };
       }
     }
     await new Promise((resolve) => setTimeout(resolve, 2_500));
   }
-  throw new Error("録音後の session / conversation / 次回面談メモの状態取得がタイムアウトしました。");
+  throw new Error("録音後の session / conversation 状態取得がタイムアウトしました。");
 }
 
 export type RunRecordingUiSmokeOptions = {

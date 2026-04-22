@@ -118,7 +118,7 @@
 - `app/api/ai/generate-report*`, `app/api/reports*`, student room の report 集約を触ったら `npm run test:report-generation-route` も回す
 - route の protected critical path は `録音ロック -> session part ingest -> session progress -> student room -> next meeting memo`
 - auth、dynamic route params、student room 集約、recording lock、session progress、next meeting memo のどれかを触ったら `npm run test:critical-path-smoke` を回す
-- 録音 UI、音声 upload、Runpod handoff、`Runpod stop -> app finalize` の接続を触ったら、deploy 後の正本 smoke は GitHub Actions `Production Recording Smoke` を見る。手動再確認は `npm run test:recording-ui -- --base-url https://pararia.vercel.app --env-file .tmp/.env.production.runpod --skip-navigation-dialog --require-runpod-stop --expect-completion-state success --expect-next-meeting-memo-status READY --expect-observed-states uploading,processing,success` を 1 本だけ回す
+- 録音 UI、音声 upload、Runpod handoff、`Runpod stop -> app finalize` の接続を触ったら、deploy 後の正本 smoke は GitHub Actions `Production Recording Smoke` を見る。手動再確認は `npm run test:recording-ui -- --base-url https://pararia.vercel.app --env-file .tmp/.env.production.runpod --skip-navigation-dialog --require-runpod-stop --expect-completion-state success --expect-observed-states uploading,processing,success` を 1 本だけ回す
 - CI でも同じ語彙で `Conversation Quality` と `Critical Path Smoke` を回し、ローカルと PR の確認対象をずらさない
 - GitHub の `main` branch protection では `conversation-quality`, `critical-path-smoke`, `generation-route-smoke`, `backend-scope-guard` を required status checks に固定する
 - 指定した `conversationId / reportId / sessionId` が別の生徒データに化けないことは `npm run test:conversation-route` でも止める

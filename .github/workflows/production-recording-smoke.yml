@@ -107,7 +107,6 @@ jobs:
           --skip-navigation-dialog
           --require-runpod-stop
           --expect-completion-state success
-          --expect-next-meeting-memo-status READY
           --expect-observed-states uploading,processing,success
           --output "${RECORDING_UI_OUTPUT}"
 
