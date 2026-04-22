@@ -95,9 +95,14 @@ class TeacherAppViewModel(
                 viewModelScope.launch {
                     runWithErrorHandling {
                         val recordingId = recordingRepository.createRecording()
-                        audioRecorderClient.start()
-                        activeRecordingId = recordingId
-                        startTimer()
+                        try {
+                            audioRecorderClient.start()
+                            activeRecordingId = recordingId
+                            startTimer()
+                        } catch (error: Exception) {
+                            runCatching { recordingRepository.cancelRecording(recordingId) }
+                            throw error
+                        }
                     }
                 }
             }

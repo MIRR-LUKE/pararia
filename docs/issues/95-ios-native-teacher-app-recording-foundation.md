@@ -4,7 +4,7 @@
 
 - Open
 - GitHub Issue: `#173`
-- 最終更新: `2026-04-19`
+- 最終更新: `2026-04-21`
 
 ## 目的
 
@@ -30,6 +30,15 @@ MVP では、先生が迷わず `待機 -> 録音 -> 解析中 -> 生徒確認 -
 - microphone permission と denied state を native UI で扱う
 - local recording, local file retention, retryable upload queue を入れる
 - backend から student candidates を受けて確定できるようにする
+
+## 2026-04-21 までに repo へ入ったもの
+
+- `TeacherAppCoordinator` で `createRecording -> recorder.start` の途中失敗時に server recording を best-effort cancel するようにした
+- pending upload に `duration / attemptCount / lastAttemptAt` を持たせた
+- upload success 後に local audio file を削除するようにした
+- recorder の保存先を `temporaryDirectory` から `Application Support/TeacherRecordings` に移した
+- `401` 後の retry で expiry 判定を飛ばせる `forceRefresh` 経路を入れた
+- `Config/Debug.xcconfig`, `Config/Release.xcconfig`, `Assets.xcassets`, `LaunchScreen.storyboard` を追加して、Xcode project 化の前提を揃えた
 
 ## 注意
 

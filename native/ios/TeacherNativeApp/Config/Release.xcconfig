@@ -1,0 +1,7 @@
+PRODUCT_BUNDLE_IDENTIFIER = jp.pararia.teacherapp
+PRODUCT_NAME = TeacherNativeApp
+MARKETING_VERSION = 1.0.0
+CURRENT_PROJECT_VERSION = 1
+DEVELOPMENT_TEAM =
+CODE_SIGN_STYLE = Automatic
+PARARIA_API_BASE_URL = https://pararia.vercel.app

@@ -16,6 +16,7 @@ interface TeacherAuthRepository {
     suspend fun currentSession(): TeacherSession?
     suspend fun login(input: DeviceLoginInput): TeacherSession
     suspend fun refreshIfNeeded(): TeacherSession?
+    suspend fun forceRefresh(): TeacherSession?
     suspend fun logout()
 }
 

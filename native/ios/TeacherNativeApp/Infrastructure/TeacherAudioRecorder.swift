@@ -29,7 +29,12 @@ final class NativeAudioRecorderClient: NSObject, AudioRecorderClient {
         try session.setCategory(.playAndRecord, mode: .spokenAudio, options: [.allowBluetooth, .defaultToSpeaker])
         try session.setActive(true, options: [])
 
-        let url = FileManager.default.temporaryDirectory
+        let recordingsDirectory = try FileManager.default
+            .url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
+            .appendingPathComponent("TeacherRecordings", isDirectory: true)
+        try FileManager.default.createDirectory(at: recordingsDirectory, withIntermediateDirectories: true)
+
+        let url = recordingsDirectory
             .appendingPathComponent("teacher-\(UUID().uuidString)")
             .appendingPathExtension("m4a")
         let settings: [String: Any] = [

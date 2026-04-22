@@ -10,6 +10,7 @@ import android.os.Build
 import android.os.IBinder
 import androidx.core.app.ContextCompat
 import androidx.core.app.NotificationCompat
+import androidx.core.app.ServiceCompat
 import jp.pararia.teacherapp.R
 
 class RecordingForegroundService : Service() {
@@ -20,7 +21,16 @@ class RecordingForegroundService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
-            ACTION_START -> startForeground(NOTIFICATION_ID, buildNotification())
+            ACTION_START -> ServiceCompat.startForeground(
+                this,
+                NOTIFICATION_ID,
+                buildNotification(),
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                    android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+                } else {
+                    0
+                }
+            )
             ACTION_STOP -> {
                 stopForeground(STOP_FOREGROUND_REMOVE)
                 stopSelf()

@@ -28,6 +28,8 @@
 
 `AVAudioSession` と `AVAudioRecorder` を使う実装を本命にしています。音声 session 設定は recording core に閉じ込め、UI は開始 / 停止の action だけを知る構造です。
 
+録音ファイルは `Application Support/TeacherRecordings` に置き、upload success 後は削除します。retry が必要なものだけ pending queue に残す方針です。
+
 ### 3. upload queue は store / repository / service を分離
 
 - `Infrastructure/TeacherRepositories.swift`
@@ -43,6 +45,8 @@
 - `Infrastructure/TeacherTokenStore.swift`
 
 既存 backend の `/api/teacher/native/auth/*` を使います。access token は短命、refresh token は rotate 前提なので、repository 側で refresh と 401 retry を 1 回だけ持たせています。
+
+`401` を受けた retry では local expiry 判定を飛ばす `forceRefresh` 経路を使い、期限内に見える token でも refresh を強制できるようにしています。
 
 ### 5. provisional UI だが責務は最終形に合わせる
 
@@ -65,13 +69,20 @@ native/ios/
   README.md
   TeacherNativeApp/
     App/
+    Config/
     Domain/
     Infrastructure/
     Resources/
     UI/
 ```
 
-`TeacherNativeApp/Resources/Info.plist` には、`PARARIAApiBaseURL` と `NSMicrophoneUsageDescription` を入れています。
+`TeacherNativeApp/Config/Debug.xcconfig` / `Release.xcconfig` で `PARARIA_API_BASE_URL` を定義し、`Info.plist` から参照する形にしています。
+
+`TeacherNativeApp/Resources` には、次の Xcode project 前提ファイルを入れています。
+
+- `Info.plist`
+- `Assets.xcassets`
+- `LaunchScreen.storyboard`
 
 ## 未検証点
 
@@ -87,7 +98,7 @@ native/ios/
 
 ## 次にやること
 
-1. Xcode project / target を追加してこの source tree を組み込む
+1. Xcode project / target を追加してこの source tree と `Config/*.xcconfig` を組み込む
 2. `Info.plist` と signing を入れる
 3. 実機で login -> recording -> upload -> confirm を通す
 4. `#165` の lifecycle hardening を実機前提で詰める

@@ -130,6 +130,9 @@ data class PendingUpload(
     val recordingId: String,
     val filePath: String,
     val createdAt: String,
+    val durationSeconds: Double? = null,
+    val attemptCount: Int = 0,
+    val lastAttemptAt: String? = null,
     val errorMessage: String? = null,
 )
 

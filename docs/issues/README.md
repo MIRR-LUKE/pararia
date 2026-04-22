@@ -116,7 +116,6 @@
 
 次の active open issue:
 
-- `#174` generate-report 主経路に stage / operationId / failure taxonomy を入れて調査コストを下げる
 - `#173` iOS native Teacher App の録音基盤と最小 UI を作る
 - `#170` Android native Teacher App の録音基盤と最小 UI を作る
 - `#167` Teacher App を内部配布して実機 QA を回せるようにする
@@ -185,10 +184,9 @@ close / defer に回した考え方:
 - `#79` は generation-preservation を protected path として README / engineering rules に明記するところまで完了済み
 - `#80` は generation route smoke script / GitHub Actions workflow / `main` branch protection required checks 設定まで完了済み
 - `#150` は `verify` / `Conversation Quality` に generation-preservation gate を入れるところまで完了済み
-- `#174` は、closed 済みの `#82` を現行の generate-report 主経路向けに切り直した successor issue
-- `#174` は route 実装と error-contract smoke 追加まで push 済み。残りは PR / merge queue で `Generation Route Smoke` を踏む確認
+- `#174` は `2026-04-21` に main 反映と issue close まで完了済み
 - `#83` は closed 済みだが、noncritical side effect の best-effort 化という論点自体は引き続き有効
-- いま active に残しているのは、generate-report observability hardening と native Teacher App の実装 / QA
+- いま active に残しているのは、native Teacher App の実装 / lifecycle hardening / internal QA
 
 今回追加して完了した Runpod / generation issue:
 
@@ -236,3 +234,8 @@ Teacher App 仕様の新規 issue docs:
 12. `#172` [94-teacher-native-app-backend-contract-and-device-auth.md](./94-teacher-native-app-backend-contract-and-device-auth.md) - Closed
 13. `#173` [95-ios-native-teacher-app-recording-foundation.md](./95-ios-native-teacher-app-recording-foundation.md)
 14. `#170` [96-android-native-teacher-app-recording-foundation.md](./96-android-native-teacher-app-recording-foundation.md)
+
+Teacher native app の補助 doc:
+
+- [teacher-app-lifecycle-policy.md](../teacher-app-lifecycle-policy.md)
+- [teacher-app-internal-testing.md](../teacher-app-internal-testing.md)

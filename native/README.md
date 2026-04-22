@@ -12,6 +12,8 @@ Teacher 録音 app は `web を包む` のではなく、**完全ネイティブ
 - 録音 app の責務は `録る / 終える / 確認する / 送る`
 - 生徒管理、レポート確認、設定、監査は既存 web に残す
 - backend 契約の正本は `docs/teacher-app-native-auth-contract.md`
+- lifecycle 方針は `docs/teacher-app-lifecycle-policy.md`
+- internal QA / 配布メモは `docs/teacher-app-internal-testing.md`
 - UI と domain logic を分ける
 - 録音 core、upload queue、API client は protocol / interface で抽象化する
 - provisional UI でも state holder / repository 境界を崩さない

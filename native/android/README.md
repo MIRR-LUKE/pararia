@@ -28,4 +28,6 @@
 
 - foreground service の background-start 回避ではなく、**visible activity 上の先生操作からのみ録音開始**する前提です。
 - API base URL は `PARARIA_BASE_URL` gradle property で切り替えられます。既定値は `https://pararia.vercel.app` です。
+- pending upload は `duration / attempt count / last attempt` を保持し、retry queue でメタデータを落とさないようにしています。
+- foreground service は `ServiceCompat.startForeground(..., FOREGROUND_SERVICE_TYPE_MICROPHONE)` 前提に寄せています。
 - local build / emulator verification は Android SDK と JDK が入った端末で続けます。この workspace では Java / Gradle が未導入のため source review までです。

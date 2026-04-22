@@ -26,6 +26,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import java.io.File
 import java.time.Instant
 import java.util.UUID
 
@@ -91,13 +92,17 @@ class DefaultTeacherAuthRepository(
         response.session
     }
 
-    override suspend fun refreshIfNeeded(): TeacherSession? = lock.withLock {
+    override suspend fun refreshIfNeeded(): TeacherSession? = refresh(forceRefresh = false)
+
+    override suspend fun forceRefresh(): TeacherSession? = refresh(forceRefresh = true)
+
+    private suspend fun refresh(forceRefresh: Boolean): TeacherSession? = lock.withLock {
         val bundle = tokenStore.loadAuthBundle() ?: return null
         val expiresSoon = runCatching {
             Instant.parse(bundle.accessTokenExpiresAt).isBefore(Instant.now().plusSeconds(30))
         }.getOrDefault(true)
 
-        val session = if (expiresSoon) {
+        val session = if (forceRefresh || expiresSoon) {
             refreshAuthBundle(bundle).session
         } else {
             val response: TeacherSessionEnvelope = apiClient.requestJson(
@@ -171,22 +176,21 @@ class DefaultTeacherRecordingRepository(
         durationSeconds: Double?,
     ): TeacherRecordingSummary? {
         return try {
-            withAuthenticatedRequest {
+            val summary = withAuthenticatedRequest {
                 apiClient.uploadAudio(
                     recordingId = recordingId,
                     filePath = filePath,
                     durationSeconds = durationSeconds,
                 ).recording
             }
+            deleteLocalFile(filePath)
+            summary
         } catch (error: Exception) {
-            pendingUploadStore.save(
-                PendingUpload(
-                    id = UUID.randomUUID().toString(),
-                    recordingId = recordingId,
-                    filePath = filePath,
-                    createdAt = Instant.now().toString(),
-                    errorMessage = error.message,
-                )
+            queuePendingUpload(
+                recordingId = recordingId,
+                filePath = filePath,
+                durationSeconds = durationSeconds,
+                errorMessage = error.message,
             )
             throw error
         }
@@ -236,14 +240,22 @@ class DefaultTeacherRecordingRepository(
     }
 
     override suspend fun retryPendingUploads() {
+        var firstError: Exception? = null
         pendingUploadStore.loadItems().forEach { item ->
-            uploadAudio(
-                recordingId = item.recordingId,
-                filePath = item.filePath,
-                durationSeconds = null,
-            )
-            pendingUploadStore.remove(item.id)
+            try {
+                uploadAudio(
+                    recordingId = item.recordingId,
+                    filePath = item.filePath,
+                    durationSeconds = item.durationSeconds,
+                )
+                pendingUploadStore.remove(item.id)
+            } catch (error: Exception) {
+                if (firstError == null) {
+                    firstError = error
+                }
+            }
         }
+        firstError?.let { throw it }
     }
 
     private suspend fun <T> withAuthenticatedRequest(block: suspend () -> T): T {
@@ -252,11 +264,38 @@ class DefaultTeacherRecordingRepository(
             block()
         } catch (error: TeacherApiException) {
             if (error.statusCode == 401) {
-                authRepository.refreshIfNeeded()
+                authRepository.forceRefresh()
                 block()
             } else {
                 throw error
             }
+        }
+    }
+
+    private suspend fun queuePendingUpload(
+        recordingId: String,
+        filePath: String,
+        durationSeconds: Double?,
+        errorMessage: String?,
+    ) {
+        val existing = pendingUploadStore.loadItems().firstOrNull { it.recordingId == recordingId }
+        pendingUploadStore.save(
+            PendingUpload(
+                id = existing?.id ?: UUID.randomUUID().toString(),
+                recordingId = recordingId,
+                filePath = filePath,
+                createdAt = existing?.createdAt ?: Instant.now().toString(),
+                durationSeconds = durationSeconds ?: existing?.durationSeconds,
+                attemptCount = (existing?.attemptCount ?: 0) + 1,
+                lastAttemptAt = Instant.now().toString(),
+                errorMessage = errorMessage,
+            )
+        )
+    }
+
+    private fun deleteLocalFile(filePath: String) {
+        runCatching {
+            File(filePath).takeIf { it.exists() }?.delete()
         }
     }
 }
