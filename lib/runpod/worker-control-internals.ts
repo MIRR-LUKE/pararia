@@ -258,8 +258,8 @@ export async function runpodRequest(pathname: string, config: RunpodWorkerConfig
   }
 }
 
-export function buildRunpodWorkerEnv(autoStopIdleMs: number) {
-  const workerImage = resolveDefaultWorkerImage();
+export function buildRunpodWorkerEnv(autoStopIdleMs: number, workerImageOverride?: string | null) {
+  const workerImage = workerImageOverride?.trim() || resolveDefaultWorkerImage();
   const env = {
     RUNPOD_API_KEY: readRequiredEnv("RUNPOD_API_KEY"),
     DATABASE_URL: readRequiredEnv("DATABASE_URL"),
@@ -341,9 +341,10 @@ export function buildRunpodWorkerCreateBody(
   }
 ) {
   const includeRuntimeConfig = options?.includeRuntimeConfig ?? true;
+  const workerImage = overrides?.image ?? config.image;
   return {
     name: overrides?.name ?? config.name,
-    imageName: overrides?.image ?? config.image,
+    imageName: workerImage,
     containerRegistryAuthId: overrides?.containerRegistryAuthId ?? config.containerRegistryAuthId ?? undefined,
     gpuTypeIds: [overrides?.gpu ?? config.gpu],
     gpuCount: overrides?.gpuCount ?? config.gpuCount,
@@ -353,7 +354,7 @@ export function buildRunpodWorkerCreateBody(
     ...(includeRuntimeConfig
       ? {
           dockerStartCmd: ["bash", "/workspace/scripts/runpod-worker-start.sh"],
-          env: buildRunpodWorkerEnv(config.autoStopIdleMs),
+          env: buildRunpodWorkerEnv(config.autoStopIdleMs, workerImage),
         }
       : {}),
   };
@@ -372,7 +373,8 @@ export function isRunpodCapacityErrorMessage(message: string) {
     /does not have the resources to deploy your pod/i.test(message) ||
     /not enough free gpus/i.test(message) ||
     /no spot price found/i.test(message) ||
-    /insufficient capacity/i.test(message)
+    /insufficient capacity/i.test(message) ||
+    /there are no instances currently available/i.test(message)
   );
 }
 

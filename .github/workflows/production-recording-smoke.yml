@@ -10,7 +10,7 @@ on:
   deployment_status:
 
 concurrency:
-  group: production-recording-smoke
+  group: production-recording-smoke-${{ github.event_name }}-${{ github.event_name == 'deployment_status' && github.event.deployment.id || github.ref }}
   cancel-in-progress: true
 
 permissions:

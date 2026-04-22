@@ -10,8 +10,11 @@ function detectBrowserExecutable() {
     "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
     "/usr/bin/google-chrome",
     "/usr/bin/google-chrome-stable",
+    "/usr/bin/microsoft-edge",
+    "/usr/bin/microsoft-edge-stable",
     "/usr/bin/chromium-browser",
     "/usr/bin/chromium",
+    "/opt/microsoft/msedge/msedge",
   ].filter((value): value is string => Boolean(value));
 
   for (const candidate of candidates) {
