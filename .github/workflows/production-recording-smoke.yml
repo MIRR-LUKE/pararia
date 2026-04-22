@@ -131,6 +131,7 @@ jobs:
             `- Next meeting memo status: ${result.nextMeetingMemoStatus ?? "null"}`,
             `- Observed states: ${(result.observedStates ?? []).join(" -> ")}`,
             `- Candidate count: ${result.candidateCount ?? "n/a"}`,
+            `- Simulated recording ms: ${result.simulatedRecordingMs ?? "n/a"}`,
             `- Total ms: ${result.totalMs}`,
             `- Session ID: ${result.createdSessionId ?? "null"}`,
             `- Conversation ID: ${result.createdConversationId ?? "null"}`,
