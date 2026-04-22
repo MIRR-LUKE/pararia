@@ -33,6 +33,7 @@ jobs:
       PARARIA_ALLOW_REMOTE_FIXTURES: "1"
       RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
       RUNPOD_WORKER_NAME: ${{ vars.RUNPOD_WORKER_NAME }}
+      RUNPOD_WORKER_IMAGE: ghcr.io/mirr-luke/pararia-runpod-worker:sha-${{ github.sha }}
       RECORDING_UI_OUTPUT: .tmp/recording-ui-production-post-deploy.json
     steps:
       - name: Check smoke secrets
@@ -93,6 +94,7 @@ jobs:
           BLOB_READ_WRITE_TOKEN=${BLOB_READ_WRITE_TOKEN}
           RUNPOD_API_KEY=${RUNPOD_API_KEY}
           RUNPOD_WORKER_NAME=${RUNPOD_WORKER_NAME}
+          RUNPOD_WORKER_IMAGE=${RUNPOD_WORKER_IMAGE}
           EOF
 
       - name: Run production recording smoke

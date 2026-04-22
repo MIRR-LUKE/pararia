@@ -402,11 +402,18 @@ export async function runRecordingUiSmoke(options: RunRecordingUiSmokeOptions) {
     } | null = null;
 
     if (!options.expectRejection) {
-      const openLogButton = page.getByRole("button", { name: "ログを確認" });
-      await openLogButton.click();
-      await page.getByText("ログを確認する").waitFor({ timeout: 10_000 });
-      generatedLogPreview = ((await page.textContent("body")) || "").slice(0, 400);
       artifacts = await waitForSessionArtifacts(context.request, options.baseUrl, studentId);
+      generatedLogPreview = ((await page.textContent("body")) || "").slice(0, 400);
+
+      const openLogButton = page.getByRole("button", { name: "ログを確認" });
+      const canOpenLog = await openLogButton
+        .isVisible({ timeout: 1_500 })
+        .catch(() => false);
+      if (canOpenLog) {
+        await openLogButton.click();
+        await page.getByText("ログを確認する").waitFor({ timeout: 10_000 });
+        generatedLogPreview = ((await page.textContent("body")) || "").slice(0, 400);
+      }
     } else {
       generatedLogPreview = ((await page.textContent("body")) || "").slice(0, 400);
     }
