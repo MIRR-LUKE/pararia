@@ -1129,7 +1129,7 @@ PARARIA_AUDIO_RETENTION_DAYS=14
   - 宛名、自己紹介、本文 4 段落、締め、固定あいさつ、署名の並びまで確認する
 - ログ本文の手動編集 save payload / dirty 判定のスモークは `npm run test:log-editing`
 - 直接録音 UI の本番相当確認は `npm run test:recording-ui -- --base-url http://localhost:3000 --skip-navigation-dialog`
-- deploy 後に production の録音主導線を 1 本だけ確認するときは `npm run test:recording-ui -- --base-url https://pararia.vercel.app --env-file .tmp/.env.production.runpod --fake-audio-path .tmp/recording-ui-70s.wav --skip-navigation-dialog`
+- deploy 後の production 録音主導線は GitHub Actions `Production Recording Smoke` が正本。手動で回すときは `npm run test:recording-ui -- --base-url https://pararia.vercel.app --env-file .tmp/.env.production.runpod --skip-navigation-dialog --require-runpod-stop --expect-completion-state success --expect-next-meeting-memo-status READY --expect-observed-states uploading,processing,success`
 - 途中離脱ガードだけ確認するときは `npm run test:recording-ui -- --base-url http://localhost:3000 --leave-safety-only`
 
 現行の STT 実行は次の前提です。
