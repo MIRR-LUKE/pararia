@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { chromium, request, type APIRequestContext } from "playwright-core";
+import { chromium, request, type APIRequestContext, type BrowserContextOptions, type LaunchOptions } from "playwright-core";
 import { CRITICAL_PATH_BOOTSTRAP_URL, loadCriticalPathSmokeEnv, type CriticalPathSmokeCredentials } from "./critical-path-smoke-env";
 
 function detectBrowserExecutable() {
@@ -133,16 +133,24 @@ export async function createCriticalPathSmokeApi(baseUrl: string) {
   }
 }
 
-export async function createCriticalPathBrowserContext(baseUrl: string) {
+export async function createCriticalPathBrowserContext(
+  baseUrl: string,
+  options?: {
+    launch?: LaunchOptions;
+    context?: BrowserContextOptions;
+  }
+) {
   const credentials = await loadCriticalPathSmokeEnv();
   const browser = await chromium.launch({
     headless: true,
     executablePath: detectBrowserExecutable(),
+    ...options?.launch,
   });
   const context = await browser.newContext({
     baseURL: baseUrl,
     ignoreHTTPSErrors: true,
     viewport: { width: 1440, height: 1024 },
+    ...options?.context,
   });
 
   try {
