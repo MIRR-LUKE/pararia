@@ -63,10 +63,14 @@ try {
   assert.equal(createCall.method, "POST");
   assert.equal(createCall.body?.gpuTypeIds?.[0], "NVIDIA GeForce RTX 3090");
   assert.equal("env" in (createCall.body ?? {}), false, "initial pod create must not send env");
-  assert.equal(
-    "dockerStartCmd" in (createCall.body ?? {}),
-    false,
-    "initial pod create must not override docker start command"
+  assert.deepEqual(
+    createCall.body?.dockerStartCmd,
+    [
+      "bash",
+      "-lc",
+      "mkdir -p /tmp/runpod-bootstrap && printf 'waiting_runtime_config\\n' >/tmp/runpod-bootstrap/status.txt && printf '{\"stage\":\"waiting_runtime_config\"}\\n' >/tmp/runpod-bootstrap/status.json && exec python3 -m http.server 8888 --bind 0.0.0.0 --directory /tmp/runpod-bootstrap",
+    ],
+    "initial pod create should use a harmless bootstrap command until runtime env is patched"
   );
 
   const patchCall = calls[1];

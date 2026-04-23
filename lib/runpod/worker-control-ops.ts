@@ -22,6 +22,11 @@ import {
 } from "./worker-control-core";
 
 const pendingManagedWorkerWakeByName = new Map<string, Promise<RunpodWorkerWakeResult>>();
+const RUNPOD_INITIAL_BOOTSTRAP_START_COMMAND = [
+  "bash",
+  "-lc",
+  "mkdir -p /tmp/runpod-bootstrap && printf 'waiting_runtime_config\\n' >/tmp/runpod-bootstrap/status.txt && printf '{\"stage\":\"waiting_runtime_config\"}\\n' >/tmp/runpod-bootstrap/status.json && exec python3 -m http.server 8888 --bind 0.0.0.0 --directory /tmp/runpod-bootstrap",
+] as const;
 
 export function requireRunpodWorkerConfig() {
   const config = getRunpodWorkerConfig();
@@ -90,10 +95,15 @@ export async function createRunpodWorkerPod(
 
     for (let attempt = 1; attempt <= createAttempts; attempt += 1) {
       try {
+        const createBody = buildCreateBody(resolved, { ...overrides, gpu }, { includeRuntimeConfig: false });
         payload = await runpodRequest("/pods", resolved, {
           method: "POST",
           // Work around Runpod custom-image create failures when env is included in the initial POST.
-          body: JSON.stringify(buildCreateBody(resolved, { ...overrides, gpu }, { includeRuntimeConfig: false })),
+          // Keep the container alive with a harmless bootstrap HTTP server until runtime env is patched in.
+          body: JSON.stringify({
+            ...createBody,
+            dockerStartCmd: [...RUNPOD_INITIAL_BOOTSTRAP_START_COMMAND],
+          }),
         });
         lastError = null;
         break;

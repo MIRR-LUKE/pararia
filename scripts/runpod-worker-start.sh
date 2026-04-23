@@ -8,6 +8,7 @@ health_dir="${PARARIA_RUNPOD_HEALTH_DIR:-/tmp/runpod-health}"
 export PARARIA_RUNPOD_HEALTH_DIR="${health_dir}"
 mkdir -p "${download_root}"
 mkdir -p "${health_dir}"
+cd "${workspace_dir}"
 package_json="${workspace_dir}/package.json"
 worker_script="${workspace_dir}/scripts/run-runpod-worker.ts"
 
