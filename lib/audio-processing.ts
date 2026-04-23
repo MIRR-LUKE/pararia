@@ -1,15 +1,33 @@
 import { existsSync } from "node:fs";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { mkdir, readdir, rm } from "node:fs/promises";
-import ffmpegPath from "ffmpeg-static";
+import { createRequire } from "node:module";
 import path from "node:path";
 import { parseFile } from "music-metadata";
 
-function getFfmpegPath() {
-  const bundledPath = typeof ffmpegPath === "string" ? ffmpegPath : "";
+const require = createRequire(import.meta.url);
+let cachedFfmpegPath: string | null = null;
+
+function resolveBundledFfmpegPath() {
+  try {
+    const resolved = require("ffmpeg-static");
+    return typeof resolved === "string" ? resolved : typeof resolved?.default === "string" ? resolved.default : "";
+  } catch {
+    return "";
+  }
+}
+
+function getFfmpegPath(): string {
+  if (cachedFfmpegPath) {
+    return cachedFfmpegPath;
+  }
+
+  const bundledPath = resolveBundledFfmpegPath();
   if (bundledPath && existsSync(bundledPath)) {
+    cachedFfmpegPath = bundledPath;
     return bundledPath;
   }
+
   const localBinary = path.join(
     process.cwd(),
     "node_modules",
@@ -17,20 +35,28 @@ function getFfmpegPath() {
     process.platform === "win32" ? "ffmpeg.exe" : "ffmpeg"
   );
   if (existsSync(localBinary)) {
+    cachedFfmpegPath = localBinary;
     return localBinary;
   }
+
+  const systemFfmpeg = spawnSync("ffmpeg", ["-version"], { stdio: "ignore" });
+  if (!systemFfmpeg.error && systemFfmpeg.status === 0) {
+    cachedFfmpegPath = "ffmpeg";
+    return "ffmpeg";
+  }
+
   throw new Error("ffmpeg-static is unavailable.");
 }
 
 function runFfmpeg(args: string[]) {
   return new Promise<void>((resolve, reject) => {
-    const child = spawn(getFfmpegPath(), args, { stdio: ["ignore", "ignore", "pipe"] });
+    const child = spawn(getFfmpegPath(), args, { stdio: ["ignore", "ignore", "pipe"] as const });
     let stderr = "";
-    child.stderr.on("data", (chunk) => {
+    child.stderr.on("data", (chunk: Buffer | string) => {
       stderr += String(chunk);
     });
     child.on("error", reject);
-    child.on("close", (code) => {
+    child.on("close", (code: number | null) => {
       if (code === 0) {
         resolve();
         return;
