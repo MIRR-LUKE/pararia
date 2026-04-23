@@ -32,4 +32,10 @@ assert.ok(
   "worker entrypoint must import the isolated stop helper directly"
 );
 
+const workerStop = readFileSync("lib/runpod/worker-stop.ts", "utf8");
+assert.ok(
+  !workerStop.includes("worker-control-core"),
+  "worker stop helper must not depend on the shared worker-control core"
+);
+
 console.log("ok");

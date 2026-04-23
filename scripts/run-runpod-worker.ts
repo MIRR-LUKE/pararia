@@ -46,6 +46,12 @@ function readOptionalEnv(name: string) {
   return value ? value : undefined;
 }
 
+function readWorkerTimeoutMs(name: string, fallback: number) {
+  const raw = process.env[name]?.trim();
+  const parsed = Number(raw || fallback);
+  return Number.isFinite(parsed) ? Math.max(1_000, Math.floor(parsed)) : fallback;
+}
+
 function isExternalMode() {
   return process.env.PARARIA_BACKGROUND_MODE?.trim() === "external";
 }
@@ -543,7 +549,13 @@ async function main() {
     conversationLimit,
   });
 
-  const warmInfo = await warmFasterWhisperWorkers()
+  const warmTimeoutMs = readWorkerTimeoutMs("RUNPOD_STT_WARM_TIMEOUT_MS", 10 * 60 * 1000);
+  const warmInfo = await Promise.race([
+    warmFasterWhisperWorkers(),
+    sleep(warmTimeoutMs).then(() => {
+      throw new Error(`faster-whisper warm timed out after ${warmTimeoutMs}ms`);
+    }),
+  ])
     .then((items) => items[0] ?? null)
     .catch((error: any) => {
       console.error("[runpod-worker] stt_warm_failed", error);

@@ -24,7 +24,15 @@ function resolveRemoteWorkerSecret() {
   return secret;
 }
 
+function resolveRemoteWorkerTimeoutMs() {
+  const raw = process.env.RUNPOD_REMOTE_STT_REQUEST_TIMEOUT_MS?.trim();
+  const parsed = Number(raw || 30_000);
+  return Number.isFinite(parsed) ? Math.max(1_000, Math.floor(parsed)) : 30_000;
+}
+
 async function postRemoteWorkerJson<TResponse>(pathname: string, body: Record<string, unknown>) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), resolveRemoteWorkerTimeoutMs());
   const response = await fetch(`${resolveRemoteWorkerBaseUrl()}${pathname}`, {
     method: "POST",
     headers: {
@@ -32,6 +40,9 @@ async function postRemoteWorkerJson<TResponse>(pathname: string, body: Record<st
       "x-maintenance-secret": resolveRemoteWorkerSecret(),
     },
     body: JSON.stringify(body),
+    signal: controller.signal,
+  }).finally(() => {
+    clearTimeout(timeout);
   });
 
   if (!response.ok) {
