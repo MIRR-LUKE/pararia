@@ -101,6 +101,20 @@ async function recordWorkerStartupHeartbeat(input: {
     allowOverwrite: true,
   }).catch(() => {});
 
+  await writeAuditLog({
+    organizationId: null,
+    action: "runpod_worker_bootstrap",
+    targetType: "worker",
+    targetId: payload.podId as string | null,
+    detail: {
+      podId: payload.podId,
+      sessionId: (payload.scope as WorkerScope | undefined)?.sessionId ?? null,
+      conversationId: (payload.scope as WorkerScope | undefined)?.conversationId ?? null,
+      sessionPartLimit: payload.sessionPartLimit,
+      conversationLimit: payload.conversationLimit,
+    },
+  }).catch(() => {});
+
   return payload;
 }
 
