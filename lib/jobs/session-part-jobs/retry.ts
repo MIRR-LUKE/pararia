@@ -28,7 +28,17 @@ function isRecoverablePromotionErrorMessage(error: unknown) {
 function isRecoverableTranscriptionErrorMessage(error: unknown) {
   const message = error instanceof Error ? error.message : String(error ?? "");
   if (isRetryableJobError(message)) return true;
-  return /empty transcript/i.test(message);
+  return /empty transcript|stale remote worker execution/i.test(message);
+}
+
+function resolveRequestedTypes(
+  requested: SessionPartJobType[] | null | undefined,
+  allowed: SessionPartJobType[]
+) {
+  if (!requested || requested.length === 0) {
+    return allowed;
+  }
+  return allowed.filter((type) => requested.includes(type));
 }
 
 export function getSessionPartRecoveryPlan(jobType: SessionPartJobType, error: unknown, attempts: number) {
@@ -81,11 +91,19 @@ async function markPartRecovering(part: RetryableSessionPart, jobType: SessionPa
 }
 
 export async function requeueRecoverableTranscriptionJobs(opts?: ProcessSessionPartJobsOptions) {
+  const transcriptionTypes = resolveRequestedTypes(opts?.types, [
+    SessionPartJobType.TRANSCRIBE_FILE,
+    SessionPartJobType.FINALIZE_LIVE_PART,
+  ]);
+  if (transcriptionTypes.length === 0) {
+    return;
+  }
+
   const failedJobs = await prisma.sessionPartJob.findMany({
     where: {
       status: JobStatus.ERROR,
       type: {
-        in: [SessionPartJobType.TRANSCRIBE_FILE, SessionPartJobType.FINALIZE_LIVE_PART],
+        in: transcriptionTypes,
       },
       attempts: {
         lt: MAX_TRANSCRIPTION_RECOVERY_ATTEMPTS,
@@ -148,10 +166,17 @@ export async function requeueRecoverableTranscriptionJobs(opts?: ProcessSessionP
 }
 
 export async function requeueRecoverablePromotionJobs(opts?: ProcessSessionPartJobsOptions) {
+  const promotionTypes = resolveRequestedTypes(opts?.types, [SessionPartJobType.PROMOTE_SESSION]);
+  if (promotionTypes.length === 0) {
+    return;
+  }
+
   const failedJobs = await prisma.sessionPartJob.findMany({
     where: {
       status: JobStatus.ERROR,
-      type: SessionPartJobType.PROMOTE_SESSION,
+      type: {
+        in: promotionTypes,
+      },
       attempts: {
         lt: MAX_PROMOTION_RECOVERY_ATTEMPTS,
       },

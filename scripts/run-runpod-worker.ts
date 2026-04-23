@@ -3,23 +3,26 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { stopFasterWhisperWorkers, warmFasterWhisperWorkers } from "../lib/ai/stt";
-import { writeAuditLog } from "../lib/audit";
-import { processQueuedJobs } from "../lib/jobs/conversationJobs";
-import { processQueuedSessionPartJobs } from "../lib/jobs/sessionPartJobs";
-import { processQueuedTeacherRecordingJobs } from "../lib/jobs/teacherRecordingJobs";
+import { saveStorageText } from "../lib/audio-storage";
+import { claimRemoteSttTask, pingRemoteSttApi, submitRemoteSttTaskResult } from "../lib/runpod/remote-stt-client";
+import type { RunpodRemoteTaskFailure } from "../lib/runpod/remote-stt-types";
+import { transcribeSessionPartTask } from "../lib/runpod/stt/session-part-task";
+import { transcribeTeacherRecordingTask } from "../lib/runpod/stt/teacher-recording-task";
 import { stopCurrentRunpodPod } from "../lib/runpod/worker-control";
 import { readRunpodWorkerRuntimeMetadata } from "../lib/runpod/runtime-metadata";
-import { saveStorageText } from "../lib/audio-storage";
-import { prisma } from "../lib/db";
-
-type QueueRunResult = {
-  processed: number;
-  errors: string[];
-};
 
 type WorkerScope = {
   sessionId?: string;
   conversationId?: string;
+};
+
+type WorkerTickResult = {
+  processed: number;
+  errors: string[];
+  teacherRecordingProcessed: number;
+  sessionPartProcessed: number;
+  conversationProcessed: number;
+  remoteTaskKind: string | null;
 };
 
 function sleep(ms: number) {
@@ -43,8 +46,12 @@ function readOptionalEnv(name: string) {
   return value ? value : undefined;
 }
 
+function isExternalMode() {
+  return process.env.PARARIA_BACKGROUND_MODE?.trim() === "external";
+}
+
 function getEffectiveConversationLimit(conversationLimit: number) {
-  if (process.env.PARARIA_BACKGROUND_MODE?.trim() === "external") {
+  if (isExternalMode()) {
     return 0;
   }
   return conversationLimit;
@@ -113,6 +120,7 @@ async function recordWorkerStartupHeartbeat(input: {
     activeWaitMs: input.activeWaitMs,
     once: input.once,
     sttWarm: input.sttWarm ?? null,
+    backgroundMode: isExternalMode() ? "external" : "inline",
     ...runtimeMetadata,
   };
 
@@ -122,25 +130,50 @@ async function recordWorkerStartupHeartbeat(input: {
     allowOverwrite: true,
   }).catch(() => {});
 
-  await writeAuditLog({
-    organizationId: null,
-    action: "runpod_worker_bootstrap",
-    targetType: "worker",
-    targetId: payload.podId as string | null,
-    detail: {
-      podId: payload.podId,
-      sessionId: (payload.scope as WorkerScope | undefined)?.sessionId ?? null,
-      conversationId: (payload.scope as WorkerScope | undefined)?.conversationId ?? null,
-      sessionPartLimit: payload.sessionPartLimit,
-      conversationLimit: payload.conversationLimit,
-    },
-  }).catch(() => {});
+  if (!isExternalMode()) {
+    const { writeAuditLog } = await import("../lib/audit");
+    await writeAuditLog({
+      organizationId: null,
+      action: "runpod_worker_bootstrap",
+      targetType: "worker",
+      targetId: payload.podId as string | null,
+      detail: {
+        podId: payload.podId,
+        sessionId: payload.scope.sessionId ?? null,
+        conversationId: payload.scope.conversationId ?? null,
+        sessionPartLimit: payload.sessionPartLimit,
+        conversationLimit: payload.conversationLimit,
+      },
+    }).catch(() => {});
+  }
 
   return payload;
 }
 
 async function recordWorkerReadyHeartbeat(payload: Record<string, unknown>) {
   try {
+    if (isExternalMode()) {
+      await pingRemoteSttApi();
+      await saveStorageText({
+        storagePathname: getWorkerHeartbeatPath("db-ok.json"),
+        text: JSON.stringify(
+          {
+            ...payload,
+            event: "worker_remote_api_ok",
+            checkedAt: new Date().toISOString(),
+          },
+          null,
+          2
+        ),
+        allowOverwrite: true,
+      }).catch(() => {});
+      return;
+    }
+
+    const [{ prisma }, { writeAuditLog }] = await Promise.all([
+      import("../lib/db"),
+      import("../lib/audit"),
+    ]);
     await prisma.$queryRaw`SELECT 1`;
     await writeAuditLog({
       organizationId: null,
@@ -174,7 +207,7 @@ async function recordWorkerReadyHeartbeat(payload: Record<string, unknown>) {
       text: JSON.stringify(
         {
           ...payload,
-          event: "worker_db_error",
+          event: isExternalMode() ? "worker_remote_api_error" : "worker_db_error",
           checkedAt: new Date().toISOString(),
           error: error?.message ?? String(error),
         },
@@ -187,22 +220,33 @@ async function recordWorkerReadyHeartbeat(payload: Record<string, unknown>) {
   }
 }
 
-async function processQueueOnce(
+async function processQueueOnceInline(
   teacherRecordingLimit: number,
   sessionPartLimit: number,
   sessionPartConcurrency: number,
   conversationLimit: number,
   conversationConcurrency: number,
   scope: WorkerScope
-) {
-  const empty: QueueRunResult = { processed: 0, errors: [] };
+): Promise<WorkerTickResult> {
+  const empty = { processed: 0, errors: [] as string[] };
+  const [{ processQueuedJobs }, { processQueuedSessionPartJobs }, { processQueuedTeacherRecordingJobs }] =
+    await Promise.all([
+      import("../lib/jobs/conversationJobs"),
+      import("../lib/jobs/sessionPartJobs"),
+      import("../lib/jobs/teacherRecordingJobs"),
+    ]);
+
   const teacherRecordingJobs =
     teacherRecordingLimit > 0
       ? await processQueuedTeacherRecordingJobs(teacherRecordingLimit)
       : empty;
   const sessionPartJobs =
     sessionPartLimit > 0
-      ? await processQueuedSessionPartJobs(sessionPartLimit, sessionPartConcurrency, scope.sessionId ? { sessionId: scope.sessionId } : undefined)
+      ? await processQueuedSessionPartJobs(
+          sessionPartLimit,
+          sessionPartConcurrency,
+          scope.sessionId ? { sessionId: scope.sessionId } : undefined
+        )
       : empty;
   const conversationJobs =
     conversationLimit > 0
@@ -217,13 +261,126 @@ async function processQueueOnce(
             : undefined
         )
       : empty;
+
   return {
-    teacherRecordingJobs,
-    sessionPartJobs,
-    conversationJobs,
     processed: teacherRecordingJobs.processed + sessionPartJobs.processed + conversationJobs.processed,
     errors: [...teacherRecordingJobs.errors, ...sessionPartJobs.errors, ...conversationJobs.errors],
+    teacherRecordingProcessed: teacherRecordingJobs.processed,
+    sessionPartProcessed: sessionPartJobs.processed,
+    conversationProcessed: conversationJobs.processed,
+    remoteTaskKind: null,
   };
+}
+
+async function processQueueOnceExternal(scope: WorkerScope): Promise<WorkerTickResult> {
+  const claimed = await claimRemoteSttTask({
+    sessionId: scope.sessionId,
+  });
+  const task = claimed.task;
+  if (!task) {
+    return {
+      processed: 0,
+      errors: [],
+      teacherRecordingProcessed: 0,
+      sessionPartProcessed: 0,
+      conversationProcessed: 0,
+      remoteTaskKind: null,
+    };
+  }
+
+  try {
+    if (task.kind === "teacher_recording") {
+      const result = await transcribeTeacherRecordingTask({
+        audioStorageUrl: task.audioStorageUrl,
+        audioFileName: task.audioFileName,
+        audioMimeType: task.audioMimeType,
+      });
+      await submitRemoteSttTaskResult({
+        taskKind: "teacher_recording",
+        jobId: task.jobId,
+        result,
+      });
+      return {
+        processed: 1,
+        errors: [],
+        teacherRecordingProcessed: 1,
+        sessionPartProcessed: 0,
+        conversationProcessed: 0,
+        remoteTaskKind: task.kind,
+      };
+    }
+
+    const result = await transcribeSessionPartTask({
+      id: task.sessionPartId,
+      storageUrl: task.storageUrl,
+      fileName: task.fileName,
+      mimeType: task.mimeType,
+      qualityMetaJson: task.qualityMetaJson,
+      sessionType: task.sessionType as any,
+    });
+    await submitRemoteSttTaskResult({
+      taskKind: "session_part_transcription",
+      jobId: task.jobId,
+      result,
+    });
+    return {
+      processed: 1,
+      errors: [],
+      teacherRecordingProcessed: 0,
+      sessionPartProcessed: 1,
+      conversationProcessed: 0,
+      remoteTaskKind: task.kind,
+    };
+  } catch (error) {
+    const failure: RunpodRemoteTaskFailure = {
+      kind: "error",
+      errorMessage: error instanceof Error ? error.message : String(error ?? "unknown error"),
+    };
+    await submitRemoteSttTaskResult(
+      task.kind === "teacher_recording"
+        ? {
+            taskKind: "teacher_recording",
+            jobId: task.jobId,
+            result: failure,
+          }
+        : {
+            taskKind: "session_part_transcription",
+            jobId: task.jobId,
+            result: failure,
+          }
+    ).catch((submitError) => {
+      console.error("[runpod-worker] failed to submit remote task failure", submitError);
+    });
+    return {
+      processed: 0,
+      errors: [failure.errorMessage],
+      teacherRecordingProcessed: task.kind === "teacher_recording" ? 1 : 0,
+      sessionPartProcessed: task.kind === "session_part_transcription" ? 1 : 0,
+      conversationProcessed: 0,
+      remoteTaskKind: task.kind,
+    };
+  }
+}
+
+async function processQueueOnce(
+  teacherRecordingLimit: number,
+  sessionPartLimit: number,
+  sessionPartConcurrency: number,
+  conversationLimit: number,
+  conversationConcurrency: number,
+  scope: WorkerScope
+) {
+  if (isExternalMode()) {
+    return processQueueOnceExternal(scope);
+  }
+  return processQueueOnceInline(
+    teacherRecordingLimit,
+    sessionPartLimit,
+    sessionPartConcurrency,
+    conversationLimit,
+    conversationConcurrency,
+    scope
+  );
 }
 
 async function stopPodWhenQueuesDrain(
@@ -266,9 +423,9 @@ async function stopPodWhenQueuesDrain(
 
   console.log("[runpod-worker] queues_drained_stop_aborted", {
     processed: confirm.processed,
-    teacherRecordingProcessed: confirm.teacherRecordingJobs.processed,
-    sessionPartProcessed: confirm.sessionPartJobs.processed,
-    conversationProcessed: confirm.conversationJobs.processed,
+    teacherRecordingProcessed: confirm.teacherRecordingProcessed,
+    sessionPartProcessed: confirm.sessionPartProcessed,
+    conversationProcessed: confirm.conversationProcessed,
     errorCount: confirm.errors.length,
   });
   return {
@@ -283,7 +440,11 @@ async function main() {
     "LOCAL_GPU_WORKER_TEACHER_RECORDING_LIMIT",
     4
   );
-  const sessionPartLimit = readNonNegativeIntEnvWithLegacy("RUNPOD_WORKER_SESSION_PART_LIMIT", "LOCAL_GPU_WORKER_SESSION_PART_LIMIT", 8);
+  const sessionPartLimit = readNonNegativeIntEnvWithLegacy(
+    "RUNPOD_WORKER_SESSION_PART_LIMIT",
+    "LOCAL_GPU_WORKER_SESSION_PART_LIMIT",
+    8
+  );
   const sessionPartConcurrency = readIntEnvWithLegacy(
     "RUNPOD_WORKER_SESSION_PART_CONCURRENCY",
     "LOCAL_GPU_WORKER_SESSION_PART_CONCURRENCY",
@@ -333,6 +494,7 @@ async function main() {
 
   console.log("[runpod-worker] started", {
     mode: getConversationWorkerMode(conversationLimit),
+    backgroundMode: isExternalMode() ? "external" : "inline",
     teacherRecordingLimit,
     sessionPartLimit,
     sessionPartConcurrency,
@@ -345,8 +507,8 @@ async function main() {
     once,
   });
 
-  if (process.env.PARARIA_BACKGROUND_MODE?.trim() === "external") {
-    console.warn("[runpod-worker] external mode forces STT-only execution on Runpod.");
+  if (isExternalMode()) {
+    console.warn("[runpod-worker] external mode uses remote claim/submit and stays STT-only.");
   }
 
   await writeLocalHealth("worker_process_started", {
@@ -432,10 +594,11 @@ async function main() {
       lastActiveAt = Date.now();
       console.log("[runpod-worker] tick", {
         processed: tick.processed,
-        teacherRecordingProcessed: tick.teacherRecordingJobs.processed,
-        sessionPartProcessed: tick.sessionPartJobs.processed,
-        conversationProcessed: tick.conversationJobs.processed,
+        teacherRecordingProcessed: tick.teacherRecordingProcessed,
+        sessionPartProcessed: tick.sessionPartProcessed,
+        conversationProcessed: tick.conversationProcessed,
         errorCount: tick.errors.length,
+        remoteTaskKind: tick.remoteTaskKind,
       });
     }
 
@@ -460,7 +623,12 @@ async function main() {
 
     if (once) break;
 
-    if (autoStopIdleMs > 0 && tick.processed === 0 && tick.errors.length === 0 && Date.now() - lastActiveAt >= autoStopIdleMs) {
+    if (
+      autoStopIdleMs > 0 &&
+      tick.processed === 0 &&
+      tick.errors.length === 0 &&
+      Date.now() - lastActiveAt >= autoStopIdleMs
+    ) {
       const confirm = await processQueueOnce(
         teacherRecordingLimit,
         sessionPartLimit,
@@ -495,9 +663,9 @@ async function main() {
       lastActiveAt = Date.now();
       console.log("[runpod-worker] idle_auto_stop_aborted", {
         processed: confirm.processed,
-        teacherRecordingProcessed: confirm.teacherRecordingJobs.processed,
-        sessionPartProcessed: confirm.sessionPartJobs.processed,
-        conversationProcessed: confirm.conversationJobs.processed,
+        teacherRecordingProcessed: confirm.teacherRecordingProcessed,
+        sessionPartProcessed: confirm.sessionPartProcessed,
+        conversationProcessed: confirm.conversationProcessed,
         errorCount: confirm.errors.length,
       });
       continue;

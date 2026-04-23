@@ -265,10 +265,7 @@ export function buildRunpodWorkerEnv(autoStopIdleMs: number, workerImageOverride
   const workerImage = workerImageOverride?.trim() || resolveDefaultWorkerImage();
   const env = {
     RUNPOD_API_KEY: readRequiredEnv("RUNPOD_API_KEY"),
-    DATABASE_URL: readRequiredEnv("DATABASE_URL"),
-    DIRECT_URL: readRequiredEnv("DIRECT_URL"),
     BLOB_READ_WRITE_TOKEN: readRequiredEnv("BLOB_READ_WRITE_TOKEN"),
-    OPENAI_API_KEY: readRequiredEnv("OPENAI_API_KEY"),
     PARARIA_BACKGROUND_MODE: readStringEnv("PARARIA_BACKGROUND_MODE", "external") || "external",
     PARARIA_AUDIO_STORAGE_MODE: readStringEnv("PARARIA_AUDIO_STORAGE_MODE", "blob") || "blob",
     PARARIA_AUDIO_BLOB_ACCESS: readStringEnv("PARARIA_AUDIO_BLOB_ACCESS", "private") || "private",
@@ -277,12 +274,6 @@ export function buildRunpodWorkerEnv(autoStopIdleMs: number, workerImageOverride
     MAINTENANCE_SECRET: readStringEnv("MAINTENANCE_SECRET", ""),
     CRON_SECRET: readStringEnv("CRON_SECRET", ""),
     MAINTENANCE_CRON_SECRET: readStringEnv("MAINTENANCE_CRON_SECRET", ""),
-    LLM_MODEL: readStringEnv("LLM_MODEL", "gpt-5.4"),
-    LLM_MODEL_FAST: readStringEnv("LLM_MODEL_FAST", "gpt-5.4"),
-    LLM_MODEL_REPORT: readStringEnv("LLM_MODEL_REPORT", "gpt-5.4"),
-    LLM_CALL_TIMEOUT_MS: readStringEnv("LLM_CALL_TIMEOUT_MS", "90000"),
-    JOB_CONCURRENCY: "1",
-    SESSION_PART_JOB_CONCURRENCY: "1",
     FASTER_WHISPER_MODEL: readStringEnv("FASTER_WHISPER_MODEL", DEFAULT_FASTER_WHISPER_MODEL),
     FASTER_WHISPER_REQUIRE_CUDA: readStringEnv("FASTER_WHISPER_REQUIRE_CUDA", "1"),
     FASTER_WHISPER_DEVICE: readStringEnv("FASTER_WHISPER_DEVICE", "auto"),
@@ -337,7 +328,6 @@ export function buildRunpodWorkerEnv(autoStopIdleMs: number, workerImageOverride
     ),
     RUNPOD_WORKER_AUTO_STOP_IDLE_MS: String(autoStopIdleMs),
     RUNPOD_WORKER_ONLY_SESSION_ID: readStringEnv("RUNPOD_WORKER_ONLY_SESSION_ID", ""),
-    RUNPOD_WORKER_ONLY_CONVERSATION_ID: readStringEnv("RUNPOD_WORKER_ONLY_CONVERSATION_ID", ""),
     ...buildRunpodWorkerRuntimeEnv(workerImage),
   } satisfies Record<string, string>;
 

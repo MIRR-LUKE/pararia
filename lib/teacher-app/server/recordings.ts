@@ -6,12 +6,13 @@ import {
   TeacherRecordingSessionStatus,
 } from "@prisma/client";
 import { prisma } from "@/lib/db";
-import { saveStorageBuffer, materializeStorageFile } from "@/lib/audio-storage";
+import { saveStorageBuffer } from "@/lib/audio-storage";
 import { buildTeacherRecordingUploadPathname, sanitizeStorageFileName } from "@/lib/audio-storage-paths";
 import { toPrismaJson } from "@/lib/prisma-json";
-import { transcribeAudioForPipeline } from "@/lib/ai/stt";
 import { processAllSessionPartJobs } from "@/lib/jobs/sessionPartJobs";
 import { evaluateTranscriptSubstance } from "@/lib/recording/validation";
+import { maybeStopRunpodWorkerWhenGpuQueuesIdle } from "@/lib/runpod/idle-stop";
+import { transcribeTeacherRecordingTask, type TeacherRecordingTranscriptionResult } from "@/lib/runpod/stt/teacher-recording-task";
 import { updateSessionStatusFromParts } from "@/lib/session-service";
 import { ensureSessionPartReviewedTranscript } from "@/lib/transcript/review-service";
 import { preprocessTranscript } from "@/lib/transcript/preprocess";
@@ -538,7 +539,7 @@ export async function confirmTeacherRecordingStudent(input: {
   } satisfies TeacherRecordingConfirmationResult;
 }
 
-async function acquireTeacherRecordingLease(recordingId: string, executionId: string) {
+export async function acquireTeacherRecordingLease(recordingId: string, executionId: string) {
   const now = new Date();
   const leaseExpiresAt = new Date(now.getTime() + TEACHER_RECORDING_LEASE_MS);
   const claimed = await prisma.teacherRecordingSession.updateMany({
@@ -574,7 +575,7 @@ async function renewTeacherRecordingLease(recordingId: string, executionId: stri
   });
 }
 
-async function releaseTeacherRecordingLease(recordingId: string, executionId: string) {
+export async function releaseTeacherRecordingLease(recordingId: string, executionId: string) {
   await prisma.teacherRecordingSession.updateMany({
     where: {
       id: recordingId,
@@ -585,6 +586,46 @@ async function releaseTeacherRecordingLease(recordingId: string, executionId: st
       processingLeaseStartedAt: null,
       processingLeaseHeartbeatAt: null,
       processingLeaseExpiresAt: null,
+    },
+  });
+}
+
+export async function applyTeacherRecordingTranscriptionResult(input: {
+  recordingId: string;
+  organizationId: string;
+  result: TeacherRecordingTranscriptionResult;
+}) {
+  const students = await prisma.student.findMany({
+    where: {
+      organizationId: input.organizationId,
+      archivedAt: null,
+    },
+    orderBy: [{ updatedAt: "desc" }, { createdAt: "desc" }],
+    select: {
+      id: true,
+      name: true,
+      nameKana: true,
+      grade: true,
+      course: true,
+    },
+    take: 500,
+  });
+
+  const candidates = buildTeacherStudentCandidates({
+    transcriptText: input.result.transcriptText,
+    students,
+  });
+
+  await prisma.teacherRecordingSession.update({
+    where: { id: input.recordingId },
+    data: {
+      status: TeacherRecordingSessionStatus.AWAITING_STUDENT_CONFIRMATION,
+      transcriptText: input.result.transcriptText,
+      transcriptSegmentsJson: toPrismaJson(input.result.segments),
+      transcriptMetaJson: toPrismaJson(input.result.meta),
+      suggestedStudentsJson: toPrismaJson(candidates),
+      analyzedAt: new Date(),
+      errorMessage: null,
     },
   });
 }
@@ -617,55 +658,16 @@ export async function runTeacherRecordingAnalysis(recordingId: string) {
 
   try {
     await renewTeacherRecordingLease(recording.id, executionId);
-    const materialized = await materializeStorageFile(recording.audioStorageUrl, {
-      fileName: recording.audioFileName,
+    const result = await transcribeTeacherRecordingTask({
+      audioStorageUrl: recording.audioStorageUrl,
+      audioFileName: recording.audioFileName,
+      audioMimeType: recording.audioMimeType,
     });
-    try {
-      const stt = await transcribeAudioForPipeline({
-        filePath: materialized.filePath,
-        filename: recording.audioFileName,
-        mimeType: recording.audioMimeType || "audio/webm",
-      });
-      const transcriptText = normalizeRawTranscriptText(stt.rawTextOriginal);
-      if (!transcriptText) {
-        throw new Error("文字起こし結果が空でした。");
-      }
-
-      const students = await prisma.student.findMany({
-        where: {
-          organizationId: recording.organizationId,
-          archivedAt: null,
-        },
-        orderBy: [{ updatedAt: "desc" }, { createdAt: "desc" }],
-        select: {
-          id: true,
-          name: true,
-          nameKana: true,
-          grade: true,
-          course: true,
-        },
-        take: 500,
-      });
-      const candidates = buildTeacherStudentCandidates({
-        transcriptText,
-        students,
-      });
-
-      await prisma.teacherRecordingSession.update({
-        where: { id: recording.id },
-        data: {
-          status: TeacherRecordingSessionStatus.AWAITING_STUDENT_CONFIRMATION,
-          transcriptText,
-          transcriptSegmentsJson: toPrismaJson(stt.segments),
-          transcriptMetaJson: toPrismaJson(stt.meta),
-          suggestedStudentsJson: toPrismaJson(candidates),
-          analyzedAt: new Date(),
-          errorMessage: null,
-        },
-      });
-    } finally {
-      await materialized.cleanup();
-    }
+    await applyTeacherRecordingTranscriptionResult({
+      recordingId: recording.id,
+      organizationId: recording.organizationId,
+      result,
+    });
 
     return loadTeacherRecordingSummary({
       organizationId: recording.organizationId,
@@ -674,5 +676,6 @@ export async function runTeacherRecordingAnalysis(recordingId: string) {
     });
   } finally {
     await releaseTeacherRecordingLease(recording.id, executionId);
+    await maybeStopRunpodWorkerWhenGpuQueuesIdle().catch(() => {});
   }
 }

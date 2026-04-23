@@ -9,7 +9,6 @@ import { toPrismaJson } from "@/lib/prisma-json";
 import { getRecordingMaxDurationSeconds } from "@/lib/recording/validation";
 import { enqueueSessionPartJob, processAllSessionPartJobs } from "@/lib/jobs/sessionPartJobs";
 import { shouldRunBackgroundJobsInline } from "@/lib/jobs/execution-mode";
-import { maybeEnsureRunpodWorker } from "@/lib/runpod/worker-control";
 import { runAfterResponse } from "@/lib/server/after-response";
 import { getAudioExpiryDate } from "@/lib/system-config";
 import { isLiveChunkUploadEnabled } from "@/lib/recording/live-chunk-upload";
@@ -18,6 +17,12 @@ import type {
   LiveFinalizeSubmissionBody,
   SessionPartAccessContext,
 } from "./session-part-route-common";
+
+type LiveSessionPartDispatchDeps = {
+  enqueueSessionPartJob?: typeof enqueueSessionPartJob;
+  processAllSessionPartJobs?: typeof processAllSessionPartJobs;
+  shouldRunBackgroundJobsInline?: typeof shouldRunBackgroundJobsInline;
+};
 
 async function verifyLockOrThrow(access: SessionPartAccessContext, plainToken: string) {
   if (!plainToken) {
@@ -35,25 +40,31 @@ async function verifyLockOrThrow(access: SessionPartAccessContext, plainToken: s
   }
 }
 
-async function dispatchLiveSessionPartJobs(sessionId: string, partId: string) {
-  await enqueueSessionPartJob(partId, SessionPartJobType.FINALIZE_LIVE_PART);
+export async function dispatchLiveSessionPartJobs(
+  sessionId: string,
+  partId: string,
+  deps: LiveSessionPartDispatchDeps = {}
+) {
+  const enqueue = deps.enqueueSessionPartJob ?? enqueueSessionPartJob;
+  const processQueuedSessionPartJobs = deps.processAllSessionPartJobs ?? processAllSessionPartJobs;
+  const runInlineBackgroundJobs =
+    deps.shouldRunBackgroundJobsInline ?? shouldRunBackgroundJobsInline;
 
-  if (shouldRunBackgroundJobsInline()) {
-    void processAllSessionPartJobs(sessionId).catch((error) => {
+  await enqueue(partId, SessionPartJobType.FINALIZE_LIVE_PART);
+
+  if (runInlineBackgroundJobs()) {
+    void processQueuedSessionPartJobs(sessionId).catch((error) => {
       console.error("[POST /api/sessions/[id]/parts/live] Background session part processing failed:", error);
     });
   } else {
     runAfterResponse(async () => {
-      await maybeEnsureRunpodWorker()
-        .then((workerWake) => {
-        if (workerWake?.attempted && !workerWake.ok) {
-          console.error("[POST /api/sessions/[id]/parts/live] Runpod worker wake failed:", workerWake);
-        }
-        })
+      await processQueuedSessionPartJobs(sessionId, {
+        types: [SessionPartJobType.FINALIZE_LIVE_PART, SessionPartJobType.PROMOTE_SESSION],
+      })
         .catch((error) => {
-          console.error("[POST /api/sessions/[id]/parts/live] Runpod worker wake threw:", error);
+          console.error("[POST /api/sessions/[id]/parts/live] Deferred live session part processing failed:", error);
         });
-    }, "POST /api/sessions/[id]/parts/live wake runpod");
+    }, "POST /api/sessions/[id]/parts/live process on app");
   }
 
   return null;

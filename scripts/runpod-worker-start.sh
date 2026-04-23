@@ -58,13 +58,22 @@ if [[ ! -f "${worker_script}" ]]; then
 fi
 
 required_envs=(
-  DATABASE_URL
-  DIRECT_URL
+  RUNPOD_API_KEY
   BLOB_READ_WRITE_TOKEN
-  OPENAI_API_KEY
 )
 
 missing=0
+
+if [[ -z "${NEXT_PUBLIC_APP_URL:-}" && -z "${NEXTAUTH_URL:-}" ]]; then
+  echo "[runpod-worker] missing required env: NEXT_PUBLIC_APP_URL or NEXTAUTH_URL" >&2
+  missing=1
+fi
+
+if [[ -z "${MAINTENANCE_SECRET:-}" && -z "${CRON_SECRET:-}" && -z "${MAINTENANCE_CRON_SECRET:-}" ]]; then
+  echo "[runpod-worker] missing required env: MAINTENANCE_SECRET or CRON_SECRET or MAINTENANCE_CRON_SECRET" >&2
+  missing=1
+fi
+
 for name in "${required_envs[@]}"; do
   if [[ -z "${!name:-}" ]]; then
     echo "[runpod-worker] missing required env: ${name}" >&2

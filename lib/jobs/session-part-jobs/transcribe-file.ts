@@ -1,262 +1,29 @@
-import { JobStatus, SessionType } from "@prisma/client";
-import { rm } from "node:fs/promises";
-import { transcribeAudioForPipeline } from "@/lib/ai/stt";
-import { getAudioDurationSeconds, normalizeAudioForStt } from "@/lib/audio-processing";
-import { materializeStorageFile } from "@/lib/audio-storage";
+import { JobStatus } from "@prisma/client";
 import { prisma } from "@/lib/db";
-import { evaluateDurationGate, evaluateTranscriptSubstance, getRecordingMaxDurationSeconds } from "@/lib/recording/validation";
 import { maybeStopRunpodWorkerWhenSessionPartQueueIdle } from "@/lib/runpod/idle-stop";
-import { readRunpodWorkerRuntimeMetadata } from "@/lib/runpod/runtime-metadata";
-import { preprocessTranscript, preprocessTranscriptWithSegments } from "@/lib/transcript/preprocess";
 import { ensureSessionPartReviewedTranscript } from "@/lib/transcript/review";
 import { toPrismaJson } from "@/lib/prisma-json";
-import { enqueuePromotionJob, isUnsupportedAudioError, markPartReady, markPartRejected, type SessionPartJobPayload, type SessionPartPayload } from "./shared";
+import {
+  transcribeSessionPartTask,
+  type SessionPartTranscriptionResult,
+} from "@/lib/runpod/stt/session-part-task";
+import { enqueuePromotionJob, markPartReady, markPartRejected, type SessionPartJobPayload, type SessionPartPayload } from "./shared";
 
-async function transcribeStoredFile(part: SessionPartPayload) {
-  if (!part.storageUrl) {
-    throw new Error("session part storage is missing");
-  }
+export async function applySessionPartTranscriptionOutcome(input: {
+  job: SessionPartJobPayload;
+  part: SessionPartPayload;
+  outcome: SessionPartTranscriptionResult;
+}) {
+  const { job, part, outcome } = input;
 
-  const startedAt = Date.now();
-  let firstTranscribeStartedAt: number | null = null;
-  let totalTranscribeMs = 0;
-  let localAudio: Awaited<ReturnType<typeof materializeStorageFile>> | null = null;
-  let liveMeta =
-    part.qualityMetaJson && typeof part.qualityMetaJson === "object" && !Array.isArray(part.qualityMetaJson)
-      ? ({ ...part.qualityMetaJson } as Record<string, unknown>)
-      : {};
-  liveMeta = {
-    ...liveMeta,
-    ...readRunpodWorkerRuntimeMetadata(),
-    transcriptionPhase: "PREPARING_STT",
-    transcriptionPhaseUpdatedAt: new Date().toISOString(),
-    sttEngine: "faster-whisper",
-  };
-  let metaPersistChain = Promise.resolve();
-  const queueMetaPatch = (patch: Record<string, unknown>) => {
-    liveMeta = {
-      ...liveMeta,
-      ...patch,
-    };
-    const snapshot = { ...liveMeta };
-    metaPersistChain = metaPersistChain
-      .then(async () => {
-        await prisma.sessionPart.update({
-          where: { id: part.id },
-          data: {
-            qualityMetaJson: toPrismaJson(snapshot),
-          },
-        });
-      })
-      .catch((error) => {
-        console.error("[sessionPartJobs] Failed to persist transcription progress meta:", error);
-      });
-    return metaPersistChain;
-  };
-
-  await queueMetaPatch({});
-
-  let stt: Awaited<ReturnType<typeof transcribeAudioForPipeline>> | null = null;
-  let normalizedRetryUsed = false;
-  let measuredDurationSeconds: number | null = null;
-  const uploadedDurationSecondsRaw =
-    typeof part.qualityMetaJson?.audioDurationSeconds === "number"
-      ? part.qualityMetaJson.audioDurationSeconds
-      : Number(part.qualityMetaJson?.audioDurationSeconds ?? NaN);
-  const uploadedDurationSeconds =
-    Number.isFinite(uploadedDurationSecondsRaw) && uploadedDurationSecondsRaw > 0
-      ? uploadedDurationSecondsRaw
-      : null;
-  try {
-    localAudio = await materializeStorageFile(part.storageUrl, {
-      fileName: part.fileName,
-    });
-    const parsedDurationSeconds = await getAudioDurationSeconds(localAudio.filePath).catch(() => 0);
-    measuredDurationSeconds =
-      parsedDurationSeconds > 0 && uploadedDurationSeconds !== null
-        ? Math.max(parsedDurationSeconds, uploadedDurationSeconds)
-        : parsedDurationSeconds > 0
-          ? parsedDurationSeconds
-          : uploadedDurationSeconds;
-    const maxDurationSeconds = getRecordingMaxDurationSeconds(part.sessionType);
-    const durationGate = evaluateDurationGate(measuredDurationSeconds, {
-      maxSeconds: maxDurationSeconds,
-      rejectUnknown: true,
-      tooLongMessageJa:
-        part.sessionType === SessionType.LESSON_REPORT
-          ? "指導報告のチェックイン / チェックアウト音声は1回10分までです。音声を分割して保存してください。"
-          : "面談音声は1回60分までです。音声を分割して保存してください。",
-      unknownMessageJa:
-        part.sessionType === SessionType.LESSON_REPORT
-          ? "指導報告音声の長さを確認できませんでした。10分以内のファイルを選び直してください。"
-          : "面談音声の長さを確認できませんでした。60分以内のファイルを選び直してください。",
-    });
-    if (!durationGate.ok) {
-      const gateError = new Error(durationGate.messageJa) as Error & {
-        durationGate?: typeof durationGate;
-      };
-      gateError.durationGate = durationGate;
-      throw gateError;
-    }
-
-    await queueMetaPatch({
-      transcriptionPhase: "TRANSCRIBING_EXTERNAL",
-      transcriptionPhaseUpdatedAt: new Date().toISOString(),
-    });
-    firstTranscribeStartedAt ??= Date.now();
-    const transcribeStartedAt = Date.now();
-    stt = await transcribeAudioForPipeline({
-      filePath: localAudio.filePath,
-      filename: part.fileName || "audio.webm",
-      mimeType: part.mimeType || "audio/webm",
-      language: "ja",
-    });
-    totalTranscribeMs += Date.now() - transcribeStartedAt;
-  } catch (error) {
-    if (!isUnsupportedAudioError(error)) throw error;
-    if (!localAudio) throw error;
-    const normalizedPath = `${localAudio.filePath}.stt-normalized.m4a`;
-    try {
-      await normalizeAudioForStt(localAudio.filePath, normalizedPath);
-      await queueMetaPatch({
-        transcriptionPhase: "TRANSCRIBING_EXTERNAL",
-        transcriptionPhaseUpdatedAt: new Date().toISOString(),
-      });
-      firstTranscribeStartedAt ??= Date.now();
-      const transcribeStartedAt = Date.now();
-      stt = await transcribeAudioForPipeline({
-        filePath: normalizedPath,
-        filename: "audio-normalized.m4a",
-        mimeType: "audio/mp4",
-        language: "ja",
-      });
-      totalTranscribeMs += Date.now() - transcribeStartedAt;
-      normalizedRetryUsed = true;
-    } finally {
-      await rm(normalizedPath, { force: true }).catch(() => {});
-    }
-  } finally {
-    await localAudio?.cleanup().catch(() => {});
-    await metaPersistChain;
-  }
-
-  if (!stt) {
-    throw new Error("faster-whisper transcription did not return a result");
-  }
-
-  const finalizeStartedAt = Date.now();
-  const pre =
-    stt.segments.length > 0
-      ? preprocessTranscriptWithSegments(stt.rawTextOriginal, stt.segments ?? [])
-      : preprocessTranscript(stt.rawTextOriginal);
-  const prepareMs =
-    typeof firstTranscribeStartedAt === "number"
-      ? Math.max(0, firstTranscribeStartedAt - startedAt)
-      : null;
-  await queueMetaPatch({
-    transcriptionPhase: "FINALIZING_TRANSCRIPT",
-    transcriptionPhaseUpdatedAt: new Date().toISOString(),
-  });
-  await metaPersistChain;
-  const finishedAt = Date.now();
-  const sttTotalMs = Math.max(0, finishedAt - startedAt);
-  const finalizePhaseMs = Math.max(0, finishedAt - finalizeStartedAt);
-
-  return {
-    pre,
-    segments: stt.segments ?? [],
-    qualityMeta: {
-      ...(part.qualityMetaJson ?? {}),
-      sttSeconds: Math.round(sttTotalMs / 1000),
-      sttTotalMs,
-      sttPrepareMs: prepareMs,
-      sttTranscribeMs: totalTranscribeMs,
-      sttFinalizeMs: finalizePhaseMs,
-      sttTranscribeWorkerMs: stt.meta.transcribeElapsedMs,
-      sttVadParameters: stt.meta.vadParameters,
-      sttModel: stt.meta.model,
-      sttResponseFormat: stt.meta.responseFormat,
-      sttDevice: stt.meta.device,
-      sttComputeType: stt.meta.computeType,
-      sttPipeline: stt.meta.pipeline,
-      sttBatchSize: stt.meta.batchSize,
-      sttGpuName: stt.meta.gpuName,
-      sttGpuComputeCapability: stt.meta.gpuComputeCapability,
-      sttGpuSnapshotBefore: stt.meta.gpuSnapshotBefore,
-      sttGpuSnapshotAfter: stt.meta.gpuSnapshotAfter,
-      sttGpuMonitor: stt.meta.gpuMonitor,
-      sttRecoveryUsed: stt.meta.recoveryUsed,
-      sttFallbackUsed: stt.meta.fallbackUsed,
-      sttAttemptCount: stt.meta.attemptCount,
-      sttSegmentCount: stt.meta.segmentCount,
-      sttSpeakerCount: stt.meta.speakerCount,
-      sttQualityWarnings: stt.meta.qualityWarnings,
-      sttNormalizedRetryUsed: normalizedRetryUsed,
-      audioDurationSeconds: measuredDurationSeconds,
-      transcriptionPhase: "FINALIZING_TRANSCRIPT",
-      sttEngine: "faster-whisper",
-      ...readRunpodWorkerRuntimeMetadata(),
-    },
-  };
-}
-
-export async function executeTranscribeFileJob(job: SessionPartJobPayload, part: SessionPartPayload) {
-  let transcription;
-  try {
-    transcription = await transcribeStoredFile(part);
-  } catch (error: any) {
-    if (error?.durationGate && !error.durationGate.ok) {
-      await markPartRejected(part, error.durationGate.messageJa, {
-        validationRejection: {
-          code: error.durationGate.code,
-          messageJa: error.durationGate.messageJa,
-          durationSeconds: error.durationGate.durationSeconds,
-          maxAllowedSeconds: "maxAllowedSeconds" in error.durationGate ? error.durationGate.maxAllowedSeconds : undefined,
-          at: new Date().toISOString(),
-        },
-      });
-      await prisma.sessionPartJob.update({
-        where: { id: job.id },
-        data: {
-          status: JobStatus.DONE,
-          finishedAt: new Date(),
-          outputJson: toPrismaJson({
-            rejected: true,
-            code: error.durationGate.code,
-          }),
-        },
-      });
-      await maybeStopRunpodWorkerWhenSessionPartQueueIdle().catch((stopError) => {
-        console.warn("[sessionPartJobs] failed to stop Runpod worker after duration rejection", stopError);
-      });
-      return;
-    }
-    throw error;
-  }
-
-  const { pre, segments, qualityMeta } = transcription;
-
-  const substance = evaluateTranscriptSubstance(pre.displayTranscript || pre.rawTextOriginal);
-
-  if (!substance.ok) {
-    await markPartRejected(part, substance.messageJa, {
-      ...qualityMeta,
-      validationRejection: {
-        code: substance.code,
-        messageJa: substance.messageJa,
-        metrics: substance.metrics,
-        at: new Date().toISOString(),
-      },
-    });
+  if (outcome.kind === "rejected") {
+    await markPartRejected(part, outcome.messageJa, outcome.qualityMeta);
     await prisma.sessionPartJob.update({
       where: { id: job.id },
       data: {
         status: JobStatus.DONE,
         finishedAt: new Date(),
-        outputJson: toPrismaJson({
-          rejected: true,
-          code: substance.code,
-        }),
+        outputJson: toPrismaJson(outcome.outputJson),
       },
     });
     await maybeStopRunpodWorkerWhenSessionPartQueueIdle().catch((stopError) => {
@@ -267,10 +34,10 @@ export async function executeTranscribeFileJob(job: SessionPartJobPayload, part:
 
   await markPartReady({
     part,
-    rawTextOriginal: pre.rawTextOriginal,
-    rawTextCleaned: pre.displayTranscript,
-    rawSegments: segments,
-    qualityMeta,
+    rawTextOriginal: outcome.rawTextOriginal,
+    rawTextCleaned: outcome.rawTextCleaned,
+    rawSegments: outcome.rawSegments,
+    qualityMeta: outcome.qualityMeta,
   });
   await ensureSessionPartReviewedTranscript(part.id);
   await enqueuePromotionJob(part.id);
@@ -280,15 +47,28 @@ export async function executeTranscribeFileJob(job: SessionPartJobPayload, part:
     data: {
       status: JobStatus.DONE,
       finishedAt: new Date(),
-      outputJson: toPrismaJson({
-        rawLength: pre.rawTextOriginal.length,
-        displayLength: pre.displayTranscript.length,
-        segmentCount: segments.length,
-        sttEngine: qualityMeta.sttEngine ?? "faster-whisper",
-      }),
-      costMetaJson: toPrismaJson({
-        seconds: Number(qualityMeta.sttSeconds ?? 0),
-      }),
+      outputJson: toPrismaJson(outcome.outputJson),
+      costMetaJson: toPrismaJson(outcome.costMetaJson),
     },
+  });
+}
+
+export async function executeTranscribeFileJob(job: SessionPartJobPayload, part: SessionPartPayload) {
+  if (!part.storageUrl) {
+    throw new Error("session part storage is missing");
+  }
+
+  const outcome = await transcribeSessionPartTask({
+    id: part.id,
+    storageUrl: part.storageUrl,
+    fileName: part.fileName,
+    mimeType: part.mimeType,
+    qualityMetaJson: part.qualityMetaJson,
+    sessionType: part.sessionType,
+  });
+  await applySessionPartTranscriptionOutcome({
+    job,
+    part,
+    outcome,
   });
 }

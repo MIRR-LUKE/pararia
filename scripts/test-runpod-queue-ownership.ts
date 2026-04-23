@@ -35,6 +35,8 @@ try {
   process.env.DIRECT_URL = "postgresql://direct";
   process.env.BLOB_READ_WRITE_TOKEN = "blob";
   process.env.OPENAI_API_KEY = "sk-test";
+  process.env.NEXTAUTH_URL = "https://pararia.example.com";
+  process.env.MAINTENANCE_SECRET = "maintenance-secret";
   process.env.JOB_CONCURRENCY = "9";
   process.env.SESSION_PART_JOB_CONCURRENCY = "7";
   process.env.FASTER_WHISPER_BATCH_SIZE = "32";
@@ -52,9 +54,14 @@ try {
   assert.equal(env.RUNPOD_WORKER_IMAGE, "ghcr.io/mirr-luke/pararia-runpod-worker:sha-abc123");
   assert.equal(env.RUNPOD_WORKER_GIT_SHA, "abc123");
   assert.equal(env.RUNPOD_WORKER_RUNTIME_REVISION, "git-abc123");
-  assert.equal(env.JOB_CONCURRENCY, "1");
-  assert.equal(env.SESSION_PART_JOB_CONCURRENCY, "1");
   assert.equal(env.FASTER_WHISPER_BATCH_SIZE, "1");
+  assert.equal(env.NEXTAUTH_URL, "https://pararia.example.com");
+  assert.equal(env.MAINTENANCE_SECRET, "maintenance-secret");
+  assert.equal(env.DATABASE_URL, undefined);
+  assert.equal(env.DIRECT_URL, undefined);
+  assert.equal(env.OPENAI_API_KEY, undefined);
+  assert.equal(env.JOB_CONCURRENCY, undefined);
+  assert.equal(env.SESSION_PART_JOB_CONCURRENCY, undefined);
   assert.equal(
     getRunpodWorkerConfig()?.image,
     "ghcr.io/mirr-luke/pararia-runpod-worker:sha-abc123"

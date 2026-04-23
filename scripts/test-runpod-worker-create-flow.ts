@@ -16,6 +16,8 @@ try {
   process.env.DIRECT_URL = "postgresql://direct";
   process.env.BLOB_READ_WRITE_TOKEN = "blob";
   process.env.OPENAI_API_KEY = "sk-test";
+  process.env.NEXTAUTH_URL = "https://pararia.example.com";
+  process.env.MAINTENANCE_SECRET = "maintenance-secret";
   process.env.RUNPOD_WORKER_IMAGE = "ghcr.io/mirr-luke/pararia-runpod-worker:sha-abcdef1";
   delete process.env.RUNPOD_WORKER_GPU_CANDIDATES;
   delete process.env.RUNPOD_WORKER_GPU;
@@ -80,6 +82,11 @@ try {
   assert.equal(patchCall.body?.env?.FASTER_WHISPER_DOWNLOAD_ROOT, "/opt/faster-whisper-cache");
   assert.equal(patchCall.body?.env?.RUNPOD_WORKER_CONVERSATION_LIMIT, "0");
   assert.equal(patchCall.body?.env?.RUNPOD_WORKER_RUNTIME_REVISION, "git-abcdef1");
+  assert.equal(patchCall.body?.env?.NEXTAUTH_URL, "https://pararia.example.com");
+  assert.equal(patchCall.body?.env?.MAINTENANCE_SECRET, "maintenance-secret");
+  assert.equal(patchCall.body?.env?.DATABASE_URL, undefined);
+  assert.equal(patchCall.body?.env?.DIRECT_URL, undefined);
+  assert.equal(patchCall.body?.env?.OPENAI_API_KEY, undefined);
 
   console.log("runpod worker create flow regression checks passed");
 } finally {

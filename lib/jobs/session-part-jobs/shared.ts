@@ -44,6 +44,7 @@ export type SessionPartRecoveryPayload = {
 
 export type ProcessSessionPartJobsOptions = {
   sessionId?: string;
+  types?: SessionPartJobType[];
 };
 
 export function isUnsupportedAudioError(error: unknown) {
