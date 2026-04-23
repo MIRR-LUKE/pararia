@@ -2,4 +2,6 @@ export type { RunpodPod, RunpodPodLike, RunpodWorkerConfig, RunpodWorkerEnsureRe
 
 export { buildRunpodWorkerEnv, getManagedRunpodPods, getRunpodPodById, getRunpodPodsByName, getRunpodWorkerConfig, listRunpodPods } from "./worker-control-core";
 
-export { maybeEnsureRunpodWorker, requireRunpodWorkerConfig, createRunpodWorkerPod, stopCurrentRunpodPod, stopManagedRunpodWorker, terminateManagedRunpodWorker, ensureRunpodWorker } from "./worker-control-ops";
+export { stopCurrentRunpodPod } from "./worker-stop";
+
+export { maybeEnsureRunpodWorker, requireRunpodWorkerConfig, createRunpodWorkerPod, stopManagedRunpodWorker, terminateManagedRunpodWorker, ensureRunpodWorker } from "./worker-control-ops";

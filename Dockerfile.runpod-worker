@@ -54,8 +54,25 @@ WhisperModel(model_name, device="cpu", compute_type="int8", download_root=downlo
 print(f"[runpod-worker-image] preloaded faster-whisper model={model_name} root={download_root}")
 PY
 
-COPY lib ./lib
-COPY scripts ./scripts
+COPY lib/ai/stt.ts ./lib/ai/stt.ts
+COPY lib/ai/stt ./lib/ai/stt
+COPY lib/audio-processing.ts ./lib/audio-processing.ts
+COPY lib/audio-storage.ts ./lib/audio-storage.ts
+COPY lib/env.ts ./lib/env.ts
+COPY lib/recording/policy.ts ./lib/recording/policy.ts
+COPY lib/recording/validation.ts ./lib/recording/validation.ts
+COPY lib/runpod/remote-stt-client.ts ./lib/runpod/remote-stt-client.ts
+COPY lib/runpod/remote-stt-types.ts ./lib/runpod/remote-stt-types.ts
+COPY lib/runpod/runtime-metadata.ts ./lib/runpod/runtime-metadata.ts
+COPY lib/runpod/stt ./lib/runpod/stt
+COPY lib/runpod/worker-stop.ts ./lib/runpod/worker-stop.ts
+COPY lib/runtime-paths.ts ./lib/runtime-paths.ts
+COPY lib/transcript/preprocess.ts ./lib/transcript/preprocess.ts
+COPY lib/transcript/source.ts ./lib/transcript/source.ts
+COPY lib/user-facing-japanese.ts ./lib/user-facing-japanese.ts
+COPY scripts/faster_whisper_worker.py ./scripts/faster_whisper_worker.py
+COPY scripts/run-runpod-worker.ts ./scripts/run-runpod-worker.ts
+COPY scripts/runpod-worker-start.sh ./scripts/runpod-worker-start.sh
 
 ENV NODE_ENV=production
 

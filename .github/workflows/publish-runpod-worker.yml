@@ -15,8 +15,22 @@ on:
       - scripts/faster_whisper_worker.py
       - scripts/runpod-worker-start.sh
       - scripts/requirements.runpod-worker.txt
-      - lib/**
-      - README.md
+      - lib/ai/stt.ts
+      - lib/ai/stt/**
+      - lib/audio-processing.ts
+      - lib/audio-storage.ts
+      - lib/env.ts
+      - lib/recording/policy.ts
+      - lib/recording/validation.ts
+      - lib/runpod/remote-stt-client.ts
+      - lib/runpod/remote-stt-types.ts
+      - lib/runpod/runtime-metadata.ts
+      - lib/runpod/stt/**
+      - lib/runpod/worker-stop.ts
+      - lib/runtime-paths.ts
+      - lib/transcript/preprocess.ts
+      - lib/transcript/source.ts
+      - lib/user-facing-japanese.ts
 
 permissions:
   contents: read
@@ -78,4 +92,5 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh variable set RUNPOD_WORKER_IMAGE --body "ghcr.io/${{ steps.owner.outputs.value }}/pararia-runpod-worker:sha-${{ github.sha }}"
+          gh variable set RUNPOD_WORKER_IMAGE --body "ghcr.io/${{ steps.owner.outputs.value }}/pararia-runpod-worker:sha-${{ github.sha }}" \
+            || echo "::warning::RUNPOD_WORKER_IMAGE variable could not be updated automatically."

@@ -8,8 +8,8 @@ import { claimRemoteSttTask, pingRemoteSttApi, submitRemoteSttTaskResult } from 
 import type { RunpodRemoteTaskFailure } from "../lib/runpod/remote-stt-types";
 import { transcribeSessionPartTask } from "../lib/runpod/stt/session-part-task";
 import { transcribeTeacherRecordingTask } from "../lib/runpod/stt/teacher-recording-task";
-import { stopCurrentRunpodPod } from "../lib/runpod/worker-control";
 import { readRunpodWorkerRuntimeMetadata } from "../lib/runpod/runtime-metadata";
+import { stopCurrentRunpodPod } from "../lib/runpod/worker-stop";
 
 type WorkerScope = {
   sessionId?: string;

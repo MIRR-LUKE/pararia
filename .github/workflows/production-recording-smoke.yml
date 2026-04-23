@@ -76,7 +76,18 @@ jobs:
           latest="${DEFAULT_RUNPOD_WORKER_IMAGE:-}"
 
           changed_files="$(git diff-tree --no-commit-id --name-only -r "${DEPLOY_SHA}" || true)"
-          if printf '%s\n' "${changed_files}" | grep -Eq '^(Dockerfile\.runpod-worker|\.dockerignore|package\.json|package-lock\.json|prisma/|scripts/run-runpod-worker\.ts|scripts/faster_whisper_worker\.py|scripts/runpod-worker-start\.sh|scripts/requirements\.runpod-worker\.txt|lib/|README\.md)'; then
+          worker_changed=false
+          while IFS= read -r file; do
+            [ -n "${file}" ] || continue
+            case "${file}" in
+              Dockerfile.runpod-worker|.dockerignore|package.json|package-lock.json|prisma/*|scripts/run-runpod-worker.ts|scripts/faster_whisper_worker.py|scripts/runpod-worker-start.sh|scripts/requirements.runpod-worker.txt|lib/ai/stt.ts|lib/ai/stt/*|lib/audio-processing.ts|lib/audio-storage.ts|lib/env.ts|lib/recording/policy.ts|lib/recording/validation.ts|lib/runpod/remote-stt-client.ts|lib/runpod/remote-stt-types.ts|lib/runpod/runtime-metadata.ts|lib/runpod/stt/*|lib/runpod/worker-stop.ts|lib/runtime-paths.ts|lib/transcript/preprocess.ts|lib/transcript/source.ts|lib/user-facing-japanese.ts)
+                worker_changed=true
+                break
+                ;;
+            esac
+          done <<< "${changed_files}"
+
+          if [ "${worker_changed}" = "true" ]; then
             echo "Worker-affecting files changed in ${DEPLOY_SHA}; waiting for ${candidate}"
             echo "${GH_TOKEN}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
             for attempt in $(seq 1 30); do
