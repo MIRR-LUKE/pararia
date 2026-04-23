@@ -3,7 +3,6 @@ import { acquireRunpodWorkerWakeLease, releaseRunpodWorkerWakeLease } from "./wa
 import {
   buildRunpodWorkerCreateBody,
   getRunpodPodsByName,
-  getManagedRunpodPods,
   getRunpodGpuCandidates,
   getRunpodWorkerConfig,
   isActivePod,
@@ -53,8 +52,9 @@ function shouldRecycleStoppedPod(pod: RunpodPod, config: RunpodWorkerConfig) {
   const currentRevision = pod.env?.RUNPOD_WORKER_RUNTIME_REVISION?.trim() ?? "";
   const currentImage = (pod.imageName || pod.image || "").trim();
   const desiredImage = config.image.trim();
+  const desiredImageIsMutable = desiredImage.toLowerCase().endsWith(":latest");
 
-  if (currentImage && currentImage !== desiredImage) {
+  if (!desiredImageIsMutable && currentImage && currentImage !== desiredImage) {
     return true;
   }
 
@@ -63,6 +63,18 @@ function shouldRecycleStoppedPod(pod: RunpodPod, config: RunpodWorkerConfig) {
   }
 
   return false;
+}
+
+async function terminateRunpodPods(
+  pods: RunpodPod[],
+  config: RunpodWorkerConfig,
+  terminatedPodIds: string[]
+) {
+  for (const pod of pods) {
+    if (!pod.id || terminatedPodIds.includes(pod.id)) continue;
+    await terminateRunpodPod(pod.id, config);
+    terminatedPodIds.push(pod.id);
+  }
 }
 
 function buildCreateBody(
@@ -155,10 +167,8 @@ export async function terminateManagedRunpodWorker(config?: RunpodWorkerConfig):
   }
 
   try {
-    const pods = await getManagedRunpodPods(resolved);
-    for (const pod of pods) {
-      await terminateRunpodPod(pod.id, resolved);
-    }
+    const pods = await getRunpodPodsByName(resolved);
+    await terminateRunpodPods(pods, resolved, []);
     return {
       ok: true,
       terminatedPodIds: pods.map((pod) => pod.id),
@@ -181,81 +191,46 @@ export async function ensureRunpodWorker(
   const resolved = config ?? requireRunpodWorkerConfig();
   const fresh = Boolean(opts?.fresh);
   const terminatedPodIds: string[] = [];
-  const preferSameNamePod = resolved.image.trim().toLowerCase().endsWith(":latest");
-  const existingPods = await getManagedRunpodPods(resolved);
-  if (fresh && existingPods.length > 0) {
-    for (const pod of existingPods) {
-      await terminateRunpodPod(pod.id, resolved);
-      terminatedPodIds.push(pod.id);
-    }
+  const namedPods = await getRunpodPodsByName(resolved);
+  if (fresh && namedPods.length > 0) {
+    await terminateRunpodPods(namedPods, resolved, terminatedPodIds);
   }
   if (fresh) {
     const created = await createRunpodWorkerPod(undefined, resolved);
     return { action: "created_new", pod: created as RunpodPod, terminatedPodIds };
   }
 
-  if (preferSameNamePod && existingPods.length === 0) {
-    const namedPods = await getRunpodPodsByName(resolved);
-    const activeNamedPod = namedPods.find((pod) => isActivePod(pod));
-    if (activeNamedPod) {
-      return { action: "already_running", pod: activeNamedPod, terminatedPodIds };
-    }
+  const reusablePods = namedPods.filter((pod) => !shouldRecycleStoppedPod(pod, resolved));
+  const stalePods = namedPods.filter((pod) => shouldRecycleStoppedPod(pod, resolved));
 
-    const stoppedNamedPod = namedPods.find((pod) => isStoppedPod(pod));
-    if (stoppedNamedPod) {
-      const refreshed = await applyRunpodWorkerRuntimeConfig(stoppedNamedPod.id, resolved);
-      try {
-        await runpodRequest(`/pods/${stoppedNamedPod.id}/start`, resolved, { method: "POST" });
-      } catch (error: any) {
-        const message = String(error?.message ?? error);
-        if (!isRunpodCapacityErrorMessage(message)) {
-          throw error;
-        }
-        await terminateRunpodPod(stoppedNamedPod.id, resolved).catch(() => {});
-        terminatedPodIds.push(stoppedNamedPod.id);
-        const created = await createRunpodWorkerPod(undefined, resolved);
-        return {
-          action: "created_new",
-          pod: created as RunpodPod,
-          terminatedPodIds,
-        };
-      }
-      return {
-        action: "started_existing",
-        pod: {
-          ...refreshed,
-          desiredStatus: "RUNNING",
-        },
-        terminatedPodIds,
-      };
-    }
+  const activeReusablePod = reusablePods.find((pod) => isActivePod(pod));
+  if (activeReusablePod) {
+    return { action: "already_running", pod: activeReusablePod, terminatedPodIds };
   }
 
-  const running = existingPods.find((pod) => isActivePod(pod));
-  if (running) {
-    return { action: "already_running", pod: running };
+  const activeStalePods = stalePods.filter((pod) => isActivePod(pod));
+  if (activeStalePods.length > 0) {
+    await terminateRunpodPods(activeStalePods, resolved, terminatedPodIds);
   }
 
-  const stopped = existingPods.find((pod) => isStoppedPod(pod));
-  if (stopped) {
-    if (shouldRecycleStoppedPod(stopped, resolved)) {
-      await terminateRunpodPod(stopped.id, resolved);
-      terminatedPodIds.push(stopped.id);
-      const created = await createRunpodWorkerPod(undefined, resolved);
-      return { action: "created_new", pod: created as RunpodPod, terminatedPodIds };
+  const stoppedReusablePod = reusablePods.find((pod) => isStoppedPod(pod));
+  if (stoppedReusablePod) {
+    const stoppedStalePods = stalePods.filter((pod) => isStoppedPod(pod));
+    if (stoppedStalePods.length > 0) {
+      await terminateRunpodPods(stoppedStalePods, resolved, terminatedPodIds);
     }
 
-    const refreshed = await applyRunpodWorkerRuntimeConfig(stopped.id, resolved);
+    const refreshed = await applyRunpodWorkerRuntimeConfig(stoppedReusablePod.id, resolved);
     try {
-      await runpodRequest(`/pods/${stopped.id}/start`, resolved, { method: "POST" });
+      await runpodRequest(`/pods/${stoppedReusablePod.id}/start`, resolved, { method: "POST" });
     } catch (error: any) {
       const message = String(error?.message ?? error);
       if (!isRunpodCapacityErrorMessage(message)) {
         throw error;
       }
 
-      await terminateRunpodPod(stopped.id, resolved).catch(() => {});
-      terminatedPodIds.push(stopped.id);
+      await terminateRunpodPod(stoppedReusablePod.id, resolved).catch(() => {});
+      terminatedPodIds.push(stoppedReusablePod.id);
       const created = await createRunpodWorkerPod(undefined, resolved);
       return {
         action: "created_new",
@@ -273,8 +248,13 @@ export async function ensureRunpodWorker(
     };
   }
 
+  const stoppedStalePods = stalePods.filter((pod) => isStoppedPod(pod));
+  if (stoppedStalePods.length > 0) {
+    await terminateRunpodPods(stoppedStalePods, resolved, terminatedPodIds);
+  }
+
   const created = await createRunpodWorkerPod(undefined, resolved);
-  return { action: "created_new", pod: created as RunpodPod };
+  return { action: "created_new", pod: created as RunpodPod, terminatedPodIds };
 }
 
 export async function maybeEnsureRunpodWorker(): Promise<RunpodWorkerWakeResult> {
