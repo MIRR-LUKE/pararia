@@ -21,6 +21,7 @@ on:
 permissions:
   contents: read
   packages: write
+  actions: write
 
 jobs:
   publish-runpod-worker:
@@ -72,3 +73,9 @@ jobs:
           sbom: false
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+
+      - name: Update latest worker image variable
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh variable set RUNPOD_WORKER_IMAGE --body "ghcr.io/${{ steps.owner.outputs.value }}/pararia-runpod-worker:sha-${{ github.sha }}"

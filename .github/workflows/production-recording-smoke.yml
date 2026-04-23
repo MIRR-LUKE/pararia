@@ -15,6 +15,7 @@ concurrency:
 
 permissions:
   contents: read
+  packages: read
 
 jobs:
   production-recording-smoke:
@@ -33,7 +34,7 @@ jobs:
       PARARIA_ALLOW_REMOTE_FIXTURES: "1"
       RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
       RUNPOD_WORKER_NAME: ${{ vars.RUNPOD_WORKER_NAME }}
-      RUNPOD_WORKER_IMAGE: ${{ github.event_name == 'deployment_status' && format('ghcr.io/mirr-luke/pararia-runpod-worker:sha-{0}', github.event.deployment.sha) || format('ghcr.io/mirr-luke/pararia-runpod-worker:sha-{0}', github.sha) }}
+      DEFAULT_RUNPOD_WORKER_IMAGE: ${{ vars.RUNPOD_WORKER_IMAGE }}
       RECORDING_UI_OUTPUT: .tmp/recording-ui-production-post-deploy.json
     steps:
       - name: Check smoke secrets
@@ -56,6 +57,46 @@ jobs:
       - name: Checkout
         if: ${{ steps.recording_smoke_secrets.outputs.ready == 'true' }}
         uses: actions/checkout@v4
+
+      - name: Resolve Runpod worker image
+        if: ${{ steps.recording_smoke_secrets.outputs.ready == 'true' }}
+        id: worker_image
+        shell: bash
+        env:
+          DEPLOY_SHA: ${{ github.event_name == 'deployment_status' && github.event.deployment.sha || github.sha }}
+          DEFAULT_RUNPOD_WORKER_IMAGE: ${{ env.DEFAULT_RUNPOD_WORKER_IMAGE }}
+          GH_TOKEN: ${{ github.token }}
+          GHCR_OWNER: ${{ github.repository_owner }}
+        run: |
+          set -euo pipefail
+
+          owner="$(echo "${GHCR_OWNER}" | tr '[:upper:]' '[:lower:]')"
+          candidate="ghcr.io/${owner}/pararia-runpod-worker:sha-${DEPLOY_SHA}"
+          latest="${DEFAULT_RUNPOD_WORKER_IMAGE:-}"
+
+          changed_files="$(git diff-tree --no-commit-id --name-only -r "${DEPLOY_SHA}" || true)"
+          if printf '%s\n' "${changed_files}" | grep -Eq '^(Dockerfile\.runpod-worker|\.dockerignore|package\.json|package-lock\.json|prisma/|scripts/run-runpod-worker\.ts|scripts/faster_whisper_worker\.py|scripts/runpod-worker-start\.sh|scripts/requirements\.runpod-worker\.txt|lib/|README\.md)'; then
+            echo "Worker-affecting files changed in ${DEPLOY_SHA}; waiting for ${candidate}"
+            echo "${GH_TOKEN}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+            for attempt in $(seq 1 30); do
+              if docker manifest inspect "${candidate}" >/dev/null 2>&1; then
+                echo "image=${candidate}" >> "$GITHUB_OUTPUT"
+                exit 0
+              fi
+              sleep 10
+            done
+            echo "::error::Runpod worker image was not published in time: ${candidate}"
+            exit 1
+          fi
+
+          if [ -n "${latest}" ]; then
+            echo "Using latest published Runpod worker image: ${latest}"
+            echo "image=${latest}" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "No latest Runpod worker image variable is configured; falling back to ${candidate}"
+          echo "image=${candidate}" >> "$GITHUB_OUTPUT"
 
       - name: Setup Node.js
         if: ${{ steps.recording_smoke_secrets.outputs.ready == 'true' }}
@@ -94,7 +135,7 @@ jobs:
           BLOB_READ_WRITE_TOKEN=${BLOB_READ_WRITE_TOKEN}
           RUNPOD_API_KEY=${RUNPOD_API_KEY}
           RUNPOD_WORKER_NAME=${RUNPOD_WORKER_NAME}
-          RUNPOD_WORKER_IMAGE=${RUNPOD_WORKER_IMAGE}
+          RUNPOD_WORKER_IMAGE=${{ steps.worker_image.outputs.image }}
           EOF
 
       - name: Run production recording smoke
