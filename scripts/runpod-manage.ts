@@ -109,6 +109,16 @@ async function tryReadStorageJson(storagePathname: string) {
   }
 }
 
+async function tryReadProxyHealth(podId: string) {
+  try {
+    const response = await fetch(`https://${podId}-8888.proxy.runpod.net/status.json`);
+    if (!response.ok) return null;
+    return (await response.json()) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
 async function waitForPodRunning(podId: string, timeoutMs: number, pollMs: number) {
   const startedAt = Date.now();
   while (Date.now() - startedAt <= timeoutMs) {
@@ -153,12 +163,29 @@ async function waitForWorkerReady(podId: string, timeoutMs: number, pollMs: numb
     }
 
     const startup = await tryReadStorageJson(getWorkerHeartbeatPath(podId, "startup.json"));
+    const proxyHealth = await tryReadProxyHealth(podId);
+    const proxyStage = typeof proxyHealth?.stage === "string" ? proxyHealth.stage : null;
+    if (proxyStage === "worker_ready") {
+      return {
+        ok: true,
+        pod,
+        readiness: proxyHealth,
+      };
+    }
+    if (proxyStage === "worker_fatal" || proxyStage === "bootstrap_failed") {
+      return {
+        ok: false,
+        pod,
+        error: `worker proxy health reported fatal stage: ${proxyStage}`,
+        readiness: proxyHealth,
+      };
+    }
     if (status === "EXITED" || status === "STOPPED" || status === "TERMINATED") {
       return {
         ok: false,
         pod,
         error: `pod ${podId} left RUNNING before readiness heartbeat (${status})`,
-        readiness: startup,
+        readiness: startup ?? proxyHealth,
       };
     }
 
@@ -170,7 +197,8 @@ async function waitForWorkerReady(podId: string, timeoutMs: number, pollMs: numb
     ok: false,
     pod,
     error: `timeout waiting for worker ${podId} readiness heartbeat`,
-    readiness: await tryReadStorageJson(getWorkerHeartbeatPath(podId, "startup.json")),
+    readiness:
+      (await tryReadStorageJson(getWorkerHeartbeatPath(podId, "startup.json"))) ?? (await tryReadProxyHealth(podId)),
   };
 }
 

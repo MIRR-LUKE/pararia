@@ -1,5 +1,7 @@
 #!/usr/bin/env tsx
 
+import { mkdir, writeFile } from "node:fs/promises";
+import path from "node:path";
 import { stopFasterWhisperWorkers, warmFasterWhisperWorkers } from "../lib/ai/stt";
 import { writeAuditLog } from "../lib/audit";
 import { processQueuedJobs } from "../lib/jobs/conversationJobs";
@@ -55,6 +57,25 @@ function getConversationWorkerMode(conversationLimit: number) {
 function getWorkerHeartbeatPath(fileName: string) {
   const podId = process.env.RUNPOD_POD_ID?.trim() || "local";
   return `runpod-worker/heartbeats/${podId}/${fileName}`;
+}
+
+const RUNPOD_LOCAL_HEALTH_DIR = process.env.PARARIA_RUNPOD_HEALTH_DIR?.trim() || "/tmp/runpod-health";
+
+async function writeLocalHealth(stage: string, extra: Record<string, unknown> = {}) {
+  const payload = {
+    stage,
+    updatedAt: new Date().toISOString(),
+    podId: process.env.RUNPOD_POD_ID?.trim() || null,
+    ...extra,
+  };
+
+  try {
+    await mkdir(RUNPOD_LOCAL_HEALTH_DIR, { recursive: true });
+    await Promise.all([
+      writeFile(path.join(RUNPOD_LOCAL_HEALTH_DIR, "status.txt"), `${stage}\n`, "utf8"),
+      writeFile(path.join(RUNPOD_LOCAL_HEALTH_DIR, "status.json"), JSON.stringify(payload, null, 2), "utf8"),
+    ]);
+  } catch {}
 }
 
 async function recordWorkerStartupHeartbeat(input: {
@@ -302,9 +323,11 @@ async function main() {
   };
 
   process.on("SIGINT", () => {
+    void writeLocalHealth("stopping", { signal: "SIGINT" });
     void handleStop();
   });
   process.on("SIGTERM", () => {
+    void writeLocalHealth("stopping", { signal: "SIGTERM" });
     void handleStop();
   });
 
@@ -326,6 +349,19 @@ async function main() {
     console.warn("[runpod-worker] external mode forces STT-only execution on Runpod.");
   }
 
+  await writeLocalHealth("worker_process_started", {
+    scope,
+    teacherRecordingLimit,
+    sessionPartLimit,
+    sessionPartConcurrency,
+    conversationLimit,
+    conversationConcurrency,
+    autoStopIdleMs,
+    idleWaitMs,
+    activeWaitMs,
+    once,
+  });
+
   const startupPayload = await recordWorkerStartupHeartbeat({
     scope,
     sessionPartLimit,
@@ -339,6 +375,12 @@ async function main() {
     sttWarm: null,
   });
 
+  await writeLocalHealth("warming_stt", {
+    scope,
+    sessionPartLimit,
+    conversationLimit,
+  });
+
   const warmInfo = await warmFasterWhisperWorkers()
     .then((items) => items[0] ?? null)
     .catch((error: any) => {
@@ -348,6 +390,21 @@ async function main() {
 
   await recordWorkerReadyHeartbeat({
     ...startupPayload,
+    sttWarm: warmInfo
+      ? {
+          model: warmInfo.model,
+          device: warmInfo.device,
+          computeType: warmInfo.compute_type,
+          pipeline: warmInfo.pipeline,
+          batchSize: warmInfo.batch_size,
+          gpuName: warmInfo.gpu_name,
+          gpuComputeCapability: warmInfo.gpu_compute_capability,
+        }
+      : null,
+  });
+
+  await writeLocalHealth("worker_ready", {
+    scope,
     sttWarm: warmInfo
       ? {
           model: warmInfo.model,
@@ -392,6 +449,9 @@ async function main() {
         scope
       );
       if (drained.stopped) {
+        await writeLocalHealth("stopped_after_drain", {
+          podId: process.env.RUNPOD_POD_ID ?? null,
+        });
         break;
       }
       lastActiveAt = Date.now();
@@ -425,6 +485,10 @@ async function main() {
           podId: process.env.RUNPOD_POD_ID ?? null,
           stopResult,
         });
+        await writeLocalHealth("stopped_idle", {
+          podId: process.env.RUNPOD_POD_ID ?? null,
+          autoStopIdleMs,
+        });
         break;
       }
 
@@ -447,6 +511,9 @@ async function main() {
 
 main().catch((error) => {
   console.error("[runpod-worker] fatal", error);
+  void writeLocalHealth("worker_fatal", {
+    error: error instanceof Error ? error.message : String(error),
+  });
   stopFasterWhisperWorkers();
   process.exit(1);
 });
