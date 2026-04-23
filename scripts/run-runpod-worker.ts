@@ -95,7 +95,7 @@ async function recordWorkerStartupHeartbeat(input: {
     ...runtimeMetadata,
   };
 
-  await saveStorageText({
+  void saveStorageText({
     storagePathname: getWorkerHeartbeatPath("startup.json"),
     text: JSON.stringify(payload, null, 2),
     allowOverwrite: true,
