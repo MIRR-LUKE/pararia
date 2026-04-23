@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { evaluateRunpodStopEligibility } from "../lib/runpod/idle-stop";
 import { buildRunpodWorkerEnv, getRunpodWorkerConfig } from "../lib/runpod/worker-control";
+import { buildRunpodWorkerCreateBody } from "../lib/runpod/worker-control-core";
 
 const previousEnv = { ...process.env };
 
@@ -34,6 +35,9 @@ try {
   process.env.DIRECT_URL = "postgresql://direct";
   process.env.BLOB_READ_WRITE_TOKEN = "blob";
   process.env.OPENAI_API_KEY = "sk-test";
+  process.env.JOB_CONCURRENCY = "9";
+  process.env.SESSION_PART_JOB_CONCURRENCY = "7";
+  process.env.FASTER_WHISPER_BATCH_SIZE = "32";
   delete process.env.RUNPOD_WORKER_CONVERSATION_LIMIT;
   delete process.env.LOCAL_GPU_WORKER_CONVERSATION_LIMIT;
   delete process.env.RUNPOD_WORKER_IMAGE;
@@ -46,6 +50,9 @@ try {
   assert.equal(env.RUNPOD_WORKER_IMAGE, "ghcr.io/mirr-luke/pararia-runpod-worker:sha-abc123");
   assert.equal(env.RUNPOD_WORKER_GIT_SHA, "abc123");
   assert.equal(env.RUNPOD_WORKER_RUNTIME_REVISION, "git-abc123");
+  assert.equal(env.JOB_CONCURRENCY, "1");
+  assert.equal(env.SESSION_PART_JOB_CONCURRENCY, "1");
+  assert.equal(env.FASTER_WHISPER_BATCH_SIZE, "1");
   assert.equal(
     getRunpodWorkerConfig()?.image,
     "ghcr.io/mirr-luke/pararia-runpod-worker:sha-abc123"
@@ -60,6 +67,7 @@ try {
     "NVIDIA GeForce RTX 3090",
     "NVIDIA GeForce RTX 5090",
   ]);
+  assert.deepEqual(buildRunpodWorkerCreateBody(getRunpodWorkerConfig()!).ports, ["8888/http"]);
 
   process.env.RUNPOD_WORKER_CONVERSATION_LIMIT = "0";
   const sttOnlyEnv = buildRunpodWorkerEnv(300000);

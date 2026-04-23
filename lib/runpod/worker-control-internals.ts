@@ -19,6 +19,10 @@ function readStringEnv(name: string, fallback = "") {
   return process.env[name]?.trim() || fallback;
 }
 
+function readRunpodWorkerStringEnv(name: string, fallback = "") {
+  return readStringEnv(`RUNPOD_WORKER_${name}`, fallback);
+}
+
 function resolveDefaultWorkerImage() {
   const explicitImage = readStringEnv("RUNPOD_WORKER_IMAGE");
   if (explicitImage) return explicitImage;
@@ -277,27 +281,27 @@ export function buildRunpodWorkerEnv(autoStopIdleMs: number, workerImageOverride
     LLM_MODEL_FAST: readStringEnv("LLM_MODEL_FAST", "gpt-5.4"),
     LLM_MODEL_REPORT: readStringEnv("LLM_MODEL_REPORT", "gpt-5.4"),
     LLM_CALL_TIMEOUT_MS: readStringEnv("LLM_CALL_TIMEOUT_MS", "90000"),
-    JOB_CONCURRENCY: readStringEnv("JOB_CONCURRENCY", "1"),
-    SESSION_PART_JOB_CONCURRENCY: readStringEnv("SESSION_PART_JOB_CONCURRENCY", "1"),
-    FASTER_WHISPER_MODEL: readStringEnv("RUNPOD_WORKER_FASTER_WHISPER_MODEL", DEFAULT_FASTER_WHISPER_MODEL),
-    FASTER_WHISPER_REQUIRE_CUDA: readStringEnv("FASTER_WHISPER_REQUIRE_CUDA", "1"),
-    FASTER_WHISPER_DEVICE: readStringEnv("RUNPOD_WORKER_FASTER_WHISPER_DEVICE", "auto"),
-    FASTER_WHISPER_COMPUTE_TYPE: readStringEnv("RUNPOD_WORKER_FASTER_WHISPER_COMPUTE_TYPE", "auto"),
-    FASTER_WHISPER_CPU_COMPUTE_TYPE: readStringEnv("FASTER_WHISPER_CPU_COMPUTE_TYPE", "int8"),
-    FASTER_WHISPER_BEAM_SIZE: readStringEnv("RUNPOD_WORKER_FASTER_WHISPER_BEAM_SIZE", "1"),
-    FASTER_WHISPER_BATCH_SIZE: readStringEnv("RUNPOD_WORKER_FASTER_WHISPER_BATCH_SIZE", "16"),
-    FASTER_WHISPER_VAD_FILTER: readStringEnv("FASTER_WHISPER_VAD_FILTER", "1"),
-    FASTER_WHISPER_VAD_MIN_SILENCE_MS: readStringEnv("FASTER_WHISPER_VAD_MIN_SILENCE_MS", "1000"),
-    FASTER_WHISPER_VAD_SPEECH_PAD_MS: readStringEnv("FASTER_WHISPER_VAD_SPEECH_PAD_MS", "400"),
-    FASTER_WHISPER_VAD_THRESHOLD: readStringEnv("FASTER_WHISPER_VAD_THRESHOLD", "0.5"),
-    FASTER_WHISPER_VAD_MIN_SPEECH_MS: readStringEnv("FASTER_WHISPER_VAD_MIN_SPEECH_MS", ""),
-    FASTER_WHISPER_CONDITION_ON_PREVIOUS_TEXT: readStringEnv("FASTER_WHISPER_CONDITION_ON_PREVIOUS_TEXT", "1"),
-    FASTER_WHISPER_CHUNKING_ENABLED: readStringEnv("FASTER_WHISPER_CHUNKING_ENABLED", "0"),
-    FASTER_WHISPER_CHUNK_SECONDS: readStringEnv("FASTER_WHISPER_CHUNK_SECONDS", "60"),
-    FASTER_WHISPER_CHUNK_OVERLAP_SECONDS: readStringEnv("FASTER_WHISPER_CHUNK_OVERLAP_SECONDS", "1.5"),
-    FASTER_WHISPER_CHUNK_MIN_DURATION_SECONDS: readStringEnv("FASTER_WHISPER_CHUNK_MIN_DURATION_SECONDS", "180"),
-    FASTER_WHISPER_POOL_SIZE: readStringEnv("FASTER_WHISPER_POOL_SIZE", "1"),
-    FASTER_WHISPER_DOWNLOAD_ROOT: readStringEnv(
+    JOB_CONCURRENCY: readRunpodWorkerStringEnv("JOB_CONCURRENCY", "1"),
+    SESSION_PART_JOB_CONCURRENCY: readRunpodWorkerStringEnv("SESSION_PART_JOB_CONCURRENCY", "1"),
+    FASTER_WHISPER_MODEL: readRunpodWorkerStringEnv("FASTER_WHISPER_MODEL", DEFAULT_FASTER_WHISPER_MODEL),
+    FASTER_WHISPER_REQUIRE_CUDA: readRunpodWorkerStringEnv("FASTER_WHISPER_REQUIRE_CUDA", "1"),
+    FASTER_WHISPER_DEVICE: readRunpodWorkerStringEnv("FASTER_WHISPER_DEVICE", "auto"),
+    FASTER_WHISPER_COMPUTE_TYPE: readRunpodWorkerStringEnv("FASTER_WHISPER_COMPUTE_TYPE", "auto"),
+    FASTER_WHISPER_CPU_COMPUTE_TYPE: readRunpodWorkerStringEnv("FASTER_WHISPER_CPU_COMPUTE_TYPE", "int8"),
+    FASTER_WHISPER_BEAM_SIZE: readRunpodWorkerStringEnv("FASTER_WHISPER_BEAM_SIZE", "1"),
+    FASTER_WHISPER_BATCH_SIZE: readRunpodWorkerStringEnv("FASTER_WHISPER_BATCH_SIZE", "1"),
+    FASTER_WHISPER_VAD_FILTER: readRunpodWorkerStringEnv("FASTER_WHISPER_VAD_FILTER", "1"),
+    FASTER_WHISPER_VAD_MIN_SILENCE_MS: readRunpodWorkerStringEnv("FASTER_WHISPER_VAD_MIN_SILENCE_MS", "1000"),
+    FASTER_WHISPER_VAD_SPEECH_PAD_MS: readRunpodWorkerStringEnv("FASTER_WHISPER_VAD_SPEECH_PAD_MS", "400"),
+    FASTER_WHISPER_VAD_THRESHOLD: readRunpodWorkerStringEnv("FASTER_WHISPER_VAD_THRESHOLD", "0.5"),
+    FASTER_WHISPER_VAD_MIN_SPEECH_MS: readRunpodWorkerStringEnv("FASTER_WHISPER_VAD_MIN_SPEECH_MS", ""),
+    FASTER_WHISPER_CONDITION_ON_PREVIOUS_TEXT: readRunpodWorkerStringEnv("FASTER_WHISPER_CONDITION_ON_PREVIOUS_TEXT", "1"),
+    FASTER_WHISPER_CHUNKING_ENABLED: readRunpodWorkerStringEnv("FASTER_WHISPER_CHUNKING_ENABLED", "0"),
+    FASTER_WHISPER_CHUNK_SECONDS: readRunpodWorkerStringEnv("FASTER_WHISPER_CHUNK_SECONDS", "60"),
+    FASTER_WHISPER_CHUNK_OVERLAP_SECONDS: readRunpodWorkerStringEnv("FASTER_WHISPER_CHUNK_OVERLAP_SECONDS", "1.5"),
+    FASTER_WHISPER_CHUNK_MIN_DURATION_SECONDS: readRunpodWorkerStringEnv("FASTER_WHISPER_CHUNK_MIN_DURATION_SECONDS", "180"),
+    FASTER_WHISPER_POOL_SIZE: readRunpodWorkerStringEnv("FASTER_WHISPER_POOL_SIZE", "1"),
+    FASTER_WHISPER_DOWNLOAD_ROOT: readRunpodWorkerStringEnv(
       "FASTER_WHISPER_DOWNLOAD_ROOT",
       DEFAULT_FASTER_WHISPER_DOWNLOAD_ROOT
     ),
@@ -359,6 +363,7 @@ export function buildRunpodWorkerCreateBody(
     containerDiskInGb: overrides?.containerDiskInGb ?? config.containerDiskInGb,
     volumeInGb: overrides?.volumeInGb ?? config.volumeInGb,
     cloudType: (overrides?.secureCloud ?? config.secureCloud) ? "SECURE" : "COMMUNITY",
+    ports: ["8888/http"],
     ...(includeRuntimeConfig
       ? {
           dockerStartCmd: ["bash", "/app/scripts/runpod-worker-start.sh"],

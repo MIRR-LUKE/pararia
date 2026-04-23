@@ -13,7 +13,7 @@ COPY prisma ./prisma
 RUN npm ci \
     && npm prune --omit=dev
 
-FROM ghcr.io/opennmt/ctranslate2:4.7.1-ubuntu22.04-cuda12.8
+FROM ghcr.io/opennmt/ctranslate2:4.6.2-ubuntu22.04-cuda12.2
 
 ARG FASTER_WHISPER_MODEL=turbo
 
