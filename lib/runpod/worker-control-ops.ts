@@ -2,7 +2,6 @@ import { acquireRunpodWorkerWakeLease, releaseRunpodWorkerWakeLease } from "./wa
 
 import {
   buildRunpodWorkerCreateBody,
-  getRunpodPodById,
   getRunpodPodsByName,
   getManagedRunpodPods,
   getRunpodGpuCandidates,
@@ -33,10 +32,12 @@ export function requireRunpodWorkerConfig() {
 }
 
 async function applyRunpodWorkerRuntimeConfig(podId: string, config: RunpodWorkerConfig) {
+  const runtimeConfig = buildRunpodWorkerCreateBody(config, undefined, { includeRuntimeConfig: true });
   const updated = await runpodRequest(`/pods/${podId}`, config, {
     method: "PATCH",
     body: JSON.stringify({
-      env: buildRunpodWorkerCreateBody(config, undefined, { includeRuntimeConfig: true }).env,
+      dockerStartCmd: runtimeConfig.dockerStartCmd,
+      env: runtimeConfig.env,
     }),
   });
   return updated as RunpodPod;
@@ -73,60 +74,6 @@ async function terminateRunpodPod(podId: string, config: RunpodWorkerConfig) {
   await runpodRequest(`/pods/${podId}`, config, { method: "DELETE" });
 }
 
-async function waitForRunpodPodState(input: {
-  podId: string;
-  config: RunpodWorkerConfig;
-  accept: (pod: RunpodPod) => boolean;
-  timeoutMs?: number;
-  pollMs?: number;
-}) {
-  const timeoutMs = input.timeoutMs ?? 120_000;
-  const pollMs = input.pollMs ?? 3_000;
-  const startedAt = Date.now();
-
-  while (Date.now() - startedAt <= timeoutMs) {
-    const pod = await getRunpodPodById(input.podId, input.config);
-    if (input.accept(pod)) {
-      return pod;
-    }
-    await sleep(pollMs);
-  }
-
-  return getRunpodPodById(input.podId, input.config);
-}
-
-async function restartCreatedRunpodWorkerPod(podId: string, config: RunpodWorkerConfig) {
-  const activePod = await waitForRunpodPodState({
-    podId,
-    config,
-    accept: (pod) => isActivePod(pod),
-    timeoutMs: 90_000,
-    pollMs: 3_000,
-  });
-
-  if (isActivePod(activePod)) {
-    await runpodRequest(`/pods/${podId}/stop`, config, { method: "POST" });
-  }
-
-  await waitForRunpodPodState({
-    podId,
-    config,
-    accept: (pod) => isStoppedPod(pod) || isTerminatedPod(pod),
-    timeoutMs: 120_000,
-    pollMs: 3_000,
-  });
-
-  await runpodRequest(`/pods/${podId}/start`, config, { method: "POST" });
-
-  return waitForRunpodPodState({
-    podId,
-    config,
-    accept: (pod) => isActivePod(pod),
-    timeoutMs: 120_000,
-    pollMs: 3_000,
-  });
-}
-
 export async function createRunpodWorkerPod(
   overrides?: Partial<Omit<RunpodWorkerConfig, "apiKey" | "apiTimeoutMs" | "autoStopIdleMs">>,
   config?: RunpodWorkerConfig
@@ -140,41 +87,22 @@ export async function createRunpodWorkerPod(
   for (const gpu of gpuCandidates) {
     let payload: unknown;
     let lastError: unknown;
-    let createdWithRuntimeConfig = false;
 
     for (let attempt = 1; attempt <= createAttempts; attempt += 1) {
       try {
         payload = await runpodRequest("/pods", resolved, {
           method: "POST",
-          body: JSON.stringify(buildCreateBody(resolved, { ...overrides, gpu }, { includeRuntimeConfig: true })),
+          // Work around Runpod custom-image create failures when env is included in the initial POST.
+          body: JSON.stringify(buildCreateBody(resolved, { ...overrides, gpu }, { includeRuntimeConfig: false })),
         });
-        createdWithRuntimeConfig = true;
         lastError = null;
         break;
       } catch (error: any) {
         lastError = error;
-        let effectiveMessage = String(error?.message ?? error);
-        if (!isRunpodCapacityErrorMessage(effectiveMessage)) {
-          try {
-            payload = await runpodRequest("/pods", resolved, {
-              method: "POST",
-              // Fallback for providers that reject env on initial create.
-              body: JSON.stringify(buildCreateBody(resolved, { ...overrides, gpu }, { includeRuntimeConfig: false })),
-            });
-            createdWithRuntimeConfig = false;
-            lastError = null;
-            break;
-          } catch (fallbackError: any) {
-            lastError = fallbackError;
-            effectiveMessage = String(fallbackError?.message ?? fallbackError);
-            if (!isRunpodCapacityErrorMessage(effectiveMessage)) {
-              throw fallbackError;
-            }
-          }
-        }
-        const shouldRetry = attempt < createAttempts && isRunpodCapacityErrorMessage(effectiveMessage);
+        const message = String(error?.message ?? error);
+        const shouldRetry = attempt < createAttempts && isRunpodCapacityErrorMessage(message);
         if (!shouldRetry) {
-          if (!isRunpodCapacityErrorMessage(effectiveMessage)) {
+          if (!isRunpodCapacityErrorMessage(message)) {
             throw error;
           }
           break;
@@ -193,13 +121,8 @@ export async function createRunpodWorkerPod(
       return created;
     }
 
-    if (createdWithRuntimeConfig) {
-      return created;
-    }
-
     try {
-      await applyRunpodWorkerRuntimeConfig(created.id, resolved);
-      return await restartCreatedRunpodWorkerPod(created.id, resolved);
+      return await applyRunpodWorkerRuntimeConfig(created.id, resolved);
     } catch (error) {
       await terminateRunpodPod(created.id, resolved).catch(() => {});
       throw error;

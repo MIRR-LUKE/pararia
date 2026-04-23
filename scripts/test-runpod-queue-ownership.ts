@@ -47,6 +47,8 @@ try {
   assert.equal(env.RUNPOD_WORKER_CONVERSATION_LIMIT, "0");
   assert.equal(env.FASTER_WHISPER_VAD_MIN_SILENCE_MS, "1000");
   assert.equal(env.FASTER_WHISPER_VAD_THRESHOLD, "0.5");
+  assert.equal(env.FASTER_WHISPER_MODEL, "large-v3");
+  assert.equal(env.FASTER_WHISPER_DOWNLOAD_ROOT, "/opt/faster-whisper-cache");
   assert.equal(env.RUNPOD_WORKER_IMAGE, "ghcr.io/mirr-luke/pararia-runpod-worker:sha-abc123");
   assert.equal(env.RUNPOD_WORKER_GIT_SHA, "abc123");
   assert.equal(env.RUNPOD_WORKER_RUNTIME_REVISION, "git-abc123");
@@ -63,11 +65,12 @@ try {
     "Runpod の既定 idle stop は 1 分にする"
   );
   assert.deepEqual(getRunpodWorkerConfig()?.gpuCandidates, [
-    "NVIDIA GeForce RTX 4090",
     "NVIDIA GeForce RTX 3090",
-    "NVIDIA GeForce RTX 5090",
+    "NVIDIA GeForce RTX 4090",
   ]);
-  assert.deepEqual(buildRunpodWorkerCreateBody(getRunpodWorkerConfig()!).ports, ["8888/http"]);
+  const createBody = buildRunpodWorkerCreateBody(getRunpodWorkerConfig()!);
+  assert.deepEqual(createBody.ports, ["8888/http"]);
+  assert.deepEqual(createBody.dockerStartCmd, ["bash", "/app/scripts/runpod-worker-start.sh"]);
 
   process.env.RUNPOD_WORKER_CONVERSATION_LIMIT = "0";
   const sttOnlyEnv = buildRunpodWorkerEnv(300000);

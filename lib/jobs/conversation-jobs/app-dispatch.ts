@@ -108,17 +108,17 @@ export async function processConversationJobsOutsideRunpod(
         conversationAppDispatchPendingSessionPartJobs:
           "pendingSessionPartJobs" in stop ? stop.pendingSessionPartJobs : null,
       });
-      return {
-        started: false as const,
-        reason: stop.reason,
-      };
+      await recordDispatchState(conversationId, {
+        conversationAppDispatchProceedingWithoutRunpodStopAt: new Date().toISOString(),
+        conversationAppDispatchProceedingWithoutRunpodStopReason: stop.reason,
+      });
+    } else {
+      await recordDispatchState(conversationId, {
+        conversationAppDispatchRunpodStopReason: stop.reason,
+        conversationAppDispatchPendingSessionPartJobs:
+          "pendingSessionPartJobs" in stop ? stop.pendingSessionPartJobs : null,
+      });
     }
-
-    await recordDispatchState(conversationId, {
-      conversationAppDispatchRunpodStopReason: stop.reason,
-      conversationAppDispatchPendingSessionPartJobs:
-        "pendingSessionPartJobs" in stop ? stop.pendingSessionPartJobs : null,
-    });
   }
 
   try {
@@ -168,13 +168,7 @@ export function kickConversationJobsOutsideRunpod(
   ).catch(() => {});
 
   runAfterResponse(async () => {
-    const dispatch = await processConversationJobsOutsideRunpod(conversationId, deps);
-    if (!dispatch.started) {
-      console.info("[conversation-jobs] app dispatch waiting for session-part drain", {
-        conversationId,
-        reason: dispatch.reason,
-      });
-    }
+    await processConversationJobsOutsideRunpod(conversationId, deps);
   }, label);
 
   return true;

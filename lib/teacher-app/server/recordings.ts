@@ -500,13 +500,17 @@ export async function confirmTeacherRecordingStudent(input: {
       error,
     });
   });
-  await processAllSessionPartJobs(promotion.sessionId).catch((error) => {
+  const sessionPartProcessing = await processAllSessionPartJobs(promotion.sessionId).catch((error) => {
     console.error("[teacher-recordings] failed to process promoted session parts", {
       recordingId: input.recordingId,
       sessionId: promotion.sessionId,
       error,
     });
+    throw error;
   });
+  if (sessionPartProcessing.errors.length > 0) {
+    throw new Error(sessionPartProcessing.errors[0] || "failed to dispatch promoted conversation jobs");
+  }
 
   const promotedSession = await prisma.session.findUnique({
     where: { id: promotion.sessionId },

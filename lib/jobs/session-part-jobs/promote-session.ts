@@ -1,5 +1,6 @@
 import { ConversationSourceType, JobStatus, SessionPartStatus, SessionPartType, SessionType } from "@prisma/client";
 import { prisma } from "@/lib/db";
+import { readFirstEnvValue } from "@/lib/env";
 import { ensureConversationForSession } from "@/lib/session-service";
 import { enqueueConversationJobs, processAllConversationJobs } from "@/lib/jobs/conversationJobs";
 import { shouldRunBackgroundJobsInline } from "@/lib/jobs/execution-mode";
@@ -89,6 +90,13 @@ type PromoteConversationKickDeps = {
   requireRunpodStopped?: boolean;
 };
 
+type PromoteConversationRemoteDispatchDeps = {
+  fetchImpl?: typeof fetch;
+  baseUrl?: string;
+  maintenanceSecret?: string;
+  requireRunpodStopped?: boolean;
+};
+
 export function kickPromotedConversationJobsOutsideRunpod(
   conversationId: string,
   dispatchMode: "inline" | "external",
@@ -109,6 +117,61 @@ export function kickPromotedConversationJobsOutsideRunpod(
       requireRunpodStopped: deps.requireRunpodStopped ?? true,
     }
   );
+  return true;
+}
+
+function trimTrailingSlash(value: string) {
+  return value.replace(/\/$/, "");
+}
+
+function resolveConversationDispatchBaseUrl(explicitBaseUrl?: string) {
+  const baseUrl = explicitBaseUrl?.trim() || readFirstEnvValue(["NEXT_PUBLIC_APP_URL", "NEXTAUTH_URL"]);
+  if (!baseUrl) {
+    throw new Error("conversation dispatch 用の公開 URL が未設定です。NEXT_PUBLIC_APP_URL か NEXTAUTH_URL が必要です。");
+  }
+  return trimTrailingSlash(baseUrl);
+}
+
+function resolveConversationDispatchSecret(explicitSecret?: string) {
+  const secret =
+    explicitSecret?.trim() ||
+    readFirstEnvValue(["MAINTENANCE_SECRET", "CRON_SECRET", "MAINTENANCE_CRON_SECRET"]);
+  if (!secret) {
+    throw new Error("conversation dispatch 用の maintenance secret が未設定です。");
+  }
+  return secret;
+}
+
+export async function requestPromotedConversationJobsFromApp(
+  conversationId: string,
+  dispatchMode: "inline" | "external",
+  deps: PromoteConversationRemoteDispatchDeps = {}
+) {
+  if (dispatchMode !== "external") {
+    return false;
+  }
+
+  const fetchImpl = deps.fetchImpl ?? fetch;
+  const baseUrl = resolveConversationDispatchBaseUrl(deps.baseUrl);
+  const maintenanceSecret = resolveConversationDispatchSecret(deps.maintenanceSecret);
+  const response = await fetchImpl(`${baseUrl}/api/maintenance/conversations/${conversationId}/dispatch`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-maintenance-secret": maintenanceSecret,
+    },
+    body: JSON.stringify({
+      requireRunpodStopped: deps.requireRunpodStopped ?? true,
+    }),
+  });
+
+  if (!response.ok) {
+    const body = await response.text().catch(() => "");
+    throw new Error(
+      `remote conversation dispatch failed: ${response.status}${body ? ` ${body.slice(0, 200)}` : ""}`
+    );
+  }
+
   return true;
 }
 
@@ -181,6 +244,28 @@ export async function executePromoteSessionJob(job: SessionPartJobPayload, part:
     conversationKickRequireRunpodStopped: requireRunpodStopped,
   });
 
+  let kicked = false;
+  if (dispatch.mode === "external") {
+    if (process.env.RUNPOD_POD_ID?.trim()) {
+      kicked = await requestPromotedConversationJobsFromApp(ensured.conversationId, dispatch.mode, {
+        requireRunpodStopped,
+      });
+    } else {
+      kicked = kickPromotedConversationJobsOutsideRunpod(ensured.conversationId, dispatch.mode, {
+        requireRunpodStopped,
+      });
+    }
+
+    if (!kicked && process.env.RUNPOD_POD_ID?.trim()) {
+      await mergeConversationFinalizeMeta(ensured.conversationId, {
+        conversationKickRequestedAt: promotionCompletedAt,
+        conversationKickDeferredAt: promotionCompletedAt,
+        conversationKickDeferredReason: "runpod_worker_process",
+        conversationKickFollowup: "session_progress_background_dispatch",
+      });
+    }
+  }
+
   await prisma.sessionPartJob.update({
     where: { id: job.id },
     data: {
@@ -194,17 +279,4 @@ export async function executePromoteSessionJob(job: SessionPartJobPayload, part:
       }),
     },
   });
-  if (dispatch.mode === "external") {
-    const kicked = kickPromotedConversationJobsOutsideRunpod(ensured.conversationId, dispatch.mode, {
-      requireRunpodStopped,
-    });
-    if (!kicked && process.env.RUNPOD_POD_ID?.trim()) {
-      await mergeConversationFinalizeMeta(ensured.conversationId, {
-        conversationKickRequestedAt: promotionCompletedAt,
-        conversationKickDeferredAt: promotionCompletedAt,
-        conversationKickDeferredReason: "runpod_worker_process",
-        conversationKickFollowup: "session_progress_background_dispatch",
-      });
-    }
-  }
 }

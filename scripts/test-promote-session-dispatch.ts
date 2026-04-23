@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import {
   dispatchPromotedConversationJobs,
   kickPromotedConversationJobsOutsideRunpod,
+  requestPromotedConversationJobsFromApp,
 } from "../lib/jobs/session-part-jobs/promote-session";
 
 async function waitForMicrotask() {
@@ -94,6 +95,49 @@ function runRunpodWorkerSkipCase() {
   assert.deepEqual(events, []);
 }
 
+async function runRunpodRemoteDispatchCase() {
+  const calls: Array<{
+    url: string;
+    method: string;
+    headers: Record<string, string>;
+    body: Record<string, unknown>;
+  }> = [];
+
+  const started = await requestPromotedConversationJobsFromApp("conversation-runpod", "external", {
+    baseUrl: "https://pararia.example.com/",
+    maintenanceSecret: "maintenance-secret",
+    requireRunpodStopped: true,
+    fetchImpl: (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      calls.push({
+        url,
+        method: (init?.method || "GET").toUpperCase(),
+        headers: Object.fromEntries(new Headers(init?.headers).entries()),
+        body: JSON.parse(String(init?.body || "{}")) as Record<string, unknown>,
+      });
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }) as typeof fetch,
+  });
+
+  assert.equal(started, true);
+  assert.deepEqual(calls, [
+    {
+      url: "https://pararia.example.com/api/maintenance/conversations/conversation-runpod/dispatch",
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-maintenance-secret": "maintenance-secret",
+      },
+      body: {
+        requireRunpodStopped: true,
+      },
+    },
+  ]);
+}
+
 function runManualKickCase() {
   const events: string[] = [];
 
@@ -114,6 +158,7 @@ await runExternalCase();
 runExternalKickCase();
 runInlineKickCase();
 runRunpodWorkerSkipCase();
+await runRunpodRemoteDispatchCase();
 runManualKickCase();
 
 console.log("promote-session dispatch regression checks passed");

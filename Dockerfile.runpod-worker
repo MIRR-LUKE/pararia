@@ -15,7 +15,7 @@ RUN npm ci \
 
 FROM ghcr.io/opennmt/ctranslate2:4.6.2-ubuntu22.04-cuda12.2
 
-ARG FASTER_WHISPER_MODEL=turbo
+ARG FASTER_WHISPER_MODEL=large-v3
 
 ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONUNBUFFERED=1 \

@@ -1,7 +1,7 @@
 # Runpod worker 運用
 
-Pararia の STT 主導線は `web -> queue -> Runpod worker -> LLM finalize` です。
-`localhost` でも `Vercel production` でも、web 側は同じ contract を使い、Runpod 側が STT と後段ジョブを処理します。
+Pararia の STT 主導線は `web -> queue -> Runpod worker(STT only) -> Runpod stop -> web-side LLM finalize` です。
+`localhost` でも `Vercel production` でも、web 側は同じ contract を使い、Runpod 側は STT だけを担当します。
 deploy 後に production の録音主導線を 1 本だけ確認するときは、GitHub Actions `Production Recording Smoke` を正本 smoke にします。手動再確認は `npm run test:teacher-recording-smoke -- --base-url https://pararia.vercel.app --env-file .tmp/.env.production.runpod` を使います。
 workflow を自動で回すには、GitHub Secrets に `SUPABASE_DB_URL`, `BLOB_READ_WRITE_TOKEN`, `PRODUCTION_INTEGRITY_AUDIT_EMAIL`, `PRODUCTION_INTEGRITY_AUDIT_PASSWORD`, `RUNPOD_API_KEY` が必要です。
 
@@ -9,8 +9,8 @@ workflow を自動で回すには、GitHub Secrets に `SUPABASE_DB_URL`, `BLOB_
 
 - web 側は job を DB に積み、必要なら Runpod Pod を自動 wake する
 - 音声 upload / live chunk は `Vercel Blob` に置き、web と Runpod worker から同じ参照を読む
-- Runpod worker は `faster-whisper` で STT し、そのまま `FINALIZE` / `FORMAT` まで進める
-- 4090 を常駐させず、**on-demand 起動 + idle stop** を前提にする
+- Runpod worker は `faster-whisper` で STT し、面談ログ生成は web 側へ引き継ぐ
+- 3090 を既定にし、**on-demand 起動 + idle stop** を前提にする
 
 ## repo に入っているもの
 
@@ -33,7 +33,7 @@ workflow を自動で回すには、GitHub Secrets に `SUPABASE_DB_URL`, `BLOB_
 本番 web から自動 wake したいときは、さらに:
 
 - `RUNPOD_API_KEY`
-- `RUNPOD_WORKER_GPU_CANDIDATES` 例: `NVIDIA GeForce RTX 5090,NVIDIA GeForce RTX 4090,NVIDIA GeForce RTX 3090`
+- `RUNPOD_WORKER_GPU_CANDIDATES` 例: `NVIDIA GeForce RTX 3090,NVIDIA GeForce RTX 4090`
 
 ## Runpod Pod に入れる env
 
@@ -65,7 +65,7 @@ worker loop 調整:
 
 - `RUNPOD_WORKER_SESSION_PART_LIMIT=8`
 - `RUNPOD_WORKER_SESSION_PART_CONCURRENCY=1`
-- `RUNPOD_WORKER_CONVERSATION_LIMIT=6`
+- `RUNPOD_WORKER_CONVERSATION_LIMIT=0`
 - `RUNPOD_WORKER_CONVERSATION_CONCURRENCY=1`
 - `RUNPOD_WORKER_IDLE_WAIT_MS=2500`
 - `RUNPOD_WORKER_ACTIVE_WAIT_MS=200`
@@ -86,8 +86,7 @@ version handshake 用:
 - VAD は `min_silence_duration_ms=1000` を基準にし、必要なら `500 / 1000 / 2000` を比較する
 - `compute_type=auto` のままでよいが、worker image は `CTranslate2 4.7.1 + CUDA 12.8` 前提にする
 - worker image は devDependencies を抱え込まず、`tsx` だけ global に持つ軽量 runtime を正本にする
-- `RTX 4090` など pre-Blackwell では `int8_float16` 系を優先する
-- `RTX 5090` など Blackwell では `float16` 系を優先する
+- `RTX 3090 / 4090` では `int8_float16` 系を優先する
 - benchmark 専用に 1 session だけ処理したいときは `RUNPOD_WORKER_ONLY_SESSION_ID` を使う
 - STT だけ見たいときは `RUNPOD_WORKER_CONVERSATION_LIMIT=0` で conversation job を止められる
 - native app は access token 有効中の `/api/teacher/native/auth/session` 往復を増やさず、401 か token 更新直前だけ refresh する
@@ -121,7 +120,7 @@ RUNPOD_API_KEY="your-runpod-api-key"
 新規作成:
 
 ```bash
-npm run runpod:deploy -- --gpu="NVIDIA GeForce RTX 4090" --name="pararia-gpu-worker"
+npm run runpod:deploy -- --gpu="NVIDIA GeForce RTX 3090" --name="pararia-gpu-worker"
 ```
 
 既存 Pod を起こす / なければ作る:

@@ -34,11 +34,8 @@ async function runExternalBlockedCase() {
     },
   });
 
-  assert.deepEqual(events, ["stop-check"]);
-  assert.deepEqual(result, {
-    started: false,
-    reason: "pending_session_part_jobs",
-  });
+  assert.deepEqual(events, ["stop-check", "process"]);
+  assert.equal(result.started, true);
   assert.equal(
     states.some((patch) => typeof patch.conversationAppDispatchStartedAt === "string"),
     true,
@@ -48,6 +45,14 @@ async function runExternalBlockedCase() {
     states.some((patch) => patch.conversationAppDispatchBlockedReason === "pending_session_part_jobs"),
     true,
     "blocked dispatch should record why it deferred"
+  );
+  assert.equal(
+    states.some(
+      (patch) =>
+        patch.conversationAppDispatchProceedingWithoutRunpodStopReason === "pending_session_part_jobs"
+    ),
+    true,
+    "blocked dispatch should proceed and record that it skipped the runpod stop gate"
   );
 }
 

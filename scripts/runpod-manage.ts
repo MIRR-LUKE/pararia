@@ -83,12 +83,17 @@ function printJson(value: unknown) {
 }
 
 function applyConfigOverrides(config: RunpodWorkerConfig): RunpodWorkerConfig {
+  const requestedGpu = readArg("gpu")?.trim() || null;
+  const gpuCandidates = requestedGpu
+    ? [requestedGpu, ...config.gpuCandidates.filter((candidate) => candidate !== requestedGpu)]
+    : config.gpuCandidates;
   return {
     ...config,
     name: readArg("name") ?? config.name,
     image: readArg("image") ?? config.image,
     containerRegistryAuthId: readArg("registry-auth-id") ?? config.containerRegistryAuthId ?? null,
-    gpu: readArg("gpu") ?? config.gpu,
+    gpu: requestedGpu ?? config.gpu,
+    gpuCandidates,
     secureCloud: readBoolArg("secure-cloud", config.secureCloud),
     containerDiskInGb: readNumberArg("container-disk", config.containerDiskInGb, 0),
     volumeInGb: readNumberArg("volume", config.volumeInGb, 0),

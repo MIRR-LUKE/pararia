@@ -136,6 +136,8 @@ async function waitForTeacherRecordingState(
 async function waitForConversationDone(recordingId: string, fallbackSessionId: string | null) {
   const [{ prisma }] = await Promise.all([import("../lib/db")]);
   const deadline = Date.now() + 8 * 60_000;
+  let lastConversationStatus: string | null = null;
+  let lastNextMeetingMemoStatus: string | null = null;
   while (Date.now() < deadline) {
     const recording = await prisma.teacherRecordingSession.findUnique({
       where: { id: recordingId },
@@ -164,7 +166,10 @@ async function waitForConversationDone(recordingId: string, fallbackSessionId: s
         },
       });
       const conversation = session?.conversation;
-      if (conversation?.status === "DONE") {
+      lastConversationStatus = conversation?.status ?? null;
+      lastNextMeetingMemoStatus = session?.nextMeetingMemo?.status ?? null;
+
+      if (conversation?.status === "DONE" && session?.nextMeetingMemo?.status === "READY") {
         return {
           sessionId,
           conversationId: conversation.id,
@@ -175,10 +180,15 @@ async function waitForConversationDone(recordingId: string, fallbackSessionId: s
       if (conversation?.status === "ERROR") {
         throw new Error("promoted conversation ended in ERROR");
       }
+      if (session?.nextMeetingMemo?.status === "FAILED") {
+        throw new Error("next meeting memo generation ended in FAILED");
+      }
     }
     await new Promise((resolve) => setTimeout(resolve, 2_500));
   }
-  throw new Error("promoted conversation が DONE になるまでタイムアウトしました。");
+  throw new Error(
+    `promoted conversation / next meeting memo が READY になるまでタイムアウトしました。 conversation=${lastConversationStatus ?? "null"} memo=${lastNextMeetingMemoStatus ?? "null"}`
+  );
 }
 
 async function cleanupArtifacts(context: CleanupContext) {
