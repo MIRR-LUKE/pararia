@@ -74,7 +74,7 @@ export function buildBootstrapCommand(gitRef: string) {
 }
 
 export function buildDirectStartCommand() {
-  return ["bash", "/app/scripts/runpod-worker-start.sh"];
+  return [];
 }
 
 export function buildWorkerEnv(input: {

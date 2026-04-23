@@ -119,6 +119,31 @@ async function tryReadProxyHealth(podId: string) {
   }
 }
 
+async function tryReadAuditStartup(podId: string, freshnessFloorMs = 0) {
+  try {
+    const { prisma } = await import("../lib/db");
+    const row = await prisma.auditLog.findFirst({
+      where: {
+        action: "runpod_worker_startup",
+        targetId: podId,
+        ...(freshnessFloorMs > 0 ? { createdAt: { gte: new Date(freshnessFloorMs) } } : {}),
+      },
+      orderBy: { createdAt: "desc" },
+      select: { createdAt: true, detailJson: true },
+    });
+    if (!row) return null;
+    return {
+      source: "audit_log",
+      createdAt: row.createdAt.toISOString(),
+      ...(row.detailJson && typeof row.detailJson === "object" && !Array.isArray(row.detailJson)
+        ? (row.detailJson as Record<string, unknown>)
+        : {}),
+    } as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
 function parseTimestampMs(value: unknown) {
   if (typeof value !== "string" || !value.trim()) return 0;
   const parsed = Date.parse(value);
@@ -186,6 +211,15 @@ async function waitForWorkerReady(
         pod,
         error: `worker reported startup db error: ${String(dbError.error ?? "unknown error")}`,
         readiness: dbError,
+      };
+    }
+
+    const auditStartup = await tryReadAuditStartup(podId, freshnessFloorMs);
+    if (auditStartup) {
+      return {
+        ok: true,
+        pod,
+        readiness: auditStartup,
       };
     }
 

@@ -36,7 +36,6 @@ async function applyRunpodWorkerRuntimeConfig(podId: string, config: RunpodWorke
   const updated = await runpodRequest(`/pods/${podId}`, config, {
     method: "PATCH",
     body: JSON.stringify({
-      dockerStartCmd: ["bash", "/app/scripts/runpod-worker-start.sh"],
       env: buildRunpodWorkerCreateBody(config, undefined, { includeRuntimeConfig: true }).env,
     }),
   });
@@ -141,22 +140,41 @@ export async function createRunpodWorkerPod(
   for (const gpu of gpuCandidates) {
     let payload: unknown;
     let lastError: unknown;
+    let createdWithRuntimeConfig = false;
 
     for (let attempt = 1; attempt <= createAttempts; attempt += 1) {
       try {
         payload = await runpodRequest("/pods", resolved, {
           method: "POST",
-          // Work around Runpod custom-image create failures when env is included in the initial POST.
-          body: JSON.stringify(buildCreateBody(resolved, { ...overrides, gpu }, { includeRuntimeConfig: false })),
+          body: JSON.stringify(buildCreateBody(resolved, { ...overrides, gpu }, { includeRuntimeConfig: true })),
         });
+        createdWithRuntimeConfig = true;
         lastError = null;
         break;
       } catch (error: any) {
         lastError = error;
-        const message = String(error?.message ?? error);
-        const shouldRetry = attempt < createAttempts && isRunpodCapacityErrorMessage(message);
+        let effectiveMessage = String(error?.message ?? error);
+        if (!isRunpodCapacityErrorMessage(effectiveMessage)) {
+          try {
+            payload = await runpodRequest("/pods", resolved, {
+              method: "POST",
+              // Fallback for providers that reject env on initial create.
+              body: JSON.stringify(buildCreateBody(resolved, { ...overrides, gpu }, { includeRuntimeConfig: false })),
+            });
+            createdWithRuntimeConfig = false;
+            lastError = null;
+            break;
+          } catch (fallbackError: any) {
+            lastError = fallbackError;
+            effectiveMessage = String(fallbackError?.message ?? fallbackError);
+            if (!isRunpodCapacityErrorMessage(effectiveMessage)) {
+              throw fallbackError;
+            }
+          }
+        }
+        const shouldRetry = attempt < createAttempts && isRunpodCapacityErrorMessage(effectiveMessage);
         if (!shouldRetry) {
-          if (!isRunpodCapacityErrorMessage(message)) {
+          if (!isRunpodCapacityErrorMessage(effectiveMessage)) {
             throw error;
           }
           break;
@@ -172,6 +190,10 @@ export async function createRunpodWorkerPod(
 
     const created = payload as RunpodPod;
     if (!created.id) {
+      return created;
+    }
+
+    if (createdWithRuntimeConfig) {
       return created;
     }
 

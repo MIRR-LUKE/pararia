@@ -366,7 +366,6 @@ export function buildRunpodWorkerCreateBody(
     ports: ["8888/http"],
     ...(includeRuntimeConfig
       ? {
-          dockerStartCmd: ["bash", "/app/scripts/runpod-worker-start.sh"],
           env: buildRunpodWorkerEnv(config.autoStopIdleMs, workerImage),
         }
       : {}),

@@ -137,6 +137,31 @@ export async function createDirectWorkerPod(input: {
 }
 
 export async function waitForWorkerReady(podId: string, timeoutMs: number, pollMs: number, minCheckedAtMs?: number) {
+  const tryReadAuditStartup = async () => {
+    try {
+      const { prisma } = await import("../../lib/db");
+      const row = await prisma.auditLog.findFirst({
+        where: {
+          action: "runpod_worker_startup",
+          targetId: podId,
+          ...(minCheckedAtMs ? { createdAt: { gte: new Date(minCheckedAtMs) } } : {}),
+        },
+        orderBy: { createdAt: "desc" },
+        select: { createdAt: true, detailJson: true },
+      });
+      if (!row) return null;
+      return {
+        source: "audit_log",
+        createdAt: row.createdAt.toISOString(),
+        ...(row.detailJson && typeof row.detailJson === "object" && !Array.isArray(row.detailJson)
+          ? (row.detailJson as Record<string, unknown>)
+          : {}),
+      };
+    } catch {
+      return null;
+    }
+  };
+
   const startedAt = Date.now();
   while (Date.now() - startedAt <= timeoutMs) {
     const dbOk = await tryReadStorageJson(getHeartbeatPath(podId, "db-ok.json"));
@@ -154,6 +179,16 @@ export async function waitForWorkerReady(podId: string, timeoutMs: number, pollM
     const dbError = await tryReadStorageJson(getHeartbeatPath(podId, "db-error.json"));
     if (dbError) {
       throw new Error(`worker reported startup db error: ${String(dbError.error ?? "unknown error")}`);
+    }
+
+    const auditStartup = await tryReadAuditStartup();
+    if (auditStartup) {
+      const checkedAt = new Date(String(auditStartup.createdAt));
+      return {
+        ok: true,
+        readiness: auditStartup,
+        checkedAt,
+      };
     }
 
     const pod = await runpodRequest(`/pods/${podId}`, { method: "GET" });
