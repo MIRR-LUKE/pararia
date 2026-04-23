@@ -119,9 +119,26 @@ async function tryReadProxyHealth(podId: string) {
   }
 }
 
-async function waitForPodRunning(podId: string, timeoutMs: number, pollMs: number) {
-  const startedAt = Date.now();
-  while (Date.now() - startedAt <= timeoutMs) {
+function parseTimestampMs(value: unknown) {
+  if (typeof value !== "string" || !value.trim()) return 0;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function readFreshnessTimestampMs(
+  value: Record<string, unknown> | null | undefined,
+  keys: string[]
+) {
+  if (!value) return 0;
+  for (const key of keys) {
+    const parsed = parseTimestampMs(value[key]);
+    if (parsed > 0) return parsed;
+  }
+  return 0;
+}
+
+async function waitForPodRunning(podId: string, deadlineAtMs: number, pollMs: number) {
+  while (Date.now() <= deadlineAtMs) {
     const pod = await getRunpodPodById(podId);
     const status = pod.desiredStatus?.trim().toUpperCase() || null;
     if (status === "RUNNING") {
@@ -138,13 +155,22 @@ async function waitForPodRunning(podId: string, timeoutMs: number, pollMs: numbe
   };
 }
 
-async function waitForWorkerReady(podId: string, timeoutMs: number, pollMs: number) {
-  const startedAt = Date.now();
-  while (Date.now() - startedAt <= timeoutMs) {
+function readPodFreshnessFloorMs(pod: { lastStartedAt?: string | null; createdAt?: string | null } | null | undefined) {
+  return Math.max(parseTimestampMs(pod?.lastStartedAt ?? ""), parseTimestampMs(pod?.createdAt ?? ""));
+}
+
+async function waitForWorkerReady(
+  podId: string,
+  deadlineAtMs: number,
+  pollMs: number,
+  freshnessFloorMs = 0
+) {
+  while (Date.now() <= deadlineAtMs) {
     const pod = await getRunpodPodById(podId);
     const status = pod.desiredStatus?.trim().toUpperCase() || null;
     const dbOk = await tryReadStorageJson(getWorkerHeartbeatPath(podId, "db-ok.json"));
-    if (dbOk) {
+    const dbOkCheckedAtMs = readFreshnessTimestampMs(dbOk, ["checkedAt", "updatedAt", "startedAt"]);
+    if (dbOk && dbOkCheckedAtMs >= freshnessFloorMs) {
       return {
         ok: true,
         pod,
@@ -153,7 +179,8 @@ async function waitForWorkerReady(podId: string, timeoutMs: number, pollMs: numb
     }
 
     const dbError = await tryReadStorageJson(getWorkerHeartbeatPath(podId, "db-error.json"));
-    if (dbError) {
+    const dbErrorCheckedAtMs = readFreshnessTimestampMs(dbError, ["checkedAt", "updatedAt", "startedAt"]);
+    if (dbError && dbErrorCheckedAtMs >= freshnessFloorMs) {
       return {
         ok: false,
         pod,
@@ -165,14 +192,11 @@ async function waitForWorkerReady(podId: string, timeoutMs: number, pollMs: numb
     const startup = await tryReadStorageJson(getWorkerHeartbeatPath(podId, "startup.json"));
     const proxyHealth = await tryReadProxyHealth(podId);
     const proxyStage = typeof proxyHealth?.stage === "string" ? proxyHealth.stage : null;
-    if (proxyStage === "worker_ready") {
-      return {
-        ok: true,
-        pod,
-        readiness: proxyHealth,
-      };
-    }
-    if (proxyStage === "worker_fatal" || proxyStage === "bootstrap_failed") {
+    const proxyUpdatedAtMs = readFreshnessTimestampMs(proxyHealth, ["updatedAt", "checkedAt"]);
+    if (
+      proxyUpdatedAtMs >= freshnessFloorMs &&
+      (proxyStage === "worker_fatal" || proxyStage === "bootstrap_failed")
+    ) {
       return {
         ok: false,
         pod,
@@ -234,7 +258,8 @@ async function main() {
       return;
     }
 
-    const waited = await waitForPodRunning(ensured.pod.id, timeoutMs, pollMs);
+    const deadlineAtMs = Date.now() + timeoutMs;
+    const waited = await waitForPodRunning(ensured.pod.id, deadlineAtMs, pollMs);
     if (!waited.ok) {
       printJson({
         ...ensured,
@@ -243,7 +268,14 @@ async function main() {
       return;
     }
 
-    const readiness = await waitForWorkerReady(ensured.pod.id, timeoutMs, pollMs);
+    const requireFreshReadiness =
+      ensured.action === "created_new" || ensured.action === "started_existing";
+    const readiness = await waitForWorkerReady(
+      ensured.pod.id,
+      deadlineAtMs,
+      pollMs,
+      requireFreshReadiness ? readPodFreshnessFloorMs(waited.pod) : 0
+    );
     printJson({
       ...ensured,
       waited,

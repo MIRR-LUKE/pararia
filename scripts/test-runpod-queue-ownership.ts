@@ -56,9 +56,9 @@ try {
     "Runpod の既定 idle stop は 1 分にする"
   );
   assert.deepEqual(getRunpodWorkerConfig()?.gpuCandidates, [
-    "NVIDIA GeForce RTX 5090",
     "NVIDIA GeForce RTX 4090",
     "NVIDIA GeForce RTX 3090",
+    "NVIDIA GeForce RTX 5090",
   ]);
 
   process.env.RUNPOD_WORKER_CONVERSATION_LIMIT = "0";

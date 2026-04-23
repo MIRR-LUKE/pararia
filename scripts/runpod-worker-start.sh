@@ -14,11 +14,26 @@ worker_script="${workspace_dir}/scripts/run-runpod-worker.ts"
 write_health_stage() {
   local stage="$1"
   printf '%s\n' "${stage}" > "${health_dir}/status.txt"
+  cat > "${health_dir}/status.json" <<EOF
+{
+  "stage": "${stage}",
+  "updatedAt": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
+  "podId": "${RUNPOD_POD_ID:-}"
+}
+EOF
 }
 
 write_health_error() {
   local message="$1"
   printf '%s\n' "${message}" > "${health_dir}/error.txt"
+  cat > "${health_dir}/status.json" <<EOF
+{
+  "stage": "bootstrap_failed",
+  "updatedAt": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
+  "podId": "${RUNPOD_POD_ID:-}",
+  "error": "${message}"
+}
+EOF
 }
 
 if command -v python3 >/dev/null 2>&1; then
