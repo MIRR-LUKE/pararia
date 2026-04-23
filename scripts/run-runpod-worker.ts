@@ -101,17 +101,21 @@ async function recordWorkerStartupHeartbeat(input: {
     allowOverwrite: true,
   }).catch(() => {});
 
+  return payload;
+}
+
+async function recordWorkerReadyHeartbeat(payload: Record<string, unknown>) {
   try {
     await prisma.$queryRaw`SELECT 1`;
     await writeAuditLog({
       organizationId: null,
       action: "runpod_worker_startup",
       targetType: "worker",
-      targetId: payload.podId,
+      targetId: payload.podId as string | null,
       detail: {
         podId: payload.podId,
-        sessionId: payload.scope.sessionId ?? null,
-        conversationId: payload.scope.conversationId ?? null,
+        sessionId: (payload.scope as WorkerScope | undefined)?.sessionId ?? null,
+        conversationId: (payload.scope as WorkerScope | undefined)?.conversationId ?? null,
         sessionPartLimit: payload.sessionPartLimit,
         conversationLimit: payload.conversationLimit,
       },
@@ -308,14 +312,7 @@ async function main() {
     console.warn("[runpod-worker] external mode forces STT-only execution on Runpod.");
   }
 
-  const warmInfo = await warmFasterWhisperWorkers()
-    .then((items) => items[0] ?? null)
-    .catch((error: any) => {
-      console.error("[runpod-worker] stt_warm_failed", error);
-      throw error;
-    });
-
-  await recordWorkerStartupHeartbeat({
+  const startupPayload = await recordWorkerStartupHeartbeat({
     scope,
     sessionPartLimit,
     sessionPartConcurrency,
@@ -325,6 +322,18 @@ async function main() {
     idleWaitMs,
     activeWaitMs,
     once,
+    sttWarm: null,
+  });
+
+  const warmInfo = await warmFasterWhisperWorkers()
+    .then((items) => items[0] ?? null)
+    .catch((error: any) => {
+      console.error("[runpod-worker] stt_warm_failed", error);
+      throw error;
+    });
+
+  await recordWorkerReadyHeartbeat({
+    ...startupPayload,
     sttWarm: warmInfo
       ? {
           model: warmInfo.model,

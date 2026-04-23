@@ -2,6 +2,7 @@ import { acquireRunpodWorkerWakeLease, releaseRunpodWorkerWakeLease } from "./wa
 
 import {
   buildRunpodWorkerCreateBody,
+  getRunpodPodById,
   getRunpodPodsByName,
   getManagedRunpodPods,
   getRunpodGpuCandidates,
@@ -73,6 +74,60 @@ async function terminateRunpodPod(podId: string, config: RunpodWorkerConfig) {
   await runpodRequest(`/pods/${podId}`, config, { method: "DELETE" });
 }
 
+async function waitForRunpodPodState(input: {
+  podId: string;
+  config: RunpodWorkerConfig;
+  accept: (pod: RunpodPod) => boolean;
+  timeoutMs?: number;
+  pollMs?: number;
+}) {
+  const timeoutMs = input.timeoutMs ?? 120_000;
+  const pollMs = input.pollMs ?? 3_000;
+  const startedAt = Date.now();
+
+  while (Date.now() - startedAt <= timeoutMs) {
+    const pod = await getRunpodPodById(input.podId, input.config);
+    if (input.accept(pod)) {
+      return pod;
+    }
+    await sleep(pollMs);
+  }
+
+  return getRunpodPodById(input.podId, input.config);
+}
+
+async function restartCreatedRunpodWorkerPod(podId: string, config: RunpodWorkerConfig) {
+  const activePod = await waitForRunpodPodState({
+    podId,
+    config,
+    accept: (pod) => isActivePod(pod),
+    timeoutMs: 90_000,
+    pollMs: 3_000,
+  });
+
+  if (isActivePod(activePod)) {
+    await runpodRequest(`/pods/${podId}/stop`, config, { method: "POST" });
+  }
+
+  await waitForRunpodPodState({
+    podId,
+    config,
+    accept: (pod) => isStoppedPod(pod) || isTerminatedPod(pod),
+    timeoutMs: 120_000,
+    pollMs: 3_000,
+  });
+
+  await runpodRequest(`/pods/${podId}/start`, config, { method: "POST" });
+
+  return waitForRunpodPodState({
+    podId,
+    config,
+    accept: (pod) => isActivePod(pod),
+    timeoutMs: 120_000,
+    pollMs: 3_000,
+  });
+}
+
 export async function createRunpodWorkerPod(
   overrides?: Partial<Omit<RunpodWorkerConfig, "apiKey" | "apiTimeoutMs" | "autoStopIdleMs">>,
   config?: RunpodWorkerConfig
@@ -121,7 +176,8 @@ export async function createRunpodWorkerPod(
     }
 
     try {
-      return await applyRunpodWorkerRuntimeConfig(created.id, resolved);
+      await applyRunpodWorkerRuntimeConfig(created.id, resolved);
+      return await restartCreatedRunpodWorkerPod(created.id, resolved);
     } catch (error) {
       await terminateRunpodPod(created.id, resolved).catch(() => {});
       throw error;

@@ -3,7 +3,8 @@ set -euo pipefail
 
 workspace_dir="${PARARIA_RUNPOD_WORKSPACE_DIR:-/workspace}"
 export PARARIA_RUNPOD_WORKSPACE_DIR="${workspace_dir}"
-mkdir -p "${workspace_dir}/.cache/faster-whisper"
+download_root="${FASTER_WHISPER_DOWNLOAD_ROOT:-${workspace_dir}/.cache/faster-whisper}"
+mkdir -p "${download_root}"
 package_json="${workspace_dir}/package.json"
 worker_script="${workspace_dir}/scripts/run-runpod-worker.ts"
 
@@ -37,7 +38,7 @@ if [[ "$missing" -ne 0 ]]; then
 fi
 
 echo "[runpod-worker] starting"
-echo "[runpod-worker] workspace=${workspace_dir} background_mode=${PARARIA_BACKGROUND_MODE:-external} audio_storage=${PARARIA_AUDIO_STORAGE_MODE:-blob} model=${FASTER_WHISPER_MODEL:-large-v3} batch=${FASTER_WHISPER_BATCH_SIZE:-8}"
+echo "[runpod-worker] workspace=${workspace_dir} background_mode=${PARARIA_BACKGROUND_MODE:-external} audio_storage=${PARARIA_AUDIO_STORAGE_MODE:-blob} model=${FASTER_WHISPER_MODEL:-turbo} batch=${FASTER_WHISPER_BATCH_SIZE:-8} download_root=${download_root}"
 auto_stop_idle_ms="${RUNPOD_WORKER_AUTO_STOP_IDLE_MS:-${LOCAL_GPU_WORKER_AUTO_STOP_IDLE_MS:-60000}}"
 echo "[runpod-worker] auto_stop_idle_ms=${auto_stop_idle_ms}"
 

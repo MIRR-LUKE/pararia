@@ -19,7 +19,7 @@ import type {
   TranscribeInput,
 } from "./stt/types";
 
-const FASTER_WHISPER_MODEL_NAME = process.env.FASTER_WHISPER_MODEL?.trim() || "large-v3";
+const FASTER_WHISPER_MODEL_NAME = process.env.FASTER_WHISPER_MODEL?.trim() || "turbo";
 const FASTER_WHISPER_RESPONSE_FORMAT = "segments_json" as const;
 
 export type {

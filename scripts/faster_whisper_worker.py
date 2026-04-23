@@ -253,7 +253,7 @@ def resolve_cuda_compute_order(requested_compute_type: str) -> tuple[List[str], 
 
 
 def choose_model() -> tuple[WhisperModel, str, str, str]:
-    model_name = os.environ.get("FASTER_WHISPER_MODEL", "large-v3").strip() or "large-v3"
+    model_name = os.environ.get("FASTER_WHISPER_MODEL", "turbo").strip() or "turbo"
     requested_device = os.environ.get("FASTER_WHISPER_DEVICE", "auto").strip() or "auto"
     requested_compute_type = os.environ.get("FASTER_WHISPER_COMPUTE_TYPE", "auto").strip() or "auto"
     preferred_cuda_order, gpu_name, gpu_compute_capability = resolve_cuda_compute_order(requested_compute_type)
