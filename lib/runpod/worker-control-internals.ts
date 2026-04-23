@@ -301,6 +301,7 @@ export function buildRunpodWorkerEnv(autoStopIdleMs: number, workerImageOverride
       "FASTER_WHISPER_DOWNLOAD_ROOT",
       DEFAULT_FASTER_WHISPER_DOWNLOAD_ROOT
     ),
+    PARARIA_RUNPOD_WORKSPACE_DIR: readStringEnv("PARARIA_RUNPOD_WORKSPACE_DIR", "/app"),
     RUNPOD_WORKER_SESSION_PART_LIMIT: readStringEnvWithLegacy(
       "RUNPOD_WORKER_SESSION_PART_LIMIT",
       "LOCAL_GPU_WORKER_SESSION_PART_LIMIT",
@@ -360,7 +361,7 @@ export function buildRunpodWorkerCreateBody(
     cloudType: (overrides?.secureCloud ?? config.secureCloud) ? "SECURE" : "COMMUNITY",
     ...(includeRuntimeConfig
       ? {
-          dockerStartCmd: ["bash", "/workspace/scripts/runpod-worker-start.sh"],
+          dockerStartCmd: ["bash", "/app/scripts/runpod-worker-start.sh"],
           env: buildRunpodWorkerEnv(config.autoStopIdleMs, workerImage),
         }
       : {}),

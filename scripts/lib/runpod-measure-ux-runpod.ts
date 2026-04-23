@@ -74,7 +74,7 @@ export function buildBootstrapCommand(gitRef: string) {
 }
 
 export function buildDirectStartCommand() {
-  return ["bash", "/workspace/scripts/runpod-worker-start.sh"];
+  return ["bash", "/app/scripts/runpod-worker-start.sh"];
 }
 
 export function buildWorkerEnv(input: {
@@ -115,7 +115,8 @@ export function buildWorkerEnv(input: {
     FASTER_WHISPER_CHUNKING_ENABLED: "0",
     FASTER_WHISPER_POOL_SIZE: "1",
     FASTER_WHISPER_WORKER_COMMAND: "python3",
-    FASTER_WHISPER_DOWNLOAD_ROOT: process.env.FASTER_WHISPER_DOWNLOAD_ROOT?.trim() || "/workspace/.cache/faster-whisper",
+    FASTER_WHISPER_DOWNLOAD_ROOT: process.env.FASTER_WHISPER_DOWNLOAD_ROOT?.trim() || "/opt/faster-whisper-cache",
+    PARARIA_RUNPOD_WORKSPACE_DIR: process.env.PARARIA_RUNPOD_WORKSPACE_DIR?.trim() || "/app",
     RUNPOD_WORKER_SESSION_PART_LIMIT: "1",
     RUNPOD_WORKER_SESSION_PART_CONCURRENCY: "1",
     RUNPOD_WORKER_CONVERSATION_LIMIT: "1",

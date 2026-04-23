@@ -36,7 +36,7 @@ async function applyRunpodWorkerRuntimeConfig(podId: string, config: RunpodWorke
   const updated = await runpodRequest(`/pods/${podId}`, config, {
     method: "PATCH",
     body: JSON.stringify({
-      dockerStartCmd: ["bash", "/workspace/scripts/runpod-worker-start.sh"],
+      dockerStartCmd: ["bash", "/app/scripts/runpod-worker-start.sh"],
       env: buildRunpodWorkerCreateBody(config, undefined, { includeRuntimeConfig: true }).env,
     }),
   });

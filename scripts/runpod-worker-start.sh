@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-workspace_dir="${PARARIA_RUNPOD_WORKSPACE_DIR:-/workspace}"
+workspace_dir="${PARARIA_RUNPOD_WORKSPACE_DIR:-/app}"
 export PARARIA_RUNPOD_WORKSPACE_DIR="${workspace_dir}"
 download_root="${FASTER_WHISPER_DOWNLOAD_ROOT:-${workspace_dir}/.cache/faster-whisper}"
 mkdir -p "${download_root}"
