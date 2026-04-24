@@ -119,6 +119,7 @@ RUNPOD_API_KEY="your-runpod-api-key"
 ```
 
 production 用の env file は `npx vercel env pull` の生ファイルをそのまま使わず、必ず共通 writer で生成します。
+正本の env 名は `NEXTAUTH_URL`, `NEXT_PUBLIC_APP_URL`, `MAINTENANCE_SECRET`, `RUNPOD_WORKER_IMAGE` です。`CRON_SECRET` と `MAINTENANCE_CRON_SECRET` は既存 route の互換 fallback としてだけ扱います。
 
 ```bash
 npx vercel env run --environment=production -- npm run env:write-production-ops -- \

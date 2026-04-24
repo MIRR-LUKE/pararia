@@ -1078,6 +1078,7 @@ PARARIA_AUDIO_RETENTION_DAYS=14
 - `RUNPOD_WORKER_AUTO_STOP_IDLE_MS` を入れておくと、queue が空のまま一定時間たった Pod を自動 stop できる。既定は 1 分
 - stop 判定は `SessionPartJob` と `ConversationJob` の `QUEUED / RUNNING` が両方ゼロの時だけ掛ける
 - progress 画面と log 画面は read-only polling を基本にし、起動キックは upload / regenerate / 明示再開だけで出す
+- env の正本名は `NEXTAUTH_URL`, `NEXT_PUBLIC_APP_URL`, `MAINTENANCE_SECRET`, `RUNPOD_WORKER_IMAGE`。`CRON_SECRET` / `MAINTENANCE_CRON_SECRET` は保守 route の後方互換 alias としてだけ残し、Vercel / GitHub / local では新規に増やさない
 
 開発機で worker を直接検証したいときだけ、次を使う:
 
@@ -1092,6 +1093,7 @@ PARARIA_AUDIO_RETENTION_DAYS=14
 - ログ本文の手動編集 save payload / dirty 判定のスモークは `npm run test:log-editing`
 - web 録音 UI の本番相当確認は `npm run test:recording-ui -- --base-url http://localhost:3000 --skip-navigation-dialog`
 - deploy 後の production 録音主導線は GitHub Actions `Production Recording Smoke` が正本。manual 再確認の `.tmp/.env.production.runpod` は手書きや `env pull` の生ファイルを使わず、`npx vercel env run --environment=production -- npm run env:write-production-ops -- --output .tmp/.env.production.runpod --base-url https://pararia.vercel.app --worker-image ghcr.io/mirr-luke/pararia-runpod-worker:sha-<deployed-sha>` で毎回生成してから `npm run test:teacher-recording-smoke -- --base-url https://pararia.vercel.app --env-file .tmp/.env.production.runpod` を回す
+- GitHub secret も `MAINTENANCE_SECRET` を正本にし、workflow 側で同じ名前を読む。`CRON_SECRET` は既存 runtime との互換 fallback に限定する
 - 途中離脱ガードだけ確認するときは `npm run test:recording-ui -- --base-url http://localhost:3000 --leave-safety-only`
 
 現行の STT 実行は次の前提です。
