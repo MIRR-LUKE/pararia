@@ -11,8 +11,13 @@ type CleanupPlan = {
 };
 
 const PLAN: CleanupPlan = {
-  canonicalSessionIds: ["cmoa37s190002ohlw5ed1zpo4", "amagai-real-moc8auni-48e03a15"],
-  deleteSessionIds: ["cmoavl2ro000ahss1yfsl11p2", "cmo9zd12c000evnq49si6idtq", "cmo9z5q060002vnq4bqc133rf"],
+  canonicalSessionIds: ["cmoa37s190002ohlw5ed1zpo4", "amagai-real-0417-full-20260424"],
+  deleteSessionIds: [
+    "amagai-real-moc8auni-48e03a15",
+    "cmoavl2ro000ahss1yfsl11p2",
+    "cmo9zd12c000evnq49si6idtq",
+    "cmo9z5q060002vnq4bqc133rf",
+  ],
   demoLessonSessionId: "session-demo-1-lesson",
   demoReportId: "report-demo-1",
 };
@@ -42,6 +47,7 @@ async function main() {
 
   const execute = hasFlag("execute");
   const verbose = hasFlag("verbose");
+  const includeDemoCleanup = hasFlag("include-demo");
   const { prisma } = await import("../lib/db");
   const { deleteStorageEntryDetailed } = await import("../lib/audio-storage");
 
@@ -100,37 +106,42 @@ async function main() {
       },
     });
 
-    const demoLessonSession = await prisma.session.findUnique({
-      where: { id: PLAN.demoLessonSessionId },
-      select: {
-        id: true,
-        status: true,
-        parts: {
+    const demoLessonSession = includeDemoCleanup
+      ? await prisma.session.findUnique({
+          where: { id: PLAN.demoLessonSessionId },
           select: {
             id: true,
-            partType: true,
-            jobs: { select: { id: true } },
+            status: true,
+            parts: {
+              select: {
+                id: true,
+                partType: true,
+                jobs: { select: { id: true } },
+              },
+            },
+            conversation: {
+              select: {
+                id: true,
+                jobs: { select: { id: true } },
+              },
+            },
           },
-        },
-        conversation: {
-          select: {
-            id: true,
-            jobs: { select: { id: true } },
-          },
-        },
-      },
-    });
+        })
+      : null;
 
-    const demoReport = await prisma.report.findUnique({
-      where: { id: PLAN.demoReportId },
-      select: {
-        id: true,
-        sourceLogIds: true,
-      },
-    });
+    const demoReport = includeDemoCleanup
+      ? await prisma.report.findUnique({
+          where: { id: PLAN.demoReportId },
+          select: {
+            id: true,
+            sourceLogIds: true,
+          },
+        })
+      : null;
 
     const summary = {
       execute,
+      includeDemoCleanup,
       canonicalSessions,
       sessionsToDelete: sessionsToDelete.map((session) => ({
         id: session.id,
