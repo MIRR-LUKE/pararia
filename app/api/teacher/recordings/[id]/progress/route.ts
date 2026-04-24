@@ -51,6 +51,12 @@ async function processTeacherRecordingInline(recordingId: string, label: string)
   return result;
 }
 
+type TeacherRecordingProgressDispatchDeps = {
+  processTeacherRecordingInline: typeof processTeacherRecordingInline;
+  shouldRunBackgroundJobsInline: typeof shouldRunBackgroundJobsInline;
+  maybeEnsureRunpodWorkerReady: typeof maybeEnsureRunpodWorkerReady;
+};
+
 async function loadAuthorizedRecording(request: Request, params: RouteParams, mutation = false) {
   const authResult = mutation
     ? await requireTeacherAppMutationSession(request)
@@ -151,7 +157,15 @@ function shouldWakeTeacherRecordingNow(recordingId: string, now = Date.now()) {
   return true;
 }
 
-async function kickTeacherRecordingProcessing(recordingId: string, force = false) {
+export async function kickTeacherRecordingProcessing(
+  recordingId: string,
+  force = false,
+  deps: TeacherRecordingProgressDispatchDeps = {
+    processTeacherRecordingInline,
+    shouldRunBackgroundJobsInline,
+    maybeEnsureRunpodWorkerReady,
+  }
+) {
   if (!force) {
     const shouldRecover = await shouldRecoverTeacherRecordingNow(recordingId).catch(() => false);
     if (!shouldRecover) {
@@ -163,12 +177,15 @@ async function kickTeacherRecordingProcessing(recordingId: string, force = false
     return;
   }
 
-  if (shouldRunBackgroundJobsInline()) {
-    await processTeacherRecordingInline(recordingId, "teacher recording progress inline");
-    return;
+  if (deps.shouldRunBackgroundJobsInline()) {
+    await deps.processTeacherRecordingInline(recordingId, "teacher recording progress inline");
+    return {
+      mode: "inline" as const,
+      workerWake: null,
+    };
   }
 
-  const workerReady = await maybeEnsureRunpodWorkerReady({
+  const workerReady = await deps.maybeEnsureRunpodWorkerReady({
     terminateOnFailure: true,
     timeoutMs: readTeacherRecordingReadyTimeoutMs(),
     proxyTimeoutMs: readTeacherRecordingReadyProxyTimeoutMs(),
@@ -192,14 +209,20 @@ async function kickTeacherRecordingProcessing(recordingId: string, force = false
       podId: workerReady.podId,
       stage: workerReady.stage,
     });
-    return;
+    return {
+      mode: "external" as const,
+      workerWake: workerReady,
+    };
   }
 
-  console.warn("[teacher recording progress] falling back to inline teacher recording processing", {
+  console.warn("[teacher recording progress] Runpod worker wake failed; leaving teacher recording queued for retry", {
     recordingId,
     workerReady,
   });
-  await processTeacherRecordingInline(recordingId, "teacher recording progress fallback");
+  return {
+    mode: "external" as const,
+    workerWake: workerReady,
+  };
 }
 
 export async function GET(request: Request, { params }: { params: RouteParams }) {

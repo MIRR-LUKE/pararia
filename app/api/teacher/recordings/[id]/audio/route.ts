@@ -47,6 +47,68 @@ async function processTeacherRecordingInline(recordingId: string, label: string)
   return result;
 }
 
+type TeacherRecordingUploadDispatchDeps = {
+  processTeacherRecordingInline: typeof processTeacherRecordingInline;
+  shouldRunBackgroundJobsInline: typeof shouldRunBackgroundJobsInline;
+  maybeEnsureRunpodWorkerReady: typeof maybeEnsureRunpodWorkerReady;
+};
+
+export async function dispatchTeacherRecordingUploadJobs(
+  recordingId: string,
+  deps: TeacherRecordingUploadDispatchDeps = {
+    processTeacherRecordingInline,
+    shouldRunBackgroundJobsInline,
+    maybeEnsureRunpodWorkerReady,
+  }
+) {
+  if (deps.shouldRunBackgroundJobsInline()) {
+    await deps.processTeacherRecordingInline(recordingId, "POST /api/teacher/recordings/[id]/audio");
+    return {
+      mode: "inline" as const,
+      workerWake: null,
+    };
+  }
+
+  const workerReady = await deps.maybeEnsureRunpodWorkerReady({
+    terminateOnFailure: true,
+    timeoutMs: readTeacherRecordingReadyTimeoutMs(),
+    proxyTimeoutMs: readTeacherRecordingReadyProxyTimeoutMs(),
+  }).catch((error: any) => ({
+    attempted: true,
+    ok: false,
+    stage: "wake_failed" as const,
+    podId: null,
+    wake: {
+      attempted: true,
+      ok: false,
+      error: error?.message ?? String(error),
+    },
+    readiness: null,
+    error: error?.message ?? String(error),
+  }));
+
+  if (workerReady.ok) {
+    console.info("[POST /api/teacher/recordings/[id]/audio] Runpod worker ready for teacher recording", {
+      recordingId,
+      podId: workerReady.podId,
+      stage: workerReady.stage,
+    });
+  } else {
+    console.warn(
+      "[POST /api/teacher/recordings/[id]/audio] Runpod worker wake failed; leaving teacher recording queued for retry",
+      {
+        recordingId,
+        workerReady,
+      }
+    );
+  }
+
+  return {
+    mode: "external" as const,
+    workerWake: workerReady,
+  };
+}
+
 export async function POST(request: Request, { params }: { params: RouteParams }) {
   let idempotencyKey: string | null = null;
   let idempotencyStarted = false;
@@ -109,41 +171,7 @@ export async function POST(request: Request, { params }: { params: RouteParams }
       durationSecondsHint: Number.isFinite(durationSecondsHint) ? durationSecondsHint : null,
     });
 
-    if (shouldRunBackgroundJobsInline()) {
-      await processTeacherRecordingInline(recordingId, "POST /api/teacher/recordings/[id]/audio");
-    } else {
-      const workerReady = await maybeEnsureRunpodWorkerReady({
-        terminateOnFailure: true,
-        timeoutMs: readTeacherRecordingReadyTimeoutMs(),
-        proxyTimeoutMs: readTeacherRecordingReadyProxyTimeoutMs(),
-      }).catch((error: any) => ({
-        attempted: true,
-        ok: false,
-        stage: "wake_failed" as const,
-        podId: null,
-        wake: {
-          attempted: true,
-          ok: false,
-          error: error?.message ?? String(error),
-        },
-        readiness: null,
-        error: error?.message ?? String(error),
-      }));
-
-      if (workerReady.ok) {
-        console.info("[POST /api/teacher/recordings/[id]/audio] Runpod worker ready for teacher recording", {
-          recordingId,
-          podId: workerReady.podId,
-          stage: workerReady.stage,
-        });
-      } else {
-        console.warn("[POST /api/teacher/recordings/[id]/audio] falling back to inline teacher recording processing", {
-          recordingId,
-          workerReady,
-        });
-        await processTeacherRecordingInline(recordingId, "POST /api/teacher/recordings/[id]/audio fallback");
-      }
-    }
+    await dispatchTeacherRecordingUploadJobs(recordingId);
 
     const recording = await loadTeacherRecordingSummary({
       organizationId: authResult.session.organizationId,
