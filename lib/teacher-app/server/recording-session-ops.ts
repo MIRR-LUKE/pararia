@@ -5,41 +5,11 @@ import {
   SessionPartJobType,
   SessionPartStatus,
   SessionPartType,
-  SessionStatus,
-  SessionType,
   TeacherRecordingJobType,
   TranscriptReviewState,
 } from "@prisma/client";
 import { buildSummaryPreview, toSessionPartMetaJson } from "@/lib/session-part-meta";
 import { getTranscriptExpiryDate } from "@/lib/system-config";
-
-export async function findReusableInterviewSessionId(
-  tx: Prisma.TransactionClient,
-  input: {
-    organizationId: string;
-    studentId: string;
-  }
-) {
-  const existing = await tx.session.findFirst({
-    where: {
-      organizationId: input.organizationId,
-      studentId: input.studentId,
-      type: SessionType.INTERVIEW,
-      status: SessionStatus.DRAFT,
-      conversation: {
-        is: null,
-      },
-      parts: {
-        none: {},
-      },
-    },
-    orderBy: [{ sessionDate: "desc" }, { createdAt: "desc" }],
-    select: {
-      id: true,
-    },
-  });
-  return existing?.id ?? null;
-}
 
 export async function upsertTeacherRecordingSessionPart(
   tx: Prisma.TransactionClient,

@@ -18,7 +18,6 @@ import { ensureSessionPartReviewedTranscript } from "@/lib/transcript/review-ser
 import { preprocessTranscript } from "@/lib/transcript/preprocess";
 import { normalizeRawTranscriptText } from "@/lib/transcript/source";
 import {
-  findReusableInterviewSessionId,
   upsertTeacherPromotionJob,
   upsertTeacherRecordingJob,
   upsertTeacherRecordingSessionPart,
@@ -439,24 +438,18 @@ export async function confirmTeacherRecordingStudent(input: {
       throw new Error("録音データが見つかりません。");
     }
 
-    const targetSessionId = await findReusableInterviewSessionId(tx, {
-      organizationId: input.organizationId,
-      studentId: selectedStudentId,
-    });
-    const sessionId =
-      targetSessionId ??
-      (
-        await tx.session.create({
-          data: {
-            organizationId: input.organizationId,
-            studentId: selectedStudentId,
-            userId: recording.createdByUserId ?? undefined,
-            type: SessionType.INTERVIEW,
-            sessionDate: recording.recordedAt ?? confirmedAt,
-          },
-          select: { id: true },
-        })
-      ).id;
+    const sessionId = (
+      await tx.session.create({
+        data: {
+          organizationId: input.organizationId,
+          studentId: selectedStudentId,
+          userId: recording.createdByUserId ?? undefined,
+          type: SessionType.INTERVIEW,
+          sessionDate: recording.recordedAt ?? confirmedAt,
+        },
+        select: { id: true },
+      })
+    ).id;
 
     const part = await upsertTeacherRecordingSessionPart(tx, {
       sessionId,
