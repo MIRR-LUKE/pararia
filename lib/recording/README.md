@@ -13,7 +13,7 @@
 
 ## 録音ロック（マルチユーザー）
 
-- **取得**: `POST /api/students/:studentId/recording-lock`（body: `{ "mode": "INTERVIEW" | "LESSON_REPORT" }`）→ `lockToken`
+- **取得**: `POST /api/students/:studentId/recording-lock`（body: `{ "mode": "INTERVIEW" }`）→ `lockToken`
 - **heartbeat**: `PATCH` 同 URL（body: `{ lockToken }`）— クライアントは約 10 秒間隔
 - **解放**: 音声 `POST /api/sessions/:id/parts` 完了時にサーバが自動解放。異常時は `DELETE`（body: `{ lockToken }`）または管理者の強制解放（`POST` + `{ forceRelease: true }`）
 - **parts**: 音声アップロード時は FormData に `lockToken` 必須。手入力テキストのみは不要。

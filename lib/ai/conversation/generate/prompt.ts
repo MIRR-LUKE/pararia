@@ -66,7 +66,6 @@ export function resolvePromptCacheSettings(model: string, input: DraftGeneration
 }
 
 function buildStructuredStablePrefixLines(sessionType: SessionMode, draftInputLabel: string) {
-  const isInterview = sessionType === "INTERVIEW";
   return [
     "固定仕様:",
     "- 先にこの固定仕様を読み、そのあとに可変メタデータと transcript を読む。",
@@ -81,15 +80,8 @@ function buildStructuredStablePrefixLines(sessionType: SessionMode, draftInputLa
     "- `抽出済み重要発話 + 文字起こし全文` のときは、重要発話で章立てを決めてから全文で裏取りする。",
     "- `圧縮済み証拠` のときは、見えている evidence だけで判断し、空欄を想像で埋めない。",
     "- 可変メタデータが違う run 同士でも、先頭の固定仕様と section contract は同一のまま維持する。",
-    ...(isInterview
-      ? [
-          "- interview では、学習状況、課題分析、今後の対策、進路、次回確認事項を混ぜずに整理する。",
-          "- sharePoints には進路や志望校の話を優先し、話題がなければ空配列のままにする。",
-        ]
-      : [
-          "- lesson report では、要約、課題と成果、次回アクション、共有事項を混ぜない。",
-          "- nextActions では `生徒` `次回までの宿題` `次回の確認（テスト）事項` が見える label を優先する。",
-        ]),
+    "- interview では、学習状況、課題分析、今後の対策、進路、次回確認事項を混ぜずに整理する。",
+    "- sharePoints には進路や志望校の話を優先し、話題がなければ空配列のままにする。",
     "- 可変メタデータが run ごとに違っても、出力 contract と section 設計はこの固定仕様から崩さない。",
   ];
 }
@@ -100,7 +92,7 @@ function buildStructuredVariableLines(input: DraftGenerationInput, draftInput: {
     `- 生徒: ${formatStudentLabel(input.studentName)}`,
     `- 講師: ${formatTeacherLabel(input.teacherName)}`,
     `- 日付: ${formatSessionDateLabel(input.sessionDate) || "不明"}`,
-    ...(input.sessionType === "INTERVIEW" ? [`- 面談時間目安: ${formatDurationLabel(input.durationMinutes)}`] : []),
+    `- 面談時間目安: ${formatDurationLabel(input.durationMinutes)}`,
     `- 最低文字数目安: ${input.minSummaryChars}`,
     "",
     "入力:",
@@ -206,23 +198,14 @@ export function buildInterviewMarkdownRepairPrompt(errors: string[], previousRaw
 }
 
 export function buildMarkdownRecoveryUserPrompt(sessionType: SessionMode, errors: string[]) {
-  const headings =
-    sessionType === "LESSON_REPORT"
-      ? [
-          "■ 基本情報",
-          "■ 1. 本日の指導サマリー（室長向け要約）",
-          "■ 2. 課題と指導成果（Before → After）",
-          "■ 3. 学習方針と次回アクション（自学習の設計）",
-          "■ 4. 室長・他講師への共有・連携事項",
-        ]
-      : [
-          "■ 基本情報",
-          "■ 1. サマリー",
-          "■ 2. 学習状況と課題分析",
-          "■ 3. 今後の対策・指導内容",
-          "■ 4. 志望校に関する検討事項",
-          "■ 5. 次回のお勧め話題",
-        ];
+  const headings = [
+    "■ 基本情報",
+    "■ 1. サマリー",
+    "■ 2. 学習状況と課題分析",
+    "■ 3. 今後の対策・指導内容",
+    "■ 4. 志望校に関する検討事項",
+    "■ 5. 次回のお勧め話題",
+  ];
 
   return [
     "JSON ではなく、そのままユーザーに見せる markdown を返してください。",

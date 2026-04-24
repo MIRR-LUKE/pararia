@@ -51,7 +51,6 @@ function resolveOverlayState(
   const panel = queryParams.get("panel");
   const logId = queryParams.get("logId");
   const reportId = queryParams.get("reportId");
-  const lessonSessionId = queryParams.get("lessonSessionId");
 
   if (panel === "log" && logId) {
     return { kind: "log", logId };
@@ -59,12 +58,6 @@ function resolveOverlayState(
   if (panel === "report") {
     const reportCount = room?.reports?.length ?? 0;
     return { kind: "report", view: reportCount > 0 && selectedSessionIds.length === 0 ? "generated" : "selection" };
-  }
-  if (panel === "lessonReport" && lessonSessionId) {
-    const lessonSession = room?.sessions.find((session) => session.id === lessonSessionId);
-    if (lessonSession?.conversation?.id) {
-      return { kind: "log", logId: lessonSession.conversation.id };
-    }
   }
   if (panel === "parentReport" && reportId) {
     return { kind: "parentReport", reportId };

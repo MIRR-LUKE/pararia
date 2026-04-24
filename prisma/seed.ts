@@ -74,7 +74,6 @@ async function cleanup(studentIds: string[]) {
 async function createHana() {
   const studentId = "student-demo-1";
   const interviewDate = "2026-03-10T19:30:00.000Z";
-  const lessonDate = "2026-03-12T10:00:00.000Z";
 
   await prisma.student.create({
     data: {
@@ -172,77 +171,6 @@ async function createHana() {
     },
   });
 
-  await prisma.session.create({
-    data: {
-      id: "session-demo-1-lesson",
-      organizationId: DEFAULT_ORGANIZATION_ID,
-      studentId,
-      userId: "user-demo-instructor",
-      type: SessionType.LESSON_REPORT,
-      status: SessionStatus.READY,
-      title: "英語授業報告",
-      sessionDate: new Date(lessonDate),
-      heroStateLabel: "集中維持",
-      heroOneLiner: "授業中の集中は高い。宿題の着手だけ整えたい。",
-      latestSummary: "授業中の集中は安定しているが、宿題の着手がまだ重い。",
-      completedAt: new Date(lessonDate),
-      createdAt: new Date(lessonDate),
-    },
-  });
-
-  await prisma.sessionPart.createMany({
-    data: [
-      {
-        id: "part-demo-1-lesson-in",
-        sessionId: "session-demo-1-lesson",
-        partType: SessionPartType.CHECK_IN,
-        sourceType: ConversationSourceType.MANUAL,
-        status: SessionPartStatus.READY,
-        rawTextOriginal: "宿題の長文は2本のうち1本まで進めた。",
-        rawTextCleaned: "宿題の長文は2本のうち1本まで進めた。",
-        rawSegments: [] as any,
-        qualityMetaJson: { seeded: true } as any,
-        transcriptExpiresAt: plusDays(lessonDate, 30),
-        createdAt: new Date(lessonDate),
-      },
-      {
-        id: "part-demo-1-lesson-out",
-        sessionId: "session-demo-1-lesson",
-        partType: SessionPartType.CHECK_OUT,
-        sourceType: ConversationSourceType.MANUAL,
-        status: SessionPartStatus.READY,
-        rawTextOriginal: "授業中の集中は良好。宿題は開始時刻を決めて組み直した。",
-        rawTextCleaned: "授業中の集中は良好。宿題は開始時刻を決めて組み直した。",
-        rawSegments: [] as any,
-        qualityMetaJson: { seeded: true } as any,
-        transcriptExpiresAt: plusDays(lessonDate, 30),
-        createdAt: new Date(lessonDate),
-      },
-    ],
-  });
-
-  await prisma.conversationLog.create({
-    data: {
-      id: "conversation-demo-1-lesson",
-      organizationId: DEFAULT_ORGANIZATION_ID,
-      studentId,
-      userId: "user-demo-instructor",
-      sessionId: "session-demo-1-lesson",
-      sourceType: ConversationSourceType.MANUAL,
-      status: ConversationStatus.DONE,
-      rawTextOriginal: "宿題の長文は2本のうち1本まで進めた。\n\n授業中の集中は良好。宿題は開始時刻を決めて組み直した。",
-      rawTextCleaned: "宿題の長文は2本のうち1本まで進めた。\n\n授業中の集中は良好。宿題は開始時刻を決めて組み直した。",
-      rawSegments: [] as any,
-      rawTextExpiresAt: plusDays(lessonDate, 30),
-      summaryMarkdown:
-        "## 授業で確認したこと\n授業中の集中は高く、説明への反応も安定していた。\n\n## 講師の見立て\n課題は量ではなく、宿題に着手する最初の一歩が重いこと。\n\n## 次回までに進めること\n負荷は増やさず、開始時刻を固定して着手のハードルを下げる。",
-      formattedTranscript:
-        "## チェックイン\n宿題の長文は2本のうち1本まで進めた。\n\n## チェックアウト\n授業中の集中は良好。宿題は開始時刻を決めて組み直した。",
-      qualityMetaJson: { seeded: true, modelFinal: "gpt-5.4", modelFast: "gpt-5-mini" } as any,
-      createdAt: new Date(lessonDate),
-    },
-  });
-
   const harutoReport = await prisma.report.create({
     data: {
       id: "report-demo-1",
@@ -255,7 +183,7 @@ async function createHana() {
       qualityChecksJson: { seeded: true } as any,
       periodFrom: plusDays(interviewDate, -30),
       periodTo: new Date("2026-03-13T01:00:00.000Z"),
-      sourceLogIds: ["conversation-demo-1-interview", "conversation-demo-1-lesson"] as any,
+      sourceLogIds: ["conversation-demo-1-interview"] as any,
       createdAt: new Date("2026-03-13T01:00:00.000Z"),
     },
   });

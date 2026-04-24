@@ -19,14 +19,6 @@ function buildEvidenceFirstRules() {
 }
 
 function buildPromptContextLines(sessionType: SessionMode) {
-  if (sessionType === "LESSON_REPORT") {
-    return [
-      "文脈:",
-      "あなたは学習塾の教務責任者です。口語の授業 transcript から、管理者が使う指導報告の元データを抽出してください。",
-      "完成した文章を書くのではなく、根拠付きの構造化データを返してください。",
-    ];
-  }
-
   return [
     "文脈:",
     "あなたは学習塾の教務責任者です。口語の面談 transcript から、管理者がそのまま読める面談ログの元データを抽出してください。",
@@ -44,22 +36,7 @@ function buildInterviewMarkdownContextLines() {
   ];
 }
 
-export function buildStructuredArtifactSpec(isLesson: boolean) {
-  if (isLesson) {
-    return [
-      "出力 JSON の shape:",
-      '{ "basicInfo": { "student": string, "teacher": string, "date": string, "subjectUnit": string }, "summary": [{ "text": string, "evidence": string[] }], "claims": [{ "label": string, "claimType": "observed" | "inferred" | "missing", "text": string, "evidence": string[] }], "nextActions": [{ "label": string, "actionType": "assessment" | "nextCheck", "text": string, "evidence": string[] }], "sharePoints": [{ "text": string, "evidence": string[] }] }',
-      "summary は 2-3 件。各 text は 1-2 文の短い要点だけにする。",
-      "claims は 2-4 件。`label` は `条件整理` や `再現確認` のような短い論点名にする。",
-      "nextActions は最低 3 件。`生徒` `次回までの宿題` `次回の確認（テスト）事項` が読み取れるように `label` を付ける。",
-      "sharePoints は 2-4 件。",
-      "各 evidence は短い根拠断片 1-2 本に絞る。長い transcript の丸貼りは禁止。",
-      "授業前チェックイン / 授業後チェックアウト の逐語転写は禁止。",
-      "ノイズ音声、言い淀み、壊れた固有名詞をそのまま出さない。",
-      "抽象語だけで済ませず、確認できた事実・残課題・次回確認事項を具体化する。",
-      "意味を盛らず、根拠のない背景説明や感想は足さない。",
-    ];
-  }
+export function buildStructuredArtifactSpec() {
   return [
     "出力 JSON の shape:",
     '{ "basicInfo": { "student": string, "teacher": string, "date": string, "purpose": string }, "summary": [{ "text": string, "evidence": string[] }], "claims": [{ "claimType": "observed" | "inferred" | "missing", "text": string, "evidence": string[] }], "nextActions": [{ "label": string, "actionType": "assessment" | "nextCheck", "text": string, "evidence": string[] }], "sharePoints": [{ "text": string, "evidence": string[] }] }',
@@ -185,9 +162,8 @@ function buildSharePointSchema() {
 }
 
 export function buildStructuredArtifactJsonSchema(sessionType: SessionMode) {
-  const interview = sessionType !== "LESSON_REPORT";
   return {
-    name: interview ? "interview_log_artifact" : "lesson_report_artifact",
+    name: "interview_log_artifact",
     strict: true,
     schema: {
       type: "object",
@@ -196,22 +172,13 @@ export function buildStructuredArtifactJsonSchema(sessionType: SessionMode) {
         basicInfo: {
           type: "object",
           additionalProperties: false,
-          properties: interview
-            ? {
-                student: { type: "string" },
-                teacher: { type: "string" },
-                date: { type: "string" },
-                purpose: { type: "string" },
-              }
-            : {
-                student: { type: "string" },
-                teacher: { type: "string" },
-                date: { type: "string" },
-                subjectUnit: { type: "string" },
-              },
-          required: interview
-            ? ["student", "teacher", "date", "purpose"]
-            : ["student", "teacher", "date", "subjectUnit"],
+          properties: {
+            student: { type: "string" },
+            teacher: { type: "string" },
+            date: { type: "string" },
+            purpose: { type: "string" },
+          },
+          required: ["student", "teacher", "date", "purpose"],
         },
         summary: buildEntryArraySchema(buildSummaryItemSchema()),
         claims: buildEntryArraySchema(buildClaimItemSchema()),
@@ -227,7 +194,7 @@ function buildPromptBody(sessionType: SessionMode) {
   return [
     ...buildEvidenceFirstRules(),
     ...buildPromptContextLines(sessionType),
-    ...buildStructuredArtifactSpec(sessionType === "LESSON_REPORT"),
+    ...buildStructuredArtifactSpec(),
   ];
 }
 

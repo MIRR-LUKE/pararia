@@ -10,7 +10,6 @@ import {
   buildRecordingTooShortMessage,
   buildUnknownDurationMessage,
   DEFAULT_MAX_INTERVIEW_DURATION_SEC,
-  DEFAULT_MAX_LESSON_PART_DURATION_SEC,
   DEFAULT_MIN_RECORDING_DURATION_SEC,
 } from "@/lib/recording/policy";
 
@@ -64,10 +63,6 @@ export function getTranscriptMinSignificantChars(): number {
 }
 
 export function getRecordingMaxDurationSeconds(sessionType: "INTERVIEW" | "LESSON_REPORT") {
-  if (sessionType === "LESSON_REPORT") {
-    const n = Number(process.env.MAX_LESSON_PART_DURATION_SECONDS ?? DEFAULT_MAX_LESSON_PART_DURATION_SEC);
-    return Number.isFinite(n) && n > 0 ? n : DEFAULT_MAX_LESSON_PART_DURATION_SEC;
-  }
   const n = Number(process.env.MAX_INTERVIEW_DURATION_SECONDS ?? DEFAULT_MAX_INTERVIEW_DURATION_SEC);
   return Number.isFinite(n) && n > 0 ? n : DEFAULT_MAX_INTERVIEW_DURATION_SEC;
 }

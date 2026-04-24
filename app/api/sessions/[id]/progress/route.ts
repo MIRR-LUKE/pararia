@@ -15,7 +15,6 @@ import { requireAuthorizedMutationSession, requireAuthorizedSession } from "@/li
 import { applyLightMutationThrottle } from "@/lib/server/request-throttle";
 import { runAfterResponse } from "@/lib/server/after-response";
 import { pickDisplayTranscriptText } from "@/lib/transcript/source";
-import { withVisibleConversationWhere } from "@/lib/content-visibility";
 import { shouldRunBackgroundJobsInline } from "@/lib/jobs/execution-mode";
 import { kickConversationJobsOutsideRunpod } from "@/lib/jobs/conversation-jobs/app-dispatch";
 import { maybeStopRunpodWorkerWhenSessionPartQueueIdle } from "@/lib/runpod/idle-stop";
@@ -178,13 +177,11 @@ export function shouldProcessSessionProgressInline(input: {
 
 type SessionWorkerWakeDeps = {
   maybeEnsureRunpodWorkerReady?: typeof maybeEnsureRunpodWorkerReady;
-  processAllSessionPartJobs?: typeof processAllSessionPartJobs;
-  processAllConversationJobs?: typeof processAllConversationJobs;
 };
 
 export function kickSessionWorkerOrFallback(
   sessionId: string,
-  hasPendingConversationWork: boolean,
+  _hasPendingConversationWork: boolean,
   deps: SessionWorkerWakeDeps = {}
 ) {
   if (!shouldKickSessionWorkerNow(sessionId)) {
@@ -192,8 +189,6 @@ export function kickSessionWorkerOrFallback(
   }
 
   const ensureWorkerReady = deps.maybeEnsureRunpodWorkerReady ?? maybeEnsureRunpodWorkerReady;
-  const processSessionParts = deps.processAllSessionPartJobs ?? processAllSessionPartJobs;
-  const processConversation = deps.processAllConversationJobs ?? processAllConversationJobs;
 
   runAfterResponse(async () => {
     const workerReady = await ensureWorkerReady({
@@ -216,36 +211,11 @@ export function kickSessionWorkerOrFallback(
       return;
     }
 
-    console.warn("[GET /api/sessions/[id]/progress] falling back to inline processing", {
+    console.warn("[GET /api/sessions/[id]/progress] Runpod worker wake failed; leaving queued jobs for retry", {
       sessionId,
       workerReady,
     });
-
-    await processSessionParts(sessionId);
-
-    const refreshedConversation = await prisma.conversationLog.findFirst({
-      where: withVisibleConversationWhere({ sessionId }),
-      select: {
-        id: true,
-        status: true,
-        jobs: {
-          select: {
-            status: true,
-          },
-        },
-      },
-    });
-
-    const shouldProcessConversation =
-      Boolean(refreshedConversation?.id) &&
-      (hasPendingConversationWork ||
-        refreshedConversation?.status === "PROCESSING" ||
-        Boolean(refreshedConversation?.jobs.some((job) => job.status === "QUEUED" || job.status === "RUNNING")));
-
-    if (refreshedConversation?.id && shouldProcessConversation) {
-      await processConversation(refreshedConversation.id);
-    }
-  }, "GET /api/sessions/[id]/progress worker wake fallback");
+  }, "GET /api/sessions/[id]/progress worker wake");
 }
 
 async function recoverMissingConversationJobs(conversationId: string | null | undefined) {
@@ -369,7 +339,7 @@ async function processSessionProgress(
 function buildSessionProgressResponse(session: NonNullable<Awaited<ReturnType<typeof loadSessionProgressSnapshot>>>) {
   const progress = buildSessionProgressState({
     sessionId: session.id,
-    type: session.type,
+    type: "INTERVIEW",
     parts: session.parts,
     conversation: session.conversation,
   });

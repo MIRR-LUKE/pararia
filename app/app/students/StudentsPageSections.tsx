@@ -368,7 +368,7 @@ export function StudentsDeleteDialog({ studentToDelete, isDeletingStudent, onCon
     <ConfirmDialog
       open={Boolean(studentToDelete)}
       title={studentToDelete ? `${studentToDelete.name} をアーカイブしますか？` : ""}
-      description="一覧からは外れますが、関連する面談ログ・指導報告ログ・保護者レポートは保持され、管理者が復旧できます。"
+      description="一覧からは外れますが、関連する面談ログと保護者レポートは保持され、管理者が復旧できます。"
       details={[
         "runtime 音声と DB データは保持されます。",
         "一覧・ダッシュボード・通常の導線からは即時に外れます。",

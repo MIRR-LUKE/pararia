@@ -1,6 +1,6 @@
 import type { ConversationArtifact } from "@/lib/conversation-artifact";
 
-export type SessionMode = "INTERVIEW" | "LESSON_REPORT";
+export type SessionMode = "INTERVIEW";
 
 export type ChatResult = {
   raw: string;

@@ -1,7 +1,7 @@
 import type { SessionPipelineInfo } from "./roomTypes";
 import type { SessionProgressTimingSnapshot } from "@/lib/session-progress/timing";
 
-export type SessionConsoleMode = "INTERVIEW" | "LESSON_REPORT";
+export type SessionConsoleMode = "INTERVIEW";
 export type SessionConsoleLessonPart = "CHECK_IN" | "CHECK_OUT";
 export type ConsoleState = "idle" | "preparing" | "recording" | "uploading" | "processing" | "success" | "error";
 export type UploadSource = "file_upload" | "direct_recording";

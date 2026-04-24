@@ -65,7 +65,7 @@ const PART_TYPE_LABEL: Record<string, string> = {
 };
 
 function sessionTypeLabel(type?: string | null) {
-  return type === "LESSON_REPORT" ? "指導報告" : "面談";
+  return "面談";
 }
 
 function transcriptLabel(conversation: ConversationSnapshot) {

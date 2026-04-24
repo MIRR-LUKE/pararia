@@ -20,7 +20,7 @@ export type ReportBundleLog = {
   id: string;
   sessionId?: string | null;
   date: string;
-  mode: "INTERVIEW" | "LESSON_REPORT";
+  mode: "INTERVIEW";
   subType?: string | null;
   operationalLog: OperationalLog;
 };
@@ -84,10 +84,15 @@ function firstSentences(values: string[], limit: number) {
 }
 
 export function buildOperationalLog(input: OperationalLogInput): OperationalLog {
-  const sessionType = input.sessionType === "LESSON_REPORT" ? "LESSON_REPORT" : "INTERVIEW";
   const artifact =
     parseConversationArtifact(input.artifactJson) ??
-    (input.summaryMarkdown ? buildConversationArtifactFromMarkdown({ sessionType, summaryMarkdown: input.summaryMarkdown, generatedAt: input.createdAt }) : null);
+    (input.summaryMarkdown
+      ? buildConversationArtifactFromMarkdown({
+          sessionType: "INTERVIEW",
+          summaryMarkdown: input.summaryMarkdown,
+          generatedAt: input.createdAt,
+        })
+      : null);
 
   if (artifact) {
     const splitActions = splitActionEntries(artifact.nextActions);
@@ -142,10 +147,6 @@ function formatPeriodLabel(selectedLogs: ReportBundleLog[]) {
   return `${sorted[0]}〜${sorted[sorted.length - 1]}`;
 }
 
-function hasMode(logs: ReportBundleLog[], mode: ReportBundleLog["mode"]) {
-  return logs.some((log) => log.mode === mode);
-}
-
 export function buildBundleQualityEval(
   selectedLogs: ReportBundleLog[],
   candidateLogs: ReportBundleLog[] = selectedLogs
@@ -160,8 +161,9 @@ export function buildBundleQualityEval(
 
   const warnings: string[] = [];
   if (selectedLogs.length === 0) warnings.push("ログが未選択です。");
-  if (!hasMode(selectedLogs, "INTERVIEW")) warnings.push("面談ログが含まれていません。");
-  if (!hasMode(selectedLogs, "LESSON_REPORT")) warnings.push("指導報告ログが含まれていません。");
+  if (selectedLogs.length > 0 && selectedLogs.every((log) => log.mode !== "INTERVIEW")) {
+    warnings.push("面談ログが含まれていません。");
+  }
   if (parentPoints.length === 0) warnings.push("保護者共有に使える明確な要点が少ないです。");
   if (followUpChecks.length === 0) warnings.push("次回確認事項が少なく、次の観察ポイントが見えにくいです。");
 
@@ -169,8 +171,6 @@ export function buildBundleQualityEval(
   const suggestedLogIds = candidateLogs
     .filter((log) => !selectedIds.has(log.id))
     .filter((log) => {
-      if (!hasMode(selectedLogs, "INTERVIEW") && log.mode === "INTERVIEW") return true;
-      if (!hasMode(selectedLogs, "LESSON_REPORT") && log.mode === "LESSON_REPORT") return true;
       if (parentPoints.length === 0 && log.operationalLog.parentShare.length > 0) return true;
       if (followUpChecks.length === 0 && log.operationalLog.nextChecks.length > 0) return true;
       if (weakElements.length === 0 && log.operationalLog.assessment.length > 0) return true;
@@ -214,7 +214,7 @@ export function buildReportBundleLog(
     id: string;
     sessionId?: string | null;
     date: string;
-    mode: "INTERVIEW" | "LESSON_REPORT";
+    mode: "INTERVIEW";
     subType?: string | null;
   }
 ): ReportBundleLog {
@@ -236,7 +236,7 @@ export function buildStrictReportBundleLog(
     id: string;
     sessionId?: string | null;
     date: string;
-    mode: "INTERVIEW" | "LESSON_REPORT";
+    mode: "INTERVIEW";
     subType?: string | null;
   }
 ): ReportBundleLog {

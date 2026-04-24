@@ -33,14 +33,6 @@ kickSessionWorkerOrFallback("session-progress-dispatch", false, {
       readiness: { checkedAt: new Date().toISOString() },
     };
   },
-  processAllSessionPartJobs: async () => {
-    events.push("session-fallback");
-    return { attempted: 0, processed: 0, errors: [] };
-  },
-  processAllConversationJobs: async () => {
-    events.push("conversation-fallback");
-    return { attempted: 0, processed: 0, errors: [] };
-  },
 });
 
 const elapsedMs = Date.now() - startedAt;
@@ -49,6 +41,33 @@ assert.deepEqual(events, ["wake"], "worker wake may start immediately, but must 
 
 await waitForMicrotask();
 assert.deepEqual(events, ["wake"], "worker wake should continue in the background");
+
+const failureEvents: string[] = [];
+kickSessionWorkerOrFallback("session-progress-dispatch-failure", true, {
+  maybeEnsureRunpodWorkerReady: async () => {
+    failureEvents.push("wake-failed");
+    return {
+      attempted: true,
+      ok: false,
+      stage: "wake_failed" as const,
+      podId: null,
+      wake: {
+        attempted: true,
+        ok: false,
+        error: "runpod unavailable",
+      },
+      readiness: null,
+      error: "runpod unavailable",
+    };
+  },
+});
+
+await waitForMicrotask();
+assert.deepEqual(
+  failureEvents,
+  ["wake-failed"],
+  "external mode should no longer fall back to inline session/conversation processing when worker wake fails"
+);
 
 assert.equal(
   shouldProcessConversationInlineDuringProgress({

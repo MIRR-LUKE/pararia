@@ -54,11 +54,6 @@ export function normalizeSourceText(payload: ConversationPayload) {
 }
 
 export function minSummaryCharsFor(input: { sessionType?: SessionType | null; sourceText: string }) {
-  if (input.sessionType === SessionType.LESSON_REPORT) {
-    if (input.sourceText.length >= 12000) return 900;
-    if (input.sourceText.length <= 2500) return 600;
-    return 760;
-  }
   if (input.sourceText.length >= 12000) return 700;
   if (input.sourceText.length <= 2500) return 420;
   return 560;

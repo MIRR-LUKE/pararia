@@ -1,7 +1,6 @@
 import path from "node:path";
 import { getAudioDurationSeconds } from "@/lib/audio-processing";
 import { materializeInputFile } from "./stt/input";
-import { transcribeAudioWithOpenAiForPipeline } from "./stt/openai";
 import {
   readChunkingEnabled,
   readChunkMinDurationSeconds,
@@ -24,21 +23,35 @@ const FASTER_WHISPER_MODEL_NAME = process.env.FASTER_WHISPER_MODEL?.trim() || "t
 const FASTER_WHISPER_RESPONSE_FORMAT = "segments_json" as const;
 const STT_PROVIDER_ENV = "PARARIA_STT_PROVIDER";
 
-function readTranscriptionProvider() {
+function readConfiguredTranscriptionProvider() {
   const explicit = process.env[STT_PROVIDER_ENV]?.trim().toLowerCase();
-  if (explicit === "faster-whisper" || explicit === "openai") {
-    return explicit;
-  }
-
-  if (process.env.RUNPOD_POD_ID?.trim()) {
+  if (!explicit || explicit === "faster-whisper") {
     return "faster-whisper";
   }
+  if (explicit === "openai") {
+    throw new Error(
+      `${STT_PROVIDER_ENV}=openai は廃止されました。STT は Runpod / faster-whisper only です。`
+    );
+  }
+  throw new Error(
+    `${STT_PROVIDER_ENV}=${explicit} は未対応です。STT は faster-whisper のみ指定できます。`
+  );
+}
 
-  if (process.env.PARARIA_BACKGROUND_MODE?.trim()?.toLowerCase() === "external") {
-    return "openai";
+function assertTranscriptionExecutionAllowed() {
+  readConfiguredTranscriptionProvider();
+
+  const inRunpodWorker = Boolean(process.env.RUNPOD_POD_ID?.trim());
+  if (inRunpodWorker) {
+    return;
   }
 
-  return "faster-whisper";
+  const backgroundMode = process.env.PARARIA_BACKGROUND_MODE?.trim().toLowerCase();
+  if (backgroundMode === "external") {
+    throw new Error(
+      "503 Runpod STT worker is temporarily unavailable in external mode. OpenAI STT fallback has been removed; wake the Runpod worker and retry."
+    );
+  }
 }
 
 export type {
@@ -61,9 +74,7 @@ export async function transcribeAudio({
 }
 
 export async function transcribeAudioForPipeline(input: TranscribeInput): Promise<PipelineTranscriptionResult> {
-  if (readTranscriptionProvider() === "openai") {
-    return transcribeAudioWithOpenAiForPipeline(input);
-  }
+  assertTranscriptionExecutionAllowed();
 
   const file = await materializeInputFile(input);
   try {

@@ -124,28 +124,6 @@ export function assessConversationReview(input: {
       message: "面談の入力が弱く、根拠が足りない可能性があります。",
     });
   }
-  if (input.sessionType === SessionType.LESSON_REPORT) {
-    const checkInLines = transcriptLines(extractMarkdownSectionBody(input.rawTextOriginal, "授業前チェックイン"));
-    const checkOutLines = transcriptLines(extractMarkdownSectionBody(input.rawTextOriginal, "授業後チェックアウト"));
-    if (checkInLines.length < 2) {
-      reasons.push({
-        code: "weak_check_in",
-        message: "授業前チェックインの情報が弱く、確認が必要です。",
-      });
-    }
-    if (checkOutLines.length < 2) {
-      reasons.push({
-        code: "weak_check_out",
-        message: "授業後チェックアウトの情報が弱く、確認が必要です。",
-      });
-    }
-    if (lines.length < 6) {
-      reasons.push({
-        code: "weak_lesson_input",
-        message: "指導報告の入力が弱く、根拠が足りない可能性があります。",
-      });
-    }
-  }
   return assessReviewState(reasons, input.suggestions);
 }
 

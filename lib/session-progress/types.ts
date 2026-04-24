@@ -1,6 +1,6 @@
 import type { GenerationProgressState, GenerationStep } from "@/lib/generation-progress";
 
-export type SessionProgressMode = "INTERVIEW" | "LESSON_REPORT";
+export type SessionProgressMode = "INTERVIEW";
 
 export type SessionProgressStage =
   | "IDLE"

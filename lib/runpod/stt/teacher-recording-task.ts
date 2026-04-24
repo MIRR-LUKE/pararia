@@ -83,7 +83,7 @@ export async function transcribeTeacherRecordingTask(
       throw new Error("faster-whisper transcription did not return a result");
     }
 
-    const sttEngine = stt.meta.model.startsWith("openai:") ? "openai" : "faster-whisper";
+    const sttEngine = "faster-whisper";
 
     const transcriptText = normalizeRawTranscriptText(stt.rawTextOriginal);
     if (!transcriptText) {

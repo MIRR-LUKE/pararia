@@ -7,35 +7,23 @@ import type {
   SessionProgressWaitingCopy,
 } from "./types";
 
-const SESSION_PROGRESS_STEP_LABELS: Record<SessionProgressMode, readonly [string, string, string, string]> = {
-  INTERVIEW: ["保存受付", "文字起こし", "ログ生成", "完了"],
-  LESSON_REPORT: ["チェックイン", "チェックアウト", "ログ生成", "完了"],
+const SESSION_PROGRESS_STEP_LABELS: readonly [string, string, string, string] = [
+  "保存受付",
+  "文字起こし",
+  "ログ生成",
+  "完了",
+];
+
+const SESSION_PROGRESS_READY_COPY: SessionProgressPhaseCopy = {
+  statusLabel: "完了",
+  title: "面談ログが完成しました",
+  description: "このまま閉じても大丈夫です。結果を確認できます。",
 };
 
-const SESSION_PROGRESS_READY_COPY: Record<SessionProgressMode, SessionProgressPhaseCopy> = {
-  INTERVIEW: {
-    statusLabel: "完了",
-    title: "面談ログが完成しました",
-    description: "このまま閉じても大丈夫です。結果を確認できます。",
-  },
-  LESSON_REPORT: {
-    statusLabel: "完了",
-    title: "指導報告ログが完成しました",
-    description: "このまま閉じても大丈夫です。結果を確認できます。",
-  },
-};
-
-const SESSION_PROGRESS_GENERATING_COPY: Record<SessionProgressMode, SessionProgressPhaseCopy> = {
-  INTERVIEW: {
-    statusLabel: "ログ生成中",
-    title: "面談の要点を整理しています",
-    description: "gpt-5.4 で文字起こしを要約し、面談ログ本文を生成しています。",
-  },
-  LESSON_REPORT: {
-    statusLabel: "ログ生成中",
-    title: "チェックインとチェックアウトを統合しています",
-    description: "gpt-5.4 で文字起こしを要約し、指導報告ログ本文を生成しています。",
-  },
+const SESSION_PROGRESS_GENERATING_COPY: SessionProgressPhaseCopy = {
+  statusLabel: "ログ生成中",
+  title: "面談の要点を整理しています",
+  description: "gpt-5.4 で文字起こしを要約し、面談ログ本文を生成しています。",
 };
 
 const SESSION_PROGRESS_RECEIVED_COPY: SessionProgressPhaseCopy = {
@@ -44,17 +32,10 @@ const SESSION_PROGRESS_RECEIVED_COPY: SessionProgressPhaseCopy = {
   description: "処理を順番に開始します。",
 };
 
-const SESSION_PROGRESS_IDLE_COPY: Record<SessionProgressMode, SessionProgressPhaseCopy> = {
-  INTERVIEW: {
-    statusLabel: "未開始",
-    title: "録音またはアップロードで開始します",
-    description: "保存後に文字起こしと面談ログ生成が自動で進みます。",
-  },
-  LESSON_REPORT: {
-    statusLabel: "未開始",
-    title: "チェックインから開始します",
-    description: "チェックイン保存後、チェックアウトを追加すると自動で指導報告ログを生成します。",
-  },
+const SESSION_PROGRESS_IDLE_COPY: SessionProgressPhaseCopy = {
+  statusLabel: "未開始",
+  title: "録音またはアップロードで開始します",
+  description: "保存後に文字起こしと面談ログ生成が自動で進みます。",
 };
 
 const SESSION_PROGRESS_CONVERSATION_ERROR_COPY: SessionProgressPhaseCopy = {
@@ -93,59 +74,15 @@ const SESSION_PROGRESS_TRANSCRIPTION_PHASE_COPY: Record<
   },
 };
 
-const SESSION_PROGRESS_TRANSCRIBING_COPY: {
-  INTERVIEW: SessionProgressTranscriptionCopy;
-  LESSON_REPORT: Record<"CHECK_IN" | "CHECK_OUT", SessionProgressTranscriptionCopy>;
-} = {
-  INTERVIEW: {
-    statusLabel: "文字起こし中",
-    title: "面談音声を文字起こし中です",
-    description: "STT worker で音声を文字起こししています。音声が長いほど時間はかかりますが、このまま閉じても大丈夫です。",
-    unitLabel: "面談音声",
-    start: 24,
-    end: 68,
-    acceptedTitle: "音声を受け付けました",
-    acceptedDescription: "文字起こしを進めています。このまま閉じても大丈夫です。",
-  },
-  LESSON_REPORT: {
-    CHECK_IN: {
-      statusLabel: "文字起こし中",
-      title: "チェックイン音声を文字起こし中です",
-      description: "STT worker で音声を文字起こししています。音声が長いほど時間はかかりますが、このまま閉じても大丈夫です。",
-      unitLabel: "チェックイン音声",
-      start: 16,
-      end: 36,
-      acceptedTitle: "チェックインを受け付けました",
-      acceptedDescription: "まずは文字起こしを進めています。このまま閉じても大丈夫です。",
-    },
-    CHECK_OUT: {
-      statusLabel: "文字起こし中",
-      title: "チェックアウト音声を文字起こし中です",
-      description: "STT worker で音声を文字起こししています。音声が長いほど時間はかかりますが、このまま閉じても大丈夫です。",
-      unitLabel: "チェックアウト音声",
-      start: 50,
-      end: 72,
-      acceptedTitle: "チェックアウトを受け付けました",
-      acceptedDescription: "文字起こしが終わりしだい、指導報告ログに進みます。",
-    },
-  },
-};
-
-const SESSION_PROGRESS_WAITING_COPY: Record<"CHECK_IN" | "CHECK_OUT", SessionProgressWaitingCopy> = {
-  CHECK_IN: {
-    statusLabel: "チェックイン待ち",
-    title: "チェックアウトを保存しました",
-    description: "チェックインを追加すると、指導報告ログの生成に進みます。",
-    waitingForPart: "CHECK_IN",
-    value: 34,
-  },
-  CHECK_OUT: {
-    statusLabel: "チェックアウト待ち",
-    title: "チェックインを保存しました",
-    description: "次はチェックアウトを録音またはアップロードしてください。",
-    waitingForPart: "CHECK_OUT",
-    value: 52,
-  },
+const SESSION_PROGRESS_TRANSCRIBING_COPY: SessionProgressTranscriptionCopy = {
+  statusLabel: "文字起こし中",
+  title: "面談音声を文字起こし中です",
+  description: "STT worker で音声を文字起こししています。音声が長いほど時間はかかりますが、このまま閉じても大丈夫です。",
+  unitLabel: "面談音声",
+  start: 24,
+  end: 68,
+  acceptedTitle: "音声を受け付けました",
+  acceptedDescription: "文字起こしを進めています。このまま閉じても大丈夫です。",
 };
 
 const SESSION_PROGRESS_CONVERSATION_ERROR_DETAIL_COPY = {
@@ -201,15 +138,15 @@ const SESSION_PROGRESS_CONVERSATION_ERROR_DETAIL_COPY = {
 } as const;
 
 export function getSessionProgressStepLabels(mode: SessionProgressMode) {
-  return SESSION_PROGRESS_STEP_LABELS[mode];
+  return SESSION_PROGRESS_STEP_LABELS;
 }
 
 export function getSessionProgressReadyCopy(mode: SessionProgressMode) {
-  return SESSION_PROGRESS_READY_COPY[mode];
+  return SESSION_PROGRESS_READY_COPY;
 }
 
 export function getSessionProgressGeneratingCopy(mode: SessionProgressMode) {
-  return SESSION_PROGRESS_GENERATING_COPY[mode];
+  return SESSION_PROGRESS_GENERATING_COPY;
 }
 
 export function getSessionProgressReceivedCopy() {
@@ -217,11 +154,11 @@ export function getSessionProgressReceivedCopy() {
 }
 
 export function getSessionProgressIdleCopy(mode: SessionProgressMode) {
-  return SESSION_PROGRESS_IDLE_COPY[mode];
+  return SESSION_PROGRESS_IDLE_COPY;
 }
 
 export function getSessionProgressConversationDoneCopy(mode: SessionProgressMode) {
-  return SESSION_PROGRESS_READY_COPY[mode];
+  return SESSION_PROGRESS_READY_COPY;
 }
 
 export function getSessionProgressConversationErrorCopy() {
@@ -241,16 +178,21 @@ export function getSessionProgressTranscriptionPhaseCopy(phase: "PREPARING_STT" 
 }
 
 export function getSessionProgressTranscriptionCopy(mode: SessionProgressMode, partType: SessionProgressPartType) {
-  if (mode === "INTERVIEW") {
-    return SESSION_PROGRESS_TRANSCRIBING_COPY.INTERVIEW;
-  }
-  return partType === "CHECK_OUT"
-    ? SESSION_PROGRESS_TRANSCRIBING_COPY.LESSON_REPORT.CHECK_OUT
-    : SESSION_PROGRESS_TRANSCRIBING_COPY.LESSON_REPORT.CHECK_IN;
+  return SESSION_PROGRESS_TRANSCRIBING_COPY;
 }
 
 export function getSessionProgressWaitingCopy(partType: SessionProgressPartType) {
-  return partType === "CHECK_OUT" ? SESSION_PROGRESS_WAITING_COPY.CHECK_OUT : SESSION_PROGRESS_WAITING_COPY.CHECK_IN;
+  const waitingForPart = partType === "CHECK_IN" ? "CHECK_IN" : "CHECK_OUT";
+  return {
+    statusLabel: waitingForPart === "CHECK_IN" ? "チェックイン待ち" : "チェックアウト待ち",
+    title: waitingForPart === "CHECK_IN" ? "チェックアウトを保存しました" : "チェックインを保存しました",
+    description:
+      waitingForPart === "CHECK_IN"
+        ? "チェックインを追加すると、ログ生成に進みます。"
+        : "次の音声を追加すると、ログ生成に進みます。",
+    waitingForPart,
+    value: waitingForPart === "CHECK_IN" ? 34 : 52,
+  };
 }
 
 export function getSessionProgressConversationErrorDetailCopy(message: string) {

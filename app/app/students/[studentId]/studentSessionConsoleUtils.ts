@@ -4,19 +4,18 @@ import {
   DEFAULT_MIN_RECORDING_DURATION_SEC,
   buildRecordingTooLongMessage,
   buildRecordingTooShortMessage,
+  getDefaultMaxRecordingDurationSeconds,
 } from "@/lib/recording/policy";
 import { isLiveChunkUploadEnabled } from "@/lib/recording/live-chunk-upload";
 
 export const MAX_SECONDS: Record<SessionConsoleMode, number> = {
-  INTERVIEW: 60 * 60,
-  LESSON_REPORT: 10 * 60,
+  INTERVIEW: getDefaultMaxRecordingDurationSeconds("INTERVIEW"),
 };
 export const MIN_SECONDS = DEFAULT_MIN_RECORDING_DURATION_SEC;
 export const MIN_SECONDS_BEFORE_SAVE_ENABLED = MIN_SECONDS + 1;
 export const RECORDING_TIMESLICE_MS = 1000;
 export const LIVE_STT_WINDOW_MS: Record<SessionConsoleMode, number> = {
   INTERVIEW: 15_000,
-  LESSON_REPORT: 8_000,
 };
 export const CLIENT_AUDIO_STORAGE_MODE =
   process.env.NEXT_PUBLIC_AUDIO_STORAGE_MODE?.trim().toLowerCase() === "blob" ? "blob" : "local";
@@ -60,8 +59,7 @@ export function formatBytes(bytes: number) {
 }
 
 export function modeLabel(mode: SessionConsoleMode, part: SessionConsoleLessonPart) {
-  if (mode === "INTERVIEW") return "面談";
-  return part === "CHECK_OUT" ? "チェックアウト" : "チェックイン";
+  return "面談";
 }
 
 export function buildUploadFileName(
@@ -77,8 +75,7 @@ export function buildUploadFileName(
       : mimeType.includes("mp4") || mimeType.includes("m4a")
         ? "m4a"
         : "webm";
-  const prefix =
-    mode === "INTERVIEW" ? "interview" : part === "CHECK_OUT" ? "lesson-checkout" : "lesson-checkin";
+  const prefix = "interview";
   return `${prefix}-${studentId}-${new Date().toISOString().slice(0, 19)}.${ext}`;
 }
 

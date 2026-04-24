@@ -8,7 +8,6 @@ import { StudentSessionConsoleProgressSection } from "./StudentSessionConsolePro
 import { StudentSessionConsoleRecordingSection } from "./StudentSessionConsoleRecordingSection";
 import { StudentSessionConsoleUploadSection } from "./StudentSessionConsoleUploadSection";
 import { useStudentSessionConsoleController } from "./useStudentSessionConsoleController";
-import { ENABLE_LESSON_REPORT_UI } from "@/lib/product-flags";
 import styles from "./studentSessionConsole.module.css";
 
 export type { SessionConsoleLessonPart, SessionConsoleMode } from "./studentSessionConsoleTypes";
@@ -16,10 +15,10 @@ export type { SessionConsoleLessonPart, SessionConsoleMode } from "./studentSess
 type Props = {
   studentId: string;
   studentName: string;
-  mode: "INTERVIEW" | "LESSON_REPORT";
+  mode: "INTERVIEW";
   lessonPart: "CHECK_IN" | "CHECK_OUT";
   ongoingLessonSession?: import("./roomTypes").SessionItem | null;
-  onModeChange: (mode: "INTERVIEW" | "LESSON_REPORT") => void;
+  onModeChange: (mode: "INTERVIEW") => void;
   onLessonPartChange: (part: "CHECK_IN" | "CHECK_OUT") => void;
   onRefresh: () => Promise<void> | void;
   onOpenLog: (logId: string) => void;
@@ -59,7 +58,7 @@ function StudentSessionConsoleInner({
   return (
     <div className={styles.console} data-recording-state={controller.state}>
       <StudentSessionConsoleModeSection
-        showModePicker={showModePicker && ENABLE_LESSON_REPORT_UI}
+        showModePicker={false}
         mode={mode}
         lessonPart={lessonPart}
         lessonFlowState={controller.lessonFlowState}
@@ -75,16 +74,8 @@ function StudentSessionConsoleInner({
           currentModeLabel={controller.isPreparingOrRecording ? controller.modeLabel : null}
           currentStudentLabel={controller.statusCopy.currentStudentLabel}
           statusLine={controller.statusCopy.statusLine}
-          lessonMetaLine={
-            ongoingLessonSession?.id && mode === "LESSON_REPORT"
-              ? controller.lessonFlowState.hasCheckIn && !controller.lessonFlowState.hasCheckOut
-                ? controller.lessonFlowState.hasReadyCheckIn
-                  ? "チェックイン保存済み → チェックアウト待ち"
-                  : "チェックイン受付済み → 裏で文字起こし中"
-                : "同じ授業セッションに追記されます"
-              : null
-          }
-          lessonGuide={mode === "LESSON_REPORT" ? controller.lessonFlowMessage : null}
+          lessonMetaLine={null}
+          lessonGuide={null}
           canStartFromCircle={controller.canStartFromCircle}
           isPaused={controller.isPaused}
           levels={controller.levels}

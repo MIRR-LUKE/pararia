@@ -1,8 +1,9 @@
-import { SessionType } from "@prisma/client";
+import { type SessionType } from "@prisma/client";
 import { rm } from "node:fs/promises";
 import { transcribeAudioForPipeline } from "@/lib/ai/stt";
 import { getAudioDurationSeconds, normalizeAudioForStt } from "@/lib/audio-processing";
 import { materializeStorageFile } from "@/lib/audio-storage";
+import { buildRecordingTooLongMessage, buildUnknownDurationMessage } from "@/lib/recording/policy";
 import {
   evaluateDurationGate,
   evaluateTranscriptSubstance,
@@ -104,20 +105,14 @@ export async function transcribeSessionPartTask(
     const durationGate = evaluateDurationGate(measuredDurationSeconds, {
       maxSeconds: maxDurationSeconds,
       rejectUnknown: true,
-      tooLongMessageJa:
-        input.sessionType === SessionType.LESSON_REPORT
-          ? "指導報告のチェックイン / チェックアウト音声は1回10分までです。音声を分割して保存してください。"
-          : "面談音声は1回60分までです。音声を分割して保存してください。",
-      unknownMessageJa:
-        input.sessionType === SessionType.LESSON_REPORT
-          ? "指導報告音声の長さを確認できませんでした。10分以内のファイルを選び直してください。"
-          : "面談音声の長さを確認できませんでした。60分以内のファイルを選び直してください。",
+      tooLongMessageJa: buildRecordingTooLongMessage(input.sessionType, maxDurationSeconds),
+      unknownMessageJa: buildUnknownDurationMessage(input.sessionType, maxDurationSeconds),
     });
     if (!durationGate.ok) {
       return buildRejectedOutcome(durationGate.code, durationGate.messageJa, {
         ...(input.qualityMetaJson ?? {}),
         audioDurationSeconds: measuredDurationSeconds,
-        sttEngine: process.env.RUNPOD_POD_ID?.trim() ? "faster-whisper" : "openai",
+        sttEngine: "faster-whisper",
         ...readRunpodWorkerRuntimeMetadata(),
       });
     }
@@ -156,7 +151,7 @@ export async function transcribeSessionPartTask(
       throw new Error("faster-whisper transcription did not return a result");
     }
 
-    const sttEngine = stt.meta.model.startsWith("openai:") ? "openai" : "faster-whisper";
+    const sttEngine = "faster-whisper";
 
     const pre =
       (stt.segments ?? []).length > 0

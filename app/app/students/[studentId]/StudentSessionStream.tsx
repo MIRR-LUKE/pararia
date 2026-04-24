@@ -12,8 +12,7 @@ type Props = {
 function buildSessionLabel(session: SessionItem) {
   const date = new Date(session.sessionDate);
   const base = `${date.getMonth() + 1}月${date.getDate()}日`;
-  if (session.type === "INTERVIEW") return `${base}の面談`;
-  return `${base}の指導報告`;
+  return `${base}の面談`;
 }
 
 function assigneeText(name?: string) {

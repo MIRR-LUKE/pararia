@@ -13,17 +13,15 @@ assert.match(interviewUpload.title, /音声を保存中/);
 assert.equal(interviewUpload.steps[0]?.status, "active");
 assert.ok(interviewUpload.value > 0 && interviewUpload.value < 100);
 
-const lessonProcessing = buildConversationGenerationProgress({
-  mode: "LESSON_REPORT",
+const interviewProcessing = buildConversationGenerationProgress({
+  mode: "INTERVIEW",
   stage: "processing",
-  jobs: [
-    { type: "FINALIZE", status: "RUNNING" },
-  ],
+  jobs: [{ type: "FINALIZE", status: "RUNNING" }],
 });
 
-assert.match(lessonProcessing.title, /指導報告を生成中/);
-assert.equal(lessonProcessing.steps[2]?.status, "active");
-assert.equal(lessonProcessing.steps[3]?.status, "pending");
+assert.match(interviewProcessing.title, /面談ログを生成中/);
+assert.equal(interviewProcessing.steps[2]?.status, "active");
+assert.equal(interviewProcessing.steps[3]?.status, "pending");
 
 const conversationDone = buildConversationGenerationProgress({
   mode: "INTERVIEW",

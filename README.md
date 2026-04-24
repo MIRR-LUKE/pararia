@@ -1,7 +1,7 @@
 # PARARIA SaaS
 
 PARARIA は、塾・個別指導・学習コーチング向けの `Teaching OS` です。  
-現在の実装は、**録音や会話メモから `面談ログ` または `指導報告ログ` を 1 本生成し、その保存済みログを選んで `保護者レポート` を作る** ことに絞っています。
+現在の実装は、**録音や会話メモから `面談ログ` を 1 本生成し、その保存済みログを選んで `保護者レポート` を作る** ことに絞っています。
 
 この README は、**2026-04-19 時点の現行コードと一致する運用仕様書** です。
 
@@ -18,7 +18,7 @@ PARARIA は、塾・個別指導・学習コーチング向けの `Teaching OS` 
    - browser から受けた音声は、local mode では runtime dir、production 相当では Vercel Blob に置く
    - web は「受け付け」と「job 登録」までをすぐ返す
    - 重い STT は Runpod worker が同じ DB と Blob を見て進める
-3. **面談ログ / 指導報告ログ**
+3. **面談ログ**
    - 正本は `ConversationLog.artifactJson`
    - `summaryMarkdown` は画面表示用の派生物
    - transcript は `rawTextOriginal` を壊さず、確認済み文面は `reviewedText` に分ける
@@ -138,7 +138,7 @@ npm run test:student-room-route
 ## 1. 先に結論
 
 - 主導線は `Student Room`
-- 録音モードは `INTERVIEW` と `LESSON_REPORT` の 2 つ
+- 録音モードは `INTERVIEW` のみ
 - 会話ログの正本は `ConversationLog.artifactJson`
 - transcript は `raw / reviewed / display` の役割を分ける
 - ログ生成は `reviewedText` があればそれを優先し、なければ raw transcript を使う
@@ -156,7 +156,7 @@ npm run test:student-room-route
 - `summaryMarkdown` は画面表示や互換用に保存する派生物
 - ログ生成は `ConversationJob.FINALIZE` を中心に動き、失敗時は retry / stale recovery を持つ
 - 自動の後段 polish は **ない**
-- `保護者レポート` は **選択したログだけ** を使い、`artifactJson` を優先して `summaryMarkdown` で補う
+- `保護者レポート` は **選択した面談ログだけ** を使い、`artifactJson` を優先して `summaryMarkdown` で補う
 - 未選択ログ、前回レポート、プロフィール snapshot はレポート本文生成に入れない
 - faithfulness の代表テストは GitHub Actions の `Conversation Quality` でも回す
 
@@ -164,9 +164,8 @@ npm run test:student-room-route
 
 ### 2.1 Log Only
 
-- 面談モードの成果物は `面談ログ`
-- 指導報告モードの成果物は `指導報告ログ`
-- どちらも正本は `artifactJson`
+- 成果物は `面談ログ`
+- 正本は `artifactJson`
 - transcript の正本は `rawTextOriginal`
 - `reviewedText` は固有名詞候補を反映した確認用 transcript
 - `rawTextCleaned` は後方互換のために残している legacy の display / preview transcript
@@ -196,31 +195,29 @@ npm run test:student-room-route
 
 ### 2.4 Duration Enforcement On Both Sides
 
-- 面談は `60 分` まで
-- 指導報告は `CHECK_IN / CHECK_OUT` の各 part が `10 分` まで
+- 面談は `120 分` まで
 - client 側でも止める
 - server 側でも reject する
 
 ## 3. 体験の主導線
 
 1. 講師が `Student Room` を開く
-2. `面談` か `指導報告` を選ぶ
-3. 録音するか、音声ファイルを取り込む
-4. 保存 API は **受付だけ即時返す**
-5. 裏側で STT と session promotion を進める
-6. session が揃ったら、Runpod を止めたあと app 側で `FINALIZE` を走らせ、ログ本文を 1 本生成する
-7. 講師は `ログ本文` と `文字起こし` を確認し、必要ならログ本文だけ手で直して保存する
-8. 面談モードなら、ログ保存後に `次回の面談メモ` を軽い background job で作る
-9. 必要なログだけを選び、保護者レポートを作る
-10. 共有状態を更新する
+2. 録音するか、音声ファイルを取り込む
+3. 保存 API は **受付だけ即時返す**
+4. 裏側で Runpod STT と session promotion を進める
+5. session が揃ったら、Runpod を止めたあと app 側で `FINALIZE` を走らせ、ログ本文を 1 本生成する
+6. 講師は `ログ本文` と `文字起こし` を確認し、必要ならログ本文だけ手で直して保存する
+7. ログ保存後に `次回の面談メモ` を軽い background job で作る
+8. 必要なログだけを選び、保護者レポートを作る
+9. 共有状態を更新する
 
 ## 4. 画面の役割
 
 ### 4.1 `/app/dashboard`
 
 - 今日優先して動くべき生徒を見る
-- `面談を始める` / `授業を始める` に入る
-- 面談未実施、チェックアウト待ち、レポート未作成、共有待ちを確認する
+- `面談を始める` に入る
+- 面談未実施、レポート未作成、共有待ちを確認する
 
 ### 4.2 `/app/students`
 
@@ -236,8 +233,6 @@ npm run test:student-room-route
 
 - `StudentSessionConsole`
   - `INTERVIEW`
-  - `LESSON_REPORT`
-  - `CHECK_IN / CHECK_OUT`
   - 録音開始
   - 音声ファイル取り込み（`.mp3` / `.m4a` のみ）
 - `次回の面談メモ` カード
@@ -247,7 +242,6 @@ npm run test:student-room-route
   - `作り直す` で再生成できる
 - `StudentSessionStream`
   - 進行中または完了済みの面談ログを追う
-- 指導報告ログ一覧
 - 保護者レポート生成カード
 - `LogView`
 - `ReportStudio`
@@ -336,34 +330,6 @@ npm run test:student-room-route
 - profile delta JSON
 - 話題候補タブ向け補助成果物
 
-### 5.2 指導報告モード
-
-- `Session.type = LESSON_REPORT`
-- part は `CHECK_IN` と `CHECK_OUT`
-- 各 part の最大長は `10 分`
-- 両方揃ってから 1 本の `指導報告ログ` を作る
-- `CHECK_IN` だけではログ生成しない
-- `CHECK_OUT` だけでもログ生成しない
-
-生成されるもの:
-
-- `artifactJson`
-- `summaryMarkdown`
-- `rawTextOriginal`
-- `reviewedText`
-- `rawTextCleaned`
-- `rawSegments`
-- `reviewState`
-- 必要時の `formattedTranscript`
-- `qualityMetaJson`
-
-生成しないもの:
-
-- lesson report 補助 JSON
-- 親共有 pack
-- observation JSON
-- student state JSON
-
 ## 6. 同期 / 非同期の分割
 
 ### 6.1 同期でやること
@@ -408,6 +374,7 @@ npm run test:student-room-route
 - session progress API で UI を早く戻す
 - poll は処理中だけ動かし、経過時間とタブ表示状態で間隔を広げる
 - worker 再キックは初回と stalled な `RECEIVED` の再始動だけに絞り、通常は read-only polling で追う
+- web 側の STT fallback は使わず、STT は常に Runpod worker で処理する
 
 ### 7.1 ローカル web / 本番 web 共通の Runpod 構成
 
@@ -460,8 +427,6 @@ npm run test:student-room-route
 - `estimateTokens(text.length / 2)` の簡易見積もりで全文サイズを判定する
 - 面談は、おおむね `9000 token` 以下なら:
   - `抽出済み重要発話 + 文字起こし全文` を両方入れる
-- 指導報告などその他のケースは、おおむね `3500 token` 以下なら:
-  - `抽出済み重要発話 + 文字起こし全文` を両方入れる
 - それを超える長尺 transcript では:
   - `抽出済み重要発話` だけをログ生成入力に使う
 - 面談の抽出ルール:
@@ -470,11 +435,6 @@ npm run test:student-room-route
   - 情報量が高い行 `20` 行まで
   - 終盤 `14` 行
   - 重複除去後に最大 `72` 行
-- 指導報告の抽出ルール:
-  - チェックイン `10` 行まで
-  - チェックアウト `12` 行まで
-  - 授業キーワードを含む行 `18` 行まで
-  - 情報量が高い行 `14` 行まで
 
 ### 7.3 Runpod で GPU worker を動かす
 
@@ -1162,7 +1122,7 @@ PARARIA_AUDIO_RETENTION_DAYS=14
 
 - `/app/students` からの操作は「削除」ではなく **アーカイブ**
 - アーカイブすると、生徒は通常一覧・ダッシュボード・通常導線から外れる
-- 面談ログ、指導報告ログ、保護者レポート、runtime path 情報は保持する
+- 面談ログ、保護者レポート、runtime path 情報は保持する
 - 復旧に必要な snapshot を `StudentArchiveSnapshot` に保存する
 - 復旧は管理者 API または script から行う
 

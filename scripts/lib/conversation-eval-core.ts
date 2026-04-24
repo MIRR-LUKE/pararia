@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-export type EvalMode = "INTERVIEW" | "LESSON_REPORT";
+export type EvalMode = "INTERVIEW";
 
 export type EvalCase = {
   id: string;
@@ -498,7 +498,7 @@ export async function runConversationEval(outPath?: string | null) {
   const rubricById = new Map(rubric.cases.map((item) => [item.id, item]));
 
   const results: EvalResult[] = [];
-  for (const testCase of cases) {
+  for (const testCase of cases.filter((item) => item.mode === "INTERVIEW")) {
     const caseRubric = rubricById.get(testCase.id);
     if (!caseRubric) {
       throw new Error(`Rubric not found for case: ${testCase.id}`);

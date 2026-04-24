@@ -5,7 +5,7 @@ import {
   type ConversationArtifact,
   type ConversationArtifactEntry,
 } from "@/lib/conversation-artifact";
-import { buildInterviewDraftFallbackMarkdown, buildLessonDraftFallbackMarkdown } from "../fallback";
+import { buildInterviewDraftFallbackMarkdown } from "../fallback";
 import { isWeakDraftMarkdown, repairSummaryMarkdownFormatting } from "../normalize";
 import type { DraftGenerationInput, DraftGenerationResult, LlmTokenUsage, SessionMode } from "../types";
 
@@ -277,12 +277,9 @@ export function buildMarkdownDraftResult(params: {
 }
 
 export function buildDeterministicRecovery(input: DraftGenerationInput) {
-  const markdown =
-    input.sessionType === "LESSON_REPORT"
-      ? buildLessonDraftFallbackMarkdown(input)
-      : buildInterviewDraftFallbackMarkdown(input);
+  const markdown = buildInterviewDraftFallbackMarkdown(input);
   const artifact = buildConversationArtifactFromMarkdown({
-    sessionType: input.sessionType ?? "INTERVIEW",
+    sessionType: "INTERVIEW",
     summaryMarkdown: markdown,
     generatedAt: new Date(),
   });

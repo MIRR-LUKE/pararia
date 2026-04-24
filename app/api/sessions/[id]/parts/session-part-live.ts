@@ -5,11 +5,15 @@ import { appendLiveTranscriptionChunk, getLiveTranscriptionProgress, startLiveCh
 import { updateSessionStatusFromParts } from "@/lib/session-service";
 import { toSessionPartMetaJson } from "@/lib/session-part-meta";
 import { verifyRecordingLockForAudioUpload } from "@/lib/recording/lockService";
+import {
+  buildRecordingSaveBeforeContinuingMessage,
+  buildRecordingSplitBeforeContinuingMessage,
+} from "@/lib/recording/policy";
 import { toPrismaJson } from "@/lib/prisma-json";
 import { getRecordingMaxDurationSeconds } from "@/lib/recording/validation";
 import { enqueueSessionPartJob, processAllSessionPartJobs } from "@/lib/jobs/sessionPartJobs";
 import { shouldRunBackgroundJobsInline } from "@/lib/jobs/execution-mode";
-import { runAfterResponse } from "@/lib/server/after-response";
+import { maybeEnsureRunpodWorkerReady } from "@/lib/runpod/worker-ready";
 import { getAudioExpiryDate } from "@/lib/system-config";
 import { isLiveChunkUploadEnabled } from "@/lib/recording/live-chunk-upload";
 import type {
@@ -22,6 +26,7 @@ type LiveSessionPartDispatchDeps = {
   enqueueSessionPartJob?: typeof enqueueSessionPartJob;
   processAllSessionPartJobs?: typeof processAllSessionPartJobs;
   shouldRunBackgroundJobsInline?: typeof shouldRunBackgroundJobsInline;
+  maybeEnsureRunpodWorkerReady?: typeof maybeEnsureRunpodWorkerReady;
 };
 
 async function verifyLockOrThrow(access: SessionPartAccessContext, plainToken: string) {
@@ -49,6 +54,7 @@ export async function dispatchLiveSessionPartJobs(
   const processQueuedSessionPartJobs = deps.processAllSessionPartJobs ?? processAllSessionPartJobs;
   const runInlineBackgroundJobs =
     deps.shouldRunBackgroundJobsInline ?? shouldRunBackgroundJobsInline;
+  const ensureWorkerReady = deps.maybeEnsureRunpodWorkerReady ?? maybeEnsureRunpodWorkerReady;
 
   await enqueue(partId, SessionPartJobType.FINALIZE_LIVE_PART);
 
@@ -56,18 +62,40 @@ export async function dispatchLiveSessionPartJobs(
     void processQueuedSessionPartJobs(sessionId).catch((error) => {
       console.error("[POST /api/sessions/[id]/parts/live] Background session part processing failed:", error);
     });
-  } else {
-    runAfterResponse(async () => {
-      await processQueuedSessionPartJobs(sessionId, {
-        types: [SessionPartJobType.FINALIZE_LIVE_PART, SessionPartJobType.PROMOTE_SESSION],
-      })
-        .catch((error) => {
-          console.error("[POST /api/sessions/[id]/parts/live] Deferred live session part processing failed:", error);
-        });
-    }, "POST /api/sessions/[id]/parts/live process on app");
+    return {
+      mode: "inline" as const,
+      workerWake: null,
+    };
   }
 
-  return null;
+  const workerWake = await ensureWorkerReady({
+    terminateOnFailure: true,
+  }).catch((error: any) => ({
+    attempted: true,
+    ok: false,
+    stage: "wake_failed" as const,
+    podId: null,
+    wake: {
+      attempted: true,
+      ok: false,
+      error: error?.message ?? String(error),
+    },
+    readiness: null,
+    error: error?.message ?? String(error),
+  }));
+
+  if (!workerWake.ok) {
+    console.warn("[POST /api/sessions/[id]/parts/live] Runpod worker wake failed; keeping live finalization queued for retry", {
+      sessionId,
+      partId,
+      workerWake,
+    });
+  }
+
+  return {
+    mode: "external" as const,
+    workerWake,
+  };
 }
 
 async function persistLiveTranscribingPart(input: {
@@ -203,10 +231,7 @@ export async function handleLiveChunkSubmission(input: {
   if (submission.startedAtMs + submission.durationMs > maxDurationMs) {
     return NextResponse.json(
       {
-        error:
-          access.sessionRow.type === "LESSON_REPORT"
-            ? "指導報告の録音は各パート10分までです。録音を保存してから次へ進んでください。"
-            : "面談の録音は60分までです。録音を保存してから次へ進んでください。",
+        error: buildRecordingSaveBeforeContinuingMessage(access.sessionRow.type, Math.round(maxDurationMs / 1000)),
         code: "recording_too_long",
         maxAllowedSeconds: Math.round(maxDurationMs / 1000),
       },
@@ -296,10 +321,7 @@ export async function handleFinalizeLiveSessionPart(input: {
   if (progress.totalDurationMs > maxDurationMs) {
     return NextResponse.json(
       {
-        error:
-          access.sessionRow.type === "LESSON_REPORT"
-            ? "指導報告の録音は各パート10分までです。録音を分けて保存してください。"
-            : "面談の録音は60分までです。録音を分けて保存してください。",
+        error: buildRecordingSplitBeforeContinuingMessage(access.sessionRow.type, Math.round(maxDurationMs / 1000)),
         code: "recording_too_long",
         maxAllowedSeconds: Math.round(maxDurationMs / 1000),
         durationSeconds: Math.round(progress.totalDurationMs / 1000),
@@ -315,12 +337,13 @@ export async function handleFinalizeLiveSessionPart(input: {
   });
 
   const session = await updateSessionStatusFromParts(access.sessionRow.id);
-  const workerWake = await dispatchLiveSessionPartJobs(access.sessionRow.id, part.id);
+  const dispatch = await dispatchLiveSessionPartJobs(access.sessionRow.id, part.id);
 
   return NextResponse.json({
     part,
     session,
     generationDeferred: true,
-    workerWake,
+    workerWake: dispatch.workerWake,
+    generationDispatch: dispatch,
   });
 }

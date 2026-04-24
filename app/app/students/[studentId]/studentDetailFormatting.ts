@@ -18,22 +18,7 @@ export function formatReportDate(value?: string | null) {
 export function formatSessionLabel(session: SessionItem) {
   const date = new Date(session.sessionDate);
   const base = `${date.getMonth() + 1}月${date.getDate()}日`;
-  return session.type === "INTERVIEW" ? `${base}の面談` : `${base}の指導報告`;
-}
-
-export function lessonSummaryLabel(session: SessionItem) {
-  if (session.pipeline?.stage === "WAITING_COUNTERPART") {
-    return session.pipeline.waitingForPart === "CHECK_IN"
-      ? "チェックアウト保存済み → チェックイン待ち"
-      : "チェックイン保存済み → チェックアウト待ち";
-  }
-  if (session.pipeline?.stage === "TRANSCRIBING") return session.pipeline.progress.title;
-  if (session.pipeline?.stage === "GENERATING") return "チェックインとチェックアウトを統合して指導報告ログを生成中";
-  const types = session.parts.map((part) => part.partType);
-  if (types.includes("CHECK_IN") && types.includes("CHECK_OUT")) return "チェックイン + チェックアウト";
-  if (types.includes("CHECK_OUT")) return "チェックアウト";
-  if (types.includes("CHECK_IN")) return "チェックイン";
-  return "指導報告";
+  return `${base}の面談`;
 }
 
 export function userBadge(name?: string | null) {

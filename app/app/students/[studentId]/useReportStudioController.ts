@@ -19,14 +19,14 @@ type UseReportStudioControllerProps = {
 
 function toBundleLogs(sessions: SessionItem[]): ReportBundleLog[] {
   return sessions
-    .filter((session) => Boolean(session.conversation?.summaryMarkdown?.trim()))
+    .filter((session) => session.type === "INTERVIEW" && Boolean(session.conversation?.summaryMarkdown?.trim()))
     .map((session) =>
       buildReportBundleLog({
         id: session.id,
         sessionId: session.id,
         date: session.sessionDate,
-        mode: session.type,
-        sessionType: session.type,
+        mode: "INTERVIEW",
+        sessionType: "INTERVIEW",
         artifactJson: session.conversation?.artifactJson,
         summaryMarkdown: session.conversation!.summaryMarkdown!,
       })
@@ -60,7 +60,7 @@ export function useReportStudioController({
   );
 
   const candidateSessions = useMemo(
-    () => sessions.filter((session) => Boolean(session.conversation?.summaryMarkdown?.trim())),
+    () => sessions.filter((session) => session.type === "INTERVIEW" && Boolean(session.conversation?.summaryMarkdown?.trim())),
     [sessions]
   );
   const selectedSessions = useMemo(

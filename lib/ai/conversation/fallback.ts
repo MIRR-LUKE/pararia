@@ -5,7 +5,6 @@ import {
   formatTeacherLabel,
   isLikelyNoiseLine,
   pickInterviewLines,
-  pickLessonLines,
 } from "./shared";
 import { repairSummaryMarkdownFormatting } from "./normalize";
 
@@ -235,120 +234,6 @@ export function buildInterviewDraftFallbackMarkdown(input: {
           .map((line) => `次回は ${stripSpeakerPrefix(line)} を確認する`),
         "今回の面談では、次回に向けた具体的な確認項目までは話していませんでした。"
       ),
-    ].join("\n")
-  );
-}
-
-export function buildLessonDraftFallbackMarkdown(input: {
-  transcript: string;
-  studentName?: string;
-  teacherName?: string;
-  sessionDate?: string | Date | null;
-}) {
-  const lines = filterDeclarativeLines(pickLessonLines(input.transcript));
-  const checkInLines = extractLessonPartLines(input.transcript, "授業前チェックイン");
-  const checkOutLines = extractLessonPartLines(input.transcript, "授業後チェックアウト");
-  const beforeLine =
-    pickLinesByPattern(checkInLines, /(最初の式|場合分け|焦る|止ま)/, 2)[0] ??
-    checkInLines[0] ??
-    "授業前の理解状況は限定的だった。";
-  const afterLine =
-    pickLinesByPattern(checkOutLines, /(固定できた|順番が見え|再現|図にすると)/, 2)[0] ??
-    checkOutLines[0] ??
-    "授業後の理解状況は限定的だった。";
-  const methodLine =
-    pickLinesByPattern([...checkInLines, ...lines], /(条件整理|図|順番)/, 2)[0] ??
-    lines[0] ??
-    beforeLine;
-  const homeworkLine =
-    pickLinesByPattern([...checkOutLines, ...lines], /(宿題|再現)/, 2)[0] ??
-    lines[1] ??
-    "宿題の確認は transcript から拾えた範囲に限る。";
-  const nextCheckLine =
-    pickLinesByPattern([...checkOutLines, ...lines], /(最初の式|条件|順番|再現)/, 3)[1] ??
-    afterLine;
-  const shareLines = dedupeKeepOrder([
-    methodLine,
-    afterLine,
-    homeworkLine,
-    ...checkOutLines,
-    ...lines,
-  ]).slice(0, 3);
-  const lessonTopics = extractTopicTerms(
-    dedupeKeepOrder([...checkInLines, ...checkOutLines, ...lines]),
-    /(三角関数|極限|数列|ベクトル|条件整理|最初の式|図|順番|再現|宿題|挟み打ちの原理|証明)/g,
-    5
-  );
-  const lessonSummary =
-    lessonTopics.length > 0
-      ? `今回の指導では${joinTopicTerms(lessonTopics.slice(0, 4))}に関する発話を確認した。`
-      : "今回の指導では、文字起こしから確認できた範囲で要点を整理した。";
-  const beforeSummary =
-    lessonTopics.length > 0
-      ? `${joinTopicTerms(lessonTopics.slice(0, 3))}について、授業前時点の理解状況を確認した。`
-      : "授業前時点の理解状況を transcript から確認した。";
-  const afterSummary =
-    lessonTopics.length > 0
-      ? `${joinTopicTerms(lessonTopics.slice(0, 3))}について、授業後の説明内容と理解の変化を確認した。`
-      : "授業後の説明内容と理解の変化を transcript から確認した。";
-  const methodSummary =
-    lessonTopics.length > 0
-      ? `${joinTopicTerms(lessonTopics.slice(0, 3))}の扱い方を、講師側で整理していたことが確認できた。`
-      : "講師側で扱い方を整理していたことが確認できた。";
-  const nextSummary =
-    lessonTopics.length > 1
-      ? `次回に向けて${joinTopicTerms(lessonTopics.slice(1, 4))}を再確認する流れが見えた。`
-      : "次回確認事項は transcript から拾えた範囲に限って残した。";
-  const studentPlanSummary =
-    lessonTopics.length > 0
-      ? `${joinTopicTerms(lessonTopics.slice(0, 2))}の理解を、自分で再現できる状態に近づける方針を確認した。`
-      : "自分で再現できる状態に近づける方針を確認した。";
-  const homeworkSummary =
-    lessonTopics.length > 0
-      ? `${joinTopicTerms(lessonTopics.slice(0, 2))}の復習と宿題の進め方を次回までの課題にした。`
-      : "宿題の進め方を次回までの課題にした。";
-  const shareDisplayLines = [lessonSummary, afterSummary, nextSummary];
-
-  return repairSummaryMarkdownFormatting(
-    [
-      "■ 基本情報",
-      `対象生徒: ${formatStudentLabel(input.studentName)} 様`,
-      `指導日: ${formatSessionDateLabel(input.sessionDate) || "未記録"}`,
-      "教科・単元: 文字起こしから確認した内容を整理",
-      `担当チューター: ${formatTeacherLabel(input.teacherName)}`,
-      "",
-      "■ 1. 本日の指導サマリー（室長向け要約）",
-      ...buildParagraph(lessonSummary, [methodLine, beforeLine]),
-      "",
-      ...buildParagraph(nextSummary, [afterLine, homeworkLine]),
-      "",
-      "■ 2. 課題と指導成果（Before → After）",
-      "【条件整理】",
-      `現状（Before）: ${beforeSummary}`,
-      `根拠: ${beforeLine}`,
-      `成果（After）: ${afterSummary}`,
-      `根拠: ${afterLine}`,
-      `※特記事項: ${methodSummary}`,
-      `根拠: ${methodLine}`,
-      "",
-      "【再現確認】",
-      `現状（Before）: ${homeworkSummary}`,
-      `根拠: ${homeworkLine}`,
-      `成果（After）: ${nextSummary}`,
-      `根拠: ${nextCheckLine}`,
-      `※特記事項: ${afterSummary}`,
-      `根拠: ${afterLine}`,
-      "",
-      "■ 3. 学習方針と次回アクション（自学習の設計）",
-      "生徒:",
-      ...quoteEvidenceLine(studentPlanSummary, methodLine, "判断"),
-      "次回までの宿題:",
-      ...quoteEvidenceLine(homeworkSummary, homeworkLine, "判断"),
-      "次回の確認（テスト）事項:",
-      ...quoteEvidenceLine(nextSummary, nextCheckLine, "次回確認"),
-      "",
-      "■ 4. 室長・他講師への共有・連携事項",
-      ...shareDisplayLines.flatMap((line, index) => quoteEvidenceLine(line, shareLines[index] ?? shareLines[0] ?? line, "共有")),
     ].join("\n")
   );
 }

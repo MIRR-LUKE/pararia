@@ -1,6 +1,6 @@
 # 会話ログ評価ハーネス
 
-`npm run test:conversation-eval` で、固定サンプルの会話から面談ログと指導報告ログを生成し、rubric で確認できます。
+`npm run test:conversation-eval` で、固定サンプルの会話から面談ログを生成し、rubric で確認できます。
 
 ## 使い方
 
@@ -18,12 +18,12 @@ npm run test:conversation-eval -- --out .tmp/conversation-eval-report.md
 
 - `fixtures/conversation-eval/cases.json` に固定サンプル入力を置く
 - `fixtures/conversation-eval/rubric.json` に確認したい項目を置く
-- スクリプトが面談用と指導報告用をそれぞれ生成する
+- スクリプトが面談用 artifact を生成する
 - 生成結果を見出しごとに分けて出すので、差分を追いやすい
 
 ## 見るポイント
 
 - 必須の見出しが揃っているか
-- 面談用と指導報告用で、必要な内容がちゃんと分かれているか
+- 面談ログとして必要な内容がちゃんと入っているか
 - 禁止したい表現が入っていないか
 - rubric に足りない項目があれば、どこが弱いかすぐわかるか

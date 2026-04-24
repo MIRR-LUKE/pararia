@@ -1,4 +1,4 @@
-export type GenerationMode = "INTERVIEW" | "LESSON_REPORT";
+export type GenerationMode = "INTERVIEW";
 export type GenerationStepStatus = "complete" | "active" | "pending" | "error";
 
 export type GenerationStep = {
@@ -23,10 +23,7 @@ type ConversationJobLike = {
   lastError?: string | null;
 };
 
-const CONVERSATION_STEP_LABELS: Record<GenerationMode, string[]> = {
-  INTERVIEW: ["保存", "文字起こし", "ログ生成", "完了"],
-  LESSON_REPORT: ["保存", "文字起こし", "報告生成", "完了"],
-};
+const CONVERSATION_STEP_LABELS = ["保存", "文字起こし", "ログ生成", "完了"];
 
 const PARENT_REPORT_STEP_LABELS = ["選択確認", "ログ整理", "本文生成", "保存反映"];
 
@@ -114,7 +111,7 @@ export function buildConversationGenerationProgress(input: {
   conversationStatus?: string | null;
   lastError?: string | null;
 }): GenerationProgressState {
-  const labels = CONVERSATION_STEP_LABELS[input.mode];
+  const labels = CONVERSATION_STEP_LABELS;
 
   if (input.stage === "uploading") {
     const steps = buildSteps(labels, 0);
@@ -129,7 +126,7 @@ export function buildConversationGenerationProgress(input: {
   if (input.stage === "done" || input.conversationStatus === "DONE") {
     const steps = buildCompletedSteps(labels);
     return {
-      title: input.mode === "LESSON_REPORT" ? "指導報告を生成しました" : "面談ログを生成しました",
+      title: "面談ログを生成しました",
       description: "結果を確認できます。",
       value: 100,
       steps,
@@ -153,14 +150,12 @@ export function buildConversationGenerationProgress(input: {
   const descriptionByIndex = [
     "音声データを安全に保存しています。",
     "文字起こしを整えています。",
-    input.mode === "LESSON_REPORT"
-      ? "指導報告ログを生成しています。"
-      : "面談ログを生成しています。",
+    "面談ログを生成しています。",
     "最終確認しています。",
   ];
 
   return {
-    title: input.mode === "LESSON_REPORT" ? "指導報告を生成中…" : "面談ログを生成中…",
+    title: "面談ログを生成中…",
     description: descriptionByIndex[currentIndex] ?? descriptionByIndex[2],
     value: estimateValue(steps),
     steps,

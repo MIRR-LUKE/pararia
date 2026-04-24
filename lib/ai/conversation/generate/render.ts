@@ -67,15 +67,6 @@ function renderInterviewOptionalSectionLines(entries: ConversationArtifactEntry[
 }
 
 function buildBasicInfoLines(sessionType: SessionMode, input: DraftGenerationInput, basicInfo?: Record<string, unknown> | null) {
-  if (sessionType === "LESSON_REPORT") {
-    return [
-      `対象生徒: ${normalizeText(basicInfo?.student, 40) || formatStudentLabel(input.studentName)} 様`,
-      `指導日: ${normalizeText(basicInfo?.date, 32) || formatSessionDateLabel(input.sessionDate) || "未記録"}`,
-      `教科・単元: ${normalizeText(basicInfo?.subjectUnit, 64) || "文字起こしから確認した内容を整理"}`,
-      `担当チューター: ${normalizeText(basicInfo?.teacher, 40) || formatTeacherLabel(input.teacherName)}`,
-    ];
-  }
-
   return [
     `対象生徒: ${normalizeText(basicInfo?.student, 40) || formatStudentLabel(input.studentName)} 様`,
     `面談日: ${formatInterviewDateLabel(typeof basicInfo?.date === "string" ? basicInfo.date : null) || normalizeText(basicInfo?.date, 32) || formatSessionDateLabel(input.sessionDate) || "未記録"}`,
@@ -93,68 +84,6 @@ function buildSectionsFromEntries(
   nextActions: ConversationArtifactEntry[],
   sharePoints: ConversationArtifactEntry[]
 ) {
-  if (sessionType === "LESSON_REPORT") {
-    const groupedClaims = new Map<string, ConversationArtifactEntry[]>();
-    for (const entry of claims) {
-      const match = entry.text.match(/^【([^】]+)】\s*(.+)$/);
-      const label = match?.[1] ?? "論点整理";
-      const text = match?.[2] ?? entry.text;
-      const current = groupedClaims.get(label) ?? [];
-      current.push({ ...entry, text });
-      groupedClaims.set(label, current);
-    }
-
-    const detailLines: string[] = [];
-    for (const [label, entries] of groupedClaims) {
-      const before = entries.find((entry) => entry.claimType === "missing") ?? entries[0];
-      const after = entries.find((entry) => entry.claimType === "observed") ?? entries[0];
-      const note = entries.find((entry) => entry.claimType === "inferred") ?? entries[1] ?? entries[0];
-      detailLines.push(`【${label}】`);
-      detailLines.push(`現状（Before）: ${before.text}`);
-      for (const evidence of before.evidence.slice(0, 1)) detailLines.push(`根拠: ${evidence}`);
-      detailLines.push(`成果（After）: ${after.text}`);
-      for (const evidence of after.evidence.slice(0, 1)) detailLines.push(`根拠: ${evidence}`);
-      detailLines.push(`※特記事項: ${note.text}`);
-      for (const evidence of note.evidence.slice(0, 1)) detailLines.push(`根拠: ${evidence}`);
-      detailLines.push("");
-    }
-    if (detailLines.at(-1) === "") detailLines.pop();
-
-    const byLabel = new Map<string, ConversationArtifactEntry[]>();
-    for (const entry of nextActions) {
-      const match = entry.text.match(/^【([^】]+)】\s*(.+)$/);
-      const label = normalizeText(match?.[1], 32) || "確認事項";
-      const text = match?.[2] ?? entry.text;
-      const current = byLabel.get(label) ?? [];
-      current.push({ ...entry, text });
-      byLabel.set(label, current);
-    }
-    const actionLines: string[] = [];
-    const orderedLabels = ["生徒", "次回までの宿題", "次回の確認（テスト）事項"];
-    for (const label of orderedLabels) {
-      const entries = byLabel.get(label) ?? [];
-      if (entries.length === 0) continue;
-      actionLines.push(`${label}:`);
-      actionLines.push(
-        ...renderEntryLines(
-          entries.map((entry) => {
-            const match = entry.text.match(/^【[^】]+】\s*(.+)$/);
-            return { ...entry, text: match?.[1] ?? entry.text };
-          }),
-          { forceLabel: label === "次回の確認（テスト）事項" ? "次回確認" : "判断" }
-        )
-      );
-    }
-
-    return [
-      { key: "basic_info", title: "基本情報", lines: basicInfoLines },
-      { key: "summary", title: "1. 本日の指導サマリー（室長向け要約）", lines: summary.flatMap((entry) => [entry.text, ...entry.evidence.slice(0, 2).map((evidence) => `根拠: ${evidence}`), ""]).filter(Boolean) },
-      { key: "details", title: "2. 課題と指導成果（Before → After）", lines: detailLines },
-      { key: "actions", title: "3. 学習方針と次回アクション（自学習の設計）", lines: actionLines },
-      { key: "share", title: "4. 室長・他講師への共有・連携事項", lines: renderEntryLines(sharePoints, { forceLabel: "共有" }) },
-    ] satisfies ConversationArtifactSection[];
-  }
-
   const actionSplit = splitActionEntries(nextActions);
   const strategyEntries = actionSplit.assessment;
   const nextTopicEntries = actionSplit.nextChecks;
@@ -199,70 +128,43 @@ export function buildArtifactFromStructuredPayload(
   const summary = ensureMinimum(
     normalizeEntryList(
       payload.summary,
-      {
-        maxTextChars: sessionType === "LESSON_REPORT" ? 180 : 360,
-        includeLabelInText: sessionType === "LESSON_REPORT",
-      },
-      sessionType === "LESSON_REPORT" ? 3 : 4
+      { maxTextChars: 360, includeLabelInText: false },
+      4
     ),
     [],
-    sessionType === "LESSON_REPORT" ? 2 : 2
+    2
   );
 
-  const claims =
-    sessionType === "LESSON_REPORT"
-      ? ensureMinimum(
-          normalizeEntryList(payload.claims, { defaultClaimType: "observed", maxTextChars: 120 }, 8),
-          [],
-          2
-        )
-      : ensureMinimum(
-          normalizeEntryList(payload.claims, { defaultClaimType: "observed", maxTextChars: 220, includeLabelInText: false }, 8),
-          [],
-          3
-        );
+  const claims = ensureMinimum(
+    normalizeEntryList(payload.claims, { defaultClaimType: "observed", maxTextChars: 220, includeLabelInText: false }, 8),
+    [],
+    3
+  );
 
-  const nextActions =
-    sessionType === "LESSON_REPORT"
-      ? ensureMinimum(
-          normalizeEntryList(payload.nextActions, { defaultActionType: "assessment", maxTextChars: 110 }, 8),
-          [],
-          3
-        )
-      : ensureMinimum(
-          normalizeEntryList(
-            payload.nextActions,
-            {
-              defaultClaimType: "missing",
-              defaultActionType: "assessment",
-              maxTextChars: 220,
-              includeLabelInText: false,
-            },
-            8
-          ),
-          [],
-          3
-        );
+  const nextActions = ensureMinimum(
+    normalizeEntryList(
+      payload.nextActions,
+      {
+        defaultClaimType: "missing",
+        defaultActionType: "assessment",
+        maxTextChars: 220,
+        includeLabelInText: false,
+      },
+      8
+    ),
+    [],
+    3
+  );
 
   const sharePoints = ensureMinimum(
-    normalizeEntryList(
-      payload.sharePoints,
-      { maxTextChars: sessionType === "LESSON_REPORT" ? 110 : 220, includeLabelInText: false },
-      6
-    ),
+    normalizeEntryList(payload.sharePoints, { maxTextChars: 220, includeLabelInText: false }, 6),
     [],
-    sessionType === "LESSON_REPORT" ? 2 : 1
+    1
   );
 
-  if (sessionType === "LESSON_REPORT") {
-    if (summary.length < 2 || claims.length < 2 || nextActions.length < 2 || sharePoints.length < 2) {
-      return null;
-    }
-  } else {
-    const interviewSignalCount = claims.length + nextActions.length + sharePoints.length;
-    if (summary.length < 1 || interviewSignalCount < 2) {
-      return null;
-    }
+  const interviewSignalCount = claims.length + nextActions.length + sharePoints.length;
+  if (summary.length < 1 || interviewSignalCount < 2) {
+    return null;
   }
 
   const sections = buildSectionsFromEntries(

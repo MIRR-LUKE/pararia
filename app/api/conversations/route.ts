@@ -34,8 +34,7 @@ export async function GET(request: Request) {
         : 50;
 
     if (studentId) {
-      const sessionTypeFilter =
-        typeFilter === "LESSON_REPORT" || typeFilter === "INTERVIEW" ? typeFilter : undefined;
+      const sessionTypeFilter = typeFilter === "INTERVIEW" ? typeFilter : undefined;
       const conversations = await prisma.conversationLog.findMany({
         where: withVisibleConversationWhere({
           organizationId,
@@ -80,8 +79,7 @@ export async function GET(request: Request) {
       return NextResponse.json({ conversations: formattedConversations });
     }
 
-    const sessionTypeFilter =
-      typeFilter === "LESSON_REPORT" || typeFilter === "INTERVIEW" ? typeFilter : undefined;
+    const sessionTypeFilter = typeFilter === "INTERVIEW" ? typeFilter : undefined;
 
     const conversations = await prisma.conversationLog.findMany({
       where: withVisibleConversationWhere({

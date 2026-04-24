@@ -7,6 +7,10 @@ import {
 import { prisma } from "@/lib/db";
 import { runWithDatabaseRetry } from "@/lib/db-retry";
 import { AUDIO_UPLOAD_EXTENSIONS_LABEL, SUPPORTED_AUDIO_UPLOAD_EXTENSIONS, buildUnsupportedAudioUploadErrorMessage, isSupportedAudioUpload, isSupportedRecordedAudio } from "@/lib/audio-upload-support";
+import {
+  buildRecordingTooLongMessage,
+  buildUnknownDurationMessage,
+} from "@/lib/recording/policy";
 import { getAudioDurationSecondsFromBuffer, evaluateDurationGate, evaluateTranscriptSubstance, getRecordingMaxDurationSeconds } from "@/lib/recording/validation";
 import { verifyRecordingLockForAudioUpload, releaseRecordingLock } from "@/lib/recording/lockService";
 import { getExternalWorkerAudioStorageError, shouldRunBackgroundJobsInline } from "@/lib/jobs/execution-mode";
@@ -31,48 +35,64 @@ type AudioSessionPartSubmissionResult = {
   response?: NextResponse;
 };
 
-async function dispatchAudioSessionPartJobs(sessionId: string, partId: string) {
-  await enqueueSessionPartJob(partId, SessionPartJobType.TRANSCRIBE_FILE);
+type AudioSessionPartDispatchDeps = {
+  enqueueSessionPartJob?: typeof enqueueSessionPartJob;
+  processAllSessionPartJobs?: typeof processAllSessionPartJobs;
+  shouldRunBackgroundJobsInline?: typeof shouldRunBackgroundJobsInline;
+  maybeEnsureRunpodWorkerReady?: typeof maybeEnsureRunpodWorkerReady;
+};
 
-  if (shouldRunBackgroundJobsInline()) {
-    void processAllSessionPartJobs(sessionId).catch((error) => {
+export async function dispatchAudioSessionPartJobs(
+  sessionId: string,
+  partId: string,
+  deps: AudioSessionPartDispatchDeps = {}
+) {
+  const enqueue = deps.enqueueSessionPartJob ?? enqueueSessionPartJob;
+  const processQueuedSessionPartJobs = deps.processAllSessionPartJobs ?? processAllSessionPartJobs;
+  const runInlineBackgroundJobs =
+    deps.shouldRunBackgroundJobsInline ?? shouldRunBackgroundJobsInline;
+  const ensureWorkerReady = deps.maybeEnsureRunpodWorkerReady ?? maybeEnsureRunpodWorkerReady;
+
+  await enqueue(partId, SessionPartJobType.TRANSCRIBE_FILE);
+
+  if (runInlineBackgroundJobs()) {
+    void processQueuedSessionPartJobs(sessionId).catch((error) => {
       console.error("[POST /api/sessions/[id]/parts] Background session part processing failed:", error);
     });
-  } else {
-    runAfterResponse(async () => {
-      const workerReady = await maybeEnsureRunpodWorkerReady({
-        terminateOnFailure: true,
-      }).catch((error: any) => ({
-        attempted: true,
-        ok: false,
-        stage: "wake_failed" as const,
-        podId: null,
-        wake: {
-          attempted: true,
-          ok: false,
-          error: error?.message ?? String(error),
-        },
-        readiness: null,
-        error: error?.message ?? String(error),
-      }));
-
-      if (workerReady.ok) {
-        return;
-      }
-
-      console.warn("[POST /api/sessions/[id]/parts] falling back to inline session part processing", {
-        sessionId,
-        partId,
-        workerReady,
-      });
-
-      await processAllSessionPartJobs(sessionId).catch((error) => {
-        console.error("[POST /api/sessions/[id]/parts] Fallback session part processing failed:", error);
-      });
-    }, "POST /api/sessions/[id]/parts wake runpod");
+    return {
+      mode: "inline" as const,
+      workerWake: null,
+    };
   }
 
-  return null;
+  const workerWake = await ensureWorkerReady({
+    terminateOnFailure: true,
+  }).catch((error: any) => ({
+    attempted: true,
+    ok: false,
+    stage: "wake_failed" as const,
+    podId: null,
+    wake: {
+      attempted: true,
+      ok: false,
+      error: error?.message ?? String(error),
+    },
+    readiness: null,
+    error: error?.message ?? String(error),
+  }));
+
+  if (!workerWake.ok) {
+    console.warn("[POST /api/sessions/[id]/parts] Runpod worker wake failed; keeping transcription queued for retry", {
+      sessionId,
+      partId,
+      workerWake,
+    });
+  }
+
+  return {
+    mode: "external" as const,
+    workerWake,
+  };
 }
 
 type TextSessionPartDispatchDeps = {
@@ -334,7 +354,6 @@ async function handleAudioSessionPartSubmission(input: {
     if (submission.file) {
       const buffer = Buffer.from(await submission.file.arrayBuffer());
       const maxDurationSeconds = getRecordingMaxDurationSeconds(access.sessionRow.type);
-      const maxLabel = access.sessionRow.type === "LESSON_REPORT" ? "10分" : "60分";
       const parsedDurationSeconds = await getAudioDurationSecondsFromBuffer(buffer, {
         fileName: audioFileName,
         mimeType: audioMimeType,
@@ -346,14 +365,8 @@ async function handleAudioSessionPartSubmission(input: {
       const durationGate = evaluateDurationGate(durationSeconds, {
         maxSeconds: maxDurationSeconds,
         rejectUnknown: true,
-        tooLongMessageJa:
-          access.sessionRow.type === "LESSON_REPORT"
-            ? `指導報告のチェックイン / チェックアウト音声は1回${maxLabel}までです。音声を分割して保存してください。`
-            : `面談音声は1回${maxLabel}までです。音声を分割して保存してください。`,
-        unknownMessageJa:
-          access.sessionRow.type === "LESSON_REPORT"
-            ? "指導報告音声の長さを確認できませんでした。10分以内のファイルを選び直してください。"
-            : "面談音声の長さを確認できませんでした。60分以内のファイルを選び直してください。",
+        tooLongMessageJa: buildRecordingTooLongMessage(access.sessionRow.type, maxDurationSeconds),
+        unknownMessageJa: buildUnknownDurationMessage(access.sessionRow.type, maxDurationSeconds),
       });
       if (!durationGate.ok) {
         return NextResponse.json(
@@ -446,7 +459,7 @@ async function handleAudioSessionPartSubmission(input: {
     }
 
     const session = await updateSessionStatusFromParts(access.sessionRow.id);
-    const workerWake = await dispatchAudioSessionPartJobs(access.sessionRow.id, persisted.part.id);
+    const dispatch = await dispatchAudioSessionPartJobs(access.sessionRow.id, persisted.part.id);
 
     return NextResponse.json({
       ok: true,
@@ -454,7 +467,8 @@ async function handleAudioSessionPartSubmission(input: {
       generationDeferred: true,
       part: persisted.part,
       session,
-      workerWake,
+      workerWake: dispatch.workerWake,
+      generationDispatch: dispatch,
     });
   } finally {
     if (audioLockToken && audioStudentId && audioUserId) {

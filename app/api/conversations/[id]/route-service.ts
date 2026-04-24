@@ -239,7 +239,7 @@ export async function patchConversation(
   const { summaryMarkdown, formattedTranscript, artifactJson } = body ?? {};
 
   const updateData: any = {};
-  const sessionType = conversation.session?.type === "LESSON_REPORT" ? "LESSON_REPORT" : "INTERVIEW";
+  const sessionType = "INTERVIEW";
 
   if (summaryMarkdown !== undefined) {
     const nextSummary = buildConversationSummaryEditPayload({

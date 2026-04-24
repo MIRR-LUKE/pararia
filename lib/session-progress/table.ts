@@ -3,7 +3,6 @@ import {
   buildConversationErrorState,
   buildIdleState,
   buildInterviewState,
-  buildLessonReportState,
   buildProcessingErrorState,
   buildReceivedState,
   buildRejectedState,
@@ -35,15 +34,8 @@ const SESSION_PROGRESS_TRANSITION_TABLE: SessionProgressRule[] = [
     build: buildProcessingErrorState,
   },
   {
-    id: "lesson-report-state",
-    match: (input) =>
-      input.type === "LESSON_REPORT" && input.parts.some((part) => isBusy(part) || isReady(part)),
-    build: (input) => buildLessonReportState(input) ?? buildReceivedState(input),
-  },
-  {
     id: "interview-state",
-    match: (input) =>
-      input.type === "INTERVIEW" && input.parts.some((part) => isBusy(part) || isReady(part)),
+    match: (input) => input.parts.some((part) => isBusy(part) || isReady(part)),
     build: (input) => buildInterviewState(input) ?? buildReceivedState(input),
   },
   {

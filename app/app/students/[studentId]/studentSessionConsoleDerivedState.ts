@@ -72,7 +72,7 @@ export function buildStudentSessionConsoleDerivedState({
     pendingDraft: showPendingDraftWarning ? pendingDraft : null,
     pendingDraftCanUpload,
     remainingSecondsUntilSavable: Math.max(0, MIN_SECONDS_BEFORE_SAVE_ENABLED - seconds),
-    showGenerationProgress: Boolean(generationProgress) && !(mode === "LESSON_REPORT" && lessonPart === "CHECK_IN"),
+    showGenerationProgress: Boolean(generationProgress),
     statusCopy: buildStudentSessionConsoleStatusCopy({
       mode,
       lessonPart,

@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { buildUnsupportedAudioUploadErrorMessage, isSupportedAudioUpload } from "@/lib/audio-upload-support";
 import { buildSessionPartUploadPathname } from "@/lib/audio-storage-paths";
+import { buildRecordingAutoStopMessage } from "@/lib/recording/policy";
 import type { RecordingLockInfo, SessionItem } from "./roomTypes";
 import {
   CLIENT_AUDIO_STORAGE_MODE,
@@ -174,7 +175,7 @@ export function useStudentSessionConsoleRecording({
   useEffect(() => {
     if (state !== "recording") return;
     if (seconds < MAX_SECONDS[mode]) return;
-    setMessage(`${mode === "INTERVIEW" ? "60分" : "10分"}に達したため、自動で録音を停止して保存します。`);
+    setMessage(buildRecordingAutoStopMessage(mode, MAX_SECONDS[mode]));
     try {
       mediaRecorderRef.current?.stop();
     } catch {
@@ -204,7 +205,7 @@ export function useStudentSessionConsoleRecording({
       if (!recordingSessionIdRef.current || !lockTokenRef.current) return;
       if (!livePendingChunksRef.current.length) return;
       if (!options?.force && livePendingDurationMsRef.current < LIVE_STT_WINDOW_MS[mode]) return;
-      const partType = mode === "INTERVIEW" ? "FULL" : lessonPart;
+      const partType = "FULL";
       const sessionId = recordingSessionIdRef.current;
       const lockToken = lockTokenRef.current;
       const pendingChunks = livePendingChunksRef.current;
@@ -253,7 +254,7 @@ export function useStudentSessionConsoleRecording({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          partType: mode === "INTERVIEW" ? "FULL" : lessonPart,
+          partType: "FULL",
           lockToken: lockTokenRef.current,
         }),
       });
@@ -283,18 +284,14 @@ export function useStudentSessionConsoleRecording({
       let savedSessionId: string | null = null;
       let partSaved = false;
       setError(null);
-      setMessage(
-        mode === "LESSON_REPORT" && lessonPart === "CHECK_IN"
-          ? "チェックインを保存しています。"
-          : "音声を保存しています。"
-      );
+      setMessage("音声を保存しています。");
       setState("uploading");
       setSessionProgress(null);
       setRecoverableSessionId(null);
       try {
         const token = await ensureLockForAudio();
         const sessionId = await resolveTargetSessionId();
-        const uploadPartType = mode === "INTERVIEW" ? "FULL" : lessonPart;
+        const uploadPartType = "FULL";
         savedSessionId = sessionId;
         const form = new FormData();
         form.append("partType", uploadPartType);
@@ -546,13 +543,7 @@ export function useStudentSessionConsoleRecording({
       };
       recorder.start(RECORDING_TIMESLICE_MS);
       setState("recording");
-      setMessage(
-        mode === "LESSON_REPORT" && lessonPart === "CHECK_IN"
-          ? "録音を開始しました。終了すると音声を保存します。"
-          : mode === "LESSON_REPORT" && lessonPart === "CHECK_OUT"
-            ? "録音を開始しました。終了すると音声を保存し、チェックインと合算して自動生成します。"
-            : "録音を開始しました。終了すると自動で保存して生成に入ります。"
-      );
+      setMessage("録音を開始しました。終了すると自動で保存して生成に入ります。");
     } catch (nextError: any) {
       cancelPendingStart = true;
       stopTracks(pendingStartStream);

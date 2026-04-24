@@ -1,4 +1,4 @@
-import { ConversationJobType, ConversationStatus, JobStatus, NextMeetingMemoStatus, SessionType } from "@prisma/client";
+import { ConversationJobType, ConversationStatus, JobStatus, NextMeetingMemoStatus } from "@prisma/client";
 import { estimateTokens, generateConversationDraftFast, getPromptVersion } from "@/lib/ai/conversationPipeline";
 import {
   generateNextMeetingMemo,
@@ -144,7 +144,7 @@ async function executeFinalizeJob(job: JobPayload, convo: ConversationPayload) {
     finalizeStartedAt,
   });
   const start = Date.now();
-  const sessionType = convo.sessionType === SessionType.LESSON_REPORT ? "LESSON_REPORT" : "INTERVIEW";
+  const sessionType = "INTERVIEW";
   const {
     summaryMarkdown,
     artifact,

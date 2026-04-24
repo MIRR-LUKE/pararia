@@ -24,9 +24,7 @@ import { applyLightMutationThrottle } from "@/lib/server/request-throttle";
 export const dynamic = "force-dynamic";
 
 function parseMode(raw: unknown): RecordingLockMode | null {
-  if (raw === RecordingLockMode.LESSON_REPORT) return RecordingLockMode.LESSON_REPORT;
   if (raw === RecordingLockMode.INTERVIEW) return RecordingLockMode.INTERVIEW;
-  if (raw === "LESSON_REPORT") return RecordingLockMode.LESSON_REPORT;
   if (raw === "INTERVIEW") return RecordingLockMode.INTERVIEW;
   return null;
 }
@@ -214,7 +212,7 @@ export async function POST(
       return respondWithOperationError({
         context,
         stage,
-        message: "mode は INTERVIEW または LESSON_REPORT を指定してください。",
+        message: "mode は INTERVIEW を指定してください。",
         status: 400,
         level: "warn",
       });
@@ -260,7 +258,7 @@ export async function POST(
       );
     }
 
-    if (!shouldRunBackgroundJobsInline() && mode === RecordingLockMode.INTERVIEW) {
+    if (!shouldRunBackgroundJobsInline()) {
       void maybeEnsureRunpodWorker().catch((error) => {
         logOperationIssue({
           context,

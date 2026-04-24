@@ -7,7 +7,6 @@ import {
   getSessionProgressRejectedCopy,
   getSessionProgressStepLabels,
   getSessionProgressTranscriptionCopy,
-  getSessionProgressWaitingCopy,
 } from "./registry";
 import { readSessionPartMeta } from "@/lib/session-part-meta";
 import type {
@@ -157,118 +156,6 @@ export function buildProcessingErrorState(input: SessionProgressInput): SessionP
   };
 }
 
-export function buildLessonReportState(input: SessionProgressInput): SessionProgressState | null {
-  const labels = getSessionProgressStepLabels(input.type);
-  const checkIn = getPart(input.parts, "CHECK_IN");
-  const checkOut = getPart(input.parts, "CHECK_OUT");
-  const hasReadyCheckIn = isReady(checkIn);
-  const hasReadyCheckOut = isReady(checkOut);
-
-  if (hasReadyCheckIn && hasReadyCheckOut) {
-    const copy = getSessionProgressGeneratingCopy(input.type);
-    return {
-      stage: "GENERATING",
-      statusLabel: copy.statusLabel,
-      canLeavePage: true,
-      canOpenLog: Boolean(input.conversation?.id),
-      openLogId: input.conversation?.id ?? null,
-      waitingForPart: null,
-      progress: buildProgressPayload(
-        labels,
-        2,
-        copy.title,
-        copy.description,
-        undefined,
-        estimateConversationProgress(input.conversation, 78, 96)
-      ),
-    };
-  }
-
-  if (hasReadyCheckIn && !checkOut) {
-    const copy = getSessionProgressWaitingCopy("CHECK_OUT");
-    return {
-      stage: "WAITING_COUNTERPART",
-      statusLabel: copy.statusLabel,
-      canLeavePage: true,
-      canOpenLog: false,
-      openLogId: null,
-      waitingForPart: "CHECK_OUT",
-      progress: buildProgressPayload(labels, 1, copy.title, copy.description, undefined, copy.value),
-    };
-  }
-
-  if (hasReadyCheckIn && isBusy(checkOut)) {
-    const copy = getSessionProgressTranscriptionCopy(input.type, "CHECK_OUT");
-    const detail = buildDetailedTranscriptionCopy(checkOut, copy.start, copy.end, copy);
-    return {
-      stage: "TRANSCRIBING",
-      statusLabel: detail.statusLabel,
-      canLeavePage: true,
-      canOpenLog: false,
-      openLogId: null,
-      waitingForPart: null,
-      progress: buildProgressPayload(labels, 1, detail.title, detail.description, undefined, detail.value),
-    };
-  }
-
-  if (hasReadyCheckOut && !checkIn) {
-    const copy = getSessionProgressWaitingCopy("CHECK_IN");
-    return {
-      stage: "WAITING_COUNTERPART",
-      statusLabel: copy.statusLabel,
-      canLeavePage: true,
-      canOpenLog: false,
-      openLogId: null,
-      waitingForPart: "CHECK_IN",
-      progress: buildProgressPayload(labels, 0, copy.title, copy.description, undefined, copy.value),
-    };
-  }
-
-  if (hasReadyCheckOut && isBusy(checkIn)) {
-    const copy = getSessionProgressTranscriptionCopy(input.type, "CHECK_IN");
-    const detail = buildDetailedTranscriptionCopy(checkIn, copy.start, copy.end, copy);
-    return {
-      stage: "TRANSCRIBING",
-      statusLabel: detail.statusLabel,
-      canLeavePage: true,
-      canOpenLog: false,
-      openLogId: null,
-      waitingForPart: null,
-      progress: buildProgressPayload(labels, 0, detail.title, detail.description, undefined, detail.value),
-    };
-  }
-
-  if (isReady(checkIn) && isBusy(checkOut)) {
-    const copy = getSessionProgressTranscriptionCopy(input.type, "CHECK_OUT");
-    const detail = buildDetailedTranscriptionCopy(checkOut, copy.start, copy.end, copy);
-    return {
-      stage: "TRANSCRIBING",
-      statusLabel: detail.statusLabel,
-      canLeavePage: true,
-      canOpenLog: false,
-      openLogId: null,
-      waitingForPart: null,
-      progress: buildProgressPayload(labels, 1, detail.title, detail.description, undefined, detail.value),
-    };
-  }
-
-  if (isReady(checkOut) && isBusy(checkIn)) {
-    const copy = getSessionProgressTranscriptionCopy(input.type, "CHECK_IN");
-    const detail = buildDetailedTranscriptionCopy(checkIn, copy.start, copy.end, copy);
-    return {
-      stage: "TRANSCRIBING",
-      statusLabel: detail.statusLabel,
-      canLeavePage: true,
-      canOpenLog: false,
-      openLogId: null,
-      waitingForPart: null,
-      progress: buildProgressPayload(labels, 0, detail.title, detail.description, undefined, detail.value),
-    };
-  }
-
-  return null;
-}
-
 export function buildInterviewState(input: SessionProgressInput): SessionProgressState | null {
   const labels = getSessionProgressStepLabels(input.type);
   const full = getPart(input.parts, "FULL");
@@ -318,7 +205,7 @@ export function buildReceivedState(input: SessionProgressInput): SessionProgress
     canLeavePage: true,
     canOpenLog: false,
     openLogId: null,
-    waitingForPart: input.type === "LESSON_REPORT" ? "CHECK_IN" : null,
+    waitingForPart: null,
     progress: buildProgressPayload(labels, 0, copy.title, copy.description),
   };
 }
@@ -332,7 +219,7 @@ export function buildIdleState(input: SessionProgressInput): SessionProgressStat
     canLeavePage: true,
     canOpenLog: false,
     openLogId: null,
-    waitingForPart: input.type === "LESSON_REPORT" ? "CHECK_IN" : null,
+    waitingForPart: null,
     progress: buildProgressPayload(labels, 0, copy.title, copy.description),
   };
 }

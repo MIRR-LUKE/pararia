@@ -18,9 +18,7 @@ export type LogListItem = {
 export type LogListPageData = {
   conversations: LogListItem[];
   counts: {
-    all: number;
     interview: number;
-    lesson: number;
   };
 };
 
@@ -65,22 +63,12 @@ export async function getLogListPageData({
     transcriptReview: normalizeTranscriptReviewMeta(conversation.qualityMetaJson),
   }));
 
-  let interviewCount = 0;
-  let lessonCount = 0;
-  for (const conversation of mappedConversations) {
-    if (conversation.sessionType === "LESSON_REPORT") {
-      lessonCount += 1;
-    } else {
-      interviewCount += 1;
-    }
-  }
+  const interviewCount = mappedConversations.filter((conversation) => conversation.sessionType === "INTERVIEW").length;
 
   return {
     conversations: mappedConversations,
     counts: {
-      all: mappedConversations.length,
       interview: interviewCount,
-      lesson: lessonCount,
     },
   };
 }

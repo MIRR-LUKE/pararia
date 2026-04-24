@@ -322,7 +322,7 @@ export async function syncSessionAfterConversation(conversationId: string) {
     },
   });
   if (!conversation?.sessionId) return;
-  const heroStateLabel = conversation.session?.type === SessionType.LESSON_REPORT ? "指導報告ログ" : "面談ログ";
+  const heroStateLabel = "面談ログ";
   const renderedSummary = renderConversationArtifactOrFallback(
     conversation.artifactJson,
     conversation.summaryMarkdown

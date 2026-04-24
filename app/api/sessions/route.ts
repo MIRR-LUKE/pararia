@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { SessionType } from "@prisma/client";
 import { prisma } from "@/lib/db";
-import { pickOngoingLessonReportSession } from "@/lib/lesson-report-flow";
 import { requireAuthorizedMutationSession, requireAuthorizedSession } from "@/lib/server/request-auth";
 import { withActiveStudentWhere } from "@/lib/students/student-lifecycle";
 import { applyLightMutationThrottle } from "@/lib/server/request-throttle";
@@ -82,8 +81,11 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "studentId is required" }, { status: 400 });
     }
 
-    const sessionType =
-      type === SessionType.LESSON_REPORT ? SessionType.LESSON_REPORT : SessionType.INTERVIEW;
+    if (typeof type === "string" && type.trim().length > 0 && type !== SessionType.INTERVIEW) {
+      return NextResponse.json({ error: "type は INTERVIEW のみ指定できます。" }, { status: 400 });
+    }
+
+    const sessionType = SessionType.INTERVIEW;
     const resolvedOrgId = session.user.organizationId;
 
     const student = await prisma.student.findFirst({
@@ -117,21 +119,14 @@ export async function POST(request: Request) {
       take: 8,
     });
 
-    if (sessionType === SessionType.LESSON_REPORT) {
-      const reusable = pickOngoingLessonReportSession(existingSessions);
-      if (reusable) {
-        return NextResponse.json({ session: reusable, reused: true });
-      }
-    } else {
-      const reusableInterview = existingSessions.find(
-        (existingSession) =>
-          existingSession.status === "DRAFT" &&
-          !existingSession.conversation?.id &&
-          existingSession.parts.length === 0
-      );
-      if (reusableInterview) {
-        return NextResponse.json({ session: reusableInterview, reused: true });
-      }
+    const reusableInterview = existingSessions.find(
+      (existingSession) =>
+        existingSession.status === "DRAFT" &&
+        !existingSession.conversation?.id &&
+        existingSession.parts.length === 0
+    );
+    if (reusableInterview) {
+      return NextResponse.json({ session: reusableInterview, reused: true });
     }
 
     const created = await prisma.session.create({

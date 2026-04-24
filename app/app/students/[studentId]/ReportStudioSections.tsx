@@ -87,7 +87,7 @@ export function ReportStudioSelectedSessions({
         <div className={styles.inlineActions}>
           {selectedSessions.map((session) => (
             <Button key={session.id} size="small" variant="secondary" onClick={() => removeSelectedSession(session.id)}>
-              {new Date(session.sessionDate).toLocaleDateString("ja-JP")} / {session.type === "LESSON_REPORT" ? "指導報告" : "面談"} ×
+              {new Date(session.sessionDate).toLocaleDateString("ja-JP")} / 面談 ×
             </Button>
           ))}
         </div>
@@ -155,7 +155,7 @@ export function ReportStudioSelectionSection({
                 variant="secondary"
                 onClick={() => onSelectedSessionIdsChange([...selectedSessionIds, session.id])}
               >
-                {new Date(session.sessionDate).toLocaleDateString("ja-JP")} / {session.type === "LESSON_REPORT" ? "指導報告" : "面談"}
+                {new Date(session.sessionDate).toLocaleDateString("ja-JP")} / 面談
               </Button>
             ))}
           </div>

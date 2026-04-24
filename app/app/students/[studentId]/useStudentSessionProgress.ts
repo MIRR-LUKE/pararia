@@ -94,8 +94,8 @@ export function useStudentSessionProgress({
 
   useEffect(() => {
     let cancelled = false;
-    const nextProgress = mode === "LESSON_REPORT" ? ongoingLessonSession?.pipeline ?? null : null;
-    const nextConversationId = mode === "LESSON_REPORT" ? ongoingLessonSession?.conversation?.id ?? null : null;
+    const nextProgress = null;
+    const nextConversationId = null;
 
     queueMicrotask(() => {
       if (cancelled) return;
@@ -114,10 +114,7 @@ export function useStudentSessionProgress({
     const payload = {
       studentId,
       type: mode,
-      title:
-        mode === "INTERVIEW"
-          ? `${new Date().toLocaleDateString("ja-JP")} の面談`
-          : `${new Date().toLocaleDateString("ja-JP")} の指導報告`,
+      title: `${new Date().toLocaleDateString("ja-JP")} の面談`,
     };
 
     const res = await fetch("/api/sessions", {
@@ -133,11 +130,8 @@ export function useStudentSessionProgress({
   }, [mode, studentId]);
 
   const resolveTargetSessionId = useCallback(async () => {
-    if (mode === "LESSON_REPORT" && ongoingLessonSession?.id) {
-      return ongoingLessonSession.id;
-    }
     return createSession();
-  }, [createSession, mode, ongoingLessonSession]);
+  }, [createSession]);
 
   const pollSessionProgress = useCallback(
     async (sessionId: string) => {
@@ -182,18 +176,6 @@ export function useStudentSessionProgress({
           setCreatedConversationId(openLogId);
         }
 
-        if (body.progress.stage === "WAITING_COUNTERPART") {
-          setRecoverableSessionId(null);
-          setState("success");
-          setError(null);
-          setMessage(body.progress.progress.description);
-          if (mode === "LESSON_REPORT") {
-            onLessonPartChange(body.progress.waitingForPart === "CHECK_IN" ? "CHECK_IN" : "CHECK_OUT");
-          }
-          await onRefresh();
-          return openLogId;
-        }
-
         if (body.progress.stage === "READY") {
           setRecoverableSessionId(null);
           setState("success");
@@ -218,7 +200,7 @@ export function useStudentSessionProgress({
       await onRefresh();
       return null;
     },
-    [mode, onLessonPartChange, onRefresh, setError, setMessage, setState]
+    [onRefresh, setError, setMessage, setState]
   );
 
   const handleSavedPartResponse = useCallback(
@@ -226,25 +208,22 @@ export function useStudentSessionProgress({
       setSessionProgress(null);
       setRecoverableSessionId(sessionId);
       setError(null);
-      if (mode === "LESSON_REPORT" && lessonPart === "CHECK_IN") {
-        setRecoverableSessionId(null);
-        setState("idle");
-        setMessage("チェックインを保存しました。チェックアウトへ進んでください。文字起こしは裏で続けます。");
-        onLessonPartChange("CHECK_OUT");
+
+      if (body?.workerWake && body.workerWake.ok === false) {
+        setState("error");
+        setError(
+          "音声は保存しましたが、Runpod STT worker の起動に失敗しました。時間をおいて「生成を再開する」で再試行してください。"
+        );
         await onRefresh();
         return null;
       }
 
       setState("processing");
-      setMessage(
-        mode === "INTERVIEW"
-          ? "文字起こし準備中です。STT worker の起動が終わりしだい、文字起こしに入ります。"
-          : "文字起こし準備中です。STT worker の起動が終わりしだい、指導報告ログの準備に入ります。"
-      );
+      setMessage("文字起こし準備中です。STT worker の起動が終わりしだい、文字起こしに入ります。");
       await onRefresh();
       return pollSessionProgress(sessionId);
     },
-    [lessonPart, mode, onLessonPartChange, onRefresh, pollSessionProgress, setError, setMessage, setState]
+    [onRefresh, pollSessionProgress, setError, setMessage, setState]
   );
 
   const retryGeneration = useCallback(async () => {
@@ -263,10 +242,10 @@ export function useStudentSessionProgress({
   }, [pollSessionProgress, recoverableSessionId, setError, setState]);
 
   const resetSessionProgress = useCallback(() => {
-    setSessionProgress(mode === "LESSON_REPORT" ? ongoingLessonSession?.pipeline ?? null : null);
+    setSessionProgress(null);
     setCreatedConversationId(null);
     setRecoverableSessionId(null);
-  }, [mode, ongoingLessonSession?.pipeline]);
+  }, []);
 
   return {
     createdConversationId,

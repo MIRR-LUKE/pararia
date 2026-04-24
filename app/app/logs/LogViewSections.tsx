@@ -26,7 +26,7 @@ function toneFromStatus(status: ConversationStatus): "neutral" | "low" | "medium
 }
 
 function logTitle(type?: string | null) {
-  return type === "LESSON_REPORT" ? "指導報告ログ" : "面談ログ";
+  return "面談ログ";
 }
 
 type LogViewController = ReturnType<typeof useLogViewController>;

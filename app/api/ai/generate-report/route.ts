@@ -210,6 +210,22 @@ export async function POST(request: Request) {
       });
     }
 
+    const invalidLogIds = selectedLogs
+      .filter((log) => log.session?.type !== "INTERVIEW")
+      .map((log) => log.id);
+    if (invalidLogIds.length > 0) {
+      return operationErrorResponse(operation, {
+        stage: "validate_selection",
+        message: `保護者レポートには面談ログのみ使えます。対象: ${invalidLogIds.join(", ")}`,
+        status: 400,
+        reason: "non_interview_logs_not_supported",
+        extra: {
+          studentId,
+          invalidLogIds,
+        },
+      });
+    }
+
     stage = "validate_artifact";
     const invalidLogs = selectedLogs
       .map((log) => {
@@ -255,7 +271,7 @@ export async function POST(request: Request) {
         id: log.id,
         sessionId: log.sessionId,
         date: log.createdAt.toISOString().slice(0, 10),
-        mode: log.session?.type === "LESSON_REPORT" ? "LESSON_REPORT" : "INTERVIEW",
+        mode: "INTERVIEW",
         artifactJson: log.artifactJson,
         })),
     });
@@ -274,9 +290,7 @@ export async function POST(request: Request) {
           qualityChecksJson: {
             generatedFromSessions: logs.map((log) => log.sessionId).filter(Boolean),
             generatedFromLogIds: logs.map((log) => log.id),
-            generatedFromModes: logs.map((log) =>
-              log.session?.type === "LESSON_REPORT" ? "LESSON_REPORT" : "INTERVIEW"
-            ),
+            generatedFromModes: logs.map(() => "INTERVIEW"),
             bundleQualityEval,
             generationMeta,
           } as any,

@@ -13,7 +13,7 @@ export type ReportInput = {
     id: string;
     sessionId?: string | null;
     date: string;
-    mode: "INTERVIEW" | "LESSON_REPORT";
+    mode: "INTERVIEW";
     subType?: string | null;
     artifactJson?: unknown;
     summaryMarkdown?: string;
@@ -52,7 +52,7 @@ export type ReportContext = {
 export type ReportEvidenceLog = {
   id: string;
   date: string;
-  mode: "INTERVIEW" | "LESSON_REPORT";
+  mode: "INTERVIEW";
   theme: string;
   facts: string[];
   changes: string[];

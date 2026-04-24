@@ -75,9 +75,6 @@ export function dedupeKeepOrder(lines: string[]) {
 
 const INTERVIEW_KEYWORD_RE =
   /学習|学校|生活|睡眠|宿題|部活|進路|志望|志望校|不安|課題|目標|復習|模試|受験|成績|提出|習慣|過去問|共通テスト|私大|数学|英語|国語|理科|社会|ベクトル|数列|微分|積分|長文|読解|語彙|単語|LEAP|スマホ|YouTube|就寝|帰宅|MARCH|時間配分|見直し|ケアレスミス|ルール|学校選択|学力検査|越ヶ谷|越谷南|春日部東|指定校|推薦|国立/;
-const LESSON_KEYWORD_RE =
-  /宿題|授業|演習|理解|つまず|復習|次回|課題|単元|解説|確認|極限|三角関数|ベクトル|数列|微分|積分|学校|講習|化学|英語|数学/;
-
 function countJapaneseChars(text: string) {
   return (text.match(/[一-龯ぁ-んァ-ヶー]/g) ?? []).length;
 }
@@ -140,33 +137,7 @@ export function pickInterviewLines(transcript: string) {
   ]).slice(0, 72);
 }
 
-export function pickLessonLines(transcript: string) {
-  const checkIn = transcriptLines(extractMarkdownSectionBody(transcript, "授業前チェックイン"))
-    .filter((line) => !isLikelyNoiseLine(line))
-    .slice(0, 10);
-  const checkOut = transcriptLines(extractMarkdownSectionBody(transcript, "授業後チェックアウト"))
-    .filter((line) => !isLikelyNoiseLine(line))
-    .slice(0, 12);
-  const all = transcriptLines(transcript).filter((line) => !isLikelyNoiseLine(line));
-  const keywordLines = all.filter((line) => LESSON_KEYWORD_RE.test(line));
-  const informativeLines = pickInformativeLines(all, LESSON_KEYWORD_RE, 14);
-  return dedupeKeepOrder([
-    ...checkIn,
-    ...checkOut,
-    ...keywordLines.slice(0, 18),
-    ...informativeLines,
-    ...all.slice(-6),
-  ]).slice(0, 42);
-}
-
-function buildFastDraftEvidenceText(sessionType: SessionMode, transcript: string) {
-  if (sessionType === "LESSON_REPORT") {
-    const lines = pickLessonLines(transcript);
-    return [
-      "### 抽出済みの重要発話",
-      ...lines.map((line) => `- ${line}`),
-    ].join("\n");
-  }
+function buildFastDraftEvidenceText(_sessionType: SessionMode, transcript: string) {
   const lines = pickInterviewLines(transcript);
   return [
     "### 抽出済みの重要発話",
@@ -180,13 +151,7 @@ export function buildDraftInputBlock(sessionType: SessionMode, transcript: strin
   const transcriptTokenEstimate = estimateTokens(normalizedTranscript);
   // Keep raw/reviewed transcript as the source of truth. This block only shapes
   // what the LLM sees for long inputs; it never overwrites stored transcript data.
-  if (sessionType === "INTERVIEW" && transcriptTokenEstimate <= 9000) {
-    return {
-      label: "抽出済み重要発話 + 文字起こし全文",
-      content: [evidenceBlock, "", "### 文字起こし全文", normalizedTranscript].join("\n"),
-    };
-  }
-  if (transcriptTokenEstimate <= 3500) {
+  if (transcriptTokenEstimate <= 9000) {
     return {
       label: "抽出済み重要発話 + 文字起こし全文",
       content: [evidenceBlock, "", "### 文字起こし全文", normalizedTranscript].join("\n"),
