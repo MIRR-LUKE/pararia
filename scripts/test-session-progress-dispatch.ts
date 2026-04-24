@@ -17,13 +17,20 @@ const events: string[] = [];
 
 const startedAt = Date.now();
 kickSessionWorkerOrFallback("session-progress-dispatch", false, {
-  maybeEnsureRunpodWorker: async () => {
+  maybeEnsureRunpodWorkerReady: async () => {
     events.push("wake");
     await new Promise((resolve) => setTimeout(resolve, 25));
     return {
       attempted: true,
       ok: true,
+      stage: "db_ok",
       podId: "pod-smoke",
+      wake: {
+        attempted: true,
+        ok: true,
+        podId: "pod-smoke",
+      },
+      readiness: { checkedAt: new Date().toISOString() },
     };
   },
   processAllSessionPartJobs: async () => {

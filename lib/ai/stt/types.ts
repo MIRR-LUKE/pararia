@@ -106,14 +106,14 @@ export type FasterWhisperWorkerHandle = {
   shutdown(): void;
 };
 
-export type FasterWhisperResponseFormat = "segments_json";
+export type PipelineTranscriptionResponseFormat = "segments_json" | "json";
 
 export type PipelineTranscriptionResult = SegmentedTranscriptResult & {
   meta: {
     model: string;
-    responseFormat: FasterWhisperResponseFormat;
+    responseFormat: PipelineTranscriptionResponseFormat;
     recoveryUsed: boolean;
-    fallbackUsed: false;
+    fallbackUsed: boolean;
     attemptCount: number;
     segmentCount: number;
     speakerCount: 0;

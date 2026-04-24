@@ -11,7 +11,7 @@ import { getAudioDurationSecondsFromBuffer, evaluateDurationGate, evaluateTransc
 import { verifyRecordingLockForAudioUpload, releaseRecordingLock } from "@/lib/recording/lockService";
 import { getExternalWorkerAudioStorageError, shouldRunBackgroundJobsInline } from "@/lib/jobs/execution-mode";
 import { enqueueSessionPartJob, processAllSessionPartJobs } from "@/lib/jobs/sessionPartJobs";
-import { maybeEnsureRunpodWorker } from "@/lib/runpod/worker-control";
+import { maybeEnsureRunpodWorkerReady } from "@/lib/runpod/worker-ready";
 import { API_THROTTLE_RULES, ApiQuotaExceededError, consumeApiQuota } from "@/lib/api-throttle";
 import { consumeCompletedBlobUploadReservation } from "@/lib/blob-upload-reservations";
 import { saveSessionPartUpload } from "@/lib/session-part-storage";
@@ -40,15 +40,35 @@ async function dispatchAudioSessionPartJobs(sessionId: string, partId: string) {
     });
   } else {
     runAfterResponse(async () => {
-      await maybeEnsureRunpodWorker()
-        .then((workerWake) => {
-        if (workerWake?.attempted && !workerWake.ok) {
-          console.error("[POST /api/sessions/[id]/parts] Runpod worker wake failed:", workerWake);
-        }
-      })
-        .catch((error) => {
-          console.error("[POST /api/sessions/[id]/parts] Runpod worker wake threw:", error);
-        });
+      const workerReady = await maybeEnsureRunpodWorkerReady({
+        terminateOnFailure: true,
+      }).catch((error: any) => ({
+        attempted: true,
+        ok: false,
+        stage: "wake_failed" as const,
+        podId: null,
+        wake: {
+          attempted: true,
+          ok: false,
+          error: error?.message ?? String(error),
+        },
+        readiness: null,
+        error: error?.message ?? String(error),
+      }));
+
+      if (workerReady.ok) {
+        return;
+      }
+
+      console.warn("[POST /api/sessions/[id]/parts] falling back to inline session part processing", {
+        sessionId,
+        partId,
+        workerReady,
+      });
+
+      await processAllSessionPartJobs(sessionId).catch((error) => {
+        console.error("[POST /api/sessions/[id]/parts] Fallback session part processing failed:", error);
+      });
     }, "POST /api/sessions/[id]/parts wake runpod");
   }
 

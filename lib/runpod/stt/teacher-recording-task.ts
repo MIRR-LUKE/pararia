@@ -83,6 +83,8 @@ export async function transcribeTeacherRecordingTask(
       throw new Error("faster-whisper transcription did not return a result");
     }
 
+    const sttEngine = stt.meta.model.startsWith("openai:") ? "openai" : "faster-whisper";
+
     const transcriptText = normalizeRawTranscriptText(stt.rawTextOriginal);
     if (!transcriptText) {
       throw new Error("文字起こし結果が空でした。");
@@ -121,7 +123,7 @@ export async function transcribeTeacherRecordingTask(
       sttQualityWarnings: stt.meta.qualityWarnings,
       sttNormalizedRetryUsed: normalizedRetryUsed,
       audioDurationSeconds: measuredDurationSeconds,
-      sttEngine: "faster-whisper",
+      sttEngine,
       ...readRunpodWorkerRuntimeMetadata(),
     } satisfies Record<string, unknown>;
 
@@ -134,7 +136,7 @@ export async function transcribeTeacherRecordingTask(
       outputJson: {
         rawLength: stt.rawTextOriginal.length,
         segmentCount: (stt.segments ?? []).length,
-        sttEngine: "faster-whisper",
+        sttEngine,
       },
       costMetaJson: {
         seconds: Math.round(sttTotalMs / 1000),

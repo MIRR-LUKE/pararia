@@ -19,7 +19,7 @@ import { withVisibleConversationWhere } from "@/lib/content-visibility";
 import { shouldRunBackgroundJobsInline } from "@/lib/jobs/execution-mode";
 import { kickConversationJobsOutsideRunpod } from "@/lib/jobs/conversation-jobs/app-dispatch";
 import { maybeStopRunpodWorkerWhenSessionPartQueueIdle } from "@/lib/runpod/idle-stop";
-import { maybeEnsureRunpodWorker } from "@/lib/runpod/worker-control";
+import { maybeEnsureRunpodWorkerReady } from "@/lib/runpod/worker-ready";
 
 const SESSION_WORKER_WAKE_COOLDOWN_MS = 4_000;
 const CONVERSATION_PROGRESS_KICK_COOLDOWN_MS = 4_000;
@@ -177,7 +177,7 @@ export function shouldProcessSessionProgressInline(input: {
 }
 
 type SessionWorkerWakeDeps = {
-  maybeEnsureRunpodWorker?: typeof maybeEnsureRunpodWorker;
+  maybeEnsureRunpodWorkerReady?: typeof maybeEnsureRunpodWorkerReady;
   processAllSessionPartJobs?: typeof processAllSessionPartJobs;
   processAllConversationJobs?: typeof processAllConversationJobs;
 };
@@ -191,24 +191,34 @@ export function kickSessionWorkerOrFallback(
     return;
   }
 
-  const ensureWorker = deps.maybeEnsureRunpodWorker ?? maybeEnsureRunpodWorker;
+  const ensureWorkerReady = deps.maybeEnsureRunpodWorkerReady ?? maybeEnsureRunpodWorkerReady;
   const processSessionParts = deps.processAllSessionPartJobs ?? processAllSessionPartJobs;
   const processConversation = deps.processAllConversationJobs ?? processAllConversationJobs;
 
   runAfterResponse(async () => {
-    const workerWake = await ensureWorker().catch((error: any) => ({
+    const workerReady = await ensureWorkerReady({
+      terminateOnFailure: true,
+    }).catch((error: any) => ({
       attempted: true,
       ok: false,
+      stage: "wake_failed" as const,
+      podId: null,
+      wake: {
+        attempted: true,
+        ok: false,
+        error: error?.message ?? String(error),
+      },
+      readiness: null,
       error: error?.message ?? String(error),
     }));
 
-    if (workerWake.attempted && workerWake.ok) {
+    if (workerReady.ok) {
       return;
     }
 
     console.warn("[GET /api/sessions/[id]/progress] falling back to inline processing", {
       sessionId,
-      workerWake,
+      workerReady,
     });
 
     await processSessionParts(sessionId);

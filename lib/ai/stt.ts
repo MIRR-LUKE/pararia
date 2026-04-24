@@ -1,6 +1,7 @@
 import path from "node:path";
 import { getAudioDurationSeconds } from "@/lib/audio-processing";
 import { materializeInputFile } from "./stt/input";
+import { transcribeAudioWithOpenAiForPipeline } from "./stt/openai";
 import {
   readChunkingEnabled,
   readChunkMinDurationSeconds,
@@ -21,6 +22,24 @@ import type {
 
 const FASTER_WHISPER_MODEL_NAME = process.env.FASTER_WHISPER_MODEL?.trim() || "turbo";
 const FASTER_WHISPER_RESPONSE_FORMAT = "segments_json" as const;
+const STT_PROVIDER_ENV = "PARARIA_STT_PROVIDER";
+
+function readTranscriptionProvider() {
+  const explicit = process.env[STT_PROVIDER_ENV]?.trim().toLowerCase();
+  if (explicit === "faster-whisper" || explicit === "openai") {
+    return explicit;
+  }
+
+  if (process.env.RUNPOD_POD_ID?.trim()) {
+    return "faster-whisper";
+  }
+
+  if (process.env.PARARIA_BACKGROUND_MODE?.trim()?.toLowerCase() === "external") {
+    return "openai";
+  }
+
+  return "faster-whisper";
+}
 
 export type {
   PipelineTranscriptionResult,
@@ -42,6 +61,10 @@ export async function transcribeAudio({
 }
 
 export async function transcribeAudioForPipeline(input: TranscribeInput): Promise<PipelineTranscriptionResult> {
+  if (readTranscriptionProvider() === "openai") {
+    return transcribeAudioWithOpenAiForPipeline(input);
+  }
+
   const file = await materializeInputFile(input);
   try {
     const language = input.language || "ja";

@@ -117,7 +117,7 @@ export async function transcribeSessionPartTask(
       return buildRejectedOutcome(durationGate.code, durationGate.messageJa, {
         ...(input.qualityMetaJson ?? {}),
         audioDurationSeconds: measuredDurationSeconds,
-        sttEngine: "faster-whisper",
+        sttEngine: process.env.RUNPOD_POD_ID?.trim() ? "faster-whisper" : "openai",
         ...readRunpodWorkerRuntimeMetadata(),
       });
     }
@@ -155,6 +155,8 @@ export async function transcribeSessionPartTask(
     if (!stt) {
       throw new Error("faster-whisper transcription did not return a result");
     }
+
+    const sttEngine = stt.meta.model.startsWith("openai:") ? "openai" : "faster-whisper";
 
     const pre =
       (stt.segments ?? []).length > 0
@@ -197,7 +199,7 @@ export async function transcribeSessionPartTask(
       sttQualityWarnings: stt.meta.qualityWarnings,
       sttNormalizedRetryUsed: normalizedRetryUsed,
       audioDurationSeconds: measuredDurationSeconds,
-      sttEngine: "faster-whisper",
+      sttEngine,
       ...readRunpodWorkerRuntimeMetadata(),
     } satisfies Record<string, unknown>;
 

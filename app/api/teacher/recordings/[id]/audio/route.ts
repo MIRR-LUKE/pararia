@@ -5,9 +5,9 @@ import {
   failIdempotency,
   IdempotencyConflictError,
 } from "@/lib/idempotency";
-import { maybeEnsureRunpodWorker } from "@/lib/runpod/worker-control";
 import { shouldRunBackgroundJobsInline } from "@/lib/jobs/execution-mode";
 import { processQueuedTeacherRecordingJobs } from "@/lib/jobs/teacherRecordingJobs";
+import { maybeEnsureRunpodWorkerReady } from "@/lib/runpod/worker-ready";
 import { runAfterResponse } from "@/lib/server/after-response";
 import { applyLightMutationThrottle } from "@/lib/server/request-throttle";
 import { resolveRouteId, type RouteParams } from "@/lib/server/route-params";
@@ -85,15 +85,34 @@ export async function POST(request: Request, { params }: { params: RouteParams }
       });
     } else {
       runAfterResponse(async () => {
-        await maybeEnsureRunpodWorker()
-          .then((workerWake) => {
-            if (workerWake?.attempted && !workerWake.ok) {
-              console.error("[POST /api/teacher/recordings/[id]/audio] Runpod worker wake failed:", workerWake);
-            }
-          })
-          .catch((error) => {
-            console.error("[POST /api/teacher/recordings/[id]/audio] Runpod worker wake threw:", error);
-          });
+        const workerReady = await maybeEnsureRunpodWorkerReady({
+          terminateOnFailure: true,
+        }).catch((error: any) => ({
+          attempted: true,
+          ok: false,
+          stage: "wake_failed" as const,
+          podId: null,
+          wake: {
+            attempted: true,
+            ok: false,
+            error: error?.message ?? String(error),
+          },
+          readiness: null,
+          error: error?.message ?? String(error),
+        }));
+
+        if (workerReady.ok) {
+          return;
+        }
+
+        console.warn("[POST /api/teacher/recordings/[id]/audio] falling back to inline teacher recording processing", {
+          recordingId,
+          workerReady,
+        });
+
+        await processQueuedTeacherRecordingJobs(1, { recordingId }).catch((error) => {
+          console.error("[POST /api/teacher/recordings/[id]/audio] Fallback teacher recording processing failed:", error);
+        });
       }, "POST /api/teacher/recordings/[id]/audio wake runpod");
     }
 

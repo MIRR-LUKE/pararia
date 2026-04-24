@@ -3,7 +3,7 @@ import { JobStatus, TeacherRecordingJobType } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { shouldRunBackgroundJobsInline } from "@/lib/jobs/execution-mode";
 import { processQueuedTeacherRecordingJobs } from "@/lib/jobs/teacherRecordingJobs";
-import { maybeEnsureRunpodWorker } from "@/lib/runpod/worker-control";
+import { maybeEnsureRunpodWorkerReady } from "@/lib/runpod/worker-ready";
 import { runAfterResponse } from "@/lib/server/after-response";
 import { applyLightMutationThrottle } from "@/lib/server/request-throttle";
 import { resolveRouteId, type RouteParams } from "@/lib/server/route-params";
@@ -145,15 +145,34 @@ async function kickTeacherRecordingProcessing(recordingId: string, force = false
   }
 
   runAfterResponse(async () => {
-    await maybeEnsureRunpodWorker()
-      .then((workerWake) => {
-        if (workerWake?.attempted && !workerWake.ok) {
-          console.error("[teacher recording progress] Runpod worker wake failed:", workerWake);
-        }
-      })
-      .catch((error) => {
-        console.error("[teacher recording progress] Runpod worker wake threw:", error);
-      });
+    const workerReady = await maybeEnsureRunpodWorkerReady({
+      terminateOnFailure: true,
+    }).catch((error: any) => ({
+      attempted: true,
+      ok: false,
+      stage: "wake_failed" as const,
+      podId: null,
+      wake: {
+        attempted: true,
+        ok: false,
+        error: error?.message ?? String(error),
+      },
+      readiness: null,
+      error: error?.message ?? String(error),
+    }));
+
+    if (workerReady.ok) {
+      return;
+    }
+
+    console.warn("[teacher recording progress] falling back to inline teacher recording processing", {
+      recordingId,
+      workerReady,
+    });
+
+    await processQueuedTeacherRecordingJobs(1, { recordingId }).catch((error) => {
+      console.error("[teacher recording progress] Fallback teacher recording processing failed:", error);
+    });
   }, "teacher recording progress wake runpod");
 }
 
