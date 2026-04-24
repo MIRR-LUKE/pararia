@@ -12,10 +12,10 @@ export function useStudentSessionConsoleController(props: Props) {
     ...recording,
     lessonFlowMessage: null,
     lessonFlowState: {
-      hasCheckIn: false,
-      hasReadyCheckIn: false,
-      hasCheckOut: false,
-      hasReadyCheckOut: false,
+      hasFull: false,
+      hasReadyFull: false,
+      hasTextNote: false,
+      hasReadyTextNote: false,
       isComplete: false,
     },
   };

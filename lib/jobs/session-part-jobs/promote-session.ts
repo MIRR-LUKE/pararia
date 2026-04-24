@@ -1,4 +1,4 @@
-import { ConversationSourceType, JobStatus, SessionPartStatus, SessionPartType, SessionType } from "@prisma/client";
+import { ConversationSourceType, JobStatus, SessionPartStatus, SessionPartType } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { readFirstEnvValue } from "@/lib/env";
 import { ensureConversationForSession } from "@/lib/session-service";
@@ -191,12 +191,9 @@ export async function executePromoteSessionJob(job: SessionPartJobPayload, part:
     throw new Error("session not found");
   }
 
-  const hasReadyCheckIn = session.parts.some((item) => item.partType === SessionPartType.CHECK_IN && item.status === SessionPartStatus.READY);
-  const hasReadyCheckOut = session.parts.some((item) => item.partType === SessionPartType.CHECK_OUT && item.status === SessionPartStatus.READY);
-  const readyForGeneration =
-    session.type === SessionType.INTERVIEW
-      ? session.parts.some((item) => item.partType === SessionPartType.FULL && item.status === SessionPartStatus.READY)
-      : hasReadyCheckIn && hasReadyCheckOut;
+  const readyForGeneration = session.parts.some(
+    (item) => item.partType === SessionPartType.FULL && item.status === SessionPartStatus.READY
+  );
 
   if (!readyForGeneration) {
     await prisma.sessionPart.update({

@@ -414,7 +414,7 @@ npm run test:student-room-route
 補足:
 
 - `external` では Runpod は STT 専用で使い、conversation job / 次回面談メモ job は app 側が実行する
-- 60分級の音声 file upload は browser から blob へ直接送り、Runpod worker から同じ参照を読む
+- 120分までの音声 file upload は browser から blob へ直接送り、Runpod worker から同じ参照を読む
 - live 録音 chunk も blob を共有保存に使う
 - `external + local storage` は Runpod worker が音声を読めないので許可しない
 
@@ -877,7 +877,7 @@ GPU が強いときの最初の目安:
 
 - 「下書き公開して裏で最終調整」はしない
 - `READY` はそのまま確認してよい最終ログ
-- `WAITING_COUNTERPART` は lesson report 特有
+- `WAITING_COUNTERPART` は legacy 状態として読み取り専用に残るが、新規フローでは使わない
 
 ## 13. API 一覧
 
@@ -1091,7 +1091,7 @@ PARARIA_AUDIO_RETENTION_DAYS=14
   - 宛名、自己紹介、本文 4 段落、締め、固定あいさつ、署名の並びまで確認する
 - ログ本文の手動編集 save payload / dirty 判定のスモークは `npm run test:log-editing`
 - web 録音 UI の本番相当確認は `npm run test:recording-ui -- --base-url http://localhost:3000 --skip-navigation-dialog`
-- deploy 後の production 録音主導線は GitHub Actions `Production Recording Smoke` が正本。native teacher 導線を手動で回すときは `npm run test:teacher-recording-smoke -- --base-url https://pararia.vercel.app --env-file .tmp/.env.production.runpod`
+- deploy 後の production 録音主導線は GitHub Actions `Production Recording Smoke` が正本。manual 再確認の `.tmp/.env.production.runpod` は手書きや `env pull` の生ファイルを使わず、`npx vercel env run --environment=production -- npm run env:write-production-ops -- --output .tmp/.env.production.runpod --base-url https://pararia.vercel.app --worker-image ghcr.io/mirr-luke/pararia-runpod-worker:sha-<deployed-sha>` で毎回生成してから `npm run test:teacher-recording-smoke -- --base-url https://pararia.vercel.app --env-file .tmp/.env.production.runpod` を回す
 - 途中離脱ガードだけ確認するときは `npm run test:recording-ui -- --base-url http://localhost:3000 --leave-safety-only`
 
 現行の STT 実行は次の前提です。

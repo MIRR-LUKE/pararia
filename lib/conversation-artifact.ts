@@ -14,7 +14,6 @@ export {
   formatClaimPrefix,
   INTERVIEW_TITLES,
   isSectionKey,
-  LESSON_TITLES,
   normalizeActionType,
   normalizeClaimType,
   normalizeHeading,

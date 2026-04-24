@@ -4,7 +4,7 @@ import {
 } from "@/lib/conversation-artifact";
 import { sanitizeSummaryMarkdown } from "@/lib/user-facing-japanese";
 
-export type EditableConversationSessionType = "INTERVIEW" | "LESSON_REPORT";
+export type EditableConversationSessionType = "INTERVIEW";
 
 export const UNSAVED_CONVERSATION_SUMMARY_MESSAGE =
   "未保存の本文編集があります。保存せずに離れると変更は失われます。よろしいですか？";

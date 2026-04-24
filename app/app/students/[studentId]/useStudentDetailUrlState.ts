@@ -37,7 +37,7 @@ export function useStudentDetailUrlState(fallbackPathname: string): Result {
     normalizeRecordingMode(queryParams.get("mode")) ?? "INTERVIEW"
   );
   const [lessonPart, setLessonPartState] = useState<SessionConsoleLessonPart>(
-    normalizeLessonPart(queryParams.get("part")) ?? "CHECK_IN"
+    normalizeLessonPart(queryParams.get("part")) ?? "FULL"
   );
 
   useEffect(() => {
@@ -50,7 +50,7 @@ export function useStudentDetailUrlState(fallbackPathname: string): Result {
   }, [queryParams]);
 
   useEffect(() => {
-    const requestedPart = normalizeLessonPart(queryParams.get("part")) ?? "CHECK_IN";
+    const requestedPart = normalizeLessonPart(queryParams.get("part")) ?? "FULL";
     setLessonPartState((current) => (current === requestedPart ? current : requestedPart));
   }, [queryParams]);
 

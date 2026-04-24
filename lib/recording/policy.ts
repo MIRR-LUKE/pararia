@@ -1,4 +1,4 @@
-export type RecordingSessionType = "INTERVIEW" | "LESSON_REPORT";
+export type RecordingSessionType = "INTERVIEW";
 
 /** 両モード共通: これ未満の録音は保存せず録り直しにする（秒） */
 export const DEFAULT_MIN_RECORDING_DURATION_SEC = 60;

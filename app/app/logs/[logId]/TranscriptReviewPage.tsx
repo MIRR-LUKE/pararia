@@ -59,8 +59,6 @@ const SOURCE_LABEL: Record<string, string> = {
 
 const PART_TYPE_LABEL: Record<string, string> = {
   FULL: "全体",
-  CHECK_IN: "授業前",
-  CHECK_OUT: "授業後",
   TEXT_NOTE: "メモ",
 };
 

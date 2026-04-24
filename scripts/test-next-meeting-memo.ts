@@ -116,15 +116,15 @@ assert.equal(
 
 const latestSession = pickLatestInterviewMemoSession([
   {
-    id: "lesson",
-    type: "LESSON_REPORT" as const,
-    sessionDate: "2026-04-08",
-    conversation: { id: "c-lesson", status: "DONE" },
+    id: "older-interview",
+    type: "INTERVIEW" as const,
+    sessionDate: "2026-04-01",
+    conversation: { id: "c-older", status: "DONE" },
   },
   {
     id: "old-interview",
     type: "INTERVIEW" as const,
-    sessionDate: "2026-04-01",
+    sessionDate: "2026-04-05",
     conversation: { id: "c-old", status: "DONE" },
   },
   {

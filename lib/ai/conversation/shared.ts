@@ -50,9 +50,7 @@ export function transcriptLines(transcript: string) {
     .split("\n")
     .flatMap((line) => splitTranscriptFragments(line))
     .filter(Boolean)
-    .filter((line) => !/^##\s+/.test(line))
-    .filter((line) => !/^授業前チェックイン$/.test(line))
-    .filter((line) => !/^授業後チェックアウト$/.test(line));
+    .filter((line) => !/^##\s+/.test(line));
 }
 
 export function extractMarkdownSectionBody(markdown: string, heading: string) {

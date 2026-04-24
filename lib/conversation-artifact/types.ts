@@ -1,4 +1,4 @@
-export type ArtifactSessionType = "INTERVIEW" | "LESSON_REPORT";
+export type ArtifactSessionType = "INTERVIEW";
 export type ArtifactSectionKey = "basic_info" | "summary" | "details" | "actions" | "share" | "unknown";
 export type ClaimType = "observed" | "inferred" | "missing";
 export type ActionType = "assessment" | "nextCheck";

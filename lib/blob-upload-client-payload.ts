@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const SESSION_PART_UPLOAD_PART_TYPES = ["FULL", "CHECK_IN", "CHECK_OUT", "TEXT_NOTE"] as const;
+export const SESSION_PART_UPLOAD_PART_TYPES = ["FULL", "TEXT_NOTE"] as const;
 export const SESSION_PART_UPLOAD_SOURCES = ["file_upload", "direct_recording"] as const;
 export const SESSION_PART_UPLOAD_PATH_PREFIX = "session-audio/uploads";
 

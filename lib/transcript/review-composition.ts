@@ -8,41 +8,25 @@ type SessionTranscriptPart = {
   reviewedText?: string | null;
 };
 
-const PART_LABEL: Record<SessionPartType, string> = {
+const PART_LABEL: Partial<Record<SessionPartType, string>> = {
   FULL: "面談・通し録音",
-  CHECK_IN: "授業前チェックイン",
-  CHECK_OUT: "授業後チェックアウト",
   TEXT_NOTE: "補足メモ",
 };
 
-function orderForSessionType(sessionType: SessionType) {
-  if (sessionType === SessionType.LESSON_REPORT) {
-    return {
-      [SessionPartType.CHECK_IN]: 0,
-      [SessionPartType.FULL]: 1,
-      [SessionPartType.CHECK_OUT]: 2,
-      [SessionPartType.TEXT_NOTE]: 3,
-    } as const;
-  }
-
-  return {
-    [SessionPartType.FULL]: 0,
-    [SessionPartType.CHECK_IN]: 1,
-    [SessionPartType.CHECK_OUT]: 2,
-    [SessionPartType.TEXT_NOTE]: 3,
-  } as const;
+function orderForPartType(partType: SessionPartType) {
+  if (partType === SessionPartType.FULL) return 0;
+  if (partType === SessionPartType.TEXT_NOTE) return 1;
+  return 99;
 }
 
 export function combineSessionTranscript(
-  sessionType: SessionType,
+  _sessionType: SessionType,
   parts: SessionTranscriptPart[],
   kind: "raw" | "reviewed"
 ) {
-  const order = orderForSessionType(sessionType);
-
   return [...parts]
     .filter((part) => part.status === SessionPartStatus.READY)
-    .sort((left, right) => order[left.partType] - order[right.partType])
+    .sort((left, right) => orderForPartType(left.partType) - orderForPartType(right.partType))
     .map((part) => {
       const body =
         kind === "reviewed"
@@ -52,7 +36,7 @@ export function combineSessionTranscript(
             })
           : normalizeRawTranscriptText(part.rawTextOriginal);
       if (!body) return null;
-      return `## ${PART_LABEL[part.partType]}\n${body}`;
+      return `## ${PART_LABEL[part.partType] ?? part.partType}\n${body}`;
     })
     .filter((chunk): chunk is string => Boolean(chunk))
     .join("\n\n")

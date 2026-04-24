@@ -33,28 +33,15 @@ export type SessionTranscriptSegment = {
   speaker?: string;
 };
 
-const PART_LABEL: Record<SessionPartType, string> = {
+const PART_LABEL: Partial<Record<SessionPartType, string>> = {
   FULL: "面談・通し録音",
-  CHECK_IN: "授業前チェックイン",
-  CHECK_OUT: "授業後チェックアウト",
   TEXT_NOTE: "補足メモ",
 };
 
 function getPartOrder(sessionType: SessionType) {
-  if (sessionType === SessionType.LESSON_REPORT) {
-    return {
-      [SessionPartType.CHECK_IN]: 0,
-      [SessionPartType.FULL]: 1,
-      [SessionPartType.CHECK_OUT]: 2,
-      [SessionPartType.TEXT_NOTE]: 3,
-    } as const;
-  }
-
   return {
     [SessionPartType.FULL]: 0,
-    [SessionPartType.CHECK_IN]: 1,
-    [SessionPartType.CHECK_OUT]: 2,
-    [SessionPartType.TEXT_NOTE]: 3,
+    [SessionPartType.TEXT_NOTE]: 1,
   } as const;
 }
 
@@ -64,7 +51,7 @@ function getReadyPartsForConversation(sessionType: SessionType, parts: SessionPa
     .filter((part) => part.status === SessionPartStatus.READY)
     // Session readiness and log generation both follow the evidence path: reviewed -> raw.
     .filter((part) => Boolean(pickEvidenceTranscriptText(part)))
-    .sort((a, b) => order[a.partType] - order[b.partType]);
+    .sort((a, b) => (order[a.partType] ?? 99) - (order[b.partType] ?? 99));
 }
 
 export function buildSessionEvidenceTranscript(sessionType: SessionType, parts: SessionPartLike[]) {
@@ -166,12 +153,7 @@ export function buildSessionTranscriptSegments(sessionType: SessionType, parts: 
 
 export function isSessionReady(sessionType: SessionType, parts: SessionPartLike[]) {
   const readyParts = parts.filter((part) => part.status === SessionPartStatus.READY);
-  if (sessionType === SessionType.INTERVIEW) {
-    return readyParts.some((part) => Boolean(pickEvidenceTranscriptText(part)));
-  }
-  const hasCheckIn = readyParts.some((part) => part.partType === SessionPartType.CHECK_IN);
-  const hasCheckOut = readyParts.some((part) => part.partType === SessionPartType.CHECK_OUT);
-  return hasCheckIn && hasCheckOut;
+  return readyParts.some((part) => Boolean(pickEvidenceTranscriptText(part)));
 }
 
 function shouldReuseExistingConversation(input: {

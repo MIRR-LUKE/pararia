@@ -16,10 +16,10 @@ type Props = {
   studentId: string;
   studentName: string;
   mode: "INTERVIEW";
-  lessonPart: "CHECK_IN" | "CHECK_OUT";
+  lessonPart: "FULL" | "TEXT_NOTE";
   ongoingLessonSession?: import("./roomTypes").SessionItem | null;
   onModeChange: (mode: "INTERVIEW") => void;
-  onLessonPartChange: (part: "CHECK_IN" | "CHECK_OUT") => void;
+  onLessonPartChange: (part: "FULL" | "TEXT_NOTE") => void;
   onRefresh: () => Promise<void> | void;
   onOpenLog: (logId: string) => void;
   recordingLock?: import("./roomTypes").RecordingLockInfo;

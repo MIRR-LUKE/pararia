@@ -118,7 +118,7 @@
 - `app/api/ai/generate-report*`, `app/api/reports*`, student room の report 集約を触ったら `npm run test:report-generation-route` も回す
 - route の protected critical path は `録音ロック -> session part ingest -> session progress -> student room -> next meeting memo`
 - auth、dynamic route params、student room 集約、recording lock、session progress、next meeting memo のどれかを触ったら `npm run test:critical-path-smoke` を回す
-- teacher/native 録音導線、音声 upload、Runpod handoff、`Runpod stop -> app finalize` の接続を触ったら、deploy 後の正本 smoke は GitHub Actions `Production Recording Smoke` を見る。手動再確認は `npm run test:teacher-recording-smoke -- --base-url https://pararia.vercel.app --env-file .tmp/.env.production.runpod` を 1 本だけ回す
+- teacher/native 録音導線、音声 upload、Runpod handoff、`Runpod stop -> app finalize` の接続を触ったら、deploy 後の正本 smoke は GitHub Actions `Production Recording Smoke` を見る。手動再確認は `.tmp/.env.production.runpod` を手書きせず、`npx vercel env run --environment=production -- npm run env:write-production-ops -- --output .tmp/.env.production.runpod --base-url https://pararia.vercel.app --worker-image ghcr.io/mirr-luke/pararia-runpod-worker:sha-<deployed-sha>` で生成してから `npm run test:teacher-recording-smoke -- --base-url https://pararia.vercel.app --env-file .tmp/.env.production.runpod` を 1 本だけ回す
 - CI でも同じ語彙で `Conversation Quality` と `Critical Path Smoke` を回し、ローカルと PR の確認対象をずらさない
 - GitHub の `main` branch protection では `conversation-quality`, `critical-path-smoke`, `generation-route-smoke`, `backend-scope-guard` を required status checks に固定する
 - 指定した `conversationId / reportId / sessionId` が別の生徒データに化けないことは `npm run test:conversation-route` でも止める

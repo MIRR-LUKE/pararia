@@ -62,7 +62,7 @@ export function getTranscriptMinSignificantChars(): number {
   return Number.isFinite(n) && n > 0 ? n : DEFAULT_MIN_SIGNIFICANT_CHARS;
 }
 
-export function getRecordingMaxDurationSeconds(sessionType: "INTERVIEW" | "LESSON_REPORT") {
+export function getRecordingMaxDurationSeconds(sessionType: "INTERVIEW") {
   const n = Number(process.env.MAX_INTERVIEW_DURATION_SECONDS ?? DEFAULT_MAX_INTERVIEW_DURATION_SEC);
   return Number.isFinite(n) && n > 0 ? n : DEFAULT_MAX_INTERVIEW_DURATION_SEC;
 }

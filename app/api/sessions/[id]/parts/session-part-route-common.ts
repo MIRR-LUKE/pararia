@@ -56,8 +56,6 @@ export type LiveFinalizeSubmissionBody = {
 };
 
 export function parsePartType(raw: string | null) {
-  if (raw === SessionPartType.CHECK_IN) return SessionPartType.CHECK_IN;
-  if (raw === SessionPartType.CHECK_OUT) return SessionPartType.CHECK_OUT;
   if (raw === SessionPartType.TEXT_NOTE) return SessionPartType.TEXT_NOTE;
   return SessionPartType.FULL;
 }

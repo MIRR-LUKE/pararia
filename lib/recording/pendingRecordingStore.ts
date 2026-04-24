@@ -1,7 +1,7 @@
 "use client";
 
-export type PendingRecordingMode = "INTERVIEW" | "LESSON_REPORT";
-export type PendingRecordingLessonPart = "CHECK_IN" | "CHECK_OUT";
+export type PendingRecordingMode = "INTERVIEW";
+export type PendingRecordingLessonPart = "FULL" | "TEXT_NOTE";
 
 const DB_NAME = "pararia-recording-backup";
 const DB_VERSION = 1;

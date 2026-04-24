@@ -7,7 +7,7 @@ function expectProgress(
   expectations: {
     stage: ReturnType<typeof buildSessionProgressState>["stage"];
     statusLabel?: string;
-    waitingForPart?: "CHECK_IN" | "CHECK_OUT" | null;
+    waitingForPart?: string | null;
     canOpenLog?: boolean;
     progressTitle?: RegExp;
     progressDescription?: RegExp;

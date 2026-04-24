@@ -1,22 +1,22 @@
 "use client";
 
 type LessonFlowState = {
-  hasCheckIn: boolean;
-  hasReadyCheckIn: boolean;
-  hasCheckOut: boolean;
-  hasReadyCheckOut: boolean;
+  hasFull: boolean;
+  hasReadyFull: boolean;
+  hasTextNote: boolean;
+  hasReadyTextNote: boolean;
   isComplete: boolean;
 };
 
 type Props = {
   showModePicker: boolean;
   mode: "INTERVIEW";
-  lessonPart: "CHECK_IN" | "CHECK_OUT";
+  lessonPart: "FULL" | "TEXT_NOTE";
   lessonFlowState: LessonFlowState;
   isPreparingOrRecording: boolean;
   pendingDraft: unknown;
   onModeChange: (mode: "INTERVIEW") => void;
-  onLessonPartChange: (part: "CHECK_IN" | "CHECK_OUT") => void;
+  onLessonPartChange: (part: "FULL" | "TEXT_NOTE") => void;
 };
 
 export function StudentSessionConsoleModeSection(_props: Props) {

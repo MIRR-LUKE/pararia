@@ -84,31 +84,6 @@ function pickLinesByPattern(lines: string[], pattern: RegExp, limit: number) {
   return dedupeKeepOrder(lines.filter((line) => pattern.test(stripSpeakerPrefix(line)))).slice(0, limit);
 }
 
-function extractLessonPartLines(transcript: string, label: "授業前チェックイン" | "授業後チェックアウト") {
-  const lines = transcript.replace(/\r/g, "").split("\n");
-  const collected: string[] = [];
-  let capturing = false;
-
-  for (const rawLine of lines) {
-    const trimmed = rawLine.trim();
-    if (!trimmed) continue;
-    const normalizedHeading = trimmed.replace(/^##\s*/, "");
-    if (normalizedHeading === label) {
-      capturing = true;
-      continue;
-    }
-    if (normalizedHeading === "授業前チェックイン" || normalizedHeading === "授業後チェックアウト") {
-      if (capturing) break;
-      continue;
-    }
-    if (capturing) {
-      collected.push(trimmed);
-    }
-  }
-
-  return filterDeclarativeLines(collected).slice(0, 6);
-}
-
 function buildParagraph(text: string, evidenceLines: string[]) {
   const cleaned = compactText(text.trim(), 110);
   if (!cleaned) return [];

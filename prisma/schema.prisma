@@ -714,7 +714,6 @@ enum UserRole {
 
 enum RecordingLockMode {
   INTERVIEW
-  LESSON_REPORT
 }
 
 enum ConversationSourceType {
@@ -804,7 +803,6 @@ enum ProperNounSuggestionStatus {
 
 enum SessionType {
   INTERVIEW
-  LESSON_REPORT
 }
 
 enum SessionStatus {
@@ -817,8 +815,6 @@ enum SessionStatus {
 
 enum SessionPartType {
   FULL
-  CHECK_IN
-  CHECK_OUT
   TEXT_NOTE
 }
 

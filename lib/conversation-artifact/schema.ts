@@ -1,4 +1,4 @@
-import type { ActionType, ArtifactSectionKey, ArtifactSessionType, ClaimType, ConversationArtifactEntry } from "./types";
+import type { ActionType, ArtifactSectionKey, ClaimType, ConversationArtifactEntry } from "./types";
 
 export const INTERVIEW_TITLES: Record<Exclude<ArtifactSectionKey, "unknown">, string[]> = {
   basic_info: ["基本情報"],
@@ -6,14 +6,6 @@ export const INTERVIEW_TITLES: Record<Exclude<ArtifactSectionKey, "unknown">, st
   details: ["2. 学習状況と課題分析", "2. ポジティブな話題"],
   actions: ["3. 今後の対策・指導内容", "3. 改善・対策が必要な話題"],
   share: ["4. 志望校に関する検討事項", "4. 保護者への共有ポイント"],
-};
-
-export const LESSON_TITLES: Record<Exclude<ArtifactSectionKey, "unknown">, string[]> = {
-  basic_info: ["基本情報"],
-  summary: ["1. 本日の指導サマリー", "1. 本日の指導サマリー（室長向け要約）"],
-  details: ["2. 課題と指導成果", "2. 課題と指導成果（Before → After）"],
-  actions: ["3. 学習方針と次回アクション", "3. 学習方針と次回アクション（自学習の設計）"],
-  share: ["4. 室長・他講師への共有・連携事項"],
 };
 
 const CLAIM_PREFIXES = new Map<string, ClaimType>([
@@ -132,6 +124,6 @@ export function isSectionKey(value: unknown): value is ArtifactSectionKey {
   );
 }
 
-export function titleMapForSessionType(sessionType: ArtifactSessionType) {
-  return sessionType === "LESSON_REPORT" ? LESSON_TITLES : INTERVIEW_TITLES;
+export function titleMapForSessionType() {
+  return INTERVIEW_TITLES;
 }

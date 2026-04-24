@@ -182,16 +182,16 @@ export function getSessionProgressTranscriptionCopy(mode: SessionProgressMode, p
 }
 
 export function getSessionProgressWaitingCopy(partType: SessionProgressPartType) {
-  const waitingForPart = partType === "CHECK_IN" ? "CHECK_IN" : "CHECK_OUT";
+  const waitingForPart = partType === "TEXT_NOTE" ? "TEXT_NOTE" : "FULL";
   return {
-    statusLabel: waitingForPart === "CHECK_IN" ? "チェックイン待ち" : "チェックアウト待ち",
-    title: waitingForPart === "CHECK_IN" ? "チェックアウトを保存しました" : "チェックインを保存しました",
+    statusLabel: waitingForPart === "FULL" ? "本文待ち" : "メモ待ち",
+    title: waitingForPart === "FULL" ? "面談本文を保存しました" : "補足メモを保存しました",
     description:
-      waitingForPart === "CHECK_IN"
-        ? "チェックインを追加すると、ログ生成に進みます。"
-        : "次の音声を追加すると、ログ生成に進みます。",
+      waitingForPart === "FULL"
+        ? "補足メモを追加すると、ログ生成に進みます。"
+        : "本文を追加すると、ログ生成に進みます。",
     waitingForPart,
-    value: waitingForPart === "CHECK_IN" ? 34 : 52,
+    value: waitingForPart === "FULL" ? 34 : 52,
   };
 }
 

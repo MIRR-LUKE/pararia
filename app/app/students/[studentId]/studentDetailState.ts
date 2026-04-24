@@ -41,8 +41,8 @@ export function normalizeRecordingMode(value: string | null): SessionConsoleMode
 }
 
 export function normalizeLessonPart(value: string | null): SessionConsoleLessonPart | null {
-  if (value === "CHECK_OUT") return "CHECK_OUT";
-  if (value === "CHECK_IN") return "CHECK_IN";
+  if (value === "FULL") return "FULL";
+  if (value === "TEXT_NOTE") return "TEXT_NOTE";
   return null;
 }
 

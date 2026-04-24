@@ -31,6 +31,7 @@ jobs:
       BLOB_READ_WRITE_TOKEN: ${{ secrets.BLOB_READ_WRITE_TOKEN }}
       CRITICAL_PATH_SMOKE_EMAIL: ${{ secrets.PRODUCTION_INTEGRITY_AUDIT_EMAIL }}
       CRITICAL_PATH_SMOKE_PASSWORD: ${{ secrets.PRODUCTION_INTEGRITY_AUDIT_PASSWORD }}
+      MAINTENANCE_SECRET: ${{ secrets.MAINTENANCE_SECRET }}
       CRON_SECRET: ${{ secrets.CRON_SECRET }}
       PARARIA_ALLOW_REMOTE_FIXTURES: "1"
       RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
@@ -138,19 +139,11 @@ jobs:
 
       - name: Write recording smoke env file
         if: ${{ steps.recording_smoke_secrets.outputs.ready == 'true' }}
-        shell: bash
         run: |
-          mkdir -p .tmp
-          cat <<EOF > .tmp/.env.production.recording-smoke
-          DATABASE_URL=${DATABASE_URL}
-          DIRECT_URL=${DIRECT_URL}
-          BLOB_READ_WRITE_TOKEN=${BLOB_READ_WRITE_TOKEN}
-          NEXTAUTH_URL=${{ steps.target.outputs.base_url }}
-          CRON_SECRET=${CRON_SECRET}
-          RUNPOD_API_KEY=${RUNPOD_API_KEY}
-          RUNPOD_WORKER_NAME=${RUNPOD_WORKER_NAME}
-          RUNPOD_WORKER_IMAGE=${{ steps.worker_image.outputs.image }}
-          EOF
+          npx tsx scripts/write-production-ops-env.ts \
+            --output .tmp/.env.production.recording-smoke \
+            --base-url "${{ steps.target.outputs.base_url }}" \
+            --worker-image "${{ steps.worker_image.outputs.image }}"
 
       - name: Run production recording smoke
         if: ${{ steps.recording_smoke_secrets.outputs.ready == 'true' }}

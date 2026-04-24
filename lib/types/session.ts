@@ -49,7 +49,7 @@ export type ProfileSection = {
 };
 
 export type ObservationEvent = {
-  sourceType: "INTERVIEW" | "LESSON_REPORT";
+  sourceType: "INTERVIEW";
   category: ProfileCategory;
   statusDraft: ProfileSectionStatus;
   insights: string[];
@@ -58,13 +58,4 @@ export type ObservationEvent = {
   evidence: string[];
   characterSignal: string;
   weight: number;
-};
-
-export type LessonReportArtifact = {
-  todayGoal: string;
-  covered: string[];
-  blockers: string[];
-  homework: string[];
-  nextLessonFocus: string[];
-  parentShareDraft?: string;
 };

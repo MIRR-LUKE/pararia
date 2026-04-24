@@ -8,7 +8,7 @@ export type SessionPipelineInfo = {
   canLeavePage: boolean;
   canOpenLog: boolean;
   openLogId: string | null;
-  waitingForPart: "CHECK_IN" | "CHECK_OUT" | null;
+  waitingForPart: "FULL" | "TEXT_NOTE" | null;
   progress: GenerationProgressState;
 };
 
@@ -34,7 +34,7 @@ export type NextMeetingMemoItem = {
 
 export type SessionItem = {
   id: string;
-  type: "INTERVIEW" | "LESSON_REPORT";
+  type: "INTERVIEW";
   status: string;
   title?: string | null;
   sessionDate: string;
@@ -116,7 +116,7 @@ export type RecordingLockInfo = {
     lockedByUserId: string;
     lockedByName: string;
     lockedByEmail?: string;
-    mode: "INTERVIEW" | "LESSON_REPORT";
+    mode: "INTERVIEW";
     expiresAt: string;
     isHeldByViewer: boolean;
   };

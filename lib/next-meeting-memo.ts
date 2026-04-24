@@ -13,7 +13,7 @@ export type NextMeetingMemoLike = {
 
 export type NextMeetingMemoSessionLike = {
   id: string;
-  type: "INTERVIEW" | "LESSON_REPORT";
+  type: "INTERVIEW";
   sessionDate: string | Date;
   conversation?: { id: string; status: string } | null;
   nextMeetingMemo?: NextMeetingMemoLike | null;

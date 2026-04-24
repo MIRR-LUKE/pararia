@@ -5,7 +5,7 @@ import { buildStudentRowSelect, type StudentRowProjection } from "@/lib/students
 type SessionSummary = {
   id: string;
   status: string;
-  type: "INTERVIEW" | "LESSON_REPORT";
+  type: "INTERVIEW";
   sessionDate: string;
   heroStateLabel?: string | null;
   heroOneLiner?: string | null;

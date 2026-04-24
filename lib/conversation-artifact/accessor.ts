@@ -141,8 +141,8 @@ function parseSectionEntries(lines: string[], sourceSectionKey: Exclude<Artifact
   return dedupeEntries(entries);
 }
 
-function parseMarkdownSections(markdown?: string | null, sessionType: ArtifactSessionType = "INTERVIEW") {
-  const titleMap = titleMapForSessionType(sessionType);
+function parseMarkdownSections(markdown?: string | null) {
+  const titleMap = titleMapForSessionType();
   const sections: ConversationArtifactSection[] = [];
   let current: ConversationArtifactSection | null = null;
 
@@ -251,21 +251,13 @@ function synthesizeSectionsFromArtifact(artifact: ConversationArtifact): Convers
   }
 
   const summaryTitle =
-    artifact.sections.find((section) => section.key === "summary")?.title ??
-    (artifact.sessionType === "LESSON_REPORT" ? "1. 本日の指導サマリー（室長向け要約）" : "1. サマリー");
+    artifact.sections.find((section) => section.key === "summary")?.title ?? "1. サマリー";
   const detailsTitle =
-    artifact.sections.find((section) => section.key === "details")?.title ??
-    (artifact.sessionType === "LESSON_REPORT" ? "2. 課題と指導成果（Before → After）" : "2. 学習状況と課題分析");
+    artifact.sections.find((section) => section.key === "details")?.title ?? "2. 学習状況と課題分析";
   const actionsTitle =
-    artifact.sections.find((section) => section.key === "actions")?.title ??
-    (artifact.sessionType === "LESSON_REPORT"
-      ? "3. 学習方針と次回アクション（自学習の設計）"
-      : "3. 今後の対策・指導内容");
+    artifact.sections.find((section) => section.key === "actions")?.title ?? "3. 今後の対策・指導内容";
   const shareTitle =
-    artifact.sections.find((section) => section.key === "share")?.title ??
-    (artifact.sessionType === "LESSON_REPORT"
-      ? "4. 室長・他講師への共有・連携事項"
-      : "4. 志望校に関する検討事項");
+    artifact.sections.find((section) => section.key === "share")?.title ?? "4. 志望校に関する検討事項";
 
   const renderEntries = (entries: ConversationArtifactEntry[]) =>
     entries.flatMap((entry) => {
@@ -290,7 +282,7 @@ function synthesizeSectionsFromArtifact(artifact: ConversationArtifact): Convers
   addSection("details", detailsTitle, renderEntries(artifact.claims));
   addSection("actions", actionsTitle, renderEntries(artifact.nextActions));
   addSection("share", shareTitle, renderEntries(artifact.sharePoints));
-  if (artifact.sessionType === "INTERVIEW" && artifact.nextChecks.length > 0) {
+  if (artifact.nextChecks.length > 0) {
     addSection("unknown", "5. 次回のお勧め話題", artifact.nextChecks.map((text) => `- ${text}`));
   }
 
@@ -343,7 +335,7 @@ export function buildConversationArtifactFromMarkdown(input: {
       : typeof input.generatedAt === "string" && input.generatedAt
         ? new Date(input.generatedAt).toISOString()
         : new Date().toISOString();
-  const sections = parseMarkdownSections(input.summaryMarkdown, input.sessionType);
+  const sections = parseMarkdownSections(input.summaryMarkdown);
 
   const summaryEntries = collectSectionEntries(sections, "summary");
   const claimEntries = collectSectionEntries(sections, "details");
@@ -374,7 +366,7 @@ export function parseConversationArtifact(value: unknown): ConversationArtifact 
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const current = value as Record<string, unknown>;
   if (current.version !== "conversation-artifact/v1") return null;
-  if (current.sessionType !== "INTERVIEW" && current.sessionType !== "LESSON_REPORT") return null;
+  if (current.sessionType !== "INTERVIEW") return null;
 
   const sections: ConversationArtifactSection[] = Array.isArray(current.sections)
     ? current.sections

@@ -93,7 +93,7 @@ export function isWeakDraftMarkdown(
 ) {
   const trimmed = repairSummaryMarkdownFormatting(String(markdown ?? ""));
   if (!isValidDraftMarkdown(trimmed, sessionType, minChars)) return true;
-  if (/##\s*授業前チェックイン|##\s*授業後チェックアウト|録音始めた|何喋ろうか忘れちゃった|質問もありますか|以上です。お疲れ/.test(trimmed)) {
+  if (/録音始めた|何喋ろうか忘れちゃった|質問もありますか|以上です。お疲れ/.test(trimmed)) {
     return true;
   }
   if (hasCopyHeavyOutput(trimmed, sourceTranscript)) return true;

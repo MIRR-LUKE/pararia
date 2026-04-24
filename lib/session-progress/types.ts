@@ -12,7 +12,7 @@ export type SessionProgressStage =
   | "REJECTED"
   | "ERROR";
 
-export type SessionProgressPartType = "FULL" | "CHECK_IN" | "CHECK_OUT" | (string & {});
+export type SessionProgressPartType = "FULL" | "TEXT_NOTE" | (string & {});
 
 export type SessionProgressPartLike = {
   id: string;
@@ -51,7 +51,7 @@ export type SessionProgressState = {
   canLeavePage: boolean;
   canOpenLog: boolean;
   openLogId: string | null;
-  waitingForPart: "CHECK_IN" | "CHECK_OUT" | null;
+  waitingForPart: "FULL" | "TEXT_NOTE" | null;
   progress: GenerationProgressState;
 };
 
@@ -83,7 +83,7 @@ export type SessionProgressTranscriptionCopy = SessionProgressPhaseCopy & {
 };
 
 export type SessionProgressWaitingCopy = SessionProgressPhaseCopy & {
-  waitingForPart: "CHECK_IN" | "CHECK_OUT";
+  waitingForPart: "FULL" | "TEXT_NOTE";
   value: number;
 };
 
