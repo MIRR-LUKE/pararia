@@ -89,6 +89,16 @@ import kotlin.math.abs
 import kotlin.math.roundToInt
 import kotlin.math.sin
 
+private enum class TeacherRouteSurface {
+    Bootstrap,
+    Standby,
+    Recording,
+    Analyzing,
+    Confirm,
+    Done,
+    Pending,
+}
+
 private val TeacherBlack = Color(0xFF060606)
 private val TeacherInk = Color(0xFFF4F4EF)
 private val TeacherInkMuted = Color(0xFFB5B5AE)
@@ -201,6 +211,17 @@ fun TeacherAppRoot(
     TeacherMinimalTheme {
         val activeSurface =
             uiState.route is TeacherRoute.Recording || uiState.route is TeacherRoute.Analyzing
+        val routeSurface = remember(uiState.route) {
+            when (uiState.route) {
+                TeacherRoute.Bootstrap -> TeacherRouteSurface.Bootstrap
+                TeacherRoute.Standby -> TeacherRouteSurface.Standby
+                is TeacherRoute.Recording -> TeacherRouteSurface.Recording
+                is TeacherRoute.Analyzing -> TeacherRouteSurface.Analyzing
+                is TeacherRoute.Confirm -> TeacherRouteSurface.Confirm
+                is TeacherRoute.Done -> TeacherRouteSurface.Done
+                TeacherRoute.Pending -> TeacherRouteSurface.Pending
+            }
+        }
         val topColor by androidx.compose.animation.animateColorAsState(
             targetValue = if (activeSurface) Color(0xFF000000) else Color(0xFF090909),
             animationSpec = tween(durationMillis = 500, easing = FastOutSlowInEasing),
@@ -223,10 +244,11 @@ fun TeacherAppRoot(
                     )
             ) {
                 Crossfade(
-                    targetState = uiState.route,
+                    targetState = routeSurface,
                     animationSpec = tween(durationMillis = 280, easing = FastOutSlowInEasing),
                     label = "teacher-route",
-                ) { route ->
+                ) {
+                    val route = uiState.route
                     when (route) {
                         TeacherRoute.Bootstrap -> TeacherBootstrapScreen(
                             onLogin = viewModel::login,
