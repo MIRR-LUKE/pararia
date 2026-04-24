@@ -22,6 +22,7 @@ interface TeacherAuthRepository {
 
 interface TeacherRecordingRepository {
     suspend fun loadActiveRecording(): TeacherRecordingSummary?
+    suspend fun loadRecording(recordingId: String): TeacherRecordingSummary?
     suspend fun createRecording(): String
     suspend fun uploadAudio(recordingId: String, filePath: String, durationSeconds: Double?): TeacherRecordingSummary?
     suspend fun pollRecording(recordingId: String): TeacherRecordingSummary

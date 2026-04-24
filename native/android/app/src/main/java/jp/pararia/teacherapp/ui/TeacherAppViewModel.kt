@@ -7,6 +7,7 @@ import jp.pararia.teacherapp.app.TeacherAppContainer
 import jp.pararia.teacherapp.app.TeacherAppDependencies
 import jp.pararia.teacherapp.domain.AudioRecorderClient
 import jp.pararia.teacherapp.domain.DeviceLoginInput
+import jp.pararia.teacherapp.domain.PendingUpload
 import jp.pararia.teacherapp.domain.PendingUploadStore
 import jp.pararia.teacherapp.domain.RecorderPermissionStatus
 import jp.pararia.teacherapp.domain.TeacherAuthRepository
@@ -227,6 +228,7 @@ class TeacherAppViewModel(
         viewModelScope.launch {
             runWithErrorHandling {
                 recordingRepository.confirmStudent(summary.id, studentId)
+                clearPendingUploads(summary.id)
                 showDoneScreen()
             }
         }
@@ -236,12 +238,15 @@ class TeacherAppViewModel(
         viewModelScope.launch {
             runWithErrorHandling {
                 recordingRepository.retryPendingUploads()
-                _uiState.update {
-                    it.copy(
-                        pendingUploads = pendingUploadStore.loadItems(),
-                        route = TeacherRoute.Standby,
-                    )
-                }
+                val activeRecording = runCatching { recordingRepository.loadActiveRecording() }.getOrNull()
+                val pendingUploads = reconcilePendingUploads(
+                    activeRecording = activeRecording,
+                    pendingUploads = pendingUploadStore.loadItems(),
+                )
+                syncRouteWithActiveRecording(
+                    pendingUploads = pendingUploads,
+                    activeRecording = activeRecording,
+                )
             }
         }
     }
@@ -264,7 +269,7 @@ class TeacherAppViewModel(
 
     private suspend fun bootstrap() {
         val session = authRepository.currentSession()
-        val pendingUploads = pendingUploadStore.loadItems()
+        var pendingUploads = pendingUploadStore.loadItems()
         if (session == null) {
             _uiState.update {
                 it.copy(
@@ -277,33 +282,23 @@ class TeacherAppViewModel(
         }
 
         val activeRecording = runCatching { recordingRepository.loadActiveRecording() }.getOrNull()
-        val nextRoute = when (activeRecording) {
-            null -> TeacherRoute.Standby
-            else -> when (activeRecording.status) {
-                TeacherRecordingStatus.AWAITING_STUDENT_CONFIRMATION -> TeacherRoute.Confirm(activeRecording)
-                TeacherRecordingStatus.TRANSCRIBING -> TeacherRoute.Analyzing(
-                    recordingId = activeRecording.id,
-                    message = "生徒候補を確認しています。"
-                )
-                TeacherRecordingStatus.STUDENT_CONFIRMED -> TeacherRoute.Done(
-                    title = "送信しました",
-                    message = "ログを作成しています。"
-                )
-                else -> TeacherRoute.Standby
-            }
+        pendingUploads = reconcilePendingUploads(activeRecording, pendingUploads)
+        val recoveredPendingRecording = if (activeRecording == null && pendingUploads.isNotEmpty()) {
+            val result = reconcilePendingUploadsWithServer(pendingUploads)
+            pendingUploads = result.pendingUploads
+            result.recording
+        } else {
+            null
         }
+        val routeRecording = activeRecording ?: recoveredPendingRecording
         _uiState.update {
             it.copy(
                 session = session,
                 pendingUploads = pendingUploads,
-                route = nextRoute
+                route = nextRouteForActiveRecording(routeRecording),
             )
         }
-        when (activeRecording?.status) {
-            TeacherRecordingStatus.TRANSCRIBING -> resumeProgress(activeRecording.id)
-            TeacherRecordingStatus.STUDENT_CONFIRMED -> showDoneScreen()
-            else -> Unit
-        }
+        followActiveRecording(routeRecording)
     }
 
     private fun startTimer() {
@@ -382,6 +377,94 @@ class TeacherAppViewModel(
         }
     }
 
+    private fun syncRouteWithActiveRecording(
+        pendingUploads: List<PendingUpload>,
+        activeRecording: TeacherRecordingSummary?,
+    ) {
+        _uiState.update {
+            it.copy(
+                pendingUploads = pendingUploads,
+                route = nextRouteForActiveRecording(activeRecording),
+                errorMessage = null,
+            )
+        }
+        followActiveRecording(activeRecording)
+    }
+
+    private fun nextRouteForActiveRecording(activeRecording: TeacherRecordingSummary?): TeacherRoute =
+        when (activeRecording?.status) {
+            TeacherRecordingStatus.AWAITING_STUDENT_CONFIRMATION -> TeacherRoute.Confirm(activeRecording)
+            TeacherRecordingStatus.TRANSCRIBING -> TeacherRoute.Analyzing(
+                recordingId = activeRecording.id,
+                message = "生徒候補を確認しています。"
+            )
+            TeacherRecordingStatus.STUDENT_CONFIRMED -> TeacherRoute.Done(
+                title = "送信しました",
+                message = "ログを作成しています。"
+            )
+            else -> TeacherRoute.Standby
+        }
+
+    private fun followActiveRecording(activeRecording: TeacherRecordingSummary?) {
+        when (activeRecording?.status) {
+            TeacherRecordingStatus.TRANSCRIBING -> resumeProgress(activeRecording.id)
+            TeacherRecordingStatus.STUDENT_CONFIRMED -> showDoneScreen()
+            else -> Unit
+        }
+    }
+
+    private suspend fun reconcilePendingUploads(
+        activeRecording: TeacherRecordingSummary?,
+        pendingUploads: List<PendingUpload>,
+    ): List<PendingUpload> {
+        val recordingId = activeRecording?.id ?: return pendingUploads
+        if (activeRecording.status == TeacherRecordingStatus.RECORDING) return pendingUploads
+        return clearPendingUploads(recordingId, pendingUploads)
+    }
+
+    private suspend fun clearPendingUploads(recordingId: String): List<PendingUpload> {
+        val items = pendingUploadStore.loadItems()
+        return clearPendingUploads(recordingId, items)
+    }
+
+    private suspend fun clearPendingUploads(
+        recordingId: String,
+        items: List<PendingUpload>,
+    ): List<PendingUpload> {
+        val staleItems = items.filter { it.recordingId == recordingId }
+        if (staleItems.isEmpty()) {
+            return items
+        }
+        staleItems.forEach { pendingUploadStore.remove(it.id) }
+        return pendingUploadStore.loadItems()
+    }
+
+    private suspend fun reconcilePendingUploadsWithServer(
+        items: List<PendingUpload>,
+    ): PendingReconciliationResult {
+        var nextItems = items
+        var recoveredRecording: TeacherRecordingSummary? = null
+        items.forEach { item ->
+            val summary = runCatching { recordingRepository.loadRecording(item.recordingId) }.getOrNull()
+                ?: return@forEach
+            if (summary.status != TeacherRecordingStatus.RECORDING &&
+                summary.status != TeacherRecordingStatus.TRANSCRIBING
+            ) {
+                nextItems = clearPendingUploads(item.recordingId, nextItems)
+            }
+            if (recoveredRecording == null &&
+                summary.status != TeacherRecordingStatus.ERROR &&
+                summary.status != TeacherRecordingStatus.CANCELLED
+            ) {
+                recoveredRecording = summary
+            }
+        }
+        return PendingReconciliationResult(
+            pendingUploads = nextItems,
+            recording = recoveredRecording,
+        )
+    }
+
     private suspend fun runWithErrorHandling(block: suspend () -> Unit) {
         try {
             block()
@@ -390,6 +473,27 @@ class TeacherAppViewModel(
             activeRecordingId = null
             recordingPaused = false
             recordingSeconds = 0
+            var pendingUploads = runCatching { pendingUploadStore.loadItems() }.getOrDefault(_uiState.value.pendingUploads)
+            val activeRecording = runCatching { recordingRepository.loadActiveRecording() }.getOrNull()
+            if (activeRecording != null) {
+                pendingUploads = reconcilePendingUploads(activeRecording, pendingUploads)
+                syncRouteWithActiveRecording(
+                    pendingUploads = pendingUploads,
+                    activeRecording = activeRecording,
+                )
+                return
+            }
+            if (pendingUploads.isNotEmpty()) {
+                val result = reconcilePendingUploadsWithServer(pendingUploads)
+                if (result.recording != null) {
+                    syncRouteWithActiveRecording(
+                        pendingUploads = result.pendingUploads,
+                        activeRecording = result.recording,
+                    )
+                    return
+                }
+                pendingUploads = result.pendingUploads
+            }
             _uiState.update {
                 val fallbackRoute = when {
                     it.session == null -> TeacherRoute.Bootstrap
@@ -397,13 +501,18 @@ class TeacherAppViewModel(
                     else -> TeacherRoute.Standby
                 }
                 it.copy(
-                    pendingUploads = runCatching { pendingUploadStore.loadItems() }.getOrDefault(it.pendingUploads),
+                    pendingUploads = pendingUploads,
                     errorMessage = error.message ?: "処理に失敗しました。",
                     route = fallbackRoute,
                 )
             }
         }
     }
+
+    private data class PendingReconciliationResult(
+        val pendingUploads: List<PendingUpload>,
+        val recording: TeacherRecordingSummary?,
+    )
 
     companion object {
         fun factory(container: TeacherAppContainer): ViewModelProvider.Factory =

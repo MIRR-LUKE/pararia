@@ -177,6 +177,16 @@ class DefaultTeacherRecordingRepository(
         return response.activeRecording
     }
 
+    override suspend fun loadRecording(recordingId: String): TeacherRecordingSummary? {
+        val response: TeacherRecordingEnvelope = withAuthenticatedRequest {
+            apiClient.requestJson(
+                path = "/api/teacher/recordings/$recordingId/progress",
+                deserializer = TeacherRecordingEnvelope.serializer(),
+            )
+        }
+        return response.recording
+    }
+
     override suspend fun createRecording(): String {
         val response: TeacherCreateRecordingResponse = withAuthenticatedRequest {
             apiClient.requestJson(
