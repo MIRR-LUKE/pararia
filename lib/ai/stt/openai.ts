@@ -7,6 +7,8 @@ import type { PipelineTranscriptionResult, TranscribeInput } from "./types";
 const OPENAI_AUDIO_TRANSCRIPT_URL = "https://api.openai.com/v1/audio/transcriptions";
 const OPENAI_AUDIO_TRANSCRIPT_MAX_BYTES = 25 * 1024 * 1024;
 const OPENAI_AUDIO_TRANSCRIPT_TARGET_BYTES = 23 * 1024 * 1024;
+const OPENAI_AUDIO_TRANSCRIPT_MAX_SECONDS = 1400;
+const OPENAI_AUDIO_TRANSCRIPT_TARGET_SECONDS = 1320;
 
 function readOpenAiApiKey() {
   return process.env.OPENAI_API_KEY?.trim() || process.env.LLM_API_KEY?.trim() || "";
@@ -97,12 +99,17 @@ async function postOpenAiTranscriptionFromBytes(input: {
   }
 }
 
-function buildChunkSeconds(fileSizeBytes: number, durationSeconds: number) {
+export function buildOpenAiChunkSeconds(fileSizeBytes: number, durationSeconds: number) {
   if (!Number.isFinite(durationSeconds) || durationSeconds <= 0) return 0;
   const bytesPerSecond = fileSizeBytes / durationSeconds;
   if (!Number.isFinite(bytesPerSecond) || bytesPerSecond <= 0) return 0;
   const estimated = Math.floor(OPENAI_AUDIO_TRANSCRIPT_TARGET_BYTES / bytesPerSecond);
-  return Math.max(30, estimated);
+  const cappedByApi = Math.min(
+    estimated,
+    OPENAI_AUDIO_TRANSCRIPT_TARGET_SECONDS,
+    OPENAI_AUDIO_TRANSCRIPT_MAX_SECONDS
+  );
+  return Math.max(30, cappedByApi);
 }
 
 async function transcribeLargeAudioViaChunks(input: {
@@ -115,7 +122,7 @@ async function transcribeLargeAudioViaChunks(input: {
   timeoutMs: number;
 }) {
   const durationSeconds = await getAudioDurationSeconds(input.audioPath).catch(() => 0);
-  const chunkSeconds = buildChunkSeconds(input.fileSizeBytes, durationSeconds);
+  const chunkSeconds = buildOpenAiChunkSeconds(input.fileSizeBytes, durationSeconds);
   if (chunkSeconds <= 0) {
     throw new Error(
       `audio file is too large for OpenAI STT fallback (${Math.round(input.fileSizeBytes / 1024 / 1024)} MiB) and could not be chunked safely`

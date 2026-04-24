@@ -12,6 +12,14 @@ async function main() {
   process.env.OPENAI_API_KEY = "sk-test";
   process.env.OPENAI_STT_MODEL = "gpt-4o-transcribe";
 
+  const { buildOpenAiChunkSeconds } = await import("../lib/ai/stt/openai");
+  assert.equal(buildOpenAiChunkSeconds(0, 120), 0);
+  assert.equal(buildOpenAiChunkSeconds(10 * 1024 * 1024, 600), 1320);
+  assert.ok(
+    buildOpenAiChunkSeconds(58_708_813, 3570.021333333333) <= 1320,
+    "OpenAI chunk duration should stay within the API-safe cap"
+  );
+
   globalThis.fetch = async (input, init) => {
     assert.equal(String(input), "https://api.openai.com/v1/audio/transcriptions");
     assert.equal(init?.method, "POST");
