@@ -476,7 +476,7 @@ async function completeSessionPartSuccess(jobId: string, result: SessionPartTran
   await maybeStopRunpodWorkerWhenSessionPartQueueIdle().catch(() => {});
 }
 
-export async function completeRunpodRemoteSttTask(input:
+type CompleteRunpodRemoteSttTaskInput =
   | {
       taskKind: "teacher_recording";
       jobId: string;
@@ -486,19 +486,38 @@ export async function completeRunpodRemoteSttTask(input:
       taskKind: "session_part_transcription";
       jobId: string;
       result: SessionPartTranscriptionResult | RunpodRemoteTaskFailure;
-    }) {
+    };
+
+type CompleteRunpodRemoteSttTaskDeps = {
+  completeTeacherRecordingFailure?: typeof completeTeacherRecordingFailure;
+  completeTeacherRecordingSuccess?: typeof completeTeacherRecordingSuccess;
+  completeSessionPartFailure?: typeof completeSessionPartFailure;
+  completeSessionPartSuccess?: typeof completeSessionPartSuccess;
+};
+
+export async function completeRunpodRemoteSttTask(
+  input: CompleteRunpodRemoteSttTaskInput,
+  deps: CompleteRunpodRemoteSttTaskDeps = {}
+) {
+  const completeTeacherFailure =
+    deps.completeTeacherRecordingFailure ?? completeTeacherRecordingFailure;
+  const completeTeacherSuccess =
+    deps.completeTeacherRecordingSuccess ?? completeTeacherRecordingSuccess;
+  const completeSessionFailure = deps.completeSessionPartFailure ?? completeSessionPartFailure;
+  const completeSessionSuccess = deps.completeSessionPartSuccess ?? completeSessionPartSuccess;
+
   if (input.taskKind === "teacher_recording") {
     if (input.result.kind === "error") {
-      await completeTeacherRecordingFailure(input.jobId, input.result);
+      await completeTeacherFailure(input.jobId, input.result);
       return;
     }
-    await completeTeacherRecordingSuccess(input.jobId, input.result);
+    await completeTeacherSuccess(input.jobId, input.result);
     return;
   }
 
   if (input.result.kind === "error") {
-    await completeSessionPartFailure(input.jobId, input.result);
+    await completeSessionFailure(input.jobId, input.result);
     return;
   }
-  await completeSessionPartSuccess(input.jobId, input.result);
+  await completeSessionSuccess(input.jobId, input.result);
 }

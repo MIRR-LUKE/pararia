@@ -20,6 +20,8 @@ class AndroidAudioRecorderClient(
     private var recorder: MediaRecorder? = null
     private var currentFile: File? = null
     private var recordingStartedAtMs: Long? = null
+    private var accumulatedRecordingMs: Long = 0L
+    private var paused: Boolean = false
 
     override fun permissionStatus(): RecorderPermissionStatus {
         val granted = ContextCompat.checkSelfPermission(
@@ -67,12 +69,46 @@ class AndroidAudioRecorderClient(
         recorder = nextRecorder
         currentFile = outputFile
         recordingStartedAtMs = SystemClock.elapsedRealtime()
+        accumulatedRecordingMs = 0L
+        paused = false
+    }
+
+    override fun pause() {
+        val activeRecorder = recorder ?: throw IOException("録音中ではありません。")
+        if (paused) return
+        try {
+            activeRecorder.pause()
+            val startedAt = recordingStartedAtMs ?: SystemClock.elapsedRealtime()
+            accumulatedRecordingMs += (SystemClock.elapsedRealtime() - startedAt)
+            recordingStartedAtMs = null
+            paused = true
+        } catch (error: Exception) {
+            throw IOException("録音を一時停止できませんでした。", error)
+        }
+    }
+
+    override fun resume() {
+        val activeRecorder = recorder ?: throw IOException("録音中ではありません。")
+        if (!paused) return
+        try {
+            activeRecorder.resume()
+            recordingStartedAtMs = SystemClock.elapsedRealtime()
+            paused = false
+        } catch (error: Exception) {
+            throw IOException("録音を再開できませんでした。", error)
+        }
     }
 
     override fun stop(): CompletedRecording {
         val activeRecorder = recorder ?: throw IOException("録音中ではありません。")
         val outputFile = currentFile ?: throw IOException("録音ファイルが見つかりません。")
-        val startedAt = recordingStartedAtMs ?: SystemClock.elapsedRealtime()
+        val durationMs = accumulatedRecordingMs +
+            if (paused) {
+                0L
+            } else {
+                val startedAt = recordingStartedAtMs ?: SystemClock.elapsedRealtime()
+                SystemClock.elapsedRealtime() - startedAt
+            }
 
         runCatching { activeRecorder.stop() }
             .onFailure {
@@ -89,7 +125,7 @@ class AndroidAudioRecorderClient(
 
         return CompletedRecording(
             filePath = outputFile.absolutePath,
-            durationSeconds = (SystemClock.elapsedRealtime() - startedAt) / 1_000.0,
+            durationSeconds = durationMs / 1_000.0,
         )
     }
 
@@ -106,6 +142,8 @@ class AndroidAudioRecorderClient(
         recorder = null
         currentFile = null
         recordingStartedAtMs = null
+        accumulatedRecordingMs = 0L
+        paused = false
         RecordingForegroundService.stop(context)
     }
 }

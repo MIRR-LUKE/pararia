@@ -33,6 +33,8 @@ interface TeacherRecordingRepository {
 interface AudioRecorderClient {
     fun permissionStatus(): RecorderPermissionStatus
     fun start()
+    fun pause()
+    fun resume()
     fun stop(): CompletedRecording
     fun cancel()
 }

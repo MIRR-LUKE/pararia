@@ -123,10 +123,14 @@ Sources:
 - [ ] login
 - [ ] standby から録音開始
 - [ ] 録音中 timer が進む
+- [ ] 録音中に一時停止 / 再開が自然に使える
+- [ ] 録音中キャンセルで二重確認が出て、誤操作で音声が消えない
 - [ ] 録音終了後に analyzing へ遷移
+- [ ] standby から音声アップロードでも同じ解析経路へ入れる
 - [ ] 生徒候補が表示される
 - [ ] confirm 後に done へ遷移する
 - [ ] 数秒後に standby へ戻る
+- [ ] STT 完了後、Runpod pod が `stopped` になって無駄に課金されていない
 
 ### failure / recovery
 
@@ -134,6 +138,7 @@ Sources:
 - [ ] network off で upload failure
 - [ ] pending queue から retry
 - [ ] logout 後に bootstrap へ戻る
+- [ ] Runpod wake 失敗時に inline OpenAI fallback せず、retry 可能な状態に残る
 
 ### device-specific
 

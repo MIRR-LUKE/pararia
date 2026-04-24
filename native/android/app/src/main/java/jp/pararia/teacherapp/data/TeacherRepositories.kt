@@ -114,7 +114,7 @@ class DefaultTeacherAuthRepository(
 
     override suspend fun logout() {
         runCatching {
-            val _: TeacherLogoutResponse = apiClient.requestJson(
+            apiClient.requestJson(
                 path = "/api/teacher/native/auth/logout",
                 deserializer = TeacherLogoutResponse.serializer(),
                 method = "POST",
@@ -238,7 +238,7 @@ class DefaultTeacherRecordingRepository(
 
     override suspend fun confirmStudent(recordingId: String, studentId: String?) {
         val body = repositoryJson.encodeToString(ConfirmStudentRequest(studentId))
-        val _: TeacherConfirmRecordingResponse = withAuthenticatedRequest {
+        withAuthenticatedRequest<TeacherConfirmRecordingResponse> {
             apiClient.requestJson(
                 path = "/api/teacher/recordings/$recordingId/confirm",
                 deserializer = TeacherConfirmRecordingResponse.serializer(),
@@ -249,7 +249,7 @@ class DefaultTeacherRecordingRepository(
     }
 
     override suspend fun cancelRecording(recordingId: String) {
-        val _: TeacherLogoutResponse = withAuthenticatedRequest {
+        withAuthenticatedRequest<TeacherLogoutResponse> {
             apiClient.requestJson(
                 path = "/api/teacher/recordings/$recordingId/cancel",
                 deserializer = TeacherLogoutResponse.serializer(),

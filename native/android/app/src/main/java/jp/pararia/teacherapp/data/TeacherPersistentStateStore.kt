@@ -3,7 +3,6 @@ package jp.pararia.teacherapp.data
 import android.content.Context
 import androidx.datastore.core.CorruptionException
 import androidx.datastore.core.Serializer
-import androidx.datastore.core.updateData
 import androidx.datastore.dataStore
 import jp.pararia.teacherapp.domain.PendingUpload
 import jp.pararia.teacherapp.domain.TeacherAuthBundle

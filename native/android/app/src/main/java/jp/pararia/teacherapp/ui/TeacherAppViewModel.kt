@@ -11,6 +11,7 @@ import jp.pararia.teacherapp.domain.PendingUploadStore
 import jp.pararia.teacherapp.domain.RecorderPermissionStatus
 import jp.pararia.teacherapp.domain.TeacherAuthRepository
 import jp.pararia.teacherapp.domain.TeacherRecordingRepository
+import jp.pararia.teacherapp.domain.TeacherRecordingSummary
 import jp.pararia.teacherapp.domain.TeacherRecordingStatus
 import jp.pararia.teacherapp.domain.TeacherRoute
 import jp.pararia.teacherapp.domain.TeacherUiState
@@ -38,6 +39,8 @@ class TeacherAppViewModel(
     private var activeRecordingId: String? = null
     private var recordingTimerJob: Job? = null
     private var doneReturnJob: Job? = null
+    private var recordingSeconds: Int = 0
+    private var recordingPaused: Boolean = false
 
     init {
         viewModelScope.launch {
@@ -98,6 +101,8 @@ class TeacherAppViewModel(
                         try {
                             audioRecorderClient.start()
                             activeRecordingId = recordingId
+                            recordingSeconds = 0
+                            recordingPaused = false
                             startTimer()
                         } catch (error: Exception) {
                             runCatching { recordingRepository.cancelRecording(recordingId) }
@@ -133,6 +138,7 @@ class TeacherAppViewModel(
             runWithErrorHandling {
                 val completed = audioRecorderClient.stop()
                 activeRecordingId = null
+                recordingPaused = false
                 recordingTimerJob?.cancel()
                 _uiState.update {
                     it.copy(
@@ -153,6 +159,28 @@ class TeacherAppViewModel(
         }
     }
 
+    fun pauseRecording() {
+        if (activeRecordingId == null || recordingPaused) return
+        viewModelScope.launch {
+            runWithErrorHandling {
+                audioRecorderClient.pause()
+                recordingPaused = true
+                updateRecordingRoute()
+            }
+        }
+    }
+
+    fun resumeRecording() {
+        if (activeRecordingId == null || !recordingPaused) return
+        viewModelScope.launch {
+            runWithErrorHandling {
+                audioRecorderClient.resume()
+                recordingPaused = false
+                updateRecordingRoute()
+            }
+        }
+    }
+
     fun cancelRecording() {
         viewModelScope.launch {
             runWithErrorHandling {
@@ -160,9 +188,38 @@ class TeacherAppViewModel(
                 audioRecorderClient.cancel()
                 activeRecordingId?.let { recordingRepository.cancelRecording(it) }
                 activeRecordingId = null
+                recordingSeconds = 0
+                recordingPaused = false
                 _uiState.update { it.copy(route = TeacherRoute.Standby) }
             }
         }
+    }
+
+    fun importAudio(filePath: String, durationSeconds: Double?) {
+        viewModelScope.launch {
+            runWithErrorHandling {
+                val recordingId = recordingRepository.createRecording()
+                _uiState.update {
+                    it.copy(
+                        route = TeacherRoute.Analyzing(
+                            recordingId = recordingId,
+                            message = "音声を送信しています。"
+                        )
+                    )
+                }
+                recordingRepository.uploadAudio(
+                    recordingId = recordingId,
+                    filePath = filePath,
+                    durationSeconds = durationSeconds,
+                )
+                val summary = recordingRepository.pollRecording(recordingId)
+                applySummary(summary)
+            }
+        }
+    }
+
+    fun reportError(message: String) {
+        _uiState.update { it.copy(errorMessage = message) }
     }
 
     fun confirmStudent(studentId: String?) {
@@ -251,14 +308,26 @@ class TeacherAppViewModel(
 
     private fun startTimer() {
         recordingTimerJob?.cancel()
-        _uiState.update { it.copy(route = TeacherRoute.Recording(seconds = 0)) }
+        updateRecordingRoute()
         recordingTimerJob = viewModelScope.launch {
-            var seconds = 0
             while (true) {
                 delay(1_000)
-                seconds += 1
-                _uiState.update { it.copy(route = TeacherRoute.Recording(seconds = seconds)) }
+                if (!recordingPaused) {
+                    recordingSeconds += 1
+                    updateRecordingRoute()
+                }
             }
+        }
+    }
+
+    private fun updateRecordingRoute() {
+        _uiState.update {
+            it.copy(
+                route = TeacherRoute.Recording(
+                    seconds = recordingSeconds,
+                    paused = recordingPaused,
+                )
+            )
         }
     }
 
@@ -285,6 +354,8 @@ class TeacherAppViewModel(
 
     private fun showDoneScreen() {
         activeRecordingId = null
+        recordingSeconds = 0
+        recordingPaused = false
         doneReturnJob?.cancel()
         _uiState.update {
             it.copy(
@@ -317,6 +388,8 @@ class TeacherAppViewModel(
             _uiState.update { it.copy(pendingUploads = pendingUploadStore.loadItems()) }
         } catch (error: Exception) {
             activeRecordingId = null
+            recordingPaused = false
+            recordingSeconds = 0
             _uiState.update {
                 val fallbackRoute = when {
                     it.session == null -> TeacherRoute.Bootstrap

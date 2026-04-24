@@ -157,7 +157,7 @@ enum class RecorderPermissionStatus {
 sealed interface TeacherRoute {
     data object Bootstrap : TeacherRoute
     data object Standby : TeacherRoute
-    data class Recording(val seconds: Int) : TeacherRoute
+    data class Recording(val seconds: Int, val paused: Boolean = false) : TeacherRoute
     data class Analyzing(val recordingId: String, val message: String) : TeacherRoute
     data class Confirm(val summary: TeacherRecordingSummary) : TeacherRoute
     data class Done(val title: String, val message: String) : TeacherRoute

@@ -21,6 +21,7 @@ tsconfig.tsbuildinfo
 
 # native app build outputs
 native/android/.gradle/
+native/android/.idea/
 native/android/**/build/
 native/android/local.properties
 native/ios/**/DerivedData/
