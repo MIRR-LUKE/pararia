@@ -3,6 +3,13 @@ import { kickTeacherRecordingProcessing } from "../app/api/teacher/recordings/[i
 
 async function runForcedExternalCase() {
   const events: string[] = [];
+  let observedOptions:
+    | {
+        terminateOnFailure?: boolean;
+        timeoutMs?: number;
+        proxyTimeoutMs?: number;
+      }
+    | null = null;
 
   const result = await kickTeacherRecordingProcessing("teacher-recording-progress", true, {
     processTeacherRecordingInline: async (recordingId) => {
@@ -10,8 +17,9 @@ async function runForcedExternalCase() {
       return { processed: 1, errors: [] };
     },
     shouldRunBackgroundJobsInline: () => false,
-    maybeEnsureRunpodWorkerReady: async () => {
+    maybeEnsureRunpodWorkerReady: async (options) => {
       events.push("wake");
+      observedOptions = options ?? null;
       return {
         attempted: true,
         ok: false,
@@ -35,6 +43,11 @@ async function runForcedExternalCase() {
     ["wake"],
     "teacher recording progress recovery should not fall back to inline processing when Runpod wake fails"
   );
+  assert.deepEqual(observedOptions, {
+    terminateOnFailure: false,
+    timeoutMs: 20_000,
+    proxyTimeoutMs: 3_000,
+  });
 }
 
 async function runForcedInlineCase() {

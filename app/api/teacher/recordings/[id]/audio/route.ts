@@ -19,14 +19,23 @@ export const maxDuration = 300;
 
 const TEACHER_RECORDING_INLINE_RECOVERY_LIMIT = 3;
 
-function readTeacherRecordingReadyTimeoutMs() {
-  const parsed = Number(process.env.TEACHER_RECORDING_RUNPOD_READY_TIMEOUT_MS ?? 8_000);
-  return Number.isFinite(parsed) ? Math.max(1_000, Math.floor(parsed)) : 8_000;
+function readTeacherRecordingUploadReadyTimeoutMs() {
+  const parsed = Number(
+    process.env.TEACHER_RECORDING_UPLOAD_RUNPOD_READY_TIMEOUT_MS ??
+      process.env.TEACHER_RECORDING_RUNPOD_READY_TIMEOUT_MS ??
+      process.env.RUNPOD_WORKER_READY_TIMEOUT_MS ??
+      60_000
+  );
+  return Number.isFinite(parsed) ? Math.max(5_000, Math.floor(parsed)) : 60_000;
 }
 
 function readTeacherRecordingReadyProxyTimeoutMs() {
-  const parsed = Number(process.env.TEACHER_RECORDING_RUNPOD_READY_PROXY_TIMEOUT_MS ?? 1_500);
-  return Number.isFinite(parsed) ? Math.max(500, Math.floor(parsed)) : 1_500;
+  const parsed = Number(
+    process.env.TEACHER_RECORDING_RUNPOD_READY_PROXY_TIMEOUT_MS ??
+      process.env.RUNPOD_WORKER_READY_PROXY_TIMEOUT_MS ??
+      3_000
+  );
+  return Number.isFinite(parsed) ? Math.max(500, Math.floor(parsed)) : 3_000;
 }
 
 async function processTeacherRecordingInline(recordingId: string, label: string) {
@@ -70,8 +79,10 @@ export async function dispatchTeacherRecordingUploadJobs(
   }
 
   const workerReady = await deps.maybeEnsureRunpodWorkerReady({
-    terminateOnFailure: true,
-    timeoutMs: readTeacherRecordingReadyTimeoutMs(),
+    // Teacher recording upload is the first cold-start touchpoint, so give Runpod
+    // more time and avoid killing a pod that is still pulling the image.
+    terminateOnFailure: false,
+    timeoutMs: readTeacherRecordingUploadReadyTimeoutMs(),
     proxyTimeoutMs: readTeacherRecordingReadyProxyTimeoutMs(),
   }).catch((error: any) => ({
     attempted: true,

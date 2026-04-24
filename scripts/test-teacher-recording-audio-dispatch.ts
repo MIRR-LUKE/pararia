@@ -40,6 +40,13 @@ async function runInlineCase() {
 
 async function runExternalCase() {
   const events: string[] = [];
+  let observedOptions:
+    | {
+        terminateOnFailure?: boolean;
+        timeoutMs?: number;
+        proxyTimeoutMs?: number;
+      }
+    | null = null;
 
   const result = await dispatchTeacherRecordingUploadJobs("teacher-recording-external", {
     processTeacherRecordingInline: async (recordingId) => {
@@ -47,8 +54,9 @@ async function runExternalCase() {
       return { processed: 1, errors: [] };
     },
     shouldRunBackgroundJobsInline: () => false,
-    maybeEnsureRunpodWorkerReady: async () => {
+    maybeEnsureRunpodWorkerReady: async (options) => {
       events.push("wake");
+      observedOptions = options ?? null;
       return {
         attempted: true,
         ok: false,
@@ -73,6 +81,11 @@ async function runExternalCase() {
     ["wake"],
     "teacher recording upload should wake Runpod and must not fall back to inline processing in external mode"
   );
+  assert.deepEqual(observedOptions, {
+    terminateOnFailure: false,
+    timeoutMs: 60_000,
+    proxyTimeoutMs: 3_000,
+  });
 }
 
 await runInlineCase();
