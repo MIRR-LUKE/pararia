@@ -43,10 +43,8 @@ export function Sidebar({ viewerName, viewerRole }: SidebarProps) {
   const avatarText = userName.replace(/\s+/g, "").slice(0, 2) || "担";
 
   useEffect(() => {
-    if (!menuOpen) return;
-    const timer = window.setTimeout(() => setMenuOpen(false), 0);
-    return () => window.clearTimeout(timer);
-  }, [menuOpen, pathname]);
+    setMenuOpen(false);
+  }, [pathname]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
