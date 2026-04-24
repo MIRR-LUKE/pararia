@@ -83,6 +83,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import jp.pararia.teacherapp.domain.PendingUpload
 import jp.pararia.teacherapp.domain.TeacherRecordingSummary
 import jp.pararia.teacherapp.domain.TeacherRoute
+import jp.pararia.teacherapp.domain.TeacherStudentCandidate
 import java.io.File
 import java.util.UUID
 import kotlin.math.abs
@@ -95,6 +96,7 @@ private enum class TeacherRouteSurface {
     Recording,
     Analyzing,
     Confirm,
+    ManualStudentSelect,
     Done,
     Pending,
 }
@@ -218,6 +220,7 @@ fun TeacherAppRoot(
                 is TeacherRoute.Recording -> TeacherRouteSurface.Recording
                 is TeacherRoute.Analyzing -> TeacherRouteSurface.Analyzing
                 is TeacherRoute.Confirm -> TeacherRouteSurface.Confirm
+                is TeacherRoute.ManualStudentSelect -> TeacherRouteSurface.ManualStudentSelect
                 is TeacherRoute.Done -> TeacherRouteSurface.Done
                 TeacherRoute.Pending -> TeacherRouteSurface.Pending
             }
@@ -283,6 +286,16 @@ fun TeacherAppRoot(
                         is TeacherRoute.Confirm -> TeacherConfirmScreen(
                             summary = route.summary,
                             onConfirm = viewModel::confirmStudent,
+                            onOpenManualSelect = viewModel::openManualStudentSelect,
+                        )
+
+                        is TeacherRoute.ManualStudentSelect -> TeacherManualStudentSelectScreen(
+                            summary = route.summary,
+                            query = route.query,
+                            results = route.results,
+                            onQueryChange = viewModel::updateManualStudentQuery,
+                            onSelectStudent = viewModel::confirmStudent,
+                            onBack = viewModel::closeManualStudentSelect,
                         )
 
                         is TeacherRoute.Done -> TeacherDoneScreen(
@@ -588,6 +601,7 @@ private fun TeacherAnalyzingScreen(message: String) {
 private fun TeacherConfirmScreen(
     summary: TeacherRecordingSummary,
     onConfirm: (String?) -> Unit,
+    onOpenManualSelect: () -> Unit,
 ) {
     TeacherScreenFrame {
         Column(
@@ -623,10 +637,92 @@ private fun TeacherConfirmScreen(
                 }
             }
 
-            TeacherGhostButton(
-                text = "該当なしで保存",
-                onClick = { onConfirm(null) },
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                TeacherGhostButton(
+                    text = "該当なし / 手動で選ぶ",
+                    onClick = onOpenManualSelect,
+                )
+                TeacherTextAction(
+                    text = "生徒なしで保存",
+                    onClick = { onConfirm(null) },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun TeacherManualStudentSelectScreen(
+    summary: TeacherRecordingSummary,
+    query: String,
+    results: List<TeacherStudentCandidate>,
+    onQueryChange: (String) -> Unit,
+    onSelectStudent: (String?) -> Unit,
+    onBack: () -> Unit,
+) {
+    TeacherScreenFrame {
+        Column(
+            modifier = Modifier.fillMaxSize(),
+            verticalArrangement = Arrangement.spacedBy(18.dp),
+        ) {
+            TeacherWordmark(meta = "Manual Select")
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    text = "生徒を検索して保存",
+                    style = MaterialTheme.typography.displayMedium,
+                )
+                Text(
+                    text = if (summary.candidates.isEmpty()) {
+                        "候補にいない場合は、氏名の一部で絞って最後に先生が選びます。"
+                    } else {
+                        "自動候補 ${summary.candidates.size} 件にいなければ、氏名の一部で手動検索できます。"
+                    },
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+
+            TeacherField(
+                label = "生徒名で検索",
+                value = query,
+                onValueChange = onQueryChange,
             )
+
+            LazyColumn(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+                contentPadding = PaddingValues(bottom = 12.dp),
+            ) {
+                if (results.isEmpty()) {
+                    item {
+                        TeacherMetaBlock(
+                            title = "検索結果なし",
+                            body = "別の呼び方や苗字だけでも探せます。見つからなければ戻って生徒なし保存もできます。",
+                        )
+                    }
+                } else {
+                    items(results) { student ->
+                        TeacherCandidateCard(
+                            name = student.name,
+                            subtitle = student.subtitle,
+                            reason = student.reason ?: "検索結果から選択して保存します。",
+                            score = null,
+                            onClick = { onSelectStudent(student.id) },
+                        )
+                    }
+                }
+            }
+
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                TeacherGhostButton(
+                    text = "この録音に戻る",
+                    onClick = onBack,
+                )
+                TeacherTextAction(
+                    text = "生徒なしで保存",
+                    onClick = { onSelectStudent(null) },
+                )
+            }
         }
     }
 }

@@ -40,6 +40,7 @@ class TeacherAppViewModel(
     private var activeRecordingId: String? = null
     private var recordingTimerJob: Job? = null
     private var doneReturnJob: Job? = null
+    private var studentSearchJob: Job? = null
     private var recordingSeconds: Int = 0
     private var recordingPaused: Boolean = false
 
@@ -90,6 +91,7 @@ class TeacherAppViewModel(
 
     fun returnToStandby() {
         doneReturnJob?.cancel()
+        studentSearchJob?.cancel()
         _uiState.update { it.copy(route = TeacherRoute.Standby) }
     }
 
@@ -224,12 +226,55 @@ class TeacherAppViewModel(
     }
 
     fun confirmStudent(studentId: String?) {
-        val summary = (uiState.value.route as? TeacherRoute.Confirm)?.summary ?: return
+        val summary = currentConfirmSummary() ?: return
+        studentSearchJob?.cancel()
         viewModelScope.launch {
             runWithErrorHandling {
                 recordingRepository.confirmStudent(summary.id, studentId)
                 clearPendingUploads(summary.id)
                 showDoneScreen()
+            }
+        }
+    }
+
+    fun openManualStudentSelect() {
+        val summary = currentConfirmSummary() ?: return
+        studentSearchJob?.cancel()
+        viewModelScope.launch {
+            runWithErrorHandling {
+                val results = recordingRepository.searchStudents("")
+                _uiState.update {
+                    it.copy(
+                        route = TeacherRoute.ManualStudentSelect(
+                            summary = summary,
+                            query = "",
+                            results = results,
+                        )
+                    )
+                }
+            }
+        }
+    }
+
+    fun closeManualStudentSelect() {
+        val route = uiState.value.route as? TeacherRoute.ManualStudentSelect ?: return
+        studentSearchJob?.cancel()
+        _uiState.update { it.copy(route = TeacherRoute.Confirm(route.summary)) }
+    }
+
+    fun updateManualStudentQuery(query: String) {
+        val route = uiState.value.route as? TeacherRoute.ManualStudentSelect ?: return
+        val nextQuery = query.take(40)
+        _uiState.update { it.copy(route = route.copy(query = nextQuery)) }
+        studentSearchJob?.cancel()
+        studentSearchJob = viewModelScope.launch {
+            runWithErrorHandling {
+                delay(180)
+                val results = recordingRepository.searchStudents(nextQuery)
+                _uiState.update { current ->
+                    val latestRoute = current.route as? TeacherRoute.ManualStudentSelect ?: return@update current
+                    current.copy(route = latestRoute.copy(query = nextQuery, results = results))
+                }
             }
         }
     }
@@ -256,6 +301,7 @@ class TeacherAppViewModel(
             authRepository.logout()
             activeRecordingId = null
             recordingTimerJob?.cancel()
+            studentSearchJob?.cancel()
             _uiState.update {
                 it.copy(
                     session = null,
@@ -328,6 +374,7 @@ class TeacherAppViewModel(
 
     private fun applySummary(summary: TeacherRecordingSummary) {
         activeRecordingId = null
+        studentSearchJob?.cancel()
         when (summary.status) {
             TeacherRecordingStatus.AWAITING_STUDENT_CONFIRMATION -> {
                 _uiState.update { it.copy(route = TeacherRoute.Confirm(summary)) }
@@ -381,6 +428,7 @@ class TeacherAppViewModel(
         pendingUploads: List<PendingUpload>,
         activeRecording: TeacherRecordingSummary?,
     ) {
+        studentSearchJob?.cancel()
         _uiState.update {
             it.copy(
                 pendingUploads = pendingUploads,
@@ -403,6 +451,13 @@ class TeacherAppViewModel(
                 message = "ログを作成しています。"
             )
             else -> TeacherRoute.Standby
+        }
+
+    private fun currentConfirmSummary(): TeacherRecordingSummary? =
+        when (val route = uiState.value.route) {
+            is TeacherRoute.Confirm -> route.summary
+            is TeacherRoute.ManualStudentSelect -> route.summary
+            else -> null
         }
 
     private fun followActiveRecording(activeRecording: TeacherRecordingSummary?) {
@@ -473,6 +528,7 @@ class TeacherAppViewModel(
             activeRecordingId = null
             recordingPaused = false
             recordingSeconds = 0
+            studentSearchJob?.cancel()
             var pendingUploads = runCatching { pendingUploadStore.loadItems() }.getOrDefault(_uiState.value.pendingUploads)
             val activeRecording = runCatching { recordingRepository.loadActiveRecording() }.getOrNull()
             if (activeRecording != null) {

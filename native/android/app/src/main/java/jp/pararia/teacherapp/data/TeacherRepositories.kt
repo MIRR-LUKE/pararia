@@ -16,6 +16,8 @@ import jp.pararia.teacherapp.domain.TeacherRecordingSummary
 import jp.pararia.teacherapp.domain.TeacherRecordingStatus
 import jp.pararia.teacherapp.domain.TeacherSession
 import jp.pararia.teacherapp.domain.TeacherSessionEnvelope
+import jp.pararia.teacherapp.domain.TeacherStudentCandidate
+import jp.pararia.teacherapp.domain.TeacherStudentSearchEnvelope
 import jp.pararia.teacherapp.domain.TeacherTokenStore
 import jp.pararia.teacherapp.domain.TeacherActiveRecordingEnvelope
 import jp.pararia.teacherapp.domain.TeacherConfirmRecordingResponse
@@ -185,6 +187,17 @@ class DefaultTeacherRecordingRepository(
             )
         }
         return response.recording
+    }
+
+    override suspend fun searchStudents(query: String): List<TeacherStudentCandidate> {
+        val encodedQuery = java.net.URLEncoder.encode(query.trim(), Charsets.UTF_8.name())
+        val response: TeacherStudentSearchEnvelope = withAuthenticatedRequest {
+            apiClient.requestJson(
+                path = "/api/teacher/students?q=$encodedQuery",
+                deserializer = TeacherStudentSearchEnvelope.serializer(),
+            )
+        }
+        return response.students
     }
 
     override suspend fun createRecording(): String {

@@ -69,6 +69,11 @@ data class TeacherStudentCandidate(
 )
 
 @Serializable
+data class TeacherStudentSearchEnvelope(
+    val students: List<TeacherStudentCandidate> = emptyList(),
+)
+
+@Serializable
 enum class TeacherRecordingStatus {
     @SerialName("RECORDING")
     RECORDING,
@@ -160,6 +165,11 @@ sealed interface TeacherRoute {
     data class Recording(val seconds: Int, val paused: Boolean = false) : TeacherRoute
     data class Analyzing(val recordingId: String, val message: String) : TeacherRoute
     data class Confirm(val summary: TeacherRecordingSummary) : TeacherRoute
+    data class ManualStudentSelect(
+        val summary: TeacherRecordingSummary,
+        val query: String = "",
+        val results: List<TeacherStudentCandidate> = emptyList(),
+    ) : TeacherRoute
     data class Done(val title: String, val message: String) : TeacherRoute
     data object Pending : TeacherRoute
 }
