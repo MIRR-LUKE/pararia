@@ -69,6 +69,7 @@
     "test:runpod-worker-separation": "tsx scripts/test-runpod-worker-separation.ts",
     "test:runpod-worker-create-flow": "tsx scripts/test-runpod-worker-create-flow.ts",
     "test:runpod-ux-summary": "tsx scripts/test-runpod-ux-summary.ts",
+    "test:runtime-paths": "tsx scripts/test-runtime-paths.ts",
     "test:auth-throttle": "tsx scripts/test-auth-throttle.ts",
     "test:maintenance-route-guards": "tsx scripts/test-maintenance-route-guards.ts",
     "test:navigation-performance": "tsx scripts/test-navigation-performance.ts",
