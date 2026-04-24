@@ -4,7 +4,6 @@ import { prisma } from "@/lib/db";
 import { shouldRunBackgroundJobsInline } from "@/lib/jobs/execution-mode";
 import { processQueuedTeacherRecordingJobs } from "@/lib/jobs/teacherRecordingJobs";
 import { maybeEnsureRunpodWorkerReady } from "@/lib/runpod/worker-ready";
-import { runAfterResponse } from "@/lib/server/after-response";
 import { applyLightMutationThrottle } from "@/lib/server/request-throttle";
 import { resolveRouteId, type RouteParams } from "@/lib/server/route-params";
 import {
@@ -19,8 +18,38 @@ import { loadTeacherRecordingSummary } from "@/lib/teacher-app/server/recordings
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
+export const maxDuration = 300;
 
 const recentTeacherRecordingWakeAt = new Map<string, number>();
+const TEACHER_RECORDING_INLINE_RECOVERY_LIMIT = 3;
+
+function readTeacherRecordingReadyTimeoutMs() {
+  const parsed = Number(process.env.TEACHER_RECORDING_RUNPOD_READY_TIMEOUT_MS ?? 8_000);
+  return Number.isFinite(parsed) ? Math.max(1_000, Math.floor(parsed)) : 8_000;
+}
+
+function readTeacherRecordingReadyProxyTimeoutMs() {
+  const parsed = Number(process.env.TEACHER_RECORDING_RUNPOD_READY_PROXY_TIMEOUT_MS ?? 1_500);
+  return Number.isFinite(parsed) ? Math.max(500, Math.floor(parsed)) : 1_500;
+}
+
+async function processTeacherRecordingInline(recordingId: string, label: string) {
+  const result = await processQueuedTeacherRecordingJobs(TEACHER_RECORDING_INLINE_RECOVERY_LIMIT, {
+    recordingId,
+  });
+  if (result.errors.length > 0) {
+    console.warn(`[${label}] teacher recording inline processing completed with retries/errors`, {
+      recordingId,
+      result,
+    });
+  } else {
+    console.info(`[${label}] teacher recording inline processing completed`, {
+      recordingId,
+      result,
+    });
+  }
+  return result;
+}
 
 async function loadAuthorizedRecording(request: Request, params: RouteParams, mutation = false) {
   const authResult = mutation
@@ -135,45 +164,42 @@ async function kickTeacherRecordingProcessing(recordingId: string, force = false
   }
 
   if (shouldRunBackgroundJobsInline()) {
-    runAfterResponse(
-      async () => {
-        await processQueuedTeacherRecordingJobs(1, { recordingId }).catch(() => {});
-      },
-      "teacher recording progress inline"
-    );
+    await processTeacherRecordingInline(recordingId, "teacher recording progress inline");
     return;
   }
 
-  runAfterResponse(async () => {
-    const workerReady = await maybeEnsureRunpodWorkerReady({
-      terminateOnFailure: true,
-    }).catch((error: any) => ({
+  const workerReady = await maybeEnsureRunpodWorkerReady({
+    terminateOnFailure: true,
+    timeoutMs: readTeacherRecordingReadyTimeoutMs(),
+    proxyTimeoutMs: readTeacherRecordingReadyProxyTimeoutMs(),
+  }).catch((error: any) => ({
+    attempted: true,
+    ok: false,
+    stage: "wake_failed" as const,
+    podId: null,
+    wake: {
       attempted: true,
       ok: false,
-      stage: "wake_failed" as const,
-      podId: null,
-      wake: {
-        attempted: true,
-        ok: false,
-        error: error?.message ?? String(error),
-      },
-      readiness: null,
       error: error?.message ?? String(error),
-    }));
+    },
+    readiness: null,
+    error: error?.message ?? String(error),
+  }));
 
-    if (workerReady.ok) {
-      return;
-    }
-
-    console.warn("[teacher recording progress] falling back to inline teacher recording processing", {
+  if (workerReady.ok) {
+    console.info("[teacher recording progress] Runpod worker ready for teacher recording recovery", {
       recordingId,
-      workerReady,
+      podId: workerReady.podId,
+      stage: workerReady.stage,
     });
+    return;
+  }
 
-    await processQueuedTeacherRecordingJobs(1, { recordingId }).catch((error) => {
-      console.error("[teacher recording progress] Fallback teacher recording processing failed:", error);
-    });
-  }, "teacher recording progress wake runpod");
+  console.warn("[teacher recording progress] falling back to inline teacher recording processing", {
+    recordingId,
+    workerReady,
+  });
+  await processTeacherRecordingInline(recordingId, "teacher recording progress fallback");
 }
 
 export async function GET(request: Request, { params }: { params: RouteParams }) {
@@ -181,12 +207,22 @@ export async function GET(request: Request, { params }: { params: RouteParams })
     const loaded = await loadAuthorizedRecording(request, params);
     if (loaded.response) return loaded.response;
 
+    let recording = loaded.recording;
     if (shouldContinueTeacherRecordingInBackground(loaded.recording.status)) {
-      void kickTeacherRecordingProcessing(loaded.recordingId!);
+      await kickTeacherRecordingProcessing(loaded.recordingId!);
+      const refreshed = await loadTeacherRecordingSummary({
+        organizationId: loaded.authSession!.organizationId,
+        deviceId: loaded.authSession!.deviceId,
+        deviceLabel: loaded.authSession!.deviceLabel,
+        recordingId: loaded.recordingId!,
+      }).catch(() => null);
+      if (refreshed) {
+        recording = refreshed;
+      }
     }
 
     return NextResponse.json({
-      recording: loaded.recording,
+      recording,
     });
   } catch (error: any) {
     console.error("[GET /api/teacher/recordings/[id]/progress] Error:", error);
