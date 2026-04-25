@@ -71,6 +71,8 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -306,6 +308,7 @@ fun TeacherAppRoot(
 
                         TeacherRoute.Pending -> TeacherPendingUploadsScreen(
                             items = uiState.pendingUploads,
+                            diagnosticReportText = uiState.diagnosticReportText,
                             onRetry = viewModel::retryPendingUploads,
                             onBack = viewModel::returnToStandby,
                         )
@@ -315,6 +318,7 @@ fun TeacherAppRoot(
                 if (uiState.errorMessage != null) {
                     TeacherErrorDialog(
                         message = uiState.errorMessage ?: "",
+                        diagnosticReportText = uiState.diagnosticReportText,
                         onDismiss = viewModel::dismissError,
                     )
                 }
@@ -777,6 +781,7 @@ private fun TeacherDoneScreen(
 @Composable
 private fun TeacherPendingUploadsScreen(
     items: List<PendingUpload>,
+    diagnosticReportText: String,
     onRetry: () -> Unit,
     onBack: () -> Unit,
 ) {
@@ -833,6 +838,7 @@ private fun TeacherPendingUploadsScreen(
             }
 
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                TeacherDiagnosticReportBlock(reportText = diagnosticReportText)
                 TeacherPrimaryButton(
                     text = "まとめて再送",
                     enabled = items.isNotEmpty(),
@@ -1283,6 +1289,11 @@ private fun PendingUploadCard(item: PendingUpload) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
+        Text(
+            text = "attempt ${item.attemptCount}",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
         if (!item.errorMessage.isNullOrBlank()) {
             Text(
                 text = item.errorMessage,
@@ -1340,6 +1351,7 @@ private fun TeacherCompletionHalo() {
 @Composable
 private fun TeacherErrorDialog(
     message: String,
+    diagnosticReportText: String,
     onDismiss: () -> Unit,
 ) {
     AlertDialog(
@@ -1357,15 +1369,46 @@ private fun TeacherErrorDialog(
             )
         },
         text = {
-            Text(
-                text = message,
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                Text(
+                    text = message,
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                TeacherDiagnosticReportBlock(reportText = diagnosticReportText)
+            }
         },
         shape = MaterialTheme.shapes.large,
         containerColor = MaterialTheme.colorScheme.surface,
     )
+}
+
+@Composable
+private fun TeacherDiagnosticReportBlock(reportText: String) {
+    if (reportText.isBlank()) return
+
+    var expanded by rememberSaveable { mutableStateOf(false) }
+    val clipboardManager = LocalClipboardManager.current
+
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        TeacherTextAction(
+            text = if (expanded) "調査メモを隠す" else "調査メモを表示",
+            onClick = { expanded = !expanded },
+        )
+        if (expanded) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    text = reportText,
+                    style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                TeacherGhostButton(
+                    text = "調査メモをコピー",
+                    onClick = { clipboardManager.setText(AnnotatedString(reportText)) },
+                )
+            }
+        }
+    }
 }
 
 @Composable

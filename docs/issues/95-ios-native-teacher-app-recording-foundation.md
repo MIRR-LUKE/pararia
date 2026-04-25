@@ -2,9 +2,15 @@
 
 ## 状態
 
-- Open
+- Closed / deferred
 - GitHub Issue: `#173`
-- 最終更新: `2026-04-21`
+- 最終更新: `2026-04-25`
+
+## 2026-04-25 方針変更
+
+この Issue は close。現時点では iOS native app / TestFlight / App Store 配布を開発対象から外し、Android Teacher App を先に現場投入できる状態へ寄せる。
+
+iOS が必要になったら、Xcode project / target / `xcodebuild` / 実機 QA を新しい Issue として切り直す。
 
 ## 目的
 

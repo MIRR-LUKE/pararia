@@ -2,9 +2,9 @@
 
 ## 状態
 
-- Open
+- Closed
 - GitHub Issue: `#159`
-- 最終更新: `2026-04-19`
+- 最終更新: `2026-04-25`
 
 ## 何をするか
 
@@ -53,7 +53,18 @@ Runpod 側で STT が終わってから conversation finalize が実際に走り
 - `GET /api/sessions/[id]/progress` でも、まだ pipeline が進行中なら `runAfterResponse()` で background dispatch を継続するようにした
 - `runpod:measure-ux` は上の timestamp を JSON に残し、`runpod:measure-summary` は `## Post-STT breakdown` と missing timestamp warning を出すようにした
 
-残りは、publish 済み worker image を使った production 相当 3 run で `post-STT breakdown` がすべて埋まり、どれだけ短くなったかを issue に追記すること
+## 2026-04-25 production 相当 3090 実測
+
+- 条件: `--profile 3090 --startup-mode direct`
+- worker image: `ghcr.io/mirr-luke/pararia-runpod-worker:sha-853fba84c3fb673645f348dac594d96b8d303040`
+- runtime revision: `git-853fba84c3fb673645f348dac594d96b8d303040`
+- `Queue->Conversation p50/p95`: `65.7秒 / 137.5秒`
+- `Queue->STT p50/p95`: `47.7秒 / 119.6秒`
+- `post-STT total p50/p95`: `18.0秒 / 18.0秒`
+- `post-STT unknown p50/p95`: `0ms / 0ms`
+- breakdown は `STT->promotion / promotion->kick / kick->app dispatch / app dispatch->claim / review / finalize` まですべて non-null
+
+完了条件の「remaining wait の全内訳が説明できる」を満たしたため close。
 
 ## 完了条件
 

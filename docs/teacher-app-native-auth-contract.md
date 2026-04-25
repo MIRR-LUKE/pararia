@@ -27,9 +27,9 @@ request:
 {
   "email": "admin@example.com",
   "password": "********",
-  "deviceLabel": "渋谷校 iPhone 16",
+  "deviceLabel": "渋谷校 Android 端末 01",
   "client": {
-    "platform": "IOS",
+    "platform": "ANDROID",
     "appVersion": "1.0.0",
     "buildNumber": "100"
   }
@@ -48,12 +48,12 @@ response:
     "roleLabel": "管理者",
     "userName": "校舎責任者",
     "userEmail": "admin@example.com",
-    "deviceLabel": "渋谷校 iPhone 16",
+    "deviceLabel": "渋谷校 Android 端末 01",
     "issuedAt": "2026-04-19T11:00:00.000Z",
     "expiresAt": "2026-04-19T11:30:00.000Z"
   },
   "client": {
-    "platform": "IOS",
+    "platform": "ANDROID",
     "appVersion": "1.0.0",
     "buildNumber": "100"
   },
@@ -76,7 +76,7 @@ request:
 {
   "refreshToken": "....",
   "client": {
-    "platform": "IOS",
+    "platform": "ANDROID",
     "appVersion": "1.0.1",
     "buildNumber": "101"
   }
@@ -100,7 +100,7 @@ response:
 {
   "session": { "...": "..." },
   "client": {
-    "platform": "IOS",
+    "platform": "ANDROID",
     "appVersion": "1.0.0",
     "buildNumber": "100"
   },

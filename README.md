@@ -439,7 +439,7 @@ npm run test:student-room-route
 ### 7.3 Runpod で GPU worker を動かす
 
 Pararia は、いまの作りだと Runpod の **Serverless endpoint** より **Pod worker** のほうが合います。
-ただし 4090 を常駐させるのではなく、**on-demand 起動 + idle stop** を前提にします。
+ただし 3090 を常駐させるのではなく、**on-demand 起動 + idle stop** を前提にします。
 
 - Vercel 側は upload と job 登録だけを行う
 - 音声は Blob に置く
@@ -465,7 +465,7 @@ GitHub Actions の `Publish Runpod Worker Image` が通ると、GHCR に worker 
 
 Runpod REST API で Pod を作る / 起こす / 止めるスクリプトも入れています。
 
-- `npm run runpod:deploy -- --gpu="NVIDIA GeForce RTX 4090" --name="pararia-gpu-worker"`
+- `npm run runpod:deploy -- --gpu="NVIDIA GeForce RTX 3090" --name="pararia-gpu-worker"`
 - `npm run runpod:start`
 - `npm run runpod:start -- --wait`
 - `npm run runpod:start -- --fresh --wait`
@@ -478,7 +478,7 @@ Runpod 側では、Pod 作成時に次を入れれば動きます。
 
 - Container Image: まずは `ghcr.io/<GitHub owner>/pararia-runpod-worker:sha-...`
 - `latest` は簡便ですが、切り分けや本番固定では避ける
-- GPU: まずは `RTX 4090` か `RTX 5090`
+- GPU: 本番正本は `RTX 3090`
 - Start Command: 空でよい
 
 必須 env:
@@ -487,18 +487,19 @@ Runpod 側では、Pod 作成時に次を入れれば動きます。
   - Supabase / Neon など pooled URL を使うときは `connection_limit=1` を付ける
 - `DIRECT_URL`
 - `BLOB_READ_WRITE_TOKEN`
-- `OPENAI_API_KEY`
 - `PARARIA_BACKGROUND_MODE=external`
 - `PARARIA_AUDIO_STORAGE_MODE=blob`
 - `PARARIA_AUDIO_BLOB_ACCESS=private`
 - `NEXT_PUBLIC_AUDIO_STORAGE_MODE=blob`
 - `RUNPOD_WORKER_IMAGE` はできれば `:sha-...` 固定、未設定でも Vercel 上では現在の commit sha を優先
 
+手動の production 相当計測用 `.tmp/.env.production.runpod` には、local health check と LLM finalize のため `OPENAI_API_KEY` も含める。
+
 private GHCR image を使うときは、Runpod 側の container registry auth を作って
 `RUNPOD_WORKER_CONTAINER_REGISTRY_AUTH_ID` も渡す。
 
 GPU は `RUNPOD_WORKER_GPU_CANDIDATES` で優先順を指定できます。
-既定は `NVIDIA GeForce RTX 5090,NVIDIA GeForce RTX 4090,NVIDIA GeForce RTX 3090` で、5090 が取れないときは 4090、その次に 3090 へフォールバックします。
+既定は `NVIDIA GeForce RTX 3090,NVIDIA GeForce RTX 4090` で、3090 が取れないときだけ 4090 へフォールバックします。
 
 PowerShell のセッションに env を入れられない場合は、repo ルートの `.env.local` に次を追記すれば `npm run runpod:deploy` でそのまま使えます。
 
@@ -542,8 +543,9 @@ STT 推奨値:
 - `FASTER_WHISPER_CHUNKING_ENABLED=0`
 - `FASTER_WHISPER_POOL_SIZE=1`
 
-GPU が強いときの最初の目安:
+GPU ごとの最初の目安:
 
+- `RTX 3090`: `FASTER_WHISPER_BATCH_SIZE=16`
 - `RTX 4090`: `FASTER_WHISPER_BATCH_SIZE=16`
 - `RTX 5090`: `FASTER_WHISPER_BATCH_SIZE=24`
 
@@ -552,7 +554,7 @@ GPU が強いときの最初の目安:
 - `beam_size=1` を既定にし、精度より 1 本の完了速度を優先する
 - VAD は `min_silence_duration_ms=1000` を基準にし、切り詰め比較は `500 / 1000 / 2000` で見る
 - `compute_type=auto` のままでよいが、worker image は `CTranslate2 4.7.1 + CUDA 12.8` 前提にする
-- `RTX 4090` など pre-Blackwell では `int8_float16` 系を優先する
+- `RTX 3090 / 4090` など pre-Blackwell では `int8_float16` 系を優先する
 - `RTX 5090` など Blackwell では `cuBLAS` の制約を避けるため `float16` 系を優先する
 - production queue から特定の session だけ処理したいときは `RUNPOD_WORKER_ONLY_SESSION_ID` を使う
 - 通常運用の既定値は `RUNPOD_WORKER_CONVERSATION_LIMIT=0` で、Runpod は STT 専用に固定する
@@ -585,12 +587,12 @@ GPU が強いときの最初の目安:
   - `#156`: p50 / p95 / cost 集計
 - ここから親 issue を閉じるには、production 相当の 3 回連続計測を同じ条件で取り、どの改善で何秒縮んだかを issue か README に残す
 - Runpod / STT の内訳を見るときは:
-  - `npm run runpod:measure-ux -- --profile 5090 --startup-mode reuse --out-dir .tmp/runpod-ux`
+  - `npm run runpod:measure-ux -- --profile 3090 --startup-mode direct --out-dir .tmp/runpod-ux`
   - `npm run runpod:measure-summary -- --dir .tmp/runpod-ux --out .tmp/runpod-ux-summary.md`
 - アプリ全体の生成導線を remote で確認するときは:
   - `PARARIA_ALLOW_REMOTE_GENERATION_SMOKE=1 npm run test:remote-generation-smoke -- --base-url https://pararia.vercel.app`
 - 既存のローカル長尺ベンチは `docs/interview-benchmarks/*.json` と `docs/stt-benchmarks/*.json` を参照する
-- 2026-04-18 に `5090 + reuse startup` で `runpod:measure-ux` を 3 本回した結果は:
+- 2026-04-18 に `5090 + reuse startup` で `runpod:measure-ux` を 3 本回した履歴は:
   - `Queue->Conversation`: `152.0秒 / 125.2秒 / 145.1秒`
   - `p50`: `145.1秒`
   - `p95`: `152.0秒`
@@ -610,9 +612,20 @@ GPU が強いときの最初の目安:
   - `runpod:measure-summary` は `## Warnings` に missing metric を出し、`## Post-STT breakdown` で post-STT 内訳を p50 / p95 で出す
   - prompt cache 診断として `promptCacheKey / promptCacheRetention / promptCacheStablePrefixTokensEstimate` も残る
 - 親 issue `#151` をきれいに閉じる最後の作業は:
-  - publish 済み worker image を指定して `runpod:measure-ux` を 3 本取り直す
+  - publish 済み worker image と `--profile 3090` で `runpod:measure-ux` を 3 本取り直す
   - `runpod:measure-summary` の `Queue->Conversation p50` と `post-STT unknown p50` が baseline `163.8秒` 比でどこまで縮んだかを issue に追記する
   - `sttPrepareMs` が non-null、`llmCachedInputTokens` が 0 固定から外れたことを確認して `#157 / #158 / #159` を close する
+- 2026-04-25 に `3090 + direct startup` で production 相当計測を取り直した結果は:
+  - `Queue->Conversation p50/p95`: `65.7秒 / 137.5秒`
+  - `Queue->STT p50/p95`: `47.7秒 / 119.6秒`
+  - `STT worker p50`: `27.2秒`
+  - `finalize p50`: `14.6秒`
+  - `post-STT unknown p50/p95`: `0ms / 0ms`
+  - `sttPrepareMs / sttTranscribeWorkerMs / sttFinalizeMs / sttVadParameters`: すべて non-null
+  - `promptCacheKey`: `conversation-pipeline:v5.4:conversation-draft:INTERVIEW`
+  - `llmCachedInputTokens`: `1792` を production 相当 run で確認し、0 固定から復帰
+  - worker runtime revision: `git-853fba84c3fb673645f348dac594d96b8d303040`
+  - 計測 JSON: `.tmp/runpod-ux-close-157-159-v54/run-*.json`
 
 ### 7.5 prompt cache と実コストの見方
 
@@ -1092,7 +1105,7 @@ PARARIA_AUDIO_RETENTION_DAYS=14
   - 宛名、自己紹介、本文 4 段落、締め、固定あいさつ、署名の並びまで確認する
 - ログ本文の手動編集 save payload / dirty 判定のスモークは `npm run test:log-editing`
 - web 録音 UI の本番相当確認は `npm run test:recording-ui -- --base-url http://localhost:3000 --skip-navigation-dialog`
-- deploy 後の production 録音主導線は GitHub Actions `Production Recording Smoke` が正本。manual 再確認の `.tmp/.env.production.runpod` は手書きや `env pull` の生ファイルを使わず、`npx vercel env run --environment=production -- npm run env:write-production-ops -- --output .tmp/.env.production.runpod --base-url https://pararia.vercel.app --worker-image ghcr.io/mirr-luke/pararia-runpod-worker:sha-<deployed-sha>` で毎回生成してから `npm run test:teacher-recording-smoke -- --base-url https://pararia.vercel.app --env-file .tmp/.env.production.runpod` を回す
+- deploy 後の production 録音主導線は GitHub Actions `Production Recording Smoke` が正本。manual 再確認の `.tmp/.env.production.runpod` は手書きせず、Vercel production env を `.tmp/.env.production.vercel` に一時 pull してから `PARARIA_PRODUCTION_OPS_SOURCE_ENV_FILE=.tmp/.env.production.vercel npm run env:write-production-ops -- --output .tmp/.env.production.runpod --base-url https://pararia.vercel.app --worker-image ghcr.io/mirr-luke/pararia-runpod-worker:sha-<deployed-sha>` で毎回生成し、`.tmp/.env.production.vercel` はすぐ削除する。そのあと `npm run test:teacher-recording-smoke -- --base-url https://pararia.vercel.app --env-file .tmp/.env.production.runpod` を回す
 - GitHub secret も `MAINTENANCE_SECRET` を正本にし、workflow 側で同じ名前を読む。`CRON_SECRET` は既存 runtime との互換 fallback に限定する
 - 途中離脱ガードだけ確認するときは `npm run test:recording-ui -- --base-url http://localhost:3000 --leave-safety-only`
 

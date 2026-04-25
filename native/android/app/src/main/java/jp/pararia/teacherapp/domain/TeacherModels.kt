@@ -159,6 +159,11 @@ enum class RecorderPermissionStatus {
     DENIED,
 }
 
+enum class RecorderStartAvailability {
+    AVAILABLE,
+    SYSTEM_AUDIO_BUSY,
+}
+
 sealed interface TeacherRoute {
     data object Bootstrap : TeacherRoute
     data object Standby : TeacherRoute
@@ -179,6 +184,7 @@ data class TeacherUiState(
     val route: TeacherRoute = TeacherRoute.Bootstrap,
     val pendingUploads: List<PendingUpload> = emptyList(),
     val errorMessage: String? = null,
+    val diagnosticReportText: String = "",
     val requestMicrophonePermission: Boolean = false,
 )
 

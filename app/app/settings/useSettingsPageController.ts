@@ -6,6 +6,7 @@ import type {
   MissingStudent,
   OperationsJobRow,
   SettingsSnapshot,
+  TeacherAppDeviceRow,
 } from "@/lib/settings/get-settings-snapshot";
 
 type OrganizationDraft = {
@@ -93,6 +94,7 @@ export function useSettingsPageController({ initialSettings }: Props) {
   const [runningCleanup, setRunningCleanup] = useState(false);
   const [runningScopedJobKey, setRunningScopedJobKey] = useState<string | null>(null);
   const [restoringTargetKey, setRestoringTargetKey] = useState<string | null>(null);
+  const [revokingDeviceId, setRevokingDeviceId] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [operationsMessage, setOperationsMessage] = useState<string | null>(null);
   const [guardianDrafts, setGuardianDrafts] = useState<Record<string, string>>(() =>
@@ -284,6 +286,45 @@ export function useSettingsPageController({ initialSettings }: Props) {
     }
   };
 
+  const revokeTeacherAppDevice = async (device: Pick<TeacherAppDeviceRow, "id" | "label">) => {
+    const reason = window.prompt(
+      `${device.label} を停止します。紛失・入れ替えなど、理由を入力してください。`,
+      "lost_or_retired_device"
+    );
+    if (!reason?.trim()) {
+      return;
+    }
+
+    const confirmLabel = window.prompt("確認のため、端末名をそのまま入力してください。", "");
+    if (confirmLabel !== device.label) {
+      setOperationsMessage("端末名が一致しなかったため、停止しませんでした。");
+      return;
+    }
+
+    setRevokingDeviceId(device.id);
+    setOperationsMessage(null);
+    try {
+      const res = await fetch(`/api/teacher-app-devices/${encodeURIComponent(device.id)}/revoke`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          reason,
+          confirmLabel,
+        }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body?.error ?? "端末の停止に失敗しました。");
+      await refreshSettings(
+        undefined,
+        `${device.label} を停止しました。失効したセッション: ${body?.revokedAuthSessionCount ?? 0}`
+      );
+    } catch (nextError: any) {
+      setOperationsMessage(nextError?.message ?? "端末の停止に失敗しました。");
+    } finally {
+      setRevokingDeviceId((current) => (current === device.id ? null : current));
+    }
+  };
+
   const canManage = settings.permissions.canManage;
   const timeZoneLabel = settings.organization.defaultTimeZone || "Asia/Tokyo";
 
@@ -298,6 +339,8 @@ export function useSettingsPageController({ initialSettings }: Props) {
     remainingStudentSlots,
     restoreDeletedContent,
     restoringTargetKey,
+    revokeTeacherAppDevice,
+    revokingDeviceId,
     runCleanup,
     runJobKick,
     runScopedJobs,

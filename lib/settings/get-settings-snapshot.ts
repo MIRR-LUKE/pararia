@@ -1,3 +1,4 @@
+import { TeacherAppDeviceAuthSessionStatus } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { canManageSettings } from "@/lib/permissions";
 import { withActiveStudentWhere } from "@/lib/students/student-lifecycle";
@@ -41,6 +42,22 @@ export type DeletedContentRow = {
   sessionId: string | null;
 };
 
+export type TeacherAppDeviceRow = {
+  id: string;
+  label: string;
+  status: string;
+  statusLabel: string;
+  lastClientPlatform: string | null;
+  lastAppVersion: string | null;
+  lastBuildNumber: string | null;
+  lastAuthenticatedAt: string | null;
+  lastSeenAt: string | null;
+  configuredByLabel: string | null;
+  activeAuthSessionCount: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type SettingsSnapshot = {
   organization: {
     id: string;
@@ -82,6 +99,11 @@ export type SettingsSnapshot = {
       role: string;
       expiresAt: string;
     }>;
+  };
+  teacherAppDevices: {
+    activeCount: number;
+    revokedCount: number;
+    devices: TeacherAppDeviceRow[];
   };
   operations: {
     queuedConversationJobs: number;
@@ -139,6 +161,12 @@ function buildJobStatusLabel(input: {
   return input.status;
 }
 
+function buildTeacherAppDeviceStatusLabel(status: string) {
+  if (status === "ACTIVE") return "有効";
+  if (status === "REVOKED") return "停止済み";
+  return status;
+}
+
 function pickDeletedByLabel(input: { name?: string | null; email?: string | null } | null | undefined) {
   if (!input) return null;
   return input.name?.trim() || input.email?.trim() || null;
@@ -178,6 +206,7 @@ export async function getSettingsSnapshot({
     deletedConversations,
     deletedReports,
     recentAuditLogs,
+    teacherAppDevices,
   ] = await prisma.$transaction([
     prisma.organization.findUnique({
       where: { id: organizationId },
@@ -457,6 +486,38 @@ export async function getSettingsSnapshot({
       },
       take: 8,
     }),
+    prisma.teacherAppDevice.findMany({
+      where: { organizationId },
+      orderBy: [{ updatedAt: "desc" }, { createdAt: "desc" }],
+      take: 24,
+      select: {
+        id: true,
+        label: true,
+        status: true,
+        lastClientPlatform: true,
+        lastAppVersion: true,
+        lastBuildNumber: true,
+        lastAuthenticatedAt: true,
+        lastSeenAt: true,
+        createdAt: true,
+        updatedAt: true,
+        configuredBy: {
+          select: {
+            name: true,
+            email: true,
+          },
+        },
+        _count: {
+          select: {
+            authSessions: {
+              where: {
+                status: TeacherAppDeviceAuthSessionStatus.ACTIVE,
+              },
+            },
+          },
+        },
+      },
+    }),
   ]);
 
   if (!organization) {
@@ -520,6 +581,25 @@ export async function getSettingsSnapshot({
         email: invitation.email,
         role: invitation.role,
         expiresAt: invitation.expiresAt.toISOString(),
+      })),
+    },
+    teacherAppDevices: {
+      activeCount: teacherAppDevices.filter((device) => device.status === "ACTIVE").length,
+      revokedCount: teacherAppDevices.filter((device) => device.status === "REVOKED").length,
+      devices: teacherAppDevices.map((device) => ({
+        id: device.id,
+        label: device.label,
+        status: device.status,
+        statusLabel: buildTeacherAppDeviceStatusLabel(device.status),
+        lastClientPlatform: device.lastClientPlatform ?? null,
+        lastAppVersion: device.lastAppVersion ?? null,
+        lastBuildNumber: device.lastBuildNumber ?? null,
+        lastAuthenticatedAt: toIsoString(device.lastAuthenticatedAt),
+        lastSeenAt: toIsoString(device.lastSeenAt),
+        configuredByLabel: pickDeletedByLabel(device.configuredBy),
+        activeAuthSessionCount: device._count.authSessions,
+        createdAt: device.createdAt.toISOString(),
+        updatedAt: device.updatedAt.toISOString(),
       })),
     },
     operations: {

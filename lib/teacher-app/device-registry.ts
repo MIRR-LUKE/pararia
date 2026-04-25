@@ -1,8 +1,17 @@
-import { TeacherAppClientPlatform, TeacherAppDeviceStatus } from "@prisma/client";
+import {
+  TeacherAppClientPlatform,
+  TeacherAppDeviceAuthSessionStatus,
+  TeacherAppDeviceStatus,
+} from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { runWithDatabaseRetry } from "@/lib/db-retry";
 
 const TEACHER_APP_LAST_SEEN_TOUCH_INTERVAL_MS = 60_000;
+
+function normalizeDeviceRevokeReason(value: string | null | undefined) {
+  const reason = value?.trim().slice(0, 240);
+  return reason || "admin_device_revoke";
+}
 
 export async function registerTeacherAppDevice(input: {
   organizationId: string;
@@ -112,4 +121,84 @@ export async function touchTeacherAppDeviceNativeClientState(input: {
       lastSeenAt: new Date(),
     },
   });
+}
+
+export async function revokeTeacherAppDevice(input: {
+  deviceId: string;
+  organizationId: string;
+  confirmLabel?: string | null;
+  reason?: string | null;
+}) {
+  const reason = normalizeDeviceRevokeReason(input.reason);
+  const confirmLabel = input.confirmLabel?.trim() ?? "";
+  const revokedAt = new Date();
+
+  return runWithDatabaseRetry("teacher-app-device-revoke", () =>
+    prisma.$transaction(async (tx) => {
+      const device = await tx.teacherAppDevice.findFirst({
+        where: {
+          id: input.deviceId,
+          organizationId: input.organizationId,
+        },
+        select: {
+          id: true,
+          organizationId: true,
+          label: true,
+          status: true,
+        },
+      });
+
+      if (!device) {
+        return {
+          ok: false as const,
+          code: "not_found" as const,
+        };
+      }
+
+      if (confirmLabel && confirmLabel !== device.label) {
+        return {
+          ok: false as const,
+          code: "confirmation_mismatch" as const,
+          device,
+        };
+      }
+
+      const revokedSessions = await tx.teacherAppDeviceAuthSession.updateMany({
+        where: {
+          deviceId: device.id,
+          organizationId: input.organizationId,
+          status: TeacherAppDeviceAuthSessionStatus.ACTIVE,
+        },
+        data: {
+          status: TeacherAppDeviceAuthSessionStatus.REVOKED,
+          revokedAt,
+          revokeReason: reason,
+        },
+      });
+
+      const updatedDevice = await tx.teacherAppDevice.update({
+        where: {
+          id: device.id,
+        },
+        data: {
+          status: TeacherAppDeviceStatus.REVOKED,
+        },
+        select: {
+          id: true,
+          organizationId: true,
+          label: true,
+          status: true,
+          updatedAt: true,
+        },
+      });
+
+      return {
+        ok: true as const,
+        alreadyRevoked: device.status === TeacherAppDeviceStatus.REVOKED,
+        device: updatedDevice,
+        reason,
+        revokedAuthSessionCount: revokedSessions.count,
+      };
+    })
+  );
 }

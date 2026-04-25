@@ -5,11 +5,14 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import jp.pararia.teacherapp.app.TeacherAppContainer
 import jp.pararia.teacherapp.app.TeacherAppDependencies
+import jp.pararia.teacherapp.diagnostics.TeacherDiagnosticLevel
+import jp.pararia.teacherapp.diagnostics.TeacherDiagnostics
 import jp.pararia.teacherapp.domain.AudioRecorderClient
 import jp.pararia.teacherapp.domain.DeviceLoginInput
 import jp.pararia.teacherapp.domain.PendingUpload
 import jp.pararia.teacherapp.domain.PendingUploadStore
 import jp.pararia.teacherapp.domain.RecorderPermissionStatus
+import jp.pararia.teacherapp.domain.RecorderStartAvailability
 import jp.pararia.teacherapp.domain.TeacherAuthRepository
 import jp.pararia.teacherapp.domain.TeacherRecordingRepository
 import jp.pararia.teacherapp.domain.TeacherRecordingSummary
@@ -18,6 +21,7 @@ import jp.pararia.teacherapp.domain.TeacherRoute
 import jp.pararia.teacherapp.domain.TeacherUiState
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -45,22 +49,40 @@ class TeacherAppViewModel(
     private var recordingPaused: Boolean = false
 
     init {
+        TeacherDiagnostics.track("viewmodel_created")
+        viewModelScope.launch {
+            TeacherDiagnostics.events.collect { events ->
+                _uiState.update {
+                    it.copy(diagnosticReportText = TeacherDiagnostics.formatReport(events))
+                }
+            }
+        }
         viewModelScope.launch {
             bootstrap()
         }
     }
 
     fun dismissError() {
+        trackEvent("error_dismiss")
         _uiState.update { it.copy(errorMessage = null) }
     }
 
     fun onPermissionRequestHandled() {
+        trackEvent("microphone_permission_request_handled")
         _uiState.update { it.copy(requestMicrophonePermission = false) }
     }
 
     fun login(email: String, password: String, deviceLabel: String) {
+        trackEvent(
+            name = "login_start",
+            deviceLabel = deviceLabel,
+            details = mapOf("inputDeviceLabel" to deviceLabel),
+        )
         viewModelScope.launch {
-            runWithErrorHandling {
+            runWithErrorHandling(
+                operation = "login",
+                details = mapOf("inputDeviceLabel" to deviceLabel),
+            ) {
                 val session = authRepository.login(
                     DeviceLoginInput(
                         email = email,
@@ -74,15 +96,24 @@ class TeacherAppViewModel(
                         route = TeacherRoute.Standby,
                     )
                 }
+                trackEvent(
+                    name = "login_success",
+                    deviceLabel = session.deviceLabel,
+                )
             }
         }
     }
 
     fun openPendingUploads() {
         viewModelScope.launch {
+            val items = pendingUploadStore.loadItems()
+            trackEvent(
+                name = "pending_open",
+                details = mapOf("pendingCount" to items.size.toString()),
+            )
             _uiState.update {
                 it.copy(
-                    pendingUploads = pendingUploadStore.loadItems(),
+                    pendingUploads = items,
                     route = TeacherRoute.Pending,
                 )
             }
@@ -90,25 +121,67 @@ class TeacherAppViewModel(
     }
 
     fun returnToStandby() {
+        trackEvent("return_to_standby")
         doneReturnJob?.cancel()
         studentSearchJob?.cancel()
         _uiState.update { it.copy(route = TeacherRoute.Standby) }
     }
 
     fun startRecording() {
-        when (audioRecorderClient.permissionStatus()) {
+        val permissionStatus = audioRecorderClient.permissionStatus()
+        trackEvent(
+            name = "recording_start_request",
+            details = mapOf("permissionStatus" to permissionStatus.name),
+        )
+        when (permissionStatus) {
             RecorderPermissionStatus.GRANTED -> {
+                val availability = audioRecorderClient.startAvailability()
+                trackEvent(
+                    name = "recording_start_availability",
+                    level = if (availability == RecorderStartAvailability.AVAILABLE) {
+                        TeacherDiagnosticLevel.INFO
+                    } else {
+                        TeacherDiagnosticLevel.WARNING
+                    },
+                    details = mapOf("availability" to availability.name),
+                )
+                if (availability == RecorderStartAvailability.SYSTEM_AUDIO_BUSY) {
+                    _uiState.update {
+                        it.copy(
+                            errorMessage = "端末が通話中のため、録音を開始できません。通話を終了してからもう一度試してください。",
+                        )
+                    }
+                    return
+                }
                 viewModelScope.launch {
-                    runWithErrorHandling {
+                    runWithErrorHandling(operation = "recording_start") {
                         val recordingId = recordingRepository.createRecording()
+                        trackEvent(
+                            name = "recording_created",
+                            recordingId = recordingId,
+                        )
                         try {
+                            trackEvent(
+                                name = "recorder_start_request",
+                                recordingId = recordingId,
+                            )
                             audioRecorderClient.start()
                             activeRecordingId = recordingId
                             recordingSeconds = 0
                             recordingPaused = false
                             startTimer()
+                            trackEvent(
+                                name = "recording_started",
+                                recordingId = recordingId,
+                            )
                         } catch (error: Exception) {
                             runCatching { recordingRepository.cancelRecording(recordingId) }
+                            trackEvent(
+                                name = "recording_start_cancelled_after_error",
+                                recordingId = recordingId,
+                                level = TeacherDiagnosticLevel.WARNING,
+                                error = error,
+                            )
                             throw error
                         }
                     }
@@ -117,12 +190,22 @@ class TeacherAppViewModel(
 
             RecorderPermissionStatus.DENIED,
             RecorderPermissionStatus.UNDETERMINED -> {
+                trackEvent(
+                    name = "microphone_permission_needed",
+                    level = TeacherDiagnosticLevel.WARNING,
+                    details = mapOf("permissionStatus" to permissionStatus.name),
+                )
                 _uiState.update { it.copy(requestMicrophonePermission = true) }
             }
         }
     }
 
     fun onMicrophonePermissionResult(granted: Boolean) {
+        trackEvent(
+            name = "microphone_permission_result",
+            level = if (granted) TeacherDiagnosticLevel.INFO else TeacherDiagnosticLevel.WARNING,
+            details = mapOf("granted" to granted.toString()),
+        )
         if (granted) {
             startRecording()
         } else {
@@ -137,9 +220,21 @@ class TeacherAppViewModel(
 
     fun stopRecording() {
         val recordingId = activeRecordingId ?: return
+        trackEvent(
+            name = "recording_stop_request",
+            recordingId = recordingId,
+        )
         viewModelScope.launch {
-            runWithErrorHandling {
+            runWithErrorHandling(
+                operation = "recording_stop",
+                recordingId = recordingId,
+            ) {
                 val completed = audioRecorderClient.stop()
+                trackEvent(
+                    name = "recording_stop_completed",
+                    recordingId = recordingId,
+                    details = mapOf("durationSeconds" to completed.durationSeconds.toString()),
+                )
                 activeRecordingId = null
                 recordingPaused = false
                 recordingTimerJob?.cancel()
@@ -151,10 +246,20 @@ class TeacherAppViewModel(
                         )
                     )
                 }
+                trackEvent(
+                    name = "upload_route_entered",
+                    recordingId = recordingId,
+                    route = "analyzing",
+                )
                 recordingRepository.uploadAudio(
                     recordingId = recordingId,
                     filePath = completed.filePath,
                     durationSeconds = completed.durationSeconds,
+                )
+                trackEvent(
+                    name = "upload_completed",
+                    recordingId = recordingId,
+                    route = "analyzing",
                 )
                 val summary = recordingRepository.pollRecording(recordingId)
                 applySummary(summary)
@@ -164,29 +269,62 @@ class TeacherAppViewModel(
 
     fun pauseRecording() {
         if (activeRecordingId == null || recordingPaused) return
+        val recordingId = activeRecordingId
+        trackEvent(
+            name = "recording_pause_request",
+            recordingId = recordingId,
+        )
         viewModelScope.launch {
-            runWithErrorHandling {
+            runWithErrorHandling(
+                operation = "recording_pause",
+                recordingId = recordingId,
+            ) {
                 audioRecorderClient.pause()
                 recordingPaused = true
                 updateRecordingRoute()
+                trackEvent(
+                    name = "recording_paused",
+                    recordingId = recordingId,
+                )
             }
         }
     }
 
     fun resumeRecording() {
         if (activeRecordingId == null || !recordingPaused) return
+        val recordingId = activeRecordingId
+        trackEvent(
+            name = "recording_resume_request",
+            recordingId = recordingId,
+        )
         viewModelScope.launch {
-            runWithErrorHandling {
+            runWithErrorHandling(
+                operation = "recording_resume",
+                recordingId = recordingId,
+            ) {
                 audioRecorderClient.resume()
                 recordingPaused = false
                 updateRecordingRoute()
+                trackEvent(
+                    name = "recording_resumed",
+                    recordingId = recordingId,
+                )
             }
         }
     }
 
     fun cancelRecording() {
+        val recordingId = activeRecordingId
+        trackEvent(
+            name = "recording_cancel_request",
+            recordingId = recordingId,
+            level = TeacherDiagnosticLevel.WARNING,
+        )
         viewModelScope.launch {
-            runWithErrorHandling {
+            runWithErrorHandling(
+                operation = "recording_cancel",
+                recordingId = recordingId,
+            ) {
                 recordingTimerJob?.cancel()
                 audioRecorderClient.cancel()
                 activeRecordingId?.let { recordingRepository.cancelRecording(it) }
@@ -194,14 +332,28 @@ class TeacherAppViewModel(
                 recordingSeconds = 0
                 recordingPaused = false
                 _uiState.update { it.copy(route = TeacherRoute.Standby) }
+                trackEvent(
+                    name = "recording_cancelled",
+                    recordingId = recordingId,
+                    route = "standby",
+                    level = TeacherDiagnosticLevel.WARNING,
+                )
             }
         }
     }
 
     fun importAudio(filePath: String, durationSeconds: Double?) {
+        trackEvent(
+            name = "import_audio_start",
+            details = mapOf("durationSeconds" to durationSeconds?.toString()),
+        )
         viewModelScope.launch {
-            runWithErrorHandling {
+            runWithErrorHandling(operation = "import_audio") {
                 val recordingId = recordingRepository.createRecording()
+                trackEvent(
+                    name = "import_recording_created",
+                    recordingId = recordingId,
+                )
                 _uiState.update {
                     it.copy(
                         route = TeacherRoute.Analyzing(
@@ -210,6 +362,11 @@ class TeacherAppViewModel(
                         )
                     )
                 }
+                trackEvent(
+                    name = "upload_route_entered",
+                    recordingId = recordingId,
+                    route = "analyzing",
+                )
                 recordingRepository.uploadAudio(
                     recordingId = recordingId,
                     filePath = filePath,
@@ -222,17 +379,32 @@ class TeacherAppViewModel(
     }
 
     fun reportError(message: String) {
+        trackEvent(
+            name = "ui_report_error",
+            level = TeacherDiagnosticLevel.ERROR,
+            details = mapOf("message" to message),
+        )
         _uiState.update { it.copy(errorMessage = message) }
     }
 
     fun confirmStudent(studentId: String?) {
         val summary = currentConfirmSummary() ?: return
+        trackEvent(
+            name = "confirm_request",
+            recordingId = summary.id,
+            deviceLabel = summary.deviceLabel,
+            details = mapOf("studentId" to studentId),
+        )
         studentSearchJob?.cancel()
         viewModelScope.launch {
-            runWithErrorHandling {
+            runWithErrorHandling(
+                operation = "confirm",
+                recordingId = summary.id,
+                details = mapOf("studentId" to studentId),
+            ) {
                 recordingRepository.confirmStudent(summary.id, studentId)
                 clearPendingUploads(summary.id)
-                showDoneScreen()
+                showDoneScreen(recordingId = summary.id, deviceLabel = summary.deviceLabel)
             }
         }
     }
@@ -281,7 +453,12 @@ class TeacherAppViewModel(
 
     fun retryPendingUploads() {
         viewModelScope.launch {
-            runWithErrorHandling {
+            val beforeRetry = pendingUploadStore.loadItems()
+            trackEvent(
+                name = "retry_request",
+                details = mapOf("pendingCount" to beforeRetry.size.toString()),
+            )
+            runWithErrorHandling(operation = "retry_pending") {
                 recordingRepository.retryPendingUploads()
                 val activeRecording = runCatching { recordingRepository.loadActiveRecording() }.getOrNull()
                 val pendingUploads = reconcilePendingUploads(
@@ -292,12 +469,19 @@ class TeacherAppViewModel(
                     pendingUploads = pendingUploads,
                     activeRecording = activeRecording,
                 )
+                trackEvent(
+                    name = "retry_result",
+                    recordingId = activeRecording?.id,
+                    deviceLabel = activeRecording?.deviceLabel,
+                    details = mapOf("pendingCount" to pendingUploads.size.toString()),
+                )
             }
         }
     }
 
     fun logout() {
         viewModelScope.launch {
+            trackEvent("logout_request")
             authRepository.logout()
             activeRecordingId = null
             recordingTimerJob?.cancel()
@@ -314,9 +498,15 @@ class TeacherAppViewModel(
     }
 
     private suspend fun bootstrap() {
+        trackEvent("bootstrap_start", route = "bootstrap")
         val session = authRepository.currentSession()
         var pendingUploads = pendingUploadStore.loadItems()
         if (session == null) {
+            trackEvent(
+                name = "bootstrap_no_session",
+                route = "bootstrap",
+                details = mapOf("pendingCount" to pendingUploads.size.toString()),
+            )
             _uiState.update {
                 it.copy(
                     session = null,
@@ -326,6 +516,12 @@ class TeacherAppViewModel(
             }
             return
         }
+        trackEvent(
+            name = "bootstrap_session_restored",
+            deviceLabel = session.deviceLabel,
+            route = "bootstrap",
+            details = mapOf("pendingCount" to pendingUploads.size.toString()),
+        )
 
         val activeRecording = runCatching { recordingRepository.loadActiveRecording() }.getOrNull()
         pendingUploads = reconcilePendingUploads(activeRecording, pendingUploads)
@@ -344,6 +540,15 @@ class TeacherAppViewModel(
                 route = nextRouteForActiveRecording(routeRecording),
             )
         }
+        trackEvent(
+            name = "bootstrap_route_ready",
+            recordingId = routeRecording?.id,
+            deviceLabel = routeRecording?.deviceLabel ?: session.deviceLabel,
+            details = mapOf(
+                "pendingCount" to pendingUploads.size.toString(),
+                "activeStatus" to routeRecording?.status?.name,
+            ),
+        )
         followActiveRecording(routeRecording)
     }
 
@@ -375,12 +580,34 @@ class TeacherAppViewModel(
     private fun applySummary(summary: TeacherRecordingSummary) {
         activeRecordingId = null
         studentSearchJob?.cancel()
+        trackEvent(
+            name = "recording_summary_result",
+            recordingId = summary.id,
+            deviceLabel = summary.deviceLabel,
+            details = mapOf("status" to summary.status.name),
+        )
         when (summary.status) {
             TeacherRecordingStatus.AWAITING_STUDENT_CONFIRMATION -> {
+                trackEvent(
+                    name = "confirm_route_entered",
+                    recordingId = summary.id,
+                    deviceLabel = summary.deviceLabel,
+                    route = "confirm",
+                )
                 _uiState.update { it.copy(route = TeacherRoute.Confirm(summary)) }
             }
-            TeacherRecordingStatus.STUDENT_CONFIRMED -> showDoneScreen()
+            TeacherRecordingStatus.STUDENT_CONFIRMED -> showDoneScreen(
+                recordingId = summary.id,
+                deviceLabel = summary.deviceLabel,
+            )
             TeacherRecordingStatus.ERROR -> {
+                trackEvent(
+                    name = "recording_result_error",
+                    recordingId = summary.id,
+                    deviceLabel = summary.deviceLabel,
+                    level = TeacherDiagnosticLevel.ERROR,
+                    details = mapOf("message" to summary.errorMessage),
+                )
                 _uiState.update {
                     it.copy(
                         errorMessage = summary.errorMessage ?: "処理に失敗しました。",
@@ -394,7 +621,16 @@ class TeacherAppViewModel(
         }
     }
 
-    private fun showDoneScreen() {
+    private fun showDoneScreen(
+        recordingId: String? = activeRecordingId,
+        deviceLabel: String? = uiState.value.session?.deviceLabel,
+    ) {
+        trackEvent(
+            name = "done",
+            recordingId = recordingId,
+            deviceLabel = deviceLabel,
+            route = "done",
+        )
         activeRecordingId = null
         recordingSeconds = 0
         recordingPaused = false
@@ -463,7 +699,10 @@ class TeacherAppViewModel(
     private fun followActiveRecording(activeRecording: TeacherRecordingSummary?) {
         when (activeRecording?.status) {
             TeacherRecordingStatus.TRANSCRIBING -> resumeProgress(activeRecording.id)
-            TeacherRecordingStatus.STUDENT_CONFIRMED -> showDoneScreen()
+            TeacherRecordingStatus.STUDENT_CONFIRMED -> showDoneScreen(
+                recordingId = activeRecording.id,
+                deviceLabel = activeRecording.deviceLabel,
+            )
             else -> Unit
         }
     }
@@ -520,11 +759,23 @@ class TeacherAppViewModel(
         )
     }
 
-    private suspend fun runWithErrorHandling(block: suspend () -> Unit) {
+    private suspend fun runWithErrorHandling(
+        operation: String = "operation",
+        recordingId: String? = activeRecordingId,
+        details: Map<String, String?> = emptyMap(),
+        block: suspend () -> Unit,
+    ) {
         try {
             block()
             _uiState.update { it.copy(pendingUploads = pendingUploadStore.loadItems()) }
         } catch (error: Exception) {
+            trackEvent(
+                name = "${operation}_failure",
+                recordingId = recordingId ?: activeRecordingId,
+                level = TeacherDiagnosticLevel.ERROR,
+                error = error,
+                details = details,
+            )
             activeRecordingId = null
             recordingPaused = false
             recordingSeconds = 0
@@ -569,6 +820,40 @@ class TeacherAppViewModel(
         val pendingUploads: List<PendingUpload>,
         val recording: TeacherRecordingSummary?,
     )
+
+    private fun trackEvent(
+        name: String,
+        recordingId: String? = activeRecordingId,
+        deviceLabel: String? = uiState.value.session?.deviceLabel,
+        route: String? = routeName(uiState.value.route),
+        attemptCount: Int? = null,
+        level: TeacherDiagnosticLevel = TeacherDiagnosticLevel.INFO,
+        error: Throwable? = null,
+        details: Map<String, String?> = emptyMap(),
+    ) {
+        TeacherDiagnostics.track(
+            name = name,
+            recordingId = recordingId,
+            deviceLabel = deviceLabel,
+            route = route,
+            attemptCount = attemptCount,
+            level = level,
+            error = error,
+            details = details,
+        )
+    }
+
+    private fun routeName(route: TeacherRoute): String =
+        when (route) {
+            TeacherRoute.Bootstrap -> "bootstrap"
+            TeacherRoute.Standby -> "standby"
+            is TeacherRoute.Recording -> "recording"
+            is TeacherRoute.Analyzing -> "analyzing"
+            is TeacherRoute.Confirm -> "confirm"
+            is TeacherRoute.ManualStudentSelect -> "manual_student_select"
+            is TeacherRoute.Done -> "done"
+            TeacherRoute.Pending -> "pending"
+        }
 
     companion object {
         fun factory(container: TeacherAppContainer): ViewModelProvider.Factory =

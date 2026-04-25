@@ -9,6 +9,7 @@ import {
   SettingsOrganizationSection,
   SettingsPermissionsSection,
   SettingsSendingSection,
+  SettingsTeacherAppDevicesSection,
 } from "./SettingsPageSections";
 import { useSettingsPageController } from "./useSettingsPageController";
 import styles from "./settings.module.css";
@@ -30,6 +31,8 @@ export default function SettingsPageClient({ initialSettings, viewerName, viewer
     remainingStudentSlots,
     restoreDeletedContent,
     restoringTargetKey,
+    revokeTeacherAppDevice,
+    revokingDeviceId,
     runCleanup,
     runJobKick,
     runScopedJobs,
@@ -103,6 +106,16 @@ export default function SettingsPageClient({ initialSettings, viewerName, viewer
           settings={settings}
           timeZoneLabel={timeZoneLabel}
           permissionRows={permissionRows}
+        />
+
+        <SettingsTeacherAppDevicesSection
+          canManage={canManage}
+          message={message}
+          operationsMessage={operationsMessage}
+          settings={settings}
+          timeZoneLabel={timeZoneLabel}
+          onRevokeDevice={(device) => void revokeTeacherAppDevice(device)}
+          revokingDeviceId={revokingDeviceId}
         />
 
         <SettingsOperationsSection

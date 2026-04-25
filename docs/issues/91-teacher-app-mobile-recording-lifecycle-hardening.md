@@ -2,9 +2,15 @@
 
 ## 状態
 
-- Open
+- Closed / superseded
 - GitHub Issue: `#165`
-- 最終更新: `2026-04-21`
+- 最終更新: `2026-04-25`
+
+## 2026-04-25 方針変更
+
+この Issue は close。iOS interrupt / route change まで含む大きな lifecycle hardening は、いまの Android-first 方針では重すぎる。
+
+Android の実機 lifecycle 確認は `#188` の初回校舎 QA に含め、失敗追跡は `#189` の field diagnostics に寄せる。
 
 ## 目的
 

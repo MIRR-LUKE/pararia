@@ -2,8 +2,8 @@
 
 Pararia の STT 主導線は `web -> queue -> Runpod worker(STT only) -> Runpod stop -> web-side LLM finalize` です。
 `localhost` でも `Vercel production` でも、web 側は同じ contract を使い、Runpod 側は STT だけを担当します。
-deploy 後に production の録音主導線を 1 本だけ確認するときは、GitHub Actions `Production Recording Smoke` を正本 smoke にします。手動再確認では `.tmp/.env.production.runpod` を手書きせず、`npx vercel env run --environment=production -- npm run env:write-production-ops -- --output .tmp/.env.production.runpod --base-url https://pararia.vercel.app --worker-image ghcr.io/mirr-luke/pararia-runpod-worker:sha-<deployed-sha>` で生成してから `npm run test:teacher-recording-smoke -- --base-url https://pararia.vercel.app --env-file .tmp/.env.production.runpod` を使います。
-workflow を自動で回すには、GitHub Secrets に `SUPABASE_DB_URL`, `BLOB_READ_WRITE_TOKEN`, `PRODUCTION_INTEGRITY_AUDIT_EMAIL`, `PRODUCTION_INTEGRITY_AUDIT_PASSWORD`, `RUNPOD_API_KEY` が必要です。
+deploy 後に production の録音主導線を 1 本だけ確認するときは、GitHub Actions `Production Recording Smoke` を正本 smoke にします。手動再確認では `.tmp/.env.production.runpod` を手書きせず、Vercel production env を `.tmp/.env.production.vercel` に一時 pull し、共通 writer で `.tmp/.env.production.runpod` を生成してから `npm run test:teacher-recording-smoke -- --base-url https://pararia.vercel.app --env-file .tmp/.env.production.runpod` を使います。`.tmp/.env.production.vercel` は生成後すぐ削除します。
+workflow を自動で回すには、GitHub Secrets に `SUPABASE_DB_URL`, `BLOB_READ_WRITE_TOKEN`, `OPENAI_API_KEY`, `PRODUCTION_INTEGRITY_AUDIT_EMAIL`, `PRODUCTION_INTEGRITY_AUDIT_PASSWORD`, `RUNPOD_API_KEY` が必要です。
 
 ## いまの前提
 
@@ -47,6 +47,8 @@ workflow を自動で回すには、GitHub Secrets に `SUPABASE_DB_URL`, `BLOB_
 - `PARARIA_AUDIO_STORAGE_MODE=blob`
 - `PARARIA_AUDIO_BLOB_ACCESS=private`
 - `RUNPOD_WORKER_IMAGE`
+
+手動の production 相当計測で使う `.tmp/.env.production.runpod` には、local health check と LLM finalize 用に `OPENAI_API_KEY` も含めます。通常の production Pod は STT-only なので `RUNPOD_WORKER_CONVERSATION_LIMIT=0` のままなら OpenAI key を Pod に入れません。
 
 STT 推奨値:
 
@@ -122,10 +124,12 @@ production 用の env file は `npx vercel env pull` の生ファイルをその
 正本の env 名は `NEXTAUTH_URL`, `NEXT_PUBLIC_APP_URL`, `MAINTENANCE_SECRET`, `RUNPOD_WORKER_IMAGE` です。`CRON_SECRET` と `MAINTENANCE_CRON_SECRET` は既存 route の互換 fallback としてだけ扱います。
 
 ```bash
-npx vercel env run --environment=production -- npm run env:write-production-ops -- \
+npx vercel env pull .tmp/.env.production.vercel --environment=production --yes
+PARARIA_PRODUCTION_OPS_SOURCE_ENV_FILE=.tmp/.env.production.vercel npm run env:write-production-ops -- \
   --output .tmp/.env.production.runpod \
   --base-url https://pararia.vercel.app \
   --worker-image ghcr.io/mirr-luke/pararia-runpod-worker:sha-<deployed-sha>
+rm .tmp/.env.production.vercel
 ```
 
 新規作成:

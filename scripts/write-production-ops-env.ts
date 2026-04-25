@@ -4,6 +4,7 @@ import { execFileSync } from "node:child_process";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { loadEnvFile } from "./lib/load-env-file";
+import { loadLocalEnvFiles } from "./lib/load-local-env";
 
 function argValue(name: string) {
   const prefix = `--${name}=`;
@@ -46,11 +47,17 @@ function resolveWorkerImage() {
 }
 
 async function main() {
-  const envFile = argValue("env-file").trim();
+  await loadLocalEnvFiles();
+
+  const envFile =
+    argValue("source-env-file").trim() ||
+    readFirstEnv(["PARARIA_PRODUCTION_OPS_SOURCE_ENV_FILE"]) ||
+    argValue("env-file").trim();
   if (envFile) {
     await loadEnvFile(path.resolve(envFile), {
       optional: false,
-      overrideExisting: false,
+      overrideExisting: true,
+      skipEmpty: true,
     });
   }
 
@@ -73,6 +80,7 @@ async function main() {
     `DATABASE_URL=${quoteEnv(requireEnv(["DATABASE_URL"]))}`,
     `DIRECT_URL=${quoteEnv(requireEnv(["DIRECT_URL", "DATABASE_URL"]))}`,
     `BLOB_READ_WRITE_TOKEN=${quoteEnv(requireEnv(["BLOB_READ_WRITE_TOKEN"]))}`,
+    `OPENAI_API_KEY=${quoteEnv(requireEnv(["OPENAI_API_KEY"]))}`,
     `NEXTAUTH_URL=${quoteEnv(baseUrl)}`,
     `NEXT_PUBLIC_APP_URL=${quoteEnv(baseUrl)}`,
     `MAINTENANCE_SECRET=${quoteEnv(maintenanceSecret)}`,

@@ -4,7 +4,7 @@
 
 - Closed
 - GitHub Issue: `#151`
-- 最終更新: `2026-04-18`
+- 最終更新: `2026-04-25`
 
 ## 何をするか
 
@@ -47,7 +47,7 @@
 Runpod / STT の内訳:
 
 ```bash
-npm run runpod:measure-ux -- --profile 5090 --startup-mode reuse --out-dir .tmp/runpod-ux
+npm run runpod:measure-ux -- --profile 3090 --startup-mode direct --out-dir .tmp/runpod-ux
 npm run runpod:measure-summary -- --dir .tmp/runpod-ux --out .tmp/runpod-ux-summary.md
 ```
 
@@ -62,7 +62,7 @@ PARARIA_ALLOW_REMOTE_GENERATION_SMOKE=1 npm run test:remote-generation-smoke -- 
 - `docs/interview-benchmarks/*.json`
 - `docs/stt-benchmarks/*.json`
 
-## 2026-04-18 実測結果
+## 2026-04-18 実測結果履歴
 
 条件:
 

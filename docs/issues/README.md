@@ -1,6 +1,6 @@
 # 直近で切る Issue 一覧
 
-更新日: 2026-04-21
+更新日: 2026-04-25
 
 今回の前提:
 
@@ -116,10 +116,8 @@
 
 次の active open issue:
 
-- `#173` iOS native Teacher App の録音基盤と最小 UI を作る
-- `#170` Android native Teacher App の録音基盤と最小 UI を作る
-- `#167` Teacher App を内部配布して実機 QA を回せるようにする
-- `#165` Teacher App の mobile 録音 lifecycle を harden する
+- `#191` Android Teacher App を現場投入できるところまで仕上げる
+- `#188` Android Teacher App の signed APK handoff と初回校舎 QA を完了する
 
 今回追加した issue docs:
 
@@ -186,8 +184,9 @@ close / defer に回した考え方:
 - `#150` は `verify` / `Conversation Quality` に generation-preservation gate を入れるところまで完了済み
 - `#174` は `2026-04-21` に main 反映と issue close まで完了済み
 - `#83` は closed 済みだが、noncritical side effect の best-effort 化という論点自体は引き続き有効
-- いま active に残しているのは、native Teacher App の実装 / lifecycle hardening / internal QA
-- `#167` は `2026-04-22` に Android handoff workflow と release signing 契約を repo へ追加済み。残りは keystore secrets 投入と signed APK の実機 QA。Play 拡張は任意
+- いま active に残しているのは、Android Teacher App の実機 main flow / signed APK handoff / 初回校舎 QA
+- iOS / TestFlight / App Store 前提の Issue は `2026-04-25` に close し、必要になった時点で新しく切り直す
+- `#167` の内部配布論点は `#188` の Android signed APK handoff に絞って継続する。Play 拡張は任意
 
 今回追加して完了した Runpod / generation issue:
 
@@ -215,9 +214,9 @@ close / defer に回した考え方:
 
 今回追加した改善 issue docs:
 
-1. `#159` [80-post-stt-handoff-and-queue-lag.md](./80-post-stt-handoff-and-queue-lag.md)
-2. `#158` [81-runpod-worker-observability-parity.md](./81-runpod-worker-observability-parity.md)
-3. `#157` [82-production-prompt-cache-recovery.md](./82-production-prompt-cache-recovery.md)
+1. `#159` [80-post-stt-handoff-and-queue-lag.md](./80-post-stt-handoff-and-queue-lag.md) - Closed
+2. `#158` [81-runpod-worker-observability-parity.md](./81-runpod-worker-observability-parity.md) - Closed
+3. `#157` [82-production-prompt-cache-recovery.md](./82-production-prompt-cache-recovery.md) - Closed
 
 Teacher App 仕様の新規 issue docs:
 
@@ -229,12 +228,16 @@ Teacher App 仕様の新規 issue docs:
 6. `#169` [88-teacher-app-ios-android-capacitor-parent-plan.md](./88-teacher-app-ios-android-capacitor-parent-plan.md) - Closed / superseded
 7. `#168` [89-teacher-app-mobile-shell-hardening.md](./89-teacher-app-mobile-shell-hardening.md) - Closed / superseded
 8. `#166` [90-teacher-app-capacitor-wrapper-and-native-permissions.md](./90-teacher-app-capacitor-wrapper-and-native-permissions.md) - Closed / superseded
-9. `#165` [91-teacher-app-mobile-recording-lifecycle-hardening.md](./91-teacher-app-mobile-recording-lifecycle-hardening.md)
-10. `#167` [92-teacher-app-internal-distribution-and-device-qa.md](./92-teacher-app-internal-distribution-and-device-qa.md)
-11. `#171` [93-teacher-native-app-parent-plan.md](./93-teacher-native-app-parent-plan.md)
+9. `#165` [91-teacher-app-mobile-recording-lifecycle-hardening.md](./91-teacher-app-mobile-recording-lifecycle-hardening.md) - Closed / superseded
+10. `#167` [92-teacher-app-internal-distribution-and-device-qa.md](./92-teacher-app-internal-distribution-and-device-qa.md) - Closed / superseded
+11. `#171` [93-teacher-native-app-parent-plan.md](./93-teacher-native-app-parent-plan.md) - Closed / superseded
 12. `#172` [94-teacher-native-app-backend-contract-and-device-auth.md](./94-teacher-native-app-backend-contract-and-device-auth.md) - Closed
-13. `#173` [95-ios-native-teacher-app-recording-foundation.md](./95-ios-native-teacher-app-recording-foundation.md)
-14. `#170` [96-android-native-teacher-app-recording-foundation.md](./96-android-native-teacher-app-recording-foundation.md)
+13. `#173` [95-ios-native-teacher-app-recording-foundation.md](./95-ios-native-teacher-app-recording-foundation.md) - Closed / deferred
+14. `#170` [96-android-native-teacher-app-recording-foundation.md](./96-android-native-teacher-app-recording-foundation.md) - Closed
+15. `#188` [98-android-teacher-app-signed-apk-handoff.md](./98-android-teacher-app-signed-apk-handoff.md)
+16. `#189` [99-android-teacher-app-field-diagnostics.md](./99-android-teacher-app-field-diagnostics.md) - Closed / repo-side done
+17. `#190` [100-teacher-app-device-admin-revoke.md](./100-teacher-app-device-admin-revoke.md) - Closed
+18. `#191` [101-android-teacher-app-field-readiness-parent.md](./101-android-teacher-app-field-readiness-parent.md)
 
 Teacher native app の補助 doc:
 

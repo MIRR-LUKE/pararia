@@ -3,7 +3,7 @@ import { loadLocalEnvFiles } from "./load-local-env";
 import { readRequiredEnv, sleep } from "./runpod-measure-ux-core";
 import { buildRunpodWorkerRuntimeEnv } from "../../lib/runpod/runtime-metadata";
 
-export type GpuProfileName = "4090" | "5090";
+export type GpuProfileName = "3090" | "4090" | "5090";
 export type StartupMode = "direct" | "bootstrap" | "reuse";
 
 export type GpuProfile = {
@@ -15,6 +15,13 @@ export type GpuProfile = {
 };
 
 export const GPU_PROFILES: Record<GpuProfileName, GpuProfile> = {
+  "3090": {
+    name: "3090",
+    gpu: "NVIDIA GeForce RTX 3090",
+    computeType: "auto",
+    batchSize: "16",
+    beamSize: "1",
+  },
   "4090": {
     name: "4090",
     gpu: "NVIDIA GeForce RTX 4090",
@@ -88,6 +95,23 @@ export function buildWorkerEnv(input: {
     DIRECT_URL: readRequiredEnv("DIRECT_URL"),
     BLOB_READ_WRITE_TOKEN: readRequiredEnv("BLOB_READ_WRITE_TOKEN"),
     OPENAI_API_KEY: readRequiredEnv("OPENAI_API_KEY"),
+    NEXTAUTH_URL: process.env.NEXTAUTH_URL?.trim() || process.env.NEXT_PUBLIC_APP_URL?.trim() || "",
+    NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL?.trim() || process.env.NEXTAUTH_URL?.trim() || "",
+    MAINTENANCE_SECRET:
+      process.env.MAINTENANCE_SECRET?.trim() ||
+      process.env.CRON_SECRET?.trim() ||
+      process.env.MAINTENANCE_CRON_SECRET?.trim() ||
+      "",
+    CRON_SECRET:
+      process.env.CRON_SECRET?.trim() ||
+      process.env.MAINTENANCE_SECRET?.trim() ||
+      process.env.MAINTENANCE_CRON_SECRET?.trim() ||
+      "",
+    MAINTENANCE_CRON_SECRET:
+      process.env.MAINTENANCE_CRON_SECRET?.trim() ||
+      process.env.MAINTENANCE_SECRET?.trim() ||
+      process.env.CRON_SECRET?.trim() ||
+      "",
     RUNPOD_API_KEY: readRequiredEnv("RUNPOD_API_KEY"),
     PARARIA_BACKGROUND_MODE: "external",
     PARARIA_AUDIO_STORAGE_MODE: "blob",

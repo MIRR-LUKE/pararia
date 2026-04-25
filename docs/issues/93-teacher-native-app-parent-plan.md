@@ -2,9 +2,15 @@
 
 ## 状態
 
-- Open
+- Closed / superseded
 - GitHub Issue: `#171`
-- 最終更新: `2026-04-21`
+- 最終更新: `2026-04-25`
+
+## 2026-04-25 方針変更
+
+この親 Issue は close。iOS / Android 両方の native app 完了を close 条件にしていたが、現時点では iOS を作らず Android-only で現場投入まで進める。
+
+新しい親 Issue は `#191` / [101-android-teacher-app-field-readiness-parent.md](./101-android-teacher-app-field-readiness-parent.md)。
 
 ## 先に結論
 

@@ -78,6 +78,8 @@ jobs:
           ANDROID_PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.ANDROID_PLAY_SERVICE_ACCOUNT_JSON }}
           UPLOAD_TO_PLAY: ${{ inputs.upload_to_play }}
         run: |
+          set -euo pipefail
+
           required_signing=(
             ANDROID_UPLOAD_KEYSTORE_BASE64
             ANDROID_UPLOAD_KEYSTORE_PASSWORD
@@ -87,7 +89,8 @@ jobs:
 
           missing=()
           for name in "${required_signing[@]}"; do
-            if [[ -z "${!name}" ]]; then
+            value="${!name-}"
+            if [[ -z "$value" ]]; then
               missing+=("$name")
             fi
           done
@@ -106,15 +109,51 @@ jobs:
       - name: Decode upload keystore
         env:
           ANDROID_UPLOAD_KEYSTORE_BASE64: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_BASE64 }}
+          ANDROID_UPLOAD_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_PASSWORD }}
+          ANDROID_UPLOAD_KEY_ALIAS: ${{ secrets.ANDROID_UPLOAD_KEY_ALIAS }}
         run: |
+          set -euo pipefail
+
           keystore_path="$RUNNER_TEMP/pararia-upload-key.jks"
-          printf '%s' "$ANDROID_UPLOAD_KEYSTORE_BASE64" | base64 --decode > "$keystore_path"
+          if ! printf '%s' "$ANDROID_UPLOAD_KEYSTORE_BASE64" | base64 --decode > "$keystore_path"; then
+            echo "ANDROID_UPLOAD_KEYSTORE_BASE64 is not valid base64" >&2
+            exit 1
+          fi
+
+          if [[ ! -s "$keystore_path" ]]; then
+            echo "Decoded upload keystore is empty" >&2
+            exit 1
+          fi
+
+          keytool -list \
+            -keystore "$keystore_path" \
+            -storepass "$ANDROID_UPLOAD_KEYSTORE_PASSWORD" \
+            -alias "$ANDROID_UPLOAD_KEY_ALIAS" \
+            >/dev/null
+
           echo "ORG_GRADLE_PROJECT_ANDROID_UPLOAD_STORE_FILE=$keystore_path" >> "$GITHUB_ENV"
 
       - name: Prepare build metadata
         id: meta
         run: |
+          set -euo pipefail
+
           base_url="${WORKFLOW_PARARIA_BASE_URL:-${REPO_PARARIA_BASE_URL:-$DEFAULT_PARARIA_BASE_URL}}"
+          if [[ -z "$base_url" ]]; then
+            echo "Resolved PARARIA base URL is empty" >&2
+            exit 1
+          fi
+
+          if [[ "$base_url" != http://* && "$base_url" != https://* ]]; then
+            echo "PARARIA base URL must start with http:// or https://: $base_url" >&2
+            exit 1
+          fi
+
+          if [[ "$base_url" == *[[:space:]]* || "$base_url" == *\"* || "$base_url" == *\\* ]]; then
+            echo "PARARIA base URL must not contain whitespace, quotes, or backslashes" >&2
+            exit 1
+          fi
+
           version_code=$((1000 + GITHUB_RUN_NUMBER))
           version_name="1.0.0-internal.${GITHUB_RUN_NUMBER}"
           release_name="$WORKFLOW_RELEASE_NAME"
@@ -140,13 +179,28 @@ jobs:
           ORG_GRADLE_PROJECT_ANDROID_UPLOAD_STORE_PASSWORD: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_PASSWORD }}
           ORG_GRADLE_PROJECT_ANDROID_UPLOAD_KEY_ALIAS: ${{ secrets.ANDROID_UPLOAD_KEY_ALIAS }}
           ORG_GRADLE_PROJECT_ANDROID_UPLOAD_KEY_PASSWORD: ${{ secrets.ANDROID_UPLOAD_KEY_PASSWORD }}
-        run: gradle :app:assembleRelease --stacktrace
+        run: ./gradlew --no-daemon :app:assembleRelease --stacktrace
+
+      - name: Verify signed APK
+        run: |
+          set -euo pipefail
+
+          apk_path="app/build/outputs/apk/release/app-release.apk"
+          if [[ ! -s "$apk_path" ]]; then
+            echo "Expected release APK was not created: $apk_path" >&2
+            exit 1
+          fi
+
+          "$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --verbose --print-certs "$apk_path"
+          sha256sum "$apk_path" > "${apk_path}.sha256"
 
       - name: Upload signed APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: teacher-android-apk-${{ steps.meta.outputs.version_name }}
-          path: native/android/app/build/outputs/apk/release/app-release.apk
+          path: |
+            native/android/app/build/outputs/apk/release/app-release.apk
+            native/android/app/build/outputs/apk/release/app-release.apk.sha256
           if-no-files-found: error
           retention-days: 14
 
@@ -156,7 +210,7 @@ jobs:
           ORG_GRADLE_PROJECT_ANDROID_UPLOAD_STORE_PASSWORD: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_PASSWORD }}
           ORG_GRADLE_PROJECT_ANDROID_UPLOAD_KEY_ALIAS: ${{ secrets.ANDROID_UPLOAD_KEY_ALIAS }}
           ORG_GRADLE_PROJECT_ANDROID_UPLOAD_KEY_PASSWORD: ${{ secrets.ANDROID_UPLOAD_KEY_PASSWORD }}
-        run: gradle :app:bundleRelease --stacktrace
+        run: ./gradlew --no-daemon :app:bundleRelease --stacktrace
 
       - name: Upload signed bundle artifact
         if: ${{ inputs.upload_to_play }}
@@ -193,6 +247,8 @@ jobs:
       - name: Write handoff summary
         if: always()
         run: |
+          set -euo pipefail
+
           {
             echo "## Android handoff"
             echo ""
@@ -200,6 +256,7 @@ jobs:
             echo "- versionCode: \`${{ steps.meta.outputs.version_code }}\`"
             echo "- base URL: \`${{ steps.meta.outputs.base_url }}\`"
             echo "- APK artifact: \`teacher-android-apk-${{ steps.meta.outputs.version_name }}\`"
+            echo "- APK verification: \`apksigner verify\` ran before artifact upload"
             if [[ "${{ inputs.upload_to_play }}" == "true" ]]; then
               echo "- Play upload: attempted"
               echo "- AAB artifact: \`teacher-android-aab-${{ steps.meta.outputs.version_name }}\`"
@@ -211,4 +268,6 @@ jobs:
             echo '```bash'
             echo 'adb install -r app-release.apk'
             echo '```'
+            echo ""
+            echo "Record the device model, Android version, app version, versionCode, base URL, and QA recording IDs in issue #188."
           } >> "$GITHUB_STEP_SUMMARY"

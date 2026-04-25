@@ -48,6 +48,24 @@ function buildDeletedContentDetail(row: { deletedAt?: string | null; deletedByLa
   return parts.filter(Boolean).join(" / ");
 }
 
+function buildDeviceClientDetail(
+  row: SettingsSnapshot["teacherAppDevices"]["devices"][number],
+  timeZone: string
+) {
+  const version =
+    row.lastAppVersion || row.lastBuildNumber
+      ? `${row.lastAppVersion ?? "version未設定"} / build ${row.lastBuildNumber ?? "未設定"}`
+      : "version未設定";
+  const parts = [
+    `最終確認: ${formatDateTime(row.lastSeenAt, timeZone)}`,
+    `認証: ${formatDateTime(row.lastAuthenticatedAt, timeZone)}`,
+    `client: ${row.lastClientPlatform ?? "UNKNOWN"}`,
+    version,
+    row.configuredByLabel ? `設定者: ${row.configuredByLabel}` : null,
+  ];
+  return parts.filter(Boolean).join(" / ");
+}
+
 type BaseProps = {
   canManage: boolean;
   message: string | null;
@@ -274,6 +292,66 @@ export function SettingsPermissionsSection({
       </div>
       <div className={styles.note}>
         現在のロール: {settings.permissions.viewerRole ?? "未設定"} / 編集権限: {canManage ? "あり" : "なし"}
+      </div>
+    </Card>
+  );
+}
+
+export function SettingsTeacherAppDevicesSection({
+  canManage,
+  settings,
+  timeZoneLabel,
+  onRevokeDevice,
+  revokingDeviceId,
+}: BaseProps & {
+  onRevokeDevice: (device: SettingsSnapshot["teacherAppDevices"]["devices"][number]) => void;
+  revokingDeviceId: string | null;
+}) {
+  return (
+    <Card title="Teacher App 端末" subtitle="校舎端末の利用状態と、紛失・入れ替え時の停止操作を確認します。">
+      <div className={styles.metricGrid}>
+        <div className={styles.metricCard}>
+          <span className={styles.metricLabel}>有効端末</span>
+          <strong>{settings.teacherAppDevices.activeCount}</strong>
+        </div>
+        <div className={styles.metricCard}>
+          <span className={styles.metricLabel}>停止済み</span>
+          <strong>{settings.teacherAppDevices.revokedCount}</strong>
+        </div>
+        <div className={styles.metricCard}>
+          <span className={styles.metricLabel}>表示件数</span>
+          <strong>{settings.teacherAppDevices.devices.length}</strong>
+        </div>
+      </div>
+
+      <div className={styles.listBlock}>
+        {settings.teacherAppDevices.devices.length === 0 ? (
+          <div className={styles.successBox}>登録済みの Teacher App 端末はまだありません。</div>
+        ) : (
+          settings.teacherAppDevices.devices.map((device) => (
+            <div key={device.id} className={styles.jobItem}>
+              <div className={styles.jobTop}>
+                <div>
+                  <strong>{device.label}</strong>
+                  <div className={styles.note}>{buildDeviceClientDetail(device, timeZoneLabel)}</div>
+                  <div className={styles.note}>active session: {device.activeAuthSessionCount}</div>
+                </div>
+                <span className={styles.pill}>{device.statusLabel}</span>
+              </div>
+              <div className={styles.buttonRow}>
+                <Button
+                  variant="secondary"
+                  size="small"
+                  onClick={() => onRevokeDevice(device)}
+                  disabled={!canManage || device.status !== "ACTIVE" || revokingDeviceId === device.id}
+                >
+                  {revokingDeviceId === device.id ? "停止中..." : "端末を停止"}
+                </Button>
+                {!canManage ? <span className={styles.note}>このアカウントでは停止できません。</span> : null}
+              </div>
+            </div>
+          ))
+        )}
       </div>
     </Card>
   );

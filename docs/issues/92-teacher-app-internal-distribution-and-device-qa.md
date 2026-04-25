@@ -2,9 +2,15 @@
 
 ## 状態
 
-- Open
+- Closed / superseded
 - GitHub Issue: `#167`
-- 最終更新: `2026-04-22`
+- 最終更新: `2026-04-25`
+
+## 2026-04-25 方針変更
+
+この Issue は close。TestFlight / Play Internal Testing / iOS + Android 両対応を前提にしていて、今の Android-first 方針より大きすぎる。
+
+内部配布の論点は `#188` の Android signed APK handoff と初回校舎 QA に絞って継続する。Play Internal Testing は任意拡張として残す。
 
 ## 目的
 

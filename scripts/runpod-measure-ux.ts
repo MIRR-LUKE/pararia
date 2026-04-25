@@ -186,7 +186,7 @@ function assertExistingStudentTargetAllowed(targetStudentName: string) {
 }
 
 async function main() {
-  const profileName = (parseArg("profile", "5090") ?? "5090") as GpuProfileName;
+  const profileName = (parseArg("profile", "3090") ?? "3090") as GpuProfileName;
   const profile = GPU_PROFILES[profileName];
   if (!profile) {
     throw new Error(`unsupported profile: ${profileName}`);

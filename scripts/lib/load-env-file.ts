@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 type LoadEnvFileOptions = {
   overrideExisting?: boolean;
   optional?: boolean;
+  skipEmpty?: boolean;
 };
 
 export async function loadEnvFile(
@@ -11,6 +12,7 @@ export async function loadEnvFile(
 ) {
   const overrideExisting = options?.overrideExisting === true;
   const optional = options?.optional !== false;
+  const skipEmpty = options?.skipEmpty === true;
 
   try {
     const raw = await readFile(filePath, "utf8");
@@ -22,10 +24,11 @@ export async function loadEnvFile(
       const key = match[1];
       if (!overrideExisting && process.env[key]) continue;
       let value = match[2].trim();
-      if ((value.startsWith("\"") && value.endsWith("\"")) || (value.startsWith("'") && value.endsWith("'"))) {
-        value = value.slice(1, -1);
-      }
-      process.env[key] = value;
+        if ((value.startsWith("\"") && value.endsWith("\"")) || (value.startsWith("'") && value.endsWith("'"))) {
+          value = value.slice(1, -1);
+        }
+        if (skipEmpty && !value.trim()) continue;
+        process.env[key] = value;
     }
   } catch (error) {
     if (optional) return;
