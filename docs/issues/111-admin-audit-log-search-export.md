@@ -2,7 +2,7 @@
 
 ## 状態
 
-- Deferred
+- Done
 - GitHub Issue: `#214`
 - 作成日: `2026-04-26`
 
@@ -29,3 +29,10 @@
 - export は権限と監査つきで実行される
 - 初期画面がログの大海になっていない
 - 重要操作の理由と対象が追える
+
+## 実装メモ
+
+- `/admin/audit` に読み取り専用の検索画面を追加した。
+- `/api/admin/audit` は `PlatformOperator` かつ `canReadAuditLogs` 必須で、operator email/name、target、action、status、reason、risk、createdAt に絞って返す。
+- `/api/admin/audit/export` は CSV / JSON に対応し、export 自体を `platform_audit_export` として `PlatformAuditLog` に記録する。
+- 初期表示は条件なしの場合だけ、最近の重要操作 20 件に限定する。

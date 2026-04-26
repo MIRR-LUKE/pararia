@@ -4,7 +4,7 @@
 
 今回の前提:
 
-- Platform Admin は今回 `/admin` の read-only UI まで実装した
+- Platform Admin は今回 `/admin` の運営者専用コンソール、監査、契約参照、確認専用端末支援、監査つきジョブ復旧操作まで実装した
 - raw transcript は壊さない
 - reviewed transcript があれば後段で優先し、なければ raw を使う
 - 固有名詞だけは候補推測してよいが、自動確定しない
@@ -118,7 +118,7 @@
 
 - `#191` Android Teacher App を現場投入できるところまで仕上げる
 - `#188` Android Teacher App の signed APK handoff と初回校舎 QA を完了する
-- `#205`〜`#218` Platform Admin は read-only command center まで実装済み。危険操作系は監査土台のみ入れ、UI は保留判断
+- `#205`〜`#218` Platform Admin は運営者専用の校舎横断コンソール、監査、契約メタデータ、確認専用端末支援、監査つきジョブ復旧操作まで実装済み
 
 今回追加した issue docs:
 
@@ -255,10 +255,10 @@ Platform Admin 仕様と新規 issue docs:
 - `#209` [106-admin-campus-detail-support-console.md](./106-admin-campus-detail-support-console.md) - Done
 - `#210` [107-admin-cross-campus-job-health.md](./107-admin-cross-campus-job-health.md) - Done
 - `#211` [108-admin-action-audit-framework.md](./108-admin-action-audit-framework.md) - Done
-- `#212` [109-admin-operations-job-actions.md](./109-admin-operations-job-actions.md) - Deferred / read-only 初期版では露出しない
-- `#213` [110-admin-user-device-support-tools.md](./110-admin-user-device-support-tools.md) - Deferred / read-only 初期版では停止操作を露出しない
-- `#214` [111-admin-audit-log-search-export.md](./111-admin-audit-log-search-export.md) - Deferred / 監査モデルと校舎詳細の recent actions まで
-- `#215` [112-admin-contract-cs-support-metadata.md](./112-admin-contract-cs-support-metadata.md) - Deferred
-- `#216` [113-admin-aggregation-index-performance.md](./113-admin-aggregation-index-performance.md) - In Progress / 100 件 paging と 500 件 summary まで
+- `#212` [109-admin-operations-job-actions.md](./109-admin-operations-job-actions.md) - Done
+- `#213` [110-admin-user-device-support-tools.md](./110-admin-user-device-support-tools.md) - Done
+- `#214` [111-admin-audit-log-search-export.md](./111-admin-audit-log-search-export.md) - Done
+- `#215` [112-admin-contract-cs-support-metadata.md](./112-admin-contract-cs-support-metadata.md) - Done
+- `#216` [113-admin-aggregation-index-performance.md](./113-admin-aggregation-index-performance.md) - Done
 - `#217` [114-admin-docs-runbook-platform-admin.md](./114-admin-docs-runbook-platform-admin.md) - Done
 - `#218` [115-admin-usability-simplification-check.md](./115-admin-usability-simplification-check.md) - Done

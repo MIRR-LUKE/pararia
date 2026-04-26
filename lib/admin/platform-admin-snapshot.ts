@@ -358,6 +358,9 @@ function toCampusSummary(input: {
     id: string;
     name: string;
     planCode: string;
+    contractStatus: string;
+    contractRenewalDate: Date | null;
+    csOwnerName: string | null;
     studentLimit: number | null;
     createdAt: Date;
     updatedAt: Date;
@@ -385,6 +388,9 @@ function toCampusSummary(input: {
     statusLabel: statusLabel(status),
     customerLabel: input.organization.name,
     planCode: input.organization.planCode,
+    contractStatus: input.organization.contractStatus,
+    contractRenewalDate: toIsoString(input.organization.contractRenewalDate),
+    csOwnerName: input.organization.csOwnerName,
     studentLimit: input.organization.studentLimit,
     activeStudentCount: input.organization._count.students,
     archivedStudentCount: input.metrics.archivedStudentCount,
@@ -408,6 +414,11 @@ function buildOrganizationWhere(query: string | null | undefined): Prisma.Organi
     OR: [
       { name: { contains: normalizedQuery, mode: "insensitive" } },
       { planCode: { contains: normalizedQuery, mode: "insensitive" } },
+      { contractStatus: { contains: normalizedQuery, mode: "insensitive" } },
+      { billingContactName: { contains: normalizedQuery, mode: "insensitive" } },
+      { billingContactEmail: { contains: normalizedQuery, mode: "insensitive" } },
+      { salesOwnerName: { contains: normalizedQuery, mode: "insensitive" } },
+      { csOwnerName: { contains: normalizedQuery, mode: "insensitive" } },
       { id: { contains: normalizedQuery, mode: "insensitive" } },
     ],
   };
@@ -431,6 +442,14 @@ export async function listAdminCampuses(options: ListAdminCampusesOptions = {}):
       id: true,
       name: true,
       planCode: true,
+      contractStatus: true,
+      contractRenewalDate: true,
+      billingContactName: true,
+      billingContactEmail: true,
+      salesOwnerName: true,
+      csOwnerName: true,
+      usageLimitNote: true,
+      supportNote: true,
       studentLimit: true,
       createdAt: true,
       updatedAt: true,
@@ -889,6 +908,14 @@ export async function getAdminCampusDetail(options: GetAdminCampusDetailOptions)
       id: true,
       name: true,
       planCode: true,
+      contractStatus: true,
+      contractRenewalDate: true,
+      billingContactName: true,
+      billingContactEmail: true,
+      salesOwnerName: true,
+      csOwnerName: true,
+      usageLimitNote: true,
+      supportNote: true,
       studentLimit: true,
       defaultLocale: true,
       defaultTimeZone: true,
@@ -974,6 +1001,16 @@ export async function getAdminCampusDetail(options: GetAdminCampusDetailOptions)
       reportCount,
       deletedConversationCount,
       deletedReportCount,
+    },
+    contract: {
+      status: organization.contractStatus,
+      renewalDate: toIsoString(organization.contractRenewalDate),
+      billingContactName: organization.billingContactName,
+      billingContactEmail: organization.billingContactEmail,
+      salesOwnerName: organization.salesOwnerName,
+      csOwnerName: organization.csOwnerName,
+      usageLimitNote: organization.usageLimitNote,
+      supportNote: organization.supportNote,
     },
     users: {
       total: organization._count.users,

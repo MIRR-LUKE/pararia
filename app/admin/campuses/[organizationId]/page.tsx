@@ -50,6 +50,16 @@ function roleLabel(role: string) {
   return role;
 }
 
+function contractStatusLabel(status: string) {
+  const normalized = status.trim().toLowerCase();
+  if (normalized === "active") return "契約中";
+  if (normalized === "trial") return "試用中";
+  if (normalized === "onboarding") return "導入中";
+  if (normalized === "suspended") return "停止中";
+  if (normalized === "cancelled" || normalized === "canceled") return "解約済み";
+  return status || "未設定";
+}
+
 function KeyValueRow({ label, value }: { label: string; value: string | number }) {
   return (
     <div className={styles.keyValueRow}>
@@ -89,6 +99,9 @@ export default async function AdminCampusDetailPage({ params }: PageProps) {
               PARARIA Admin
             </Link>
             <span className={styles.scopePill}>校舎詳細</span>
+            <Link className={styles.secondaryLink} href="/admin/audit">
+              監査
+            </Link>
           </div>
           <div className={styles.operatorPill}>
             <strong>{session.user.name ?? session.user.email ?? "運営担当者"}</strong>
@@ -149,6 +162,17 @@ export default async function AdminCampusDetailPage({ params }: PageProps) {
             </div>
           </section>
 
+          <section className={styles.detailSection} aria-labelledby="contract-title">
+            <h2 id="contract-title">契約・担当</h2>
+            <div className={styles.keyValueGrid}>
+              <KeyValueRow label="契約状態" value={contractStatusLabel(detail.contract.status)} />
+              <KeyValueRow label="更新日" value={formatDateTime(detail.contract.renewalDate)} />
+              <KeyValueRow label="請求先" value={detail.contract.billingContactName ?? "未設定"} />
+              <KeyValueRow label="営業担当" value={detail.contract.salesOwnerName ?? "未設定"} />
+              <KeyValueRow label="CS担当" value={detail.contract.csOwnerName ?? "未設定"} />
+            </div>
+          </section>
+
           <section className={styles.detailSection} aria-labelledby="usage-title">
             <h2 id="usage-title">利用状況</h2>
             <div className={styles.keyValueGrid}>
@@ -171,7 +195,12 @@ export default async function AdminCampusDetailPage({ params }: PageProps) {
           </section>
 
           <section className={`${styles.detailSection} ${styles.detailSectionWide}`} aria-labelledby="jobs-title">
-            <h2 id="jobs-title">ジョブ</h2>
+            <div className={styles.panelHeader}>
+              <h2 id="jobs-title">ジョブ</h2>
+              <Link className={styles.detailLink} href={`/admin/campuses/${detail.campus.id}/operations`}>
+                復旧操作を開く
+              </Link>
+            </div>
             <div className={styles.tableWrap}>
               <table className={styles.table}>
                 <thead>
@@ -205,7 +234,12 @@ export default async function AdminCampusDetailPage({ params }: PageProps) {
           </section>
 
           <section className={styles.detailSection} aria-labelledby="devices-title">
-            <h2 id="devices-title">端末</h2>
+            <div className={styles.panelHeader}>
+              <h2 id="devices-title">端末</h2>
+              <Link className={styles.detailLink} href={`/admin/campuses/${detail.campus.id}/devices`}>
+                端末を見る
+              </Link>
+            </div>
             <div className={styles.keyValueGrid}>
               <KeyValueRow label="有効" value={detail.devices.active.toLocaleString("ja-JP")} />
               <KeyValueRow label="無効化済み" value={detail.devices.revoked.toLocaleString("ja-JP")} />
@@ -213,8 +247,21 @@ export default async function AdminCampusDetailPage({ params }: PageProps) {
             </div>
           </section>
 
+          <section className={styles.detailSection} aria-labelledby="support-note-title">
+            <h2 id="support-note-title">メモ</h2>
+            <div className={styles.emptyState}>
+              <strong>{detail.contract.supportNote ?? "サポートメモは未設定です。"}</strong>
+              <span>{detail.contract.usageLimitNote ?? "利用上限や契約上の注意事項があればここに表示します。"}</span>
+            </div>
+          </section>
+
           <section className={`${styles.detailSection} ${styles.detailSectionWide}`} aria-labelledby="audit-title">
-            <h2 id="audit-title">監査</h2>
+            <div className={styles.panelHeader}>
+              <h2 id="audit-title">監査</h2>
+              <Link className={styles.detailLink} href={`/admin/audit?campus=${detail.campus.id}`}>
+                監査ログを開く
+              </Link>
+            </div>
             {detail.audits.recentPlatformActions.length === 0 ? (
               <div className={styles.emptyState}>
                 <strong>この校舎への運営操作はまだ記録されていません。</strong>

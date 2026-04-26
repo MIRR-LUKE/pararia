@@ -2,7 +2,7 @@
 
 ## 状態
 
-- Deferred
+- Done
 - GitHub Issue: `#212`
 - 作成日: `2026-04-26`
 
@@ -14,11 +14,14 @@
 
 現状の保守操作は `/admin` に移されたが、思想としてはまだ単一校舎の延長に近い。横断ジョブヘルスと admin action framework の上に載せ替える必要がある。
 
-## 2026-04-26 判断
+## 2026-04-26 実装
 
-- 初期 `/admin` は read-only に固定し、再実行・キャンセルは常時露出しない
-- write action の監査土台は `PlatformAuditLog` と `lib/admin/platform-audit.ts` で実装済み
-- 実行 UI は、非エンジニア向けレビューで対象・影響・理由入力の型が固まってから追加する
+- `/admin/campuses/[organizationId]/operations` に単一ジョブの復旧操作画面を追加した
+- `/api/admin/operations/jobs/[kind]/[id]` へ platform admin action route を追加した
+- 再実行 / キャンセルは `PlatformOperator` の危険操作権限、操作理由、ジョブID確認を必須にした
+- 実行前、成功、失敗、拒否を `PlatformAuditLog` に記録する
+- 一括操作は作らず、誤操作を避けるため単一ジョブ単位に限定した
+- focused test は `npm run test:admin-job-actions`
 
 ## 前提
 

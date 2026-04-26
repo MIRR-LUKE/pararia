@@ -61,6 +61,16 @@ function jobTone(group: AdminJobHealthSummary) {
   return styles.toneGood;
 }
 
+function contractStatusLabel(status: string) {
+  const normalized = status.trim().toLowerCase();
+  if (normalized === "active") return "契約中";
+  if (normalized === "trial") return "試用中";
+  if (normalized === "onboarding") return "導入中";
+  if (normalized === "suspended") return "停止中";
+  if (normalized === "cancelled" || normalized === "canceled") return "解約済み";
+  return status || "未設定";
+}
+
 function normalize(value: string) {
   return value.trim().toLowerCase();
 }
@@ -152,6 +162,9 @@ export default function AdminPlatformPageClient({
               PARARIA Admin
             </Link>
             <span className={styles.scopePill}>全校舎</span>
+            <Link className={styles.secondaryLink} href="/admin/audit">
+              監査
+            </Link>
           </div>
           <div className={styles.operatorPill} aria-label="ログイン中の運営担当者">
             <strong>{viewerName}</strong>
@@ -285,7 +298,7 @@ export default function AdminPlatformPageClient({
 
           <div className={styles.toolbar} role="search">
             <label className={styles.searchField}>
-              <span>校舎名・契約名・IDで検索</span>
+              <span>校舎名・契約・担当者・IDで検索</span>
               <input
                 type="search"
                 value={query}
@@ -325,6 +338,7 @@ export default function AdminPlatformPageClient({
                   <tr>
                     <th scope="col">状態</th>
                     <th scope="col">校舎</th>
+                    <th scope="col">契約</th>
                     <th scope="col">生徒</th>
                     <th scope="col">処理</th>
                     <th scope="col">最終更新</th>
@@ -341,7 +355,15 @@ export default function AdminPlatformPageClient({
                       </td>
                       <td>
                         <strong className={styles.tableTitle}>{campus.name}</strong>
-                        <span className={styles.tableHint}>{campus.customerLabel}</span>
+                        <span className={styles.tableHint}>
+                          {campus.csOwnerName ? `CS: ${campus.csOwnerName}` : campus.customerLabel}
+                        </span>
+                      </td>
+                      <td>
+                        <strong className={styles.tableTitle}>{contractStatusLabel(campus.contractStatus)}</strong>
+                        <span className={styles.tableHint}>
+                          {campus.contractRenewalDate ? `更新 ${formatDateTime(campus.contractRenewalDate)}` : campus.planCode}
+                        </span>
                       </td>
                       <td>
                         {campus.activeStudentCount.toLocaleString("ja-JP")}

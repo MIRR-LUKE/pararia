@@ -304,6 +304,15 @@ GO 範囲:
 - 画面は初期表示 3 領域以内、主要カード 4 つ以内、表 6 列前後を守る。
 - エラーやジョブ原因は日本語で表示し、内部コードは詳細内に隠す。
 
+## 2026-04-26 実装進捗
+
+- `#205`〜`#211` で PlatformOperator、admin host guard、校舎横断ホーム、校舎検索、校舎詳細、横断ジョブヘルス、監査つき write action framework を実装済み。
+- `#212` で `/admin/campuses/[organizationId]/operations` と `/api/admin/operations/jobs/[kind]/[id]` を追加し、ジョブ再実行/キャンセルを理由、対象確認、`PlatformAuditLog` つきで実行できるようにした。
+- `#213` で `/admin/campuses/[organizationId]/devices` と確認専用 API を追加し、Teacher App 端末、最終確認、登録者、認証セッション数、revoke 状態を運営側で確認できるようにした。端末停止そのものは危険操作として後続の監査付き action に分ける。
+- `#214` で `/admin/audit`、`/api/admin/audit`、`/api/admin/audit/export` を追加し、期間、操作者、校舎、操作種別、結果で監査検索し、CSV / JSON エクスポート自体も監査に残すようにした。
+- `#215` で `Organization` に契約状態、更新日、請求先、営業担当、CS担当、利用上限メモ、サポートメモを追加し、校舎一覧と校舎詳細に参照表示した。
+- `#216` で admin 一覧、ジョブヘルス、校舎詳細、端末支援、監査検索に必要な index と `test:admin-platform-performance` を追加した。
+
 ## Issue 分割案
 
 - 102 / GitHub `#205`: PlatformOperator / PlatformRole / PlatformAuditLog を追加する

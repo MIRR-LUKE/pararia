@@ -278,8 +278,11 @@ npm run test:student-room-route
 - allowlist 未設定の環境でも、校舎内 `ADMIN` だけでは `/admin` と `app/api/admin/**` に入れない
 - 初期ホームは `校舎数`, `要対応`, `処理中`, `正常` の 4 指標に絞る
 - `今日見るところ` に失敗または詰まり疑いを優先表示する
-- 校舎検索は校舎名、契約名、プラン、ID で探せる
-- 校舎詳細では概要、利用状況、ユーザー、ジョブ、端末、監査を read-only で確認する
+- 校舎検索は校舎名、契約状態、担当者、プラン、ID で探せる
+- 校舎詳細では概要、契約・担当、利用状況、ユーザー、ジョブ、端末、監査、メモを確認する
+- `/admin/campuses/[organizationId]/operations` で詰まったジョブを理由・対象確認・監査つきで再実行またはキャンセルできる
+- `/admin/campuses/[organizationId]/devices` で Teacher App 端末と認証セッションを確認専用で支援できる
+- `/admin/audit` で監査ログを期間、操作者、校舎、操作種別、結果で検索し、CSV / JSON エクスポートできる
 - 初期表示では面談本文、音声、保護者連絡先、内部エラーコード、処理基盤の詳細を出さない
 - ジョブ再実行、端末停止、ユーザー停止、代理閲覧、export などの write 操作は理由・影響範囲・監査を通す
 - 保守 API は運営者セッション、または `x-maintenance-secret` / `Authorization: Bearer` で通す

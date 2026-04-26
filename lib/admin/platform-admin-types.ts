@@ -32,6 +32,9 @@ export type AdminCampusSummary = {
   statusLabel: string;
   customerLabel: string;
   planCode: string;
+  contractStatus: string;
+  contractRenewalDate: string | null;
+  csOwnerName: string | null;
   studentLimit: number | null;
   activeStudentCount: number;
   archivedStudentCount: number;
@@ -110,6 +113,16 @@ export type AdminCampusDetail = {
     reportCount: number;
     deletedConversationCount: number;
     deletedReportCount: number;
+  };
+  contract: {
+    status: string;
+    renewalDate: string | null;
+    billingContactName: string | null;
+    billingContactEmail: string | null;
+    salesOwnerName: string | null;
+    csOwnerName: string | null;
+    usageLimitNote: string | null;
+    supportNote: string | null;
   };
   users: {
     total: number;
