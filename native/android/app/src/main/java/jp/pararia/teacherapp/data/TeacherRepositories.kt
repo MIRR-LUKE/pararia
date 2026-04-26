@@ -39,10 +39,11 @@ private val repositoryJson = Json {
     explicitNulls = false
 }
 
-private const val TEACHER_RECORDING_POLL_TIMEOUT_MS = 10 * 60 * 1000L
+private const val TEACHER_RECORDING_POLL_TIMEOUT_MS = 45 * 60 * 1000L
 private const val TEACHER_RECORDING_POLL_FAST_MS = 1_500L
 private const val TEACHER_RECORDING_POLL_WARM_MS = 2_500L
 private const val TEACHER_RECORDING_POLL_SLOW_MS = 4_000L
+private const val TEACHER_RECORDING_DIRECT_BLOB_THRESHOLD_BYTES = 4L * 1024L * 1024L
 
 private fun currentClientInfo(): TeacherClientInfo =
     TeacherClientInfo(
@@ -276,19 +277,32 @@ class DefaultTeacherRecordingRepository(
             ),
         )
         return try {
+            val file = File(filePath)
+            val useDirectBlobUpload = file.length() > TEACHER_RECORDING_DIRECT_BLOB_THRESHOLD_BYTES
             val summary = withAuthenticatedRequest {
-                apiClient.uploadAudio(
-                    recordingId = recordingId,
-                    filePath = filePath,
-                    durationSeconds = durationSeconds,
-                ).recording
+                if (useDirectBlobUpload) {
+                    apiClient.uploadAudioViaBlob(
+                        recordingId = recordingId,
+                        filePath = filePath,
+                        durationSeconds = durationSeconds,
+                    ).recording
+                } else {
+                    apiClient.uploadAudio(
+                        recordingId = recordingId,
+                        filePath = filePath,
+                        durationSeconds = durationSeconds,
+                    ).recording
+                }
             }
             deleteLocalFile(filePath)
             TeacherDiagnostics.track(
                 name = "upload_success",
                 recordingId = recordingId,
                 deviceLabel = summary?.deviceLabel,
-                details = mapOf("status" to summary?.status?.name),
+                details = mapOf(
+                    "status" to summary?.status?.name,
+                    "uploadMode" to if (useDirectBlobUpload) "direct_blob_multipart" else "api_multipart",
+                ),
             )
             summary
         } catch (error: Exception) {

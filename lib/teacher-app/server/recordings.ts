@@ -323,6 +323,97 @@ export async function uploadTeacherRecordingAudio(input: {
   });
 }
 
+export async function prepareTeacherRecordingBlobUpload(input: {
+  organizationId: string;
+  deviceId?: string | null;
+  deviceLabel?: string | null;
+  recordingId: string;
+  fileName: string;
+}) {
+  const recording = await loadTeacherRecordingForProcessing(input.recordingId, {
+    organizationId: input.organizationId,
+    deviceId: input.deviceId,
+    deviceLabel: input.deviceLabel,
+  });
+  if (!recording || recording.organizationId !== input.organizationId) {
+    throw new Error("録音セッションが見つかりません。");
+  }
+  if (recording.status !== TeacherRecordingSessionStatus.RECORDING) {
+    if (recording.status === TeacherRecordingSessionStatus.CANCELLED) {
+      throw new Error("この録音はすでに中止されています。最初からやり直してください。");
+    }
+    throw new Error("この録音はすでに送信済みです。最初からやり直してください。");
+  }
+
+  const safeFileName = sanitizeStorageFileName(input.fileName || "teacher-recording.m4a");
+  return {
+    safeFileName,
+    storagePathname: buildTeacherRecordingUploadPathname(input.recordingId, safeFileName),
+  };
+}
+
+export async function completeTeacherRecordingBlobUpload(input: {
+  organizationId: string;
+  deviceId?: string | null;
+  deviceLabel?: string | null;
+  recordingId: string;
+  fileName: string;
+  mimeType?: string | null;
+  byteSize?: number | null;
+  storageUrl: string;
+  storagePathname?: string | null;
+  durationSecondsHint?: number | null;
+}) {
+  const recording = await loadTeacherRecordingForProcessing(input.recordingId, {
+    organizationId: input.organizationId,
+    deviceId: input.deviceId,
+    deviceLabel: input.deviceLabel,
+  });
+  if (!recording || recording.organizationId !== input.organizationId) {
+    throw new Error("録音セッションが見つかりません。");
+  }
+  if (recording.status !== TeacherRecordingSessionStatus.RECORDING) {
+    if (recording.status === TeacherRecordingSessionStatus.CANCELLED) {
+      throw new Error("この録音はすでに中止されています。最初からやり直してください。");
+    }
+    throw new Error("この録音はすでに送信済みです。最初からやり直してください。");
+  }
+
+  const storagePathname = String(input.storagePathname || "").trim();
+  const expectedPrefix = `teacher-recordings/uploads/${input.recordingId}/`;
+  if (!storagePathname.startsWith(expectedPrefix)) {
+    throw new Error("音声アップロードの保存先が不正です。");
+  }
+
+  const uploadedAt = new Date();
+  const safeFileName = sanitizeStorageFileName(input.fileName || "teacher-recording.m4a");
+  const byteSize =
+    typeof input.byteSize === "number" && Number.isFinite(input.byteSize) && input.byteSize >= 0
+      ? Math.floor(input.byteSize)
+      : null;
+
+  return prisma.$transaction(async (tx) => {
+    await tx.teacherRecordingSession.update({
+      where: { id: input.recordingId },
+      data: {
+        status: TeacherRecordingSessionStatus.TRANSCRIBING,
+        audioFileName: safeFileName,
+        audioMimeType: input.mimeType || "audio/mp4",
+        audioByteSize: byteSize,
+        audioStorageUrl: input.storageUrl,
+        durationSeconds:
+          typeof input.durationSecondsHint === "number" && Number.isFinite(input.durationSecondsHint)
+            ? input.durationSecondsHint
+            : null,
+        uploadedAt,
+        errorMessage: null,
+      },
+    });
+
+    return upsertTeacherRecordingJob(tx, input.recordingId, input.organizationId, TeacherRecordingJobType.TRANSCRIBE_AND_SUGGEST);
+  });
+}
+
 export async function confirmTeacherRecordingStudent(input: {
   organizationId: string;
   deviceId?: string | null;
