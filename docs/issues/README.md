@@ -235,10 +235,10 @@ Teacher App 仕様の新規 issue docs:
 12. `#172` [94-teacher-native-app-backend-contract-and-device-auth.md](./94-teacher-native-app-backend-contract-and-device-auth.md) - Closed
 13. `#173` [95-ios-native-teacher-app-recording-foundation.md](./95-ios-native-teacher-app-recording-foundation.md) - Closed / deferred
 14. `#170` [96-android-native-teacher-app-recording-foundation.md](./96-android-native-teacher-app-recording-foundation.md) - Closed
-15. `#188` [98-android-teacher-app-signed-apk-handoff.md](./98-android-teacher-app-signed-apk-handoff.md)
+15. `#188` [98-android-teacher-app-signed-apk-handoff.md](./98-android-teacher-app-signed-apk-handoff.md) - Closed
 16. `#189` [99-android-teacher-app-field-diagnostics.md](./99-android-teacher-app-field-diagnostics.md) - Closed / repo-side done
 17. `#190` [100-teacher-app-device-admin-revoke.md](./100-teacher-app-device-admin-revoke.md) - Closed
-18. `#191` [101-android-teacher-app-field-readiness-parent.md](./101-android-teacher-app-field-readiness-parent.md)
+18. `#191` [101-android-teacher-app-field-readiness-parent.md](./101-android-teacher-app-field-readiness-parent.md) - Closed
 
 Teacher native app の補助 doc:
 
@@ -278,4 +278,4 @@ Platform Admin 仕様と新規 issue docs:
 - `#202` エンタープライズ契約・請求書払い運用: 運用設計 Done
 - `#203` データ所在地・委託先・越境移転説明: 実務草案 Done
 - `#204` リリース統制と変更管理: Repo-side Done
-- `#192` は親ロードマップとして残す。`#188` と `#191` は signed APK / 実機 / 初回校舎 QA の現場証跡が揃うまで open にする
+- `#192` は親ロードマップとして close 候補。`#188` と `#191` は signed APK / 実機 / 初回校舎 QA の現場証跡が揃ったため Closed

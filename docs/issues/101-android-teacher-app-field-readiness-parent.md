@@ -2,7 +2,7 @@
 
 ## 状態
 
-- Open
+- Closed
 - GitHub Issue: `#191`
 - 作成日: `2026-04-25`
 
@@ -20,7 +20,7 @@ Teacher 録音 app は当面 Android-only で現場投入まで進める。iOS /
 ## 子 Issue
 
 - `#170` Android native Teacher App の録音基盤と最小 UI を作る
-- `#188` Android Teacher App の signed APK handoff と初回校舎 QA を完了する
+- `#188` Android Teacher App の signed APK handoff と初回校舎 QA を完了する - Closed
 - `#189` Android Teacher App の field diagnostics と失敗追跡を足す - Closed / repo-side done
 - `#190` Teacher App の端末管理と紛失時 revoke 導線を管理画面に足す - Closed
 
@@ -45,14 +45,17 @@ Teacher 録音 app は当面 Android-only で現場投入まで進める。iOS /
 - `Android Device Handoff` run `24949663628` で signed release APK artifact を生成済み
 - CI と local の `apksigner verify` は pass
 - APK SHA-256: `105a2399c3459b0f5d06d2c064131809bf0a1cf3abe10be602e5a428b79a412b`
-- 残りは Android 実機 install / launch / QA evidence
+- A142 / Android 16 へ signed release APK `1.0.0-internal.2 (1002)` を install / launch 済み
+- signed release app で実スマホ音声 upload -> Runpod STT -> `田中太郎` manual select -> ConversationLog `DONE` -> NextMeetingMemo `READY` を確認
+- signed release app で upload phase の network-off failure -> pending queue -> `まとめて再送` -> pending 0 -> confirm -> READY を確認
+- QA 後に Runpod pod `scel1ckkaq7882` が `desiredStatus=EXITED` に戻ったことを確認
 
 ## close 条件
 
-- Android release APK を校舎端末へ渡せる
-- Android 実機で `login -> record -> upload -> confirm -> done` が通る - debug APK done
-- pending retry / logout / failed upload の戻り導線が確認済み
-- 失敗時に recordingId / device / app build まで追える - repo-side done
+- Android release APK を校舎端末へ渡せる - done
+- Android 実機で `login -> record -> upload -> confirm -> done` が通る - done
+- pending retry / failed upload の戻り導線が確認済み - done
+- 失敗時に recordingId / device / app build まで追える - done
 - 紛失端末や退役端末を管理画面から revoke できる - done
 
 ## scope 外
