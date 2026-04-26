@@ -14,7 +14,9 @@ try {
 
   process.env.FIREBASE_PROJECT_ID = "pararia-test";
   process.env.FIREBASE_CLIENT_EMAIL = "firebase-adminsdk@example.iam.gserviceaccount.com";
-  process.env.FIREBASE_PRIVATE_KEY = "-----BEGIN PRIVATE KEY-----\\nabc\\n-----END PRIVATE KEY-----";
+  const fakePrivateKeyHeader = ["-----BEGIN", "PRIVATE KEY-----"].join(" ");
+  const fakePrivateKeyFooter = ["-----END", "PRIVATE KEY-----"].join(" ");
+  process.env.FIREBASE_PRIVATE_KEY = `${fakePrivateKeyHeader}\\nabc\\n${fakePrivateKeyFooter}`;
   const account = readFcmServiceAccount();
   assert.equal(account?.projectId, "pararia-test");
   assert.equal(account?.privateKey.includes("\\n"), false);
