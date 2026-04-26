@@ -127,7 +127,7 @@
 .heroCopy h1,
 .deniedPanel h1 {
   margin: 0;
-  font-size: clamp(26px, 2.6vw, 36px);
+  font-size: 32px;
   line-height: 1.12;
   letter-spacing: 0;
 }
@@ -552,7 +552,7 @@
 
 .detailTitleRow h1 {
   margin: 0;
-  font-size: clamp(28px, 3vw, 42px);
+  font-size: 36px;
   line-height: 1.12;
   letter-spacing: 0;
 }

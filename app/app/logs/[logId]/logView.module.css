@@ -83,7 +83,7 @@
   margin: 0;
   font-size: 32px;
   line-height: 1.08;
-  letter-spacing: -0.03em;
+  letter-spacing: 0;
 }
 
 .subtitle,

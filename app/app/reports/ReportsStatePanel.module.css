@@ -48,11 +48,13 @@
 }
 
 .processing {
-  background: linear-gradient(180deg, rgba(219, 255, 75, 0.06), rgba(255, 255, 255, 0.01)), var(--surface-2);
+  background: var(--info-soft);
+  border-color: color-mix(in srgb, var(--info) 30%, var(--border));
 }
 
 .error {
-  background: linear-gradient(180deg, rgba(255, 139, 132, 0.14), rgba(255, 255, 255, 0.01)), var(--surface-2);
+  background: var(--danger-soft);
+  border-color: color-mix(in srgb, var(--danger) 34%, var(--border));
 }
 
 @media (max-width: 720px) {

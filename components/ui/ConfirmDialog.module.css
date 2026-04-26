@@ -6,16 +6,16 @@
   align-items: center;
   justify-content: center;
   padding: 24px;
-  background: rgba(0, 0, 0, 0.72);
-  backdrop-filter: blur(10px);
+  background: rgba(17, 17, 15, 0.62);
+  backdrop-filter: blur(8px);
 }
 
 .dialog {
   width: min(460px, 100%);
-  border-radius: 20px;
+  border-radius: 14px;
   border: 1px solid var(--border);
-  background: #1f1f1f;
-  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.4);
+  background: var(--surface);
+  box-shadow: 0 24px 60px rgba(24, 24, 21, 0.24);
   display: grid;
   gap: 0;
   overflow: hidden;
@@ -31,8 +31,7 @@
   color: var(--muted);
   font-size: 12px;
   font-weight: 800;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  letter-spacing: 0;
 }
 
 .title {
@@ -52,7 +51,7 @@
   display: grid;
   gap: 8px;
   padding: 12px;
-  border-radius: 16px;
+  border-radius: var(--radius-control);
   border: 1px solid var(--border);
   background: var(--surface-2);
 }
@@ -65,16 +64,6 @@
   flex-wrap: wrap;
 }
 
-.dangerButton {
-  background: #e35d56;
-  border-color: #e35d56;
-  color: #ffffff;
-}
-
-.dangerButton:hover {
-  box-shadow: 0 10px 24px rgba(227, 93, 86, 0.22);
-}
-
 @media (max-width: 720px) {
   .backdrop {
     padding: 16px;
@@ -83,7 +72,7 @@
 
   .dialog {
     width: 100%;
-    border-radius: 20px 20px 0 0;
+    border-radius: 14px 14px 0 0;
   }
 
   .actions {

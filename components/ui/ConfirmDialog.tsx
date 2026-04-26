@@ -77,11 +77,11 @@ export function ConfirmDialog({
             {cancelLabel}
           </Button>
           <Button
+            variant={tone === "danger" ? "danger" : "primary"}
             onClick={onConfirm}
-            disabled={pending}
-            className={tone === "danger" ? styles.dangerButton : undefined}
+            loading={pending}
           >
-            {pending ? "処理中..." : confirmLabel}
+            {confirmLabel}
           </Button>
         </div>
       </div>

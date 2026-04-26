@@ -2,10 +2,7 @@
   min-height: 100vh;
   display: grid;
   place-items: center;
-  background:
-    radial-gradient(circle at top right, rgba(105, 58, 200, 0.18), transparent 18%),
-    radial-gradient(circle at 24% 16%, rgba(219, 255, 75, 0.07), transparent 22%),
-    #222222;
+  background: var(--bg);
   padding: 24px;
 }
 
@@ -14,17 +11,18 @@
   padding: 30px 28px 32px;
   border-radius: var(--card-radius);
   border: 1px solid var(--border);
-  background: var(--surface-shell);
-  box-shadow: 0 26px 80px rgba(0, 0, 0, 0.34);
+  background: var(--surface);
+  box-shadow: var(--shadow-card);
 }
 
 .title {
   margin: 0 0 10px;
   font-size: 28px;
-  line-height: 1;
+  line-height: 1.1;
   font-weight: 700;
-  letter-spacing: -0.03em;
+  letter-spacing: 0;
   color: var(--text);
+  font-family: var(--font-en);
 }
 
 .subtitle {
@@ -65,9 +63,9 @@
   margin: 0 0 14px;
   padding: 10px 12px;
   border-radius: 7px;
-  border: 1px solid rgba(255, 139, 132, 0.36);
-  background: rgba(255, 139, 132, 0.08);
-  color: var(--text);
+  border: 1px solid color-mix(in srgb, var(--danger) 34%, var(--border));
+  background: var(--danger-soft);
+  color: var(--danger);
   font-size: 13px;
   line-height: 1.6;
 }

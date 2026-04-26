@@ -111,9 +111,9 @@
 
 .studentName {
   margin: 0;
-  font-size: clamp(34px, 4vw, 44px);
-  line-height: 0.98;
-  letter-spacing: -0.03em;
+  font-size: 40px;
+  line-height: 1.05;
+  letter-spacing: 0;
 }
 
 .studentMetaList,
@@ -179,7 +179,8 @@
 }
 
 .actionQueueCardAttention {
-  background: linear-gradient(180deg, rgba(219, 255, 75, 0.08), rgba(255, 255, 255, 0.02)), var(--surface);
+  background: var(--surface);
+  border-color: var(--border-strong);
 }
 
 .actionQueueCardWarning {
@@ -239,7 +240,7 @@
   min-height: 34px;
   padding: 0 12px;
   border-radius: 8px;
-  background: rgba(219, 255, 75, 0.12);
+  background: var(--surface-2);
   color: var(--text);
   font-size: 12px;
   font-weight: 700;
@@ -433,7 +434,7 @@
   line-height: 1.35;
   font-weight: 700;
   color: var(--accent-contrast);
-  box-shadow: 0 0 0 1px rgba(219, 255, 75, 0.12);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--text) 12%, transparent);
   box-decoration-break: clone;
   -webkit-box-decoration-break: clone;
 }
@@ -565,7 +566,7 @@
   font-weight: 700;
   line-height: 1.35;
   text-align: left;
-  box-shadow: 0 0 0 1px rgba(219, 255, 75, 0.12);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--text) 12%, transparent);
   cursor: default;
 }
 

@@ -68,8 +68,11 @@ export function LoginForm({ callbackUrl }: Props) {
         <p className={styles.subtitle}>面談ログを、次の会話に使える運用データへ。</p>
         <form onSubmit={onSubmit}>
           <div className={styles.field}>
-            <label className={styles.label}>メールアドレス</label>
+            <label className={styles.label} htmlFor="login-email">
+              メールアドレス
+            </label>
             <input
+              id="login-email"
               className={styles.input}
               type="email"
               value={email}
@@ -78,8 +81,11 @@ export function LoginForm({ callbackUrl }: Props) {
             />
           </div>
           <div className={styles.field}>
-            <label className={styles.label}>パスワード</label>
+            <label className={styles.label} htmlFor="login-password">
+              パスワード
+            </label>
             <input
+              id="login-password"
               className={styles.input}
               type="password"
               value={password}
@@ -89,8 +95,8 @@ export function LoginForm({ callbackUrl }: Props) {
           </div>
           {error ? <p className={styles.errorText}>{error}</p> : null}
           <div className={styles.actions}>
-            <Button type="submit" variant="primary" disabled={submitting}>
-              {submitting ? "ログイン中..." : "ログイン"}
+            <Button type="submit" variant="primary" loading={submitting}>
+              ログイン
             </Button>
           </div>
         </form>

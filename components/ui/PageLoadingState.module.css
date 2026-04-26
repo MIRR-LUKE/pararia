@@ -4,9 +4,7 @@
   padding: 24px;
   border-radius: var(--card-radius);
   border: 1px solid var(--border);
-  background:
-    radial-gradient(circle at top right, rgba(219, 255, 75, 0.06), transparent 26%),
-    linear-gradient(180deg, var(--surface), var(--surface-2));
+  background: var(--surface);
   box-shadow: var(--shadow-card);
 }
 
@@ -14,7 +12,7 @@
   margin: 0;
   font-size: 24px;
   font-weight: 800;
-  letter-spacing: -0.03em;
+  letter-spacing: 0;
 }
 
 .subtitle {
@@ -32,8 +30,12 @@
   height: 72px;
   border-radius: var(--card-radius);
   border: 1px solid var(--border);
-  background:
-    linear-gradient(90deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.04));
+  background: linear-gradient(
+    90deg,
+    var(--surface-2),
+    color-mix(in srgb, var(--surface-4) 62%, var(--surface-2)),
+    var(--surface-2)
+  );
   background-size: 220% 100%;
   animation: shimmer 1.25s linear infinite;
 }

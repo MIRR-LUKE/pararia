@@ -3,10 +3,11 @@
   align-items: flex-start;
   justify-content: space-between;
   gap: 16px;
-  border: 1px solid #d6dce8;
-  border-radius: 8px;
-  background: #f7f9fc;
+  border: 1px solid var(--border);
+  border-radius: var(--card-radius);
+  background: var(--surface);
   padding: 18px 20px;
+  box-shadow: var(--shadow-card);
 }
 
 .compact {
@@ -14,17 +15,17 @@
 }
 
 .empty {
-  background: #f7f9fc;
+  background: var(--surface);
 }
 
 .error {
-  border-color: #f0b9b9;
-  background: #fff6f6;
+  border-color: color-mix(in srgb, var(--danger) 34%, var(--border));
+  background: var(--danger-soft);
 }
 
 .processing {
-  border-color: #c8d8f2;
-  background: #f4f8ff;
+  border-color: color-mix(in srgb, var(--info) 30%, var(--border));
+  background: var(--info-soft);
 }
 
 .copy {
@@ -33,21 +34,21 @@
 }
 
 .eyebrow {
-  color: #5f6c82;
+  color: var(--muted-strong);
   font-size: 12px;
   font-weight: 700;
   letter-spacing: 0;
 }
 
 .title {
-  color: #101828;
+  color: var(--text);
   font-size: 16px;
   line-height: 1.45;
 }
 
 .subtitle {
   margin: 0;
-  color: #475467;
+  color: var(--muted-strong);
   font-size: 14px;
   line-height: 1.6;
 }

@@ -56,6 +56,7 @@
     "test:remote-generation-smoke": "tsx scripts/test-remote-generation-smoke.ts",
     "test:recording-policy": "tsx scripts/test-recording-policy.ts",
     "test:recording-ui": "tsx scripts/test-recording-ui.ts",
+    "test:ui-renewal-foundation": "tsx scripts/test-ui-renewal-foundation.ts",
     "test:backend-scope-guard": "tsx scripts/test-backend-scope-guard.ts",
     "test:tenant-isolation-boundaries": "tsx scripts/test-tenant-isolation-boundaries.ts",
     "test:session-progress-route": "tsx scripts/test-session-progress-route.ts",

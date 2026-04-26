@@ -17,14 +17,14 @@
 }
 
 .label {
-  color: #5f6c82;
+  color: var(--muted-strong);
   font-size: 12px;
   font-weight: 700;
   letter-spacing: 0;
 }
 
 .value {
-  color: #101828;
+  color: var(--text);
   font-size: 15px;
   line-height: 1.5;
   font-weight: 600;

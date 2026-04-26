@@ -5,7 +5,7 @@
   position: fixed;
   inset: 0 auto 0 0;
   padding: 21px 0 21px 21px;
-  background: #222222;
+  background: var(--bg);
   z-index: 30;
 }
 
@@ -56,8 +56,8 @@
 .brandBubble {
   width: 25px;
   height: 25px;
-  border-radius: 10px;
-  background: #ffffff;
+  border-radius: var(--radius-compact);
+  background: var(--surface-inverse);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -69,16 +69,16 @@
   width: 3px;
   height: 3px;
   border-radius: 999px;
-  background: #222222;
+  background: var(--accent-contrast);
 }
 
 .campusButton {
   min-height: 25px;
   padding: 0 8px 0 10px;
-  border: none;
+  border: 1px solid var(--border);
   border-radius: var(--radius-compact);
-  background: var(--brand);
-  color: #ffffff;
+  background: var(--surface);
+  color: var(--text);
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -98,8 +98,8 @@
 .searchBox {
   min-height: 36px;
   border-radius: var(--radius-compact);
-  border: 1px solid #525252;
-  background: transparent;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
   padding: 0 11px;
   display: flex;
   align-items: center;
@@ -109,7 +109,7 @@
 .searchIcon {
   width: 12px;
   height: 12px;
-  border: 1.5px solid rgba(255, 255, 255, 0.35);
+  border: 1.5px solid var(--muted);
   border-radius: 999px;
   position: relative;
   flex-shrink: 0;
@@ -121,7 +121,7 @@
   width: 5px;
   height: 1.5px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.35);
+  background: var(--muted);
   right: -4px;
   bottom: -1px;
   transform: rotate(45deg);
@@ -134,7 +134,7 @@
 
 .menu {
   display: grid;
-  gap: 12px;
+  gap: 6px;
 }
 
 .item {
@@ -144,19 +144,21 @@
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  color: #ffffff;
+  color: var(--muted-strong);
   font-size: 14px;
   font-weight: 700;
-  transition: background 0.16s ease;
+  transition: background 0.16s ease, color 0.16s ease, box-shadow 0.16s ease;
 }
 
 .item:hover {
-  background: rgba(0, 0, 0, 0.18);
+  background: var(--surface-2);
+  color: var(--text);
 }
 
 .active {
-  background: #222222;
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.03);
+  background: var(--surface-inverse);
+  color: var(--accent-contrast);
+  box-shadow: 0 1px 1px rgba(24, 24, 21, 0.04);
 }
 
 .itemIcon {
@@ -171,14 +173,20 @@
 .settingsIcon::before,
 .settingsIcon::after,
 .dashboardIcon::after,
-.studentsIcon::after {
+.studentsIcon::after,
+.logsIcon::before,
+.logsIcon::after,
+.reportsIcon::before,
+.reportsIcon::after,
+.operationsIcon::before,
+.operationsIcon::after {
   content: "";
   position: absolute;
 }
 
 .dashboardIcon::before {
   inset: 1px;
-  border: 1.5px solid rgba(255, 255, 255, 0.95);
+  border: 1.5px solid currentColor;
   border-radius: 3px;
 }
 
@@ -187,7 +195,7 @@
   right: 3px;
   top: 6px;
   height: 1.5px;
-  background: rgba(255, 255, 255, 0.95);
+  background: currentColor;
 }
 
 .studentsIcon::before {
@@ -196,7 +204,7 @@
   width: 5px;
   height: 5px;
   border-radius: 999px;
-  border: 1.5px solid rgba(255, 255, 255, 0.95);
+  border: 1.5px solid currentColor;
 }
 
 .studentsIcon::after {
@@ -205,25 +213,76 @@
   width: 8px;
   height: 5px;
   border-radius: 999px 999px 6px 6px;
-  border: 1.5px solid rgba(255, 255, 255, 0.95);
+  border: 1.5px solid currentColor;
+}
+
+.logsIcon::before {
+  inset: 1px 2px;
+  border: 1.5px solid currentColor;
+  border-radius: 2px;
+}
+
+.logsIcon::after {
+  left: 5px;
+  right: 5px;
+  top: 5px;
+  height: 5px;
+  border-top: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+}
+
+.reportsIcon::before {
+  left: 2px;
+  right: 2px;
+  bottom: 2px;
+  height: 9px;
+  border-left: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+}
+
+.reportsIcon::after {
+  left: 5px;
+  bottom: 4px;
+  width: 7px;
+  height: 7px;
+  border-top: 1.5px solid currentColor;
+  border-right: 1.5px solid currentColor;
+  transform: rotate(-45deg);
 }
 
 .settingsIcon::before {
   inset: 3px;
   border-radius: 999px;
-  border: 1.5px solid rgba(255, 255, 255, 0.95);
+  border: 1.5px solid currentColor;
 }
 
 .settingsIcon::after {
   inset: 0;
   border-radius: 999px;
-  border: 1px dashed rgba(255, 255, 255, 0.55);
+  border: 1px dashed currentColor;
+  opacity: 0.66;
+}
+
+.operationsIcon::before {
+  inset: 2px;
+  border: 1.5px solid currentColor;
+  border-radius: 4px;
+}
+
+.operationsIcon::after {
+  left: 5px;
+  right: 5px;
+  top: 6px;
+  height: 1.5px;
+  background: currentColor;
+  box-shadow: 0 4px 0 currentColor;
 }
 
 .userCard {
   min-height: 51px;
   border-radius: var(--radius-compact);
-  border: 1px solid #525252;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
   padding: 10px 12px;
   display: flex;
   align-items: center;
@@ -250,7 +309,7 @@
 .userName {
   font-size: 14px;
   font-weight: 700;
-  color: #ffffff;
+  color: var(--text);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -259,7 +318,7 @@
 .userMeta {
   margin-top: 2px;
   font-size: 12px;
-  color: rgba(255, 255, 255, 0.5);
+  color: var(--muted);
 }
 
 @media (max-width: 1080px) {
@@ -292,9 +351,9 @@
   .menuToggle {
     width: 42px;
     height: 42px;
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 14px;
-    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-control);
+    background: var(--surface-2);
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -307,7 +366,7 @@
     width: 16px;
     height: 1.5px;
     border-radius: 999px;
-    background: rgba(255, 255, 255, 0.92);
+    background: var(--text);
     transition:
       transform 0.18s ease,
       opacity 0.18s ease;
@@ -329,7 +388,7 @@
     display: none;
     margin-top: 14px;
     padding-top: 14px;
-    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    border-top: 1px solid var(--border);
     gap: 18px;
   }
 

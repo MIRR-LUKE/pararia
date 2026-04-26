@@ -3,7 +3,8 @@
   align-items: flex-start;
   justify-content: space-between;
   gap: 18px;
-  padding: 2px 0 10px;
+  padding: 2px 0 12px;
+  border-bottom: 1px solid var(--border);
 }
 
 .copy {
@@ -14,9 +15,9 @@
 
 .title {
   margin: 0;
-  font-size: clamp(28px, 4vw, 38px);
-  line-height: 1.02;
-  letter-spacing: -0.02em;
+  font-size: 30px;
+  line-height: 1.12;
+  letter-spacing: 0;
   font-weight: 700;
   color: var(--text);
 }
@@ -44,9 +45,9 @@
   gap: 12px;
   padding: 10px 12px;
   border-radius: var(--radius-compact);
-  border: 1px solid var(--border-strong);
-  background: var(--surface-3);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  box-shadow: 0 1px 1px rgba(24, 24, 21, 0.04);
 }
 
 .avatar {
@@ -54,13 +55,13 @@
   height: 30px;
   border-radius: var(--radius-round);
   background: var(--avatar);
-  color: var(--text);
+  color: #ffffff;
   display: grid;
   place-items: center;
   font-size: 10px;
   font-weight: 700;
-  letter-spacing: 0.02em;
-  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08);
+  letter-spacing: 0;
+  box-shadow: 0 0 0 1px var(--border);
   flex-shrink: 0;
 }
 

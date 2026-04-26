@@ -1,6 +1,7 @@
 .shell {
   display: flex;
   min-height: 100vh;
+  background: var(--bg);
 }
 
 .main {

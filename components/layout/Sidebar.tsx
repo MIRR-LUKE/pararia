@@ -19,7 +19,10 @@ type SidebarProps = {
 const navItems: NavItem[] = [
   { label: "ダッシュボード", href: "/app/dashboard", iconClass: "dashboardIcon" },
   { label: "生徒一覧", href: "/app/students", iconClass: "studentsIcon" },
+  { label: "面談ログ", href: "/app/logs", iconClass: "logsIcon" },
+  { label: "レポート", href: "/app/reports", iconClass: "reportsIcon" },
   { label: "システム設定", href: "/app/settings", iconClass: "settingsIcon" },
+  { label: "運用管理", href: "/admin", iconClass: "operationsIcon" },
 ];
 
 function isActive(pathname: string | null, href: string) {
