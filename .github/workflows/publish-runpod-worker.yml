@@ -37,6 +37,9 @@ permissions:
   packages: write
   actions: write
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
 jobs:
   publish-runpod-worker:
     runs-on: ubuntu-latest
@@ -90,7 +93,18 @@ jobs:
 
       - name: Update latest worker image variable
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.REPO_VARIABLES_TOKEN }}
+          RUNPOD_WORKER_IMAGE_VALUE: ghcr.io/${{ steps.owner.outputs.value }}/pararia-runpod-worker:sha-${{ github.sha }}
         run: |
-          gh variable set RUNPOD_WORKER_IMAGE --body "ghcr.io/${{ steps.owner.outputs.value }}/pararia-runpod-worker:sha-${{ github.sha }}" \
-            || echo "::warning::RUNPOD_WORKER_IMAGE variable could not be updated automatically."
+          if [ -z "${GH_TOKEN:-}" ]; then
+            {
+              echo "RUNPOD_WORKER_IMAGE was not updated by the workflow."
+              echo ""
+              echo "Set repository secret REPO_VARIABLES_TOKEN with variable write access, or update it manually to:"
+              echo ""
+              echo "\`${RUNPOD_WORKER_IMAGE_VALUE}\`"
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          gh variable set RUNPOD_WORKER_IMAGE --body "$RUNPOD_WORKER_IMAGE_VALUE"
