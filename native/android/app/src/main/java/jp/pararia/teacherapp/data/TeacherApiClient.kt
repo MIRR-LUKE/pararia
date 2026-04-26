@@ -304,7 +304,8 @@ class TeacherApiClient(
                 }
             }
 
-            return readBlobResponse(connection, VercelBlobMultipartPart.serializer())
+            val part = readBlobResponse(connection, VercelBlobMultipartPart.serializer())
+            return part.copy(partNumber = part.partNumber ?: partNumber)
         } finally {
             connection.disconnect()
         }
@@ -452,9 +453,9 @@ private data class VercelBlobMultipartCreateResponse(
 )
 
 @Serializable
-private data class VercelBlobMultipartPart(
+internal data class VercelBlobMultipartPart(
     val etag: String,
-    val partNumber: Int,
+    val partNumber: Int? = null,
 )
 
 @Serializable
