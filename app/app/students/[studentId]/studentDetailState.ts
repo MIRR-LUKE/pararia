@@ -1,9 +1,10 @@
-import type { SessionConsoleLessonPart, SessionConsoleMode } from "./StudentSessionConsole";
 import type { ReportStudioView } from "./roomTypes";
 
 export type StudentDetailTabKey = "communications" | "parentReports";
 export type StudentDetailPeriodFilter = "all" | "month";
 export type StudentDetailSortOrder = "desc" | "asc";
+export type SessionConsoleMode = "INTERVIEW";
+export type SessionConsoleLessonPart = "FULL" | "TEXT_NOTE";
 
 export type StudentDetailOverlayState =
   | { kind: "none" }

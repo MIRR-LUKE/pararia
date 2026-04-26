@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { resolveRouteId, type RouteParams } from "@/lib/server/route-params";
-import { requireTeacherAppSessionForRequest } from "@/lib/server/teacher-app-session";
+import { requireNativeTeacherAppSessionForRequest } from "@/lib/server/teacher-app-session";
 import { loadTeacherRecordingSummary } from "@/lib/teacher-app/server/recordings";
 
 export const dynamic = "force-dynamic";
@@ -8,7 +8,7 @@ export const revalidate = 0;
 
 export async function GET(request: Request, { params }: { params: RouteParams }) {
   try {
-    const authResult = await requireTeacherAppSessionForRequest(request);
+    const authResult = await requireNativeTeacherAppSessionForRequest(request);
     if (authResult.response) return authResult.response;
 
     const recordingId = await resolveRouteId(params);

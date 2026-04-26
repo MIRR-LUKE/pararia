@@ -6,5 +6,5 @@ export default async function NewSessionPage({
   params: Promise<{ studentId: string }>;
 }) {
   const { studentId } = await params;
-  redirect(`/app/students/${studentId}?panel=recording&mode=INTERVIEW`);
+  redirect(`/app/students/${studentId}`);
 }

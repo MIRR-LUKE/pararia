@@ -11,7 +11,7 @@ import { processQueuedTeacherRecordingJobs } from "@/lib/jobs/teacherRecordingJo
 import { maybeEnsureRunpodWorkerReady } from "@/lib/runpod/worker-ready";
 import { applyLightMutationThrottle } from "@/lib/server/request-throttle";
 import { resolveRouteId, type RouteParams } from "@/lib/server/route-params";
-import { requireTeacherAppMutationSession } from "@/lib/server/teacher-app-session";
+import { requireNativeTeacherAppMutationSession } from "@/lib/server/teacher-app-session";
 import { loadTeacherRecordingSummary, uploadTeacherRecordingAudio } from "@/lib/teacher-app/server/recordings";
 
 export const dynamic = "force-dynamic";
@@ -126,7 +126,7 @@ export async function POST(request: Request, { params }: { params: RouteParams }
   let idempotencyStarted = false;
 
   try {
-    const authResult = await requireTeacherAppMutationSession(request);
+    const authResult = await requireNativeTeacherAppMutationSession(request);
     if (authResult.response) return authResult.response;
 
     const throttleResponse = await applyLightMutationThrottle({

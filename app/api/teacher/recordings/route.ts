@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import { applyLightMutationThrottle } from "@/lib/server/request-throttle";
-import { requireTeacherAppMutationSession, requireTeacherAppSessionForRequest } from "@/lib/server/teacher-app-session";
+import {
+  requireNativeTeacherAppMutationSession,
+  requireNativeTeacherAppSessionForRequest,
+} from "@/lib/server/teacher-app-session";
 import { createTeacherRecordingSession, loadLatestActiveTeacherRecording } from "@/lib/teacher-app/server/recordings";
 
 export const dynamic = "force-dynamic";
@@ -8,7 +11,7 @@ export const revalidate = 0;
 
 export async function GET(request: Request) {
   try {
-    const authResult = await requireTeacherAppSessionForRequest(request);
+    const authResult = await requireNativeTeacherAppSessionForRequest(request);
     if (authResult.response) return authResult.response;
 
     const activeRecording = await loadLatestActiveTeacherRecording(authResult.session.organizationId, {
@@ -26,7 +29,7 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const authResult = await requireTeacherAppMutationSession(request);
+    const authResult = await requireNativeTeacherAppMutationSession(request);
     if (authResult.response) return authResult.response;
 
     const throttleResponse = await applyLightMutationThrottle({

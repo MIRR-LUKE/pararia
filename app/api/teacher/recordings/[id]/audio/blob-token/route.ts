@@ -6,7 +6,7 @@ import { ALLOWED_AUDIO_CONTENT_TYPES, BLOB_UPLOAD_MAX_BYTES } from "@/lib/blob-u
 import { checkAudioBlobWriteHealth } from "@/lib/audio-storage-health";
 import { getAudioStorageAccess } from "@/lib/audio-storage";
 import { resolveRouteId, type RouteParams } from "@/lib/server/route-params";
-import { requireTeacherAppMutationSession } from "@/lib/server/teacher-app-session";
+import { requireNativeTeacherAppMutationSession } from "@/lib/server/teacher-app-session";
 import { RequestValidationError, parseJsonWithSchema } from "@/lib/server/request-validation";
 import { prepareTeacherRecordingBlobUpload } from "@/lib/teacher-app/server/recordings";
 
@@ -28,7 +28,7 @@ const blobTokenRequestSchema = z.object({
 
 export async function POST(request: Request, { params }: { params: RouteParams }) {
   try {
-    const authResult = await requireTeacherAppMutationSession(request);
+    const authResult = await requireNativeTeacherAppMutationSession(request);
     if (authResult.response) return authResult.response;
 
     const recordingId = await resolveRouteId(params);

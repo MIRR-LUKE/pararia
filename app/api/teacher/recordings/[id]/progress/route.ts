@@ -7,8 +7,8 @@ import { maybeEnsureRunpodWorkerReady } from "@/lib/runpod/worker-ready";
 import { applyLightMutationThrottle } from "@/lib/server/request-throttle";
 import { resolveRouteId, type RouteParams } from "@/lib/server/route-params";
 import {
-  requireTeacherAppMutationSession,
-  requireTeacherAppSessionForRequest,
+  requireNativeTeacherAppMutationSession,
+  requireNativeTeacherAppSessionForRequest,
 } from "@/lib/server/teacher-app-session";
 import {
   TEACHER_RECORDING_PROGRESS_WAKE_COOLDOWN_MS,
@@ -68,8 +68,8 @@ type TeacherRecordingProgressDispatchDeps = {
 
 async function loadAuthorizedRecording(request: Request, params: RouteParams, mutation = false) {
   const authResult = mutation
-    ? await requireTeacherAppMutationSession(request)
-    : await requireTeacherAppSessionForRequest(request);
+    ? await requireNativeTeacherAppMutationSession(request)
+    : await requireNativeTeacherAppSessionForRequest(request);
   if (authResult.response) {
     return {
       authSession: null,

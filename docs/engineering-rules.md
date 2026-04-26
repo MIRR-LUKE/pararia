@@ -75,21 +75,20 @@
 
 ## 3. 現在の重点負債
 
-`2026-04-13` の全体スキャン時点で、優先的に縮めるべきファイル:
+`2026-04-26` 時点で、優先的に縮めるべきファイル:
 
-1. `app/app/students/[studentId]/StudentSessionConsole.tsx`
-2. `lib/jobs/conversationJobs.ts`
-3. `lib/jobs/sessionPartJobs.ts`
-4. `lib/ai/conversation/generate.ts`
-5. `scripts/runpod-measure-ux.ts`
-6. `app/app/students/[studentId]/StudentDetailPageClient.tsx`
+1. `lib/jobs/conversationJobs.ts`
+2. `lib/jobs/sessionPartJobs.ts`
+3. `lib/ai/conversation/generate.ts`
+4. `scripts/runpod-measure-ux.ts`
+5. `app/app/students/[studentId]/StudentDetailPageClient.tsx`
 
 ## 4. 画面性能の基準
 
 ### 4.1 Student Detail
 
 - 初期表示は `server-first`
-- `StudentSessionConsole` と `StudentDetailWorkspace` は不要な親 render に巻き込まない
+- `StudentDetailWorkspace` は不要な親 render に巻き込まない
 - overlay は lazy load してよいが、主導線のカード群は lazy load しない
 - build 時の `First Load JS` は `120 kB` 前後を現状 baseline とし、これ以上むやみに増やさない
 
@@ -162,7 +161,7 @@ field 監視の読み方は [performance-observability.md](./performance-observa
 ## 7. 今回入れた実例
 
 - Student Detail は初回を `scope: "summary"` にして、重い詳細だけ client で静かに取り直す形へ寄せた
-- `StudentSessionConsole` を memo 化し、親の細かい state 更新で巻き込まれにくくした
+- Web 録音 UI を撤退し、Student Detail は native app 専用案内とログ確認に寄せた
 - `StudentDetailWorkspace` も memo 化し、overlay や選択 state の更新で無駄に再描画しにくくした
 - `check:code-shape` を追加し、巨大ファイルを debt として常時見えるようにした
 - session progress の polling を経過時間で広げ、非表示タブではさらに静かにした

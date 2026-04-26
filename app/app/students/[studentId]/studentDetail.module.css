@@ -225,6 +225,38 @@
   min-height: 387px;
 }
 
+.nativeRecordingCard {
+  display: grid;
+  gap: 18px;
+  align-content: start;
+  padding: 16px;
+}
+
+.nativeRecordingBadge {
+  display: inline-flex;
+  width: fit-content;
+  align-items: center;
+  min-height: 34px;
+  padding: 0 12px;
+  border-radius: 8px;
+  background: rgba(219, 255, 75, 0.12);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.nativeRecordingBody {
+  display: grid;
+  gap: 12px;
+}
+
+.nativeRecordingBody p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.8;
+}
+
 .sectionGate {
   min-height: 387px;
   display: grid;

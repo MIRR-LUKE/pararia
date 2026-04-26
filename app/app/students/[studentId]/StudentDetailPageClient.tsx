@@ -24,12 +24,6 @@ const LazyStudentDetailOverlay = dynamic(
     loading: () => <div className={styles.overlayLoading}>詳細画面を準備しています...</div>,
   }
 );
-const LazyStudentSessionConsole = dynamic(
-  () => import("./StudentSessionConsole").then((mod) => mod.StudentSessionConsole),
-  {
-    loading: () => <div className={styles.sectionLoading}>録音を準備しています...</div>,
-  }
-);
 const LazyStudentDetailWorkspace = dynamic(
   () => import("./StudentDetailWorkspace").then((mod) => mod.StudentDetailWorkspace),
   {
@@ -58,8 +52,9 @@ export default function StudentDetailPageClient({
     initialRoom,
     studentId: params.studentId,
   });
-  const { queryParams, activeTab, setActiveTab, recordingMode, setRecordingMode, lessonPart, setLessonPart, syncUrl } =
-    useStudentDetailUrlState(`/app/students/${params.studentId}`);
+  const { queryParams, activeTab, setActiveTab, syncUrl } = useStudentDetailUrlState(
+    `/app/students/${params.studentId}`
+  );
   const {
     selectedSessionIds,
     reportSelectionSessions,
@@ -219,20 +214,23 @@ export default function StudentDetailPageClient({
       />
 
       <section className={styles.topGrid}>
-        <div className={styles.recordCard}>
-          <LazyStudentSessionConsole
-            studentId={room.student.id}
-            studentName={room.student.name}
-            mode={recordingMode}
-            lessonPart={lessonPart}
-            ongoingLessonSession={null}
-            onModeChange={setRecordingMode}
-            onLessonPartChange={setLessonPart}
-            onRefresh={refresh}
-            onOpenLog={openLog}
-            recordingLock={room.recordingLock}
-            showModePicker={false}
-          />
+        <div className={`${styles.recordCard} ${styles.nativeRecordingCard}`}>
+          <div>
+            <div className={styles.cardTitle}>面談録音</div>
+            <div className={styles.cardSubtext}>
+              録音の開始、終了、音声アップロードは Android Teacher App 専用です。
+            </div>
+          </div>
+          <div className={styles.nativeRecordingBadge}>Teacher App から録音</div>
+          <div className={styles.nativeRecordingBody}>
+            <p>
+              この Web 画面では、生成済みの面談ログ、次回メモ、保護者レポートだけを確認します。新しい面談は端末の
+              Teacher App で録音してください。
+            </p>
+            <p>
+              アップロード後はアプリを閉じても STT とログ生成が続き、完了すると端末へ通知されます。
+            </p>
+          </div>
         </div>
 
         <div className={styles.memoCard}>
@@ -300,7 +298,9 @@ export default function StudentDetailPageClient({
 
             <div className={styles.reportSelectionList}>
               {reportSelectionSessions.length === 0 ? (
-                <div className={styles.emptyCompact}>まだ選べる面談ログがありません。面談を録音するとここに並びます。</div>
+                <div className={styles.emptyCompact}>
+                  まだ選べる面談ログがありません。Teacher App で録音した面談が完成するとここに並びます。
+                </div>
               ) : (
                 reportSelectionSessions.map((sessionItem) => {
                   const checked = selectedSessionIds.includes(sessionItem.id);

@@ -37,6 +37,43 @@
   max-width: 460px;
 }
 
+.nativeOnlyCard {
+  display: grid;
+  gap: 16px;
+  align-content: start;
+}
+
+.noticeList {
+  display: grid;
+  gap: 10px;
+}
+
+.noticeList div {
+  display: grid;
+  gap: 5px;
+  padding: 12px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.noticeList strong {
+  font-size: 13px;
+}
+
+.noticeList span {
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.textLink {
+  color: #dbff4b;
+  font-size: 14px;
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+
 .eyebrow {
   font-size: 12px;
   color: rgba(255, 255, 255, 0.68);

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { applyLightMutationThrottle } from "@/lib/server/request-throttle";
 import { resolveRouteId, type RouteParams } from "@/lib/server/route-params";
-import { requireTeacherAppMutationSession } from "@/lib/server/teacher-app-session";
+import { requireNativeTeacherAppMutationSession } from "@/lib/server/teacher-app-session";
 import { cancelTeacherRecordingSession } from "@/lib/teacher-app/server/recordings";
 
 export const dynamic = "force-dynamic";
@@ -9,7 +9,7 @@ export const revalidate = 0;
 
 export async function POST(request: Request, { params }: { params: RouteParams }) {
   try {
-    const authResult = await requireTeacherAppMutationSession(request);
+    const authResult = await requireNativeTeacherAppMutationSession(request);
     if (authResult.response) return authResult.response;
 
     const throttleResponse = await applyLightMutationThrottle({

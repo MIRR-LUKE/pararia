@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireTeacherAppMutationSession } from "@/lib/server/teacher-app-session";
+import { requireNativeTeacherAppMutationSession } from "@/lib/server/teacher-app-session";
 import { parseJsonWithSchema, RequestValidationError } from "@/lib/server/request-validation";
 import { applyLightMutationThrottle } from "@/lib/server/request-throttle";
 import { teacherNativeNotificationRegistrationBodySchema } from "@/lib/teacher-app/native-auth-contract";
@@ -10,7 +10,7 @@ export const revalidate = 0;
 
 export async function POST(request: Request) {
   try {
-    const authResult = await requireTeacherAppMutationSession(request);
+    const authResult = await requireNativeTeacherAppMutationSession(request);
     if (authResult.response) return authResult.response;
 
     const throttleResponse = await applyLightMutationThrottle({

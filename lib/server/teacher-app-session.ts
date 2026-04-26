@@ -18,6 +18,9 @@ import {
 } from "@/lib/teacher-app/server/native-auth-sessions";
 import type { TeacherAppDeviceSession } from "@/lib/teacher-app/types";
 
+const TEACHER_APP_WEB_RETIRED_MESSAGE =
+  "Web からの録音操作は終了しました。Android Teacher App から操作してください。";
+
 function readTeacherAppCookieFromHeader(cookieHeader: string | null) {
   if (!cookieHeader) return null;
   const cookieName = getTeacherAppCookieName();
@@ -86,6 +89,28 @@ export async function requireTeacherAppMutationSession(request: Request) {
   }
 
   return sessionResult;
+}
+
+export async function requireNativeTeacherAppSessionForRequest(request: Request) {
+  const sessionResult = await requireTeacherAppSessionForRequest(request);
+  if (sessionResult.response) {
+    return sessionResult;
+  }
+
+  if (sessionResult.authMode !== "bearer") {
+    return {
+      authMode: null,
+      authSessionId: null,
+      session: null,
+      response: NextResponse.json({ error: TEACHER_APP_WEB_RETIRED_MESSAGE }, { status: 410 }),
+    } as const;
+  }
+
+  return sessionResult;
+}
+
+export async function requireNativeTeacherAppMutationSession(request: Request) {
+  return requireNativeTeacherAppSessionForRequest(request);
 }
 
 export function canConfigureTeacherAppDevice(role: string | null | undefined) {

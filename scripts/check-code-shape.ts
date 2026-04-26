@@ -70,10 +70,6 @@ const RULES: Rule[] = [
 ];
 
 const EXCEPTIONS: Record<string, Exception> = {
-  "app/app/students/[studentId]/StudentSessionConsole.tsx": {
-    hardLines: 1700,
-    note: "recording controller / upload / lock / progress polling を段階分割予定",
-  },
   "lib/jobs/conversationJobs.ts": {
     hardLines: 1200,
     note: "job orchestration の責務整理を次フェーズで分割予定",
@@ -81,6 +77,10 @@ const EXCEPTIONS: Record<string, Exception> = {
   "lib/jobs/sessionPartJobs.ts": {
     hardLines: 1100,
     note: "session part pipeline を分割予定",
+  },
+  "lib/teacher-app/server/recordings.ts": {
+    hardLines: 900,
+    note: "native teacher recording orchestration の分割対象",
   },
   "lib/ai/conversation/generate.ts": {
     hardLines: 1000,

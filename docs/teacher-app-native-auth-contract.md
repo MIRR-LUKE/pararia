@@ -4,7 +4,7 @@
 
 ## 目的
 
-Teacher 録音 native app が backend に入るための auth / recording 契約を、web 導線と分けて明文化する。
+Teacher 録音 native app が backend に入るための auth / recording 契約を明文化する。録音の作成、upload、進捗確認、確定は native app 専用で、Web からの録音導線は持たない。
 
 ## 認証モデル
 
@@ -13,7 +13,9 @@ Teacher 録音 native app が backend に入るための auth / recording 契約
 - refresh token は opaque token で、server 側に hash を保存する
 - refresh token は rotate する
 - logout で auth session を revoke する
-- 既存 web `/teacher` は cookie session を継続利用する
+- Web `/teacher` と `/teacher/setup` は native app 専用案内だけを表示する
+- `POST /api/teacher/auth/device-login` は `410 Gone` を返し、Web cookie session の新規発行はしない
+- 録音系 endpoint は bearer token 認証だけを受け付け、cookie session では `410 Gone` を返す
 
 ## native auth endpoints
 
@@ -166,7 +168,7 @@ server は STT 完了で recording が `AWAITING_STUDENT_CONFIRMATION` になっ
 
 ## recording endpoints
 
-native app は既存 Teacher recording endpoints を bearer token で使う。
+native app は Teacher recording endpoints を bearer token で使う。Web cookie session からの録音操作は受け付けない。
 
 - `GET /api/teacher/recordings`
 - `POST /api/teacher/recordings`
@@ -178,8 +180,8 @@ native app は既存 Teacher recording endpoints を bearer token で使う。
 
 ## mutation 保護
 
-- cookie session の mutation は same-origin check を継続する
 - bearer access token の mutation は same-origin を要求しない
+- Web cookie session で録音 endpoint に来た request は `410 Gone` として扱う
 - upload は `Idempotency-Key` を継続利用する
 
 ## observability fields

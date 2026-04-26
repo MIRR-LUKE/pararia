@@ -107,7 +107,7 @@ npm run test:student-room-route
 - 面談ログ / 保護者レポートを remote で実動確認する `npm run test:remote-generation-smoke -- --base-url https://pararia.vercel.app` は、明示的に `PARARIA_ALLOW_REMOTE_GENERATION_SMOKE=1` を付けたときだけ動く
 - native teacher 録音導線の deploy 後確認は `npm run test:teacher-recording-smoke` を正本 smoke として扱う
 - native teacher app は access token 有効中の `/api/teacher/native/auth/session` を毎 poll で叩かず、401 または refresh 直前だけ token 更新する
-- teacher recording progress poll は native / provisional web とも `1.5s -> 2.5s -> 4s` の段階 backoff、timeout は 10 分を正本にする
+- teacher recording progress poll は native app から `1.5s -> 2.5s -> 4s` の段階 backoff、timeout は 10 分を正本にする
 - production / shared tenant の整合性確認は read-only の `npm run test:student-integrity-audit -- --base-url https://pararia.vercel.app`
 - 公開 RUM API は本文上限と軽い回数制限をかけ、検索文字列をログに残さない。RUM 送信もサーバーログも既定ではオフ
 - 生徒 / 会話 / 設定 / レポート送信 / 招待 / 復元系の書き込み API は軽い回数制限を通す
@@ -118,17 +118,16 @@ npm run test:student-room-route
 
 ## Teacher App
 
-- 先生向けの録音専用導線は、管理 web の `/app/*` とは分けて `/teacher` に載せる
-- 初回の校舎共通端末設定は `/teacher/setup` で行い、通常利用時は待機画面から始める
-- `/teacher` で `待機 -> 録音 -> 解析中 -> 生徒確認 -> 完了 -> 未送信一覧` の provisional flow が通る
-- 録音開始時に `TeacherRecordingSession` を作り、録音停止後は音声 upload と `TeacherRecordingJob` で STT と候補抽出を進める
+- 先生向けの録音専用導線は Android Teacher App に集約する。Web の `/teacher` と `/teacher/setup` は native-only 案内だけを表示する
+- Web からの録音開始、音声ファイル upload、Web 端末登録は終了済み。`/api/teacher/auth/device-login` は `410 Gone` を返す
+- 録音開始時に native app から `TeacherRecordingSession` を作り、録音停止後は音声 upload と `TeacherRecordingJob` で STT と候補抽出を進める
 - `TRANSCRIBING` / `AWAITING_STUDENT_CONFIRMATION` の途中で再読み込みしても、同じ登録端末の active recording を復元して続きから戻れる
 - 生徒を確定すると、正式な `Session` と `SessionPart` を作成または再利用し、既存の `PROMOTE_SESSION` 導線で本ログ生成へ渡す
 - `該当なし` を選んだ録音は、生徒未確定のまま `STUDENT_CONFIRMED` として保存し、管理 web 側で後続確認できる
 - upload failure は IndexedDB 永続化の未送信キューへ退避し、未送信一覧から `再送 / 削除` を選べる
 - `/api/teacher/recordings/[id]/audio` は `Idempotency-Key` を受け取り、同一録音の二重送信を抑止する
-- Teacher App の端末認証は `TeacherAppDevice` で永続化し、signed cookie / bearer token の両方で `deviceId` を検証する
-- 録音 app の本命方針は `完全ネイティブ` で、`/teacher` は flow 検証と backend 契約確認のための web 導線として残す
+- Teacher App の端末認証は `TeacherAppDevice` で永続化し、録音操作では bearer token の `deviceId` を検証する
+- 録音 app の本命方針は `完全ネイティブ`。録音 API は bearer token の native 認証だけを受け付け、cookie の Web Teacher App session では操作できない
 - native app の source foundation は `native/ios/TeacherNativeApp` と `native/android/app/src/main/java/jp/pararia/teacherapp` に置く
 - 管理画面、レポート確認、設定、監査は引き続き web のまま運用する
 - native app 用の auth / recording 契約は [docs/teacher-app-native-auth-contract.md](./docs/teacher-app-native-auth-contract.md) を正本にする
@@ -233,10 +232,9 @@ npm run test:student-room-route
 
 主作業面。
 
-- `StudentSessionConsole`
-  - `INTERVIEW`
-  - 録音開始
-  - 音声ファイル取り込み（`.mp3` / `.m4a` のみ）
+- `面談録音` カード
+  - 録音開始と音声アップロードは Android Teacher App 専用であることを明示する
+  - Web では生成済みログ、次回メモ、保護者レポートの確認に集中する
 - `次回の面談メモ` カード
   - 録音カードの右隣に出す
   - `前回の面談まとめ` と `おすすめの話題` の 2 つだけを短文で出す
@@ -591,7 +589,7 @@ GPU ごとの最初の目安:
 ### 7.4 面談ログ 1 分台 issue の進め方
 
 - GitHub の親 issue は `#151`
-- 2026-04-17 の本番マイク録音フロー baseline は:
+- 2026-04-17 の旧 Web マイク録音フロー baseline は:
   - 録音開始まで `856ms`
   - 録音停止可能になるまで `92.5秒`
   - 停止後に成功表示まで `130.9秒`
@@ -603,7 +601,7 @@ GPU ごとの最初の目安:
   - `#154`: prompt cache prefix 安定化
   - `#155`: active job / last good artifact の保全
   - `#156`: p50 / p95 / cost 集計
-- ここから親 issue を閉じるには、production 相当の 3 回連続計測を同じ条件で取り、どの改善で何秒縮んだかを issue か README に残す
+- 現行の本番録音計測は native app smoke を正本にする
 - Runpod / STT の内訳を見るときは:
   - `npm run runpod:measure-ux -- --profile 3090 --startup-mode direct --out-dir .tmp/runpod-ux`
   - `npm run runpod:measure-summary -- --dir .tmp/runpod-ux --out .tmp/runpod-ux-summary.md`
@@ -866,27 +864,20 @@ GPU ごとの最初の目安:
 
 ### 11.1 client 側
 
-- 録音開始直後は `録音準備中` を出し、マイク許可と録音セッション準備が終わってから `録音中` に進める
-- `StudentSessionConsole` が録音秒数上限で停止
-- 録音中または未送信の録音がある間は、ブラウザ離脱で警告を出す
-- 録音中にアプリ内リンクを押したときも、移動前に確認する
+- 録音開始、録音停止、音声 upload は Android Teacher App だけで行う
+- Web の `/teacher` と `/teacher/setup` は録音・端末登録フォームを持たず、native app 専用の案内だけを表示する
+- Web の生徒詳細は録音カードを native app 案内に置き換え、生成済みログ、次回メモ、保護者レポートの確認に集中する
+- native app は録音開始前に端末の録音状態を確認し、通話中など安全でない状態では server recording を作らない
 - 録音の `終了` は実際に取れた音声が 60 秒を超えてからだけ押せる
-- `キャンセル` はサーバーへ送らず、この端末に一時保存する
-- 録音停止後は先に端末へ一時保存してから upload する
-- upload 失敗時は、一時保存した録音を `再送 / 端末へ保存 / 破棄` できる
-- `IndexedDB` へ保存できないブラウザ状態でも、そのタブ上ではメモリ保持して `再送 / 端末へ保存` を続けられる
-- file upload 前に audio metadata を見て長すぎるファイルを reject
-- file upload 前に audio metadata を見て短すぎるファイルも reject
-- file picker では `.mp3` / `.m4a` 以外を選べない
-- 拡張子 / MIME が `.mp3` / `.m4a` に合わないファイルは reject する
+- upload 失敗時は native app の未送信キューへ退避し、再送できる
+- native app は upload 成功後なら閉じていても server / Runpod 側で STT を続け、完了または失敗を端末通知で知らせる
 
 ### 11.2 server 側
 
-- `POST /api/sessions/[id]/parts`
-  - file upload duration を解析して `短すぎる / 長すぎる` を reject
-  - `.mp3` / `.m4a` 以外の file upload を reject
-- `POST /api/sessions/[id]/parts/live`
-  - live chunk 累積 duration を見て reject
+- `POST /api/teacher/recordings` は native bearer token だけを受け付ける
+- `POST /api/teacher/recordings/[id]/audio` と Blob multipart 経路は file duration を解析して `短すぎる / 長すぎる` を reject
+- `.mp3` / `.m4a` / native recorder が出す許可済み音声形式以外の upload を reject
+- `POST /api/sessions/[id]/parts` と `POST /api/sessions/[id]/parts/live` は旧 Web 録音の互換・内部検証用に残すが、Web UI からは到達しない
 - duration 不明なら strict に reject する経路を持つ
 - STT 後に内容が薄すぎる transcript は reject し、録り直しを促す
 - faster-whisper worker が音声形式を読めないときだけ、同じ worker のまま一度 `AAC/M4A` へ正規化して再実行する
@@ -921,16 +912,32 @@ GPU ごとの最初の目安:
 - `GET/POST /api/students`
 - `GET/PUT /api/students/[id]`
 - `GET /api/students/[id]/room`
-- `GET/POST/PATCH/DELETE /api/students/[id]/recording-lock`
+- `GET/POST/PATCH/DELETE /api/students/[id]/recording-lock`（legacy / internal）
 
 ### 13.3 セッション
 
 - `GET/POST /api/sessions`
 - `GET/PATCH /api/sessions/[id]`
-- `POST /api/sessions/[id]/parts`
-- `POST /api/sessions/[id]/parts/live`
+- `POST /api/sessions/[id]/parts`（legacy / internal）
+- `POST /api/sessions/[id]/parts/live`（legacy / internal）
 - `GET /api/sessions/[id]/progress`
 - `POST /api/sessions/[id]/next-meeting-memo/regenerate`
+
+### 13.3.1 Teacher App
+
+- `POST /api/teacher/native/auth/device-login`
+- `POST /api/teacher/native/auth/refresh`
+- `GET /api/teacher/native/auth/session`
+- `POST /api/teacher/native/auth/logout`
+- `POST /api/teacher/native/notifications/register`
+- `GET/POST /api/teacher/recordings`
+- `GET /api/teacher/recordings/[id]`
+- `POST /api/teacher/recordings/[id]/audio`
+- `POST /api/teacher/recordings/[id]/audio/blob-token`
+- `POST /api/teacher/recordings/[id]/audio/blob-complete`
+- `GET/POST /api/teacher/recordings/[id]/progress`
+- `POST /api/teacher/recordings/[id]/confirm`
+- `POST /api/teacher/recordings/[id]/cancel`
 
 ### 13.4 コミュニケーションログ
 
@@ -1061,10 +1068,10 @@ GPU ごとの最初の目安:
   - runtime 保存先の共通化
 - `lib/runtime-cleanup.ts`
   - runtime file の安全な削除
-- `app/app/students/[studentId]/StudentSessionConsole.tsx`
-  - 録音と file upload
+- `app/app/students/[studentId]/StudentDetailPageClient.tsx`
+  - native app 専用の録音案内、次回の面談メモカード、保護者レポートカードを並べる
 - `app/app/students/[studentId]/page.tsx`
-  - 録音カード、次回の面談メモカード、保護者レポートカードを並べる
+  - 生徒詳細の server entry
 - `app/api/sessions/[id]/parts/route.ts`
   - file upload 入口
 - `app/api/sessions/[id]/parts/live/route.ts`
@@ -1122,10 +1129,9 @@ PARARIA_AUDIO_RETENTION_DAYS=14
 - 保護者レポートの retry / sanitization のスモークは `npm run test:parent-report-generation`
   - 宛名、自己紹介、本文 4 段落、締め、固定あいさつ、署名の並びまで確認する
 - ログ本文の手動編集 save payload / dirty 判定のスモークは `npm run test:log-editing`
-- web 録音 UI の本番相当確認は `npm run test:recording-ui -- --base-url http://localhost:3000 --skip-navigation-dialog`
+- Web 録音 UI が復活していないことは `npm run test:recording-ui` で静的確認する
 - deploy 後の production 録音主導線は GitHub Actions `Production Recording Smoke` が正本。manual 再確認の `.tmp/.env.production.runpod` は手書きせず、Vercel production env を `.tmp/.env.production.vercel` に一時 pull してから `PARARIA_PRODUCTION_OPS_SOURCE_ENV_FILE=.tmp/.env.production.vercel npm run env:write-production-ops -- --output .tmp/.env.production.runpod --base-url https://pararia.vercel.app --worker-image ghcr.io/mirr-luke/pararia-runpod-worker:sha-<deployed-sha>` で毎回生成し、`.tmp/.env.production.vercel` はすぐ削除する。そのあと `npm run test:teacher-recording-smoke -- --base-url https://pararia.vercel.app --env-file .tmp/.env.production.runpod` を回す
 - GitHub secret も `MAINTENANCE_SECRET` を正本にし、workflow 側で同じ名前を読む。`CRON_SECRET` は既存 runtime との互換 fallback に限定する
-- 途中離脱ガードだけ確認するときは `npm run test:recording-ui -- --base-url http://localhost:3000 --leave-safety-only`
 
 現行の STT 実行は次の前提です。
 

@@ -9,7 +9,7 @@ import {
   argValue,
   fileExists,
   waitForRunpodStop,
-} from "./lib/recording-ui-runner";
+} from "./lib/teacher-recording-smoke-utils";
 import { assertMutatingFixtureEnvironment } from "./lib/environment-safety";
 import { assertMeasurementStudent } from "./lib/measurement-student-guard";
 import { getAudioDurationSeconds } from "../lib/audio-processing";

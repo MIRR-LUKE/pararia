@@ -134,10 +134,10 @@ export function summarizeDashboardStudent(student: StudentListRow): DashboardStu
       oneLiner: "まだ会話データがありません。最初の面談から始めます。",
       queue: {
         kind: "interview",
-        title: "面談を始める",
-        reason: "この生徒にはまだ会話ログがありません。",
-        cta: "面談を始める",
-        href: `/app/students/${student.id}?panel=recording&mode=INTERVIEW`,
+        title: "Teacher Appで録音",
+        reason: "この生徒にはまだ会話ログがありません。録音はネイティブアプリから開始します。",
+        cta: "生徒詳細へ",
+        href: `/app/students/${student.id}`,
         score: 100,
       },
     };

@@ -3,7 +3,7 @@ import { z } from "zod";
 import { dispatchTeacherRecordingUploadJobs } from "@/app/api/teacher/recordings/[id]/audio/route";
 import { applyLightMutationThrottle } from "@/lib/server/request-throttle";
 import { resolveRouteId, type RouteParams } from "@/lib/server/route-params";
-import { requireTeacherAppMutationSession } from "@/lib/server/teacher-app-session";
+import { requireNativeTeacherAppMutationSession } from "@/lib/server/teacher-app-session";
 import { RequestValidationError, parseJsonWithSchema } from "@/lib/server/request-validation";
 import { completeTeacherRecordingBlobUpload, loadTeacherRecordingSummary } from "@/lib/teacher-app/server/recordings";
 
@@ -27,7 +27,7 @@ const blobCompleteRequestSchema = z.object({
 
 export async function POST(request: Request, { params }: { params: RouteParams }) {
   try {
-    const authResult = await requireTeacherAppMutationSession(request);
+    const authResult = await requireNativeTeacherAppMutationSession(request);
     if (authResult.response) return authResult.response;
 
     const throttleResponse = await applyLightMutationThrottle({

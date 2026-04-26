@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { requireTeacherAppSessionForRequest } from "@/lib/server/teacher-app-session";
+import { requireNativeTeacherAppSessionForRequest } from "@/lib/server/teacher-app-session";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -13,7 +13,7 @@ function buildSubtitle(student: { grade: string | null; course: string | null })
 
 export async function GET(request: Request) {
   try {
-    const authResult = await requireTeacherAppSessionForRequest(request);
+    const authResult = await requireNativeTeacherAppSessionForRequest(request);
     if (authResult.response) return authResult.response;
 
     const { searchParams } = new URL(request.url);

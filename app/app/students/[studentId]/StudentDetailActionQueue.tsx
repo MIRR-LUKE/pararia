@@ -100,7 +100,7 @@ export function StudentDetailActionQueue({
         activeGenerationSessions.length > 0
           ? `${formatSessionLabel(activeGenerationSessions[0])} の生成が進行中です。途中で閉じても大丈夫です。`
           : "いま進行中の生成はありません。",
-      ctaLabel: activeGenerationSessions.length > 0 ? "最新の進行を見る" : "次の面談に進む",
+      ctaLabel: activeGenerationSessions.length > 0 ? "最新の進行を見る" : "Teacher Appで録音",
       tone: activeGenerationSessions.length > 0 ? "attention" : "neutral",
       onClick:
         activeGenerationSessions.length > 0
@@ -116,7 +116,9 @@ export function StudentDetailActionQueue({
     <section className={styles.actionQueueSection} aria-label="次に確認したいこと">
       <div className={styles.actionQueueHeader}>
         <div className={styles.cardTitle}>次にやること</div>
-        <div className={styles.cardSubtext}>録音だけで終わらず、確認と共有まで同じ画面で進められるようにしています。</div>
+        <div className={styles.cardSubtext}>
+          Teacher App で作成した面談ログを、確認と共有まで同じ画面で進められるようにしています。
+        </div>
       </div>
       <div className={styles.actionQueueGrid}>
         {cards.map((card) => (

@@ -11,8 +11,9 @@ import {
   type StudentDetailSearchParamsLike,
   type StudentDetailTabKey,
   type StudentDetailUrlChanges,
+  type SessionConsoleLessonPart,
+  type SessionConsoleMode,
 } from "./studentDetailState";
-import type { SessionConsoleLessonPart, SessionConsoleMode } from "./StudentSessionConsole";
 
 type Result = {
   queryParams: StudentDetailSearchParamsLike;
