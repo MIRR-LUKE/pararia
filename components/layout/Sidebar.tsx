@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import { IntentLink } from "@/components/ui/IntentLink";
 import styles from "./Sidebar.module.css";
@@ -38,13 +38,23 @@ function roleLabel(role?: string | null) {
 
 export function Sidebar({ viewerName, viewerRole }: SidebarProps) {
   const pathname = usePathname();
-  const [menuOpen, setMenuOpen] = useState(false);
+  const [menuState, setMenuState] = useState<{ open: boolean; pathname: string | null }>({
+    open: false,
+    pathname: null,
+  });
   const userName = viewerName ?? "PARARIA スタッフ";
   const avatarText = userName.replace(/\s+/g, "").slice(0, 2) || "担";
+  const menuOpen = menuState.open && menuState.pathname === pathname;
 
-  useEffect(() => {
-    setMenuOpen(false);
-  }, [pathname]);
+  const setMenuOpen = useCallback(
+    (open: boolean | ((current: boolean) => boolean)) => {
+      setMenuState((current) => ({
+        open: typeof open === "function" ? open(current.open && current.pathname === pathname) : open,
+        pathname,
+      }));
+    },
+    [pathname]
+  );
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -54,10 +64,9 @@ export function Sidebar({ viewerName, viewerRole }: SidebarProps) {
         setMenuOpen(false);
       }
     };
-    closeOnDesktop();
     mediaQuery.addEventListener("change", closeOnDesktop);
     return () => mediaQuery.removeEventListener("change", closeOnDesktop);
-  }, []);
+  }, [setMenuOpen]);
 
   return (
     <>

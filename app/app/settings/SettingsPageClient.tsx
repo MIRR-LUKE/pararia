@@ -23,8 +23,10 @@ type Props = {
 export default function SettingsPageClient({ initialSettings, viewerName, viewerRole }: Props) {
   const {
     canManage,
+    canRunOperations,
     guardianDrafts,
     message,
+    operateJob,
     operationsMessage,
     organizationDraft,
     permissionRows,
@@ -33,6 +35,11 @@ export default function SettingsPageClient({ initialSettings, viewerName, viewer
     restoringTargetKey,
     revokeTeacherAppDevice,
     revokingDeviceId,
+    refreshRunpodStatus,
+    runpodControl,
+    runRunpodAction,
+    runningJobActionKey,
+    runningRunpodAction,
     runCleanup,
     runJobKick,
     runScopedJobs,
@@ -120,16 +127,23 @@ export default function SettingsPageClient({ initialSettings, viewerName, viewer
 
         <SettingsOperationsSection
           canManage={canManage}
+          canRunOperations={canRunOperations}
           message={message}
           operationsMessage={operationsMessage}
           settings={settings}
           timeZoneLabel={timeZoneLabel}
+          onOperateJob={(input) => void operateJob(input)}
+          onRefreshRunpodStatus={() => void refreshRunpodStatus()}
           onRunCleanup={() => void runCleanup()}
           onRunJobKick={() => void runJobKick()}
+          onRunpodAction={(action) => void runRunpodAction(action)}
           onRunScopedJobs={(input) => void runScopedJobs(input)}
           onRestoreDeletedContent={(input) => void restoreDeletedContent(input)}
+          runpodControl={runpodControl}
+          runningJobActionKey={runningJobActionKey}
           runningCleanup={runningCleanup}
           runningJobs={runningJobs}
+          runningRunpodAction={runningRunpodAction}
           runningScopedJobKey={runningScopedJobKey}
           restoringTargetKey={restoringTargetKey}
         />

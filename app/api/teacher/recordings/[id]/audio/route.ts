@@ -5,6 +5,7 @@ import {
   failIdempotency,
   IdempotencyConflictError,
 } from "@/lib/idempotency";
+import { API_THROTTLE_RULES, ApiQuotaExceededError, consumeApiQuota } from "@/lib/api-throttle";
 import { shouldRunBackgroundJobsInline } from "@/lib/jobs/execution-mode";
 import { processQueuedTeacherRecordingJobs } from "@/lib/jobs/teacherRecordingJobs";
 import { maybeEnsureRunpodWorkerReady } from "@/lib/runpod/worker-ready";
@@ -146,6 +147,37 @@ export async function POST(request: Request, { params }: { params: RouteParams }
     if (!(file instanceof File)) {
       return NextResponse.json({ error: "file が必要です。" }, { status: 400 });
     }
+    try {
+      await consumeApiQuota({
+        scope: "teacher_recording_upload:user",
+        rawKey: authResult.session.userId,
+        bytes: file.size,
+        rule: API_THROTTLE_RULES.teacherRecordingUploadUser,
+      });
+      await consumeApiQuota({
+        scope: "teacher_recording_upload:org",
+        rawKey: authResult.session.organizationId,
+        bytes: file.size,
+        rule: API_THROTTLE_RULES.teacherRecordingUploadOrg,
+      });
+    } catch (error) {
+      if (error instanceof ApiQuotaExceededError) {
+        return NextResponse.json(
+          {
+            error: error.message,
+            retryAfterSeconds: error.retryAfterSeconds,
+          },
+          {
+            status: 429,
+            headers: {
+              "Retry-After": String(error.retryAfterSeconds),
+            },
+          }
+        );
+      }
+      throw error;
+    }
+
     const durationSecondsHint = Number(formData.get("durationSecondsHint") ?? NaN);
     idempotencyKey = request.headers.get("Idempotency-Key")?.trim() || recordingId;
     const idempotency = await beginIdempotency({

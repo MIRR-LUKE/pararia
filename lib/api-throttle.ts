@@ -232,6 +232,18 @@ export const API_THROTTLE_RULES = {
     maxRequests: 96,
     maxBytes: 8 * 1024 * 1024 * 1024,
   },
+  teacherRecordingUploadUser: {
+    windowMs: 15 * 60 * 1000,
+    blockMs: 15 * 60 * 1000,
+    maxRequests: 24,
+    maxBytes: 2 * 1024 * 1024 * 1024,
+  },
+  teacherRecordingUploadOrg: {
+    windowMs: 15 * 60 * 1000,
+    blockMs: 10 * 60 * 1000,
+    maxRequests: 96,
+    maxBytes: 8 * 1024 * 1024 * 1024,
+  },
   reportGenerateUser: {
     windowMs: 15 * 60 * 1000,
     blockMs: 15 * 60 * 1000,

@@ -265,7 +265,7 @@ export function useStudentSessionConsoleRecording({
       await handleSavedPartResponse(body, sessionId);
       return body;
     },
-    [handleSavedPartResponse, lessonPart, lockTokenRef, mode, queueLiveChunkUpload]
+    [handleSavedPartResponse, lockTokenRef, queueLiveChunkUpload]
   );
   const reset = useCallback(() => {
     setState("idle");
@@ -356,8 +356,6 @@ export function useStudentSessionConsoleRecording({
       ensureLockForAudio,
       finalizeLock,
       handleSavedPartResponse,
-      lessonPart,
-      mode,
       pendingDraft,
       resolveTargetSessionId,
       setRecoverableSessionId,

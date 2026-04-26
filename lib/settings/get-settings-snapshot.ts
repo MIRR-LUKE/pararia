@@ -1,6 +1,7 @@
 import { TeacherAppDeviceAuthSessionStatus } from "@prisma/client";
 import { prisma } from "@/lib/db";
-import { canManageSettings } from "@/lib/permissions";
+import { canManageSettings, canOperateProductionJobs } from "@/lib/permissions";
+import { getRunpodWorkerConfig } from "@/lib/runpod/worker-control";
 import { withActiveStudentWhere } from "@/lib/students/student-lifecycle";
 import { getSendingConfigSummary, getTrustPolicySummary } from "@/lib/system-config";
 
@@ -13,7 +14,7 @@ export type MissingStudent = {
 
 export type OperationsJobRow = {
   id: string;
-  kind: "conversation" | "session_part";
+  kind: "conversation" | "session_part" | "teacher_recording";
   targetId: string;
   sessionId: string | null;
   studentId: string | null;
@@ -75,6 +76,7 @@ export type SettingsSnapshot = {
   permissions: {
     viewerRole?: string;
     canManage: boolean;
+    canRunOperations: boolean;
     roleCounts: Record<string, number>;
     policyRows: Array<{
       label: string;
@@ -112,9 +114,18 @@ export type SettingsSnapshot = {
     queuedSessionPartJobs: number;
     runningSessionPartJobs: number;
     staleSessionPartJobs: number;
+    queuedTeacherRecordingJobs: number;
+    runningTeacherRecordingJobs: number;
+    staleTeacherRecordingJobs: number;
     archivedStudents: number;
     conversationJobRows: OperationsJobRow[];
     sessionPartJobRows: OperationsJobRow[];
+    teacherRecordingJobRows: OperationsJobRow[];
+    runpod: {
+      configured: boolean;
+      workerName: string | null;
+      workerImage: string | null;
+    };
     deletedConversations: DeletedContentRow[];
     deletedReports: DeletedContentRow[];
     recentAuditLogs: Array<{
@@ -200,9 +211,13 @@ export async function getSettingsSnapshot({
     queuedSessionPartJobs,
     runningSessionPartJobs,
     staleSessionPartJobs,
+    queuedTeacherRecordingJobs,
+    runningTeacherRecordingJobs,
+    staleTeacherRecordingJobs,
     archivedStudents,
     conversationJobRows,
     sessionPartJobRows,
+    teacherRecordingJobRows,
     deletedConversations,
     deletedReports,
     recentAuditLogs,
@@ -340,6 +355,32 @@ export async function getSettingsSnapshot({
         startedAt: { lte: staleJobCutoff },
       },
     }),
+    prisma.teacherRecordingJob.count({
+      where: {
+        organizationId,
+        status: "QUEUED",
+      },
+    }),
+    prisma.teacherRecordingJob.count({
+      where: {
+        organizationId,
+        status: "RUNNING",
+      },
+    }),
+    prisma.teacherRecordingJob.count({
+      where: {
+        organizationId,
+        status: "RUNNING",
+        OR: [
+          {
+            recordingSession: {
+              processingLeaseExpiresAt: { lte: now },
+            },
+          },
+          { startedAt: { lte: staleJobCutoff } },
+        ],
+      },
+    }),
     prisma.student.count({
       where: {
         organizationId,
@@ -416,6 +457,36 @@ export async function getSettingsSnapshot({
                     name: true,
                   },
                 },
+              },
+            },
+          },
+        },
+      },
+    }),
+    prisma.teacherRecordingJob.findMany({
+      where: {
+        organizationId,
+        status: { in: ["QUEUED", "RUNNING", "ERROR"] },
+      },
+      orderBy: [{ updatedAt: "desc" }, { createdAt: "desc" }],
+      take: 8,
+      select: {
+        id: true,
+        recordingSessionId: true,
+        type: true,
+        status: true,
+        lastError: true,
+        startedAt: true,
+        finishedAt: true,
+        updatedAt: true,
+        recordingSession: {
+          select: {
+            audioFileName: true,
+            processingLeaseExpiresAt: true,
+            selectedStudent: {
+              select: {
+                id: true,
+                name: true,
               },
             },
           },
@@ -524,6 +595,7 @@ export async function getSettingsSnapshot({
     return null;
   }
 
+  const runpodConfig = getRunpodWorkerConfig();
   const roleCounts = users.reduce<Record<string, number>>((acc, user) => {
     acc[user.role] = (acc[user.role] ?? 0) + 1;
     return acc;
@@ -546,6 +618,7 @@ export async function getSettingsSnapshot({
     permissions: {
       viewerRole,
       canManage: canManageSettings(viewerRole),
+      canRunOperations: canOperateProductionJobs(viewerRole),
       roleCounts,
       policyRows: [
         {
@@ -609,6 +682,9 @@ export async function getSettingsSnapshot({
       queuedSessionPartJobs,
       runningSessionPartJobs,
       staleSessionPartJobs,
+      queuedTeacherRecordingJobs,
+      runningTeacherRecordingJobs,
+      staleTeacherRecordingJobs,
       archivedStudents,
       conversationJobRows: conversationJobRows.map((job) => ({
         id: job.id,
@@ -655,6 +731,33 @@ export async function getSettingsSnapshot({
         updatedAt: job.updatedAt.toISOString(),
         leaseExpiresAt: null,
       })),
+      teacherRecordingJobRows: teacherRecordingJobRows.map((job) => ({
+        id: job.id,
+        kind: "teacher_recording",
+        targetId: job.recordingSessionId,
+        sessionId: null,
+        studentId: job.recordingSession.selectedStudent?.id ?? null,
+        studentName: job.recordingSession.selectedStudent?.name ?? null,
+        jobType: job.type,
+        status: job.status,
+        statusLabel: buildJobStatusLabel({
+          status: job.status,
+          now,
+        }),
+        fileName: job.recordingSession.audioFileName ?? null,
+        partType: null,
+        lastError: job.lastError ?? null,
+        nextRetryAt: null,
+        startedAt: toIsoString(job.startedAt),
+        finishedAt: toIsoString(job.finishedAt),
+        updatedAt: job.updatedAt.toISOString(),
+        leaseExpiresAt: toIsoString(job.recordingSession.processingLeaseExpiresAt),
+      })),
+      runpod: {
+        configured: Boolean(runpodConfig),
+        workerName: runpodConfig?.name ?? null,
+        workerImage: runpodConfig?.image ?? null,
+      },
       deletedConversations: deletedConversations
         .filter((item) => item.deletedAt)
         .map((item) => ({

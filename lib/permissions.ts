@@ -45,6 +45,10 @@ export function canRunMaintenanceRoutes(role: RoleInput) {
   return isAdminRole(role);
 }
 
+export function canOperateProductionJobs(role: RoleInput) {
+  return isAdminRole(role);
+}
+
 export function roleLabelJa(role: RoleInput) {
   const normalized = normalizeUserRole(role);
   if (normalized === UserRole.ADMIN) return "管理者";

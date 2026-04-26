@@ -66,6 +66,29 @@ function buildDeviceClientDetail(
   return parts.filter(Boolean).join(" / ");
 }
 
+function buildRunpodPodDetail(
+  row: {
+    image: string | null;
+    gpuName: string | null;
+    gpuCount: number | null;
+    costPerHr: string | number | null;
+    lastStartedAt: string | null;
+    createdAt: string | null;
+    machineId: string | null;
+  },
+  timeZone: string
+) {
+  const parts = [
+    row.gpuName ? `GPU: ${row.gpuName}${row.gpuCount ? ` x${row.gpuCount}` : ""}` : null,
+    row.costPerHr !== null && row.costPerHr !== undefined ? `cost/hr: ${row.costPerHr}` : null,
+    row.lastStartedAt ? `起動: ${formatDateTime(row.lastStartedAt, timeZone)}` : null,
+    row.createdAt ? `作成: ${formatDateTime(row.createdAt, timeZone)}` : null,
+    row.machineId ? `machine: ${row.machineId}` : null,
+    row.image ? `image: ${row.image}` : null,
+  ];
+  return parts.filter(Boolean).join(" / ");
+}
+
 type BaseProps = {
   canManage: boolean;
   message: string | null;
@@ -359,20 +382,37 @@ export function SettingsTeacherAppDevicesSection({
 
 export function SettingsOperationsSection({
   canManage,
+  canRunOperations,
   operationsMessage,
   settings,
   timeZoneLabel,
+  onOperateJob,
+  onRefreshRunpodStatus,
   onRunCleanup,
   onRunJobKick,
+  onRunpodAction,
   onRunScopedJobs,
   onRestoreDeletedContent,
+  runpodControl,
+  runningJobActionKey,
   runningCleanup,
   runningJobs,
+  runningRunpodAction,
   runningScopedJobKey,
   restoringTargetKey,
 }: BaseProps & {
+  canRunOperations: boolean;
+  onOperateJob: (input: {
+    key: string;
+    kind: SettingsSnapshot["operations"]["conversationJobRows"][number]["kind"];
+    jobId: string;
+    action: "retry" | "cancel";
+    label: string;
+  }) => void;
+  onRefreshRunpodStatus: () => void;
   onRunCleanup: () => void;
   onRunJobKick: () => void;
+  onRunpodAction: (action: "start" | "stop") => void;
   onRunScopedJobs: (input: {
     key: string;
     conversationId?: string | null;
@@ -385,8 +425,30 @@ export function SettingsOperationsSection({
     id: string;
     successLabel: string;
   }) => void;
+  runpodControl: {
+    pods: Array<{
+      id: string;
+      name: string | null;
+      image: string | null;
+      desiredStatus: string | null;
+      lastStartedAt: string | null;
+      createdAt: string | null;
+      publicIp: string | null;
+      machineId: string | null;
+      gpuName: string | null;
+      gpuCount: number | null;
+      costPerHr: string | number | null;
+    }>;
+    workerName: string | null;
+    workerImage: string | null;
+    configured: boolean;
+    loading: boolean;
+    message: string | null;
+  };
+  runningJobActionKey: string | null;
   runningCleanup: boolean;
   runningJobs: boolean;
+  runningRunpodAction: "status" | "start" | "stop" | null;
   runningScopedJobKey: string | null;
   restoringTargetKey: string | null;
 }) {
@@ -417,6 +479,18 @@ export function SettingsOperationsSection({
           <span className={styles.metricLabel}>音声 詰まり疑い</span>
           <strong>{settings.operations.staleSessionPartJobs}</strong>
         </div>
+        <div className={styles.metricCard}>
+          <span className={styles.metricLabel}>Teacher App 待ち</span>
+          <strong>{settings.operations.queuedTeacherRecordingJobs}</strong>
+        </div>
+        <div className={styles.metricCard}>
+          <span className={styles.metricLabel}>Teacher App 実行中</span>
+          <strong>{settings.operations.runningTeacherRecordingJobs}</strong>
+        </div>
+        <div className={styles.metricCard}>
+          <span className={styles.metricLabel}>Teacher App 詰まり疑い</span>
+          <strong>{settings.operations.staleTeacherRecordingJobs}</strong>
+        </div>
       </div>
 
       <div className={styles.actionGrid}>
@@ -424,19 +498,58 @@ export function SettingsOperationsSection({
           <strong>保守ボタン</strong>
           <p>ジョブ再開や保存期限切れの掃除を、管理者ログインのまま実行できます。</p>
           <div className={styles.buttonRow}>
-            <Button onClick={onRunJobKick} disabled={!canManage || runningJobs || runningCleanup}>
+            <Button onClick={onRunJobKick} disabled={!canRunOperations || runningJobs || runningCleanup}>
               {runningJobs ? "実行中..." : "ジョブを回す"}
             </Button>
-            <Button variant="secondary" onClick={onRunCleanup} disabled={!canManage || runningCleanup || runningJobs}>
+            <Button variant="secondary" onClick={onRunCleanup} disabled={!canRunOperations || runningCleanup || runningJobs}>
               {runningCleanup ? "実行中..." : "保存期限切れを掃除"}
             </Button>
           </div>
+          {!canRunOperations ? <p>保守操作は管理者だけが実行できます。</p> : null}
         </div>
 
         <div className={styles.readOnlyBanner}>
           <strong>生徒の保守状況</strong>
           <p>アーカイブ済み生徒: {settings.operations.archivedStudents} 人</p>
           <p>本番の整合性確認は読み取り専用の `student-integrity-audit` で回します。</p>
+        </div>
+      </div>
+
+      <div className={styles.readOnlyBanner}>
+        <strong>Runpod worker</strong>
+        <p>
+          設定: {settings.operations.runpod.configured ? "あり" : "未設定"} / worker:{" "}
+          {runpodControl.workerName ?? settings.operations.runpod.workerName ?? "未設定"}
+        </p>
+        <p>image: {runpodControl.workerImage ?? settings.operations.runpod.workerImage ?? "未設定"}</p>
+        <div className={styles.buttonRow}>
+          <Button variant="secondary" onClick={onRefreshRunpodStatus} disabled={!canRunOperations || Boolean(runningRunpodAction)}>
+            {runningRunpodAction === "status" || runpodControl.loading ? "確認中..." : "状態を更新"}
+          </Button>
+          <Button onClick={() => onRunpodAction("start")} disabled={!canRunOperations || Boolean(runningRunpodAction)}>
+            {runningRunpodAction === "start" ? "起動中..." : "起動"}
+          </Button>
+          <Button variant="secondary" onClick={() => onRunpodAction("stop")} disabled={!canRunOperations || Boolean(runningRunpodAction)}>
+            {runningRunpodAction === "stop" ? "停止中..." : "停止"}
+          </Button>
+        </div>
+        {runpodControl.message ? <p>{runpodControl.message}</p> : null}
+        <div className={styles.listBlock}>
+          {runpodControl.pods.length === 0 ? (
+            <div className={styles.successBox}>Runpod podの状態はまだ取得していません。</div>
+          ) : (
+            runpodControl.pods.map((pod) => (
+              <div key={pod.id} className={styles.jobItem}>
+                <div className={styles.jobTop}>
+                  <div>
+                    <strong>{pod.name ?? pod.id}</strong>
+                    <div className={styles.note}>{buildRunpodPodDetail(pod, timeZoneLabel)}</div>
+                  </div>
+                  <span className={styles.pill}>{pod.desiredStatus ?? "UNKNOWN"}</span>
+                </div>
+              </div>
+            ))
+          )}
         </div>
       </div>
 
@@ -465,7 +578,40 @@ export function SettingsOperationsSection({
                     </div>
                     <div className={styles.buttonRow}>
                       <Button
+                        size="small"
                         variant="secondary"
+                        onClick={() =>
+                          onOperateJob({
+                            key: `retry:${row.kind}:${row.id}`,
+                            kind: row.kind,
+                            jobId: row.id,
+                            action: "retry",
+                            label: `${row.studentName ?? "生徒未設定"} / ${row.jobType}`,
+                          })
+                        }
+                        disabled={!canRunOperations || Boolean(runningJobActionKey)}
+                      >
+                        {runningJobActionKey === `retry:${row.kind}:${row.id}` ? "準備中..." : "再実行準備"}
+                      </Button>
+                      <Button
+                        size="small"
+                        variant="ghost"
+                        onClick={() =>
+                          onOperateJob({
+                            key: `cancel:${row.kind}:${row.id}`,
+                            kind: row.kind,
+                            jobId: row.id,
+                            action: "cancel",
+                            label: `${row.studentName ?? "生徒未設定"} / ${row.jobType}`,
+                          })
+                        }
+                        disabled={!canRunOperations || Boolean(runningJobActionKey)}
+                      >
+                        {runningJobActionKey === `cancel:${row.kind}:${row.id}` ? "取消中..." : "取消"}
+                      </Button>
+                      <Button
+                        variant="secondary"
+                        size="small"
                         onClick={() =>
                           onRunScopedJobs({
                             key: actionKey,
@@ -473,7 +619,7 @@ export function SettingsOperationsSection({
                             successLabel: "この会話",
                           })
                         }
-                        disabled={!canManage || runningScopedJobKey === actionKey}
+                        disabled={!canRunOperations || runningScopedJobKey === actionKey}
                       >
                         {runningScopedJobKey === actionKey ? "実行中..." : "この会話だけ回す"}
                       </Button>
@@ -507,7 +653,40 @@ export function SettingsOperationsSection({
                     </div>
                     <div className={styles.buttonRow}>
                       <Button
+                        size="small"
                         variant="secondary"
+                        onClick={() =>
+                          onOperateJob({
+                            key: `retry:${row.kind}:${row.id}`,
+                            kind: row.kind,
+                            jobId: row.id,
+                            action: "retry",
+                            label: `${row.studentName ?? "生徒未設定"} / ${row.jobType}`,
+                          })
+                        }
+                        disabled={!canRunOperations || Boolean(runningJobActionKey)}
+                      >
+                        {runningJobActionKey === `retry:${row.kind}:${row.id}` ? "準備中..." : "再実行準備"}
+                      </Button>
+                      <Button
+                        size="small"
+                        variant="ghost"
+                        onClick={() =>
+                          onOperateJob({
+                            key: `cancel:${row.kind}:${row.id}`,
+                            kind: row.kind,
+                            jobId: row.id,
+                            action: "cancel",
+                            label: `${row.studentName ?? "生徒未設定"} / ${row.jobType}`,
+                          })
+                        }
+                        disabled={!canRunOperations || Boolean(runningJobActionKey)}
+                      >
+                        {runningJobActionKey === `cancel:${row.kind}:${row.id}` ? "取消中..." : "取消"}
+                      </Button>
+                      <Button
+                        variant="secondary"
+                        size="small"
                         onClick={() =>
                           onRunScopedJobs({
                             key: actionKey,
@@ -515,7 +694,7 @@ export function SettingsOperationsSection({
                             successLabel: "このセッション",
                           })
                         }
-                        disabled={!canManage || !row.sessionId || runningScopedJobKey === actionKey}
+                        disabled={!canRunOperations || !row.sessionId || runningScopedJobKey === actionKey}
                       >
                         {runningScopedJobKey === actionKey ? "実行中..." : "このセッションだけ回す"}
                       </Button>
@@ -523,6 +702,64 @@ export function SettingsOperationsSection({
                   </div>
                 );
               })
+            )}
+          </div>
+        </div>
+
+        <div className={styles.policyItem}>
+          <strong>Teacher App録音処理の明細</strong>
+          <p>スマホ録音のSTTと候補提示で止まったものを、録音単位で再実行または取消できます。</p>
+          <div className={styles.listBlock}>
+            {settings.operations.teacherRecordingJobRows.length === 0 ? (
+              <div className={styles.successBox}>Teacher App録音処理の詰まりは見つかっていません。</div>
+            ) : (
+              settings.operations.teacherRecordingJobRows.map((row) => (
+                <div key={row.id} className={styles.jobItem}>
+                  <div className={styles.jobTop}>
+                    <div>
+                      <strong>
+                        {row.studentName ?? "生徒未確定"} / {row.jobType}
+                      </strong>
+                      <div className={styles.note}>{buildJobDetail(row, timeZoneLabel)}</div>
+                    </div>
+                    <span className={styles.pill}>{row.statusLabel}</span>
+                  </div>
+                  <div className={styles.buttonRow}>
+                    <Button
+                      size="small"
+                      variant="secondary"
+                      onClick={() =>
+                        onOperateJob({
+                          key: `retry:${row.kind}:${row.id}`,
+                          kind: row.kind,
+                          jobId: row.id,
+                          action: "retry",
+                          label: `${row.studentName ?? "生徒未確定"} / ${row.jobType}`,
+                        })
+                      }
+                      disabled={!canRunOperations || Boolean(runningJobActionKey)}
+                    >
+                      {runningJobActionKey === `retry:${row.kind}:${row.id}` ? "準備中..." : "再実行準備"}
+                    </Button>
+                    <Button
+                      size="small"
+                      variant="ghost"
+                      onClick={() =>
+                        onOperateJob({
+                          key: `cancel:${row.kind}:${row.id}`,
+                          kind: row.kind,
+                          jobId: row.id,
+                          action: "cancel",
+                          label: `${row.studentName ?? "生徒未確定"} / ${row.jobType}`,
+                        })
+                      }
+                      disabled={!canRunOperations || Boolean(runningJobActionKey)}
+                    >
+                      {runningJobActionKey === `cancel:${row.kind}:${row.id}` ? "取消中..." : "取消"}
+                    </Button>
+                  </div>
+                </div>
+              ))
             )}
           </div>
         </div>

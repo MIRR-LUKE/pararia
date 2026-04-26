@@ -23,6 +23,29 @@ type Props = {
   initialSettings: SettingsSnapshot;
 };
 
+type RunpodPodRow = {
+  id: string;
+  name: string | null;
+  image: string | null;
+  desiredStatus: string | null;
+  lastStartedAt: string | null;
+  createdAt: string | null;
+  publicIp: string | null;
+  machineId: string | null;
+  gpuName: string | null;
+  gpuCount: number | null;
+  costPerHr: string | number | null;
+};
+
+type RunpodControlState = {
+  pods: RunpodPodRow[];
+  workerName: string | null;
+  workerImage: string | null;
+  configured: boolean;
+  loading: boolean;
+  message: string | null;
+};
+
 async function fetchSettingsData() {
   const res = await fetch("/api/settings", { cache: "no-store" });
   const body = await res.json().catch(() => ({}));
@@ -93,10 +116,20 @@ export function useSettingsPageController({ initialSettings }: Props) {
   const [runningJobs, setRunningJobs] = useState(false);
   const [runningCleanup, setRunningCleanup] = useState(false);
   const [runningScopedJobKey, setRunningScopedJobKey] = useState<string | null>(null);
+  const [runningJobActionKey, setRunningJobActionKey] = useState<string | null>(null);
+  const [runningRunpodAction, setRunningRunpodAction] = useState<"status" | "start" | "stop" | null>(null);
   const [restoringTargetKey, setRestoringTargetKey] = useState<string | null>(null);
   const [revokingDeviceId, setRevokingDeviceId] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [operationsMessage, setOperationsMessage] = useState<string | null>(null);
+  const [runpodControl, setRunpodControl] = useState<RunpodControlState>(() => ({
+    pods: [],
+    workerName: initialSettings.operations.runpod.workerName,
+    workerImage: initialSettings.operations.runpod.workerImage,
+    configured: initialSettings.operations.runpod.configured,
+    loading: false,
+    message: null,
+  }));
   const [guardianDrafts, setGuardianDrafts] = useState<Record<string, string>>(() =>
     toGuardianDrafts(initialSettings.guardianContacts.missingStudents)
   );
@@ -261,6 +294,109 @@ export function useSettingsPageController({ initialSettings }: Props) {
     }
   };
 
+  const operateJob = async (input: {
+    key: string;
+    kind: OperationsJobRow["kind"];
+    jobId: string;
+    action: "retry" | "cancel";
+    label: string;
+  }) => {
+    const reason =
+      input.action === "cancel"
+        ? window.prompt(`${input.label} を取消します。理由を入力してください。`, "operator_cancel")
+        : window.prompt(`${input.label} を再実行キューへ戻します。理由を入力してください。`, "operator_retry");
+    if (!reason?.trim()) return;
+
+    const verb = input.action === "cancel" ? "取消" : "再実行準備";
+    if (!window.confirm(`${input.label} を${verb}します。よければ進めてください。`)) {
+      return;
+    }
+
+    setRunningJobActionKey(input.key);
+    setOperationsMessage(null);
+    try {
+      const res = await fetch(
+        `/api/operations/jobs/${encodeURIComponent(input.kind)}/${encodeURIComponent(input.jobId)}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: input.action,
+            reason,
+          }),
+        }
+      );
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body?.error ?? `${verb}に失敗しました。`);
+      await refreshSettings(undefined, `${input.label} を${verb}しました。`);
+    } catch (nextError: any) {
+      setOperationsMessage(nextError?.message ?? `${verb}に失敗しました。`);
+    } finally {
+      setRunningJobActionKey((current) => (current === input.key ? null : current));
+    }
+  };
+
+  const refreshRunpodStatus = async () => {
+    setRunpodControl((current) => ({ ...current, loading: true, message: null }));
+    setRunningRunpodAction("status");
+    try {
+      const res = await fetch("/api/operations/runpod", { cache: "no-store" });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body?.error ?? "Runpod状態の取得に失敗しました。");
+      setRunpodControl({
+        pods: body.runpod?.pods ?? [],
+        workerName: body.runpod?.workerName ?? null,
+        workerImage: body.runpod?.workerImage ?? null,
+        configured: Boolean(body.runpod?.configured),
+        loading: false,
+        message: body.runpod?.error ?? "Runpod状態を更新しました。",
+      });
+    } catch (nextError: any) {
+      setRunpodControl((current) => ({
+        ...current,
+        loading: false,
+        message: nextError?.message ?? "Runpod状態の取得に失敗しました。",
+      }));
+    } finally {
+      setRunningRunpodAction((current) => (current === "status" ? null : current));
+    }
+  };
+
+  const runRunpodAction = async (action: "start" | "stop") => {
+    const label = action === "start" ? "Runpod workerを起動" : "Runpod workerを停止";
+    if (!window.confirm(`${label}します。よければ進めてください。`)) {
+      return;
+    }
+    setRunningRunpodAction(action);
+    setRunpodControl((current) => ({ ...current, loading: true, message: null }));
+    try {
+      const res = await fetch("/api/operations/runpod", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body?.error ?? `${label}に失敗しました。`);
+      setRunpodControl({
+        pods: body.runpod?.pods ?? [],
+        workerName: body.runpod?.workerName ?? null,
+        workerImage: body.runpod?.workerImage ?? null,
+        configured: Boolean(body.runpod?.configured),
+        loading: false,
+        message: `${label}しました。`,
+      });
+      await refreshSettings(undefined, `${label}しました。`);
+    } catch (nextError: any) {
+      setRunpodControl((current) => ({
+        ...current,
+        loading: false,
+        message: nextError?.message ?? `${label}に失敗しました。`,
+      }));
+    } finally {
+      setRunningRunpodAction((current) => (current === action ? null : current));
+    }
+  };
+
   const restoreDeletedContent = async (input: {
     key: string;
     kind: "conversation" | "report";
@@ -326,13 +462,16 @@ export function useSettingsPageController({ initialSettings }: Props) {
   };
 
   const canManage = settings.permissions.canManage;
+  const canRunOperations = settings.permissions.canRunOperations;
   const timeZoneLabel = settings.organization.defaultTimeZone || "Asia/Tokyo";
 
   return {
     activeStudentCount,
     canManage,
+    canRunOperations,
     guardianDrafts,
     message,
+    operateJob,
     operationsMessage,
     organizationDraft,
     permissionRows,
@@ -341,8 +480,13 @@ export function useSettingsPageController({ initialSettings }: Props) {
     restoringTargetKey,
     revokeTeacherAppDevice,
     revokingDeviceId,
+    refreshRunpodStatus,
+    runpodControl,
+    runRunpodAction,
+    runningJobActionKey,
     runCleanup,
     runJobKick,
+    runningRunpodAction,
     runScopedJobs,
     runningCleanup,
     runningJobs,
