@@ -133,7 +133,7 @@ npm run test:student-room-route
 - 管理画面、レポート確認、設定、監査は引き続き web のまま運用する
 - native app 用の auth / recording 契約は [docs/teacher-app-native-auth-contract.md](./docs/teacher-app-native-auth-contract.md) を正本にする
 - lifecycle 方針は [docs/teacher-app-lifecycle-policy.md](./docs/teacher-app-lifecycle-policy.md)、内部 QA / 配布メモは [docs/teacher-app-internal-testing.md](./docs/teacher-app-internal-testing.md) を正本にする
-- native app は upload 成功後なら app を閉じていても server / Runpod 側で STT を続行し、Firebase 設定済み端末には完了または失敗通知を送る
+- native app は upload 成功後なら app を閉じていても server / Runpod 側で STT を続行し、Firebase 設定済み端末には完了または失敗通知を送る。Vercel 本番では service account key ではなく OIDC + Google Workload Identity Federation で FCM を送る
 - native-first の親 issue は `#171`、子 issue は `#172`, `#173`, `#170`, `#165`, `#167`
 - `#172` は backend 契約と device auth まで完了済み
 

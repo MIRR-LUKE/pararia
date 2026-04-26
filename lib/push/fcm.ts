@@ -1,10 +1,23 @@
 import { createSign } from "node:crypto";
+import { getVercelOidcToken } from "@vercel/oidc";
 
 type FcmServiceAccount = {
+  mode: "service_account";
   projectId: string;
   clientEmail: string;
   privateKey: string;
 };
+
+type FcmVercelOidcAccount = {
+  mode: "vercel_oidc";
+  projectId: string;
+  projectNumber: string;
+  serviceAccountEmail: string;
+  workloadIdentityPoolId: string;
+  workloadIdentityPoolProviderId: string;
+};
+
+type FcmAuthConfig = FcmServiceAccount | FcmVercelOidcAccount;
 
 type FcmAccessToken = {
   accessToken: string;
@@ -39,7 +52,7 @@ function normalizePrivateKey(value: string) {
   return value.replace(/\\n/g, "\n").trim();
 }
 
-export function readFcmServiceAccount(): FcmServiceAccount | null {
+export function readFcmAuthConfig(): FcmAuthConfig | null {
   const rawJson = process.env.FIREBASE_SERVICE_ACCOUNT_JSON?.trim();
   if (rawJson) {
     const parsed = JSON.parse(rawJson) as {
@@ -49,6 +62,7 @@ export function readFcmServiceAccount(): FcmServiceAccount | null {
     };
     if (parsed.project_id && parsed.client_email && parsed.private_key) {
       return {
+        mode: "service_account",
         projectId: parsed.project_id,
         clientEmail: parsed.client_email,
         privateKey: normalizePrivateKey(parsed.private_key),
@@ -59,14 +73,50 @@ export function readFcmServiceAccount(): FcmServiceAccount | null {
   const projectId = process.env.FIREBASE_PROJECT_ID?.trim();
   const clientEmail = process.env.FIREBASE_CLIENT_EMAIL?.trim();
   const privateKey = process.env.FIREBASE_PRIVATE_KEY?.trim();
-  if (!projectId || !clientEmail || !privateKey) {
-    return null;
+  if (projectId || clientEmail || privateKey) {
+    if (!projectId || !clientEmail || !privateKey) {
+      throw new Error("Incomplete Firebase service account environment variables");
+    }
+    return {
+      mode: "service_account",
+      projectId,
+      clientEmail,
+      privateKey: normalizePrivateKey(privateKey),
+    };
   }
-  return {
-    projectId,
-    clientEmail,
-    privateKey: normalizePrivateKey(privateKey),
-  };
+
+  const gcpProjectId = process.env.GCP_PROJECT_ID?.trim() || process.env.FIREBASE_PROJECT_ID?.trim();
+  const projectNumber = process.env.GCP_PROJECT_NUMBER?.trim();
+  const serviceAccountEmail = process.env.GCP_SERVICE_ACCOUNT_EMAIL?.trim();
+  const workloadIdentityPoolId = process.env.GCP_WORKLOAD_IDENTITY_POOL_ID?.trim();
+  const workloadIdentityPoolProviderId = process.env.GCP_WORKLOAD_IDENTITY_POOL_PROVIDER_ID?.trim();
+  const oidcValues = [
+    gcpProjectId,
+    projectNumber,
+    serviceAccountEmail,
+    workloadIdentityPoolId,
+    workloadIdentityPoolProviderId,
+  ];
+  if (oidcValues.some(Boolean)) {
+    if (oidcValues.some((value) => !value)) {
+      throw new Error("Incomplete GCP workload identity environment variables for FCM");
+    }
+    return {
+      mode: "vercel_oidc",
+      projectId: gcpProjectId,
+      projectNumber,
+      serviceAccountEmail,
+      workloadIdentityPoolId,
+      workloadIdentityPoolProviderId,
+    } as FcmVercelOidcAccount;
+  }
+
+  return null;
+}
+
+export function readFcmServiceAccount(): FcmServiceAccount | null {
+  const config = readFcmAuthConfig();
+  return config?.mode === "service_account" ? config : null;
 }
 
 async function createFcmAccessToken(account: FcmServiceAccount) {
@@ -110,9 +160,72 @@ async function createFcmAccessToken(account: FcmServiceAccount) {
   return cachedAccessToken.accessToken;
 }
 
-async function getFcmAccessToken(account: FcmServiceAccount) {
+async function createFcmVercelOidcAccessToken(account: FcmVercelOidcAccount) {
+  const subjectToken = await getVercelOidcToken();
+  const audience = `//iam.googleapis.com/projects/${account.projectNumber}/locations/global/workloadIdentityPools/${account.workloadIdentityPoolId}/providers/${account.workloadIdentityPoolProviderId}`;
+  const tokenExchangeResponse = await fetch("https://sts.googleapis.com/v1/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      grant_type: "urn:ietf:params:oauth:grant-type:token-exchange",
+      audience,
+      scope: "https://www.googleapis.com/auth/cloud-platform",
+      requested_token_type: "urn:ietf:params:oauth:token-type:access_token",
+      subject_token_type: "urn:ietf:params:oauth:token-type:jwt",
+      subject_token: subjectToken,
+    }),
+  });
+  const tokenExchangeBody = (await tokenExchangeResponse.json().catch(() => ({}))) as {
+    access_token?: string;
+    error?: string;
+    error_description?: string;
+  };
+  if (!tokenExchangeResponse.ok || !tokenExchangeBody.access_token) {
+    throw new Error(
+      tokenExchangeBody.error_description ||
+        tokenExchangeBody.error ||
+        `FCM workload identity token exchange failed: ${tokenExchangeResponse.status}`
+    );
+  }
+
+  const impersonationResponse = await fetch(
+    `https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/${account.serviceAccountEmail}:generateAccessToken`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${tokenExchangeBody.access_token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        scope: ["https://www.googleapis.com/auth/firebase.messaging"],
+        lifetime: "3600s",
+      }),
+    }
+  );
+  const impersonationBody = (await impersonationResponse.json().catch(() => ({}))) as {
+    accessToken?: string;
+    expireTime?: string;
+    error?: { message?: string };
+  };
+  if (!impersonationResponse.ok || !impersonationBody.accessToken) {
+    throw new Error(
+      impersonationBody.error?.message || `FCM service account impersonation failed: ${impersonationResponse.status}`
+    );
+  }
+
+  cachedAccessToken = {
+    accessToken: impersonationBody.accessToken,
+    expiresAtMs: impersonationBody.expireTime ? Date.parse(impersonationBody.expireTime) : Date.now() + 3600 * 1000,
+  };
+  return cachedAccessToken.accessToken;
+}
+
+async function getFcmAccessToken(account: FcmAuthConfig) {
   if (cachedAccessToken && cachedAccessToken.expiresAtMs > Date.now() + 60_000) {
     return cachedAccessToken.accessToken;
+  }
+  if (account.mode === "vercel_oidc") {
+    return createFcmVercelOidcAccessToken(account);
   }
   return createFcmAccessToken(account);
 }
@@ -126,7 +239,7 @@ function normalizeData(data: FcmSendInput["data"]) {
 }
 
 export async function sendFcmMessage(input: FcmSendInput): Promise<FcmSendResult> {
-  const account = readFcmServiceAccount();
+  const account = readFcmAuthConfig();
   if (!account) {
     return { ok: true, skipped: true, reason: "fcm_not_configured" };
   }

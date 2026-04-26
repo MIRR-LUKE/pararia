@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { buildTeacherRecordingNotificationMessage } from "@/lib/teacher-app/server/recording-notifications";
-import { readFcmServiceAccount } from "@/lib/push/fcm";
+import { readFcmAuthConfig, readFcmServiceAccount } from "@/lib/push/fcm";
 
 const previousEnv = { ...process.env };
 
@@ -10,6 +10,12 @@ try {
   delete process.env.FIREBASE_PROJECT_ID;
   delete process.env.FIREBASE_CLIENT_EMAIL;
   delete process.env.FIREBASE_PRIVATE_KEY;
+  delete process.env.GCP_PROJECT_ID;
+  delete process.env.GCP_PROJECT_NUMBER;
+  delete process.env.GCP_SERVICE_ACCOUNT_EMAIL;
+  delete process.env.GCP_WORKLOAD_IDENTITY_POOL_ID;
+  delete process.env.GCP_WORKLOAD_IDENTITY_POOL_PROVIDER_ID;
+  assert.equal(readFcmAuthConfig(), null);
   assert.equal(readFcmServiceAccount(), null);
 
   process.env.FIREBASE_PROJECT_ID = "pararia-test";
@@ -21,6 +27,18 @@ try {
   assert.equal(account?.projectId, "pararia-test");
   assert.equal(account?.privateKey.includes("\\n"), false);
   assert.equal(account?.privateKey.includes("\n"), true);
+
+  delete process.env.FIREBASE_PROJECT_ID;
+  delete process.env.FIREBASE_CLIENT_EMAIL;
+  delete process.env.FIREBASE_PRIVATE_KEY;
+  process.env.GCP_PROJECT_ID = "pararia-firebase";
+  process.env.GCP_PROJECT_NUMBER = "123456789012";
+  process.env.GCP_SERVICE_ACCOUNT_EMAIL = "pararia-fcm-sender@pararia-firebase.iam.gserviceaccount.com";
+  process.env.GCP_WORKLOAD_IDENTITY_POOL_ID = "vercel";
+  process.env.GCP_WORKLOAD_IDENTITY_POOL_PROVIDER_ID = "vercel";
+  const oidcConfig = readFcmAuthConfig();
+  assert.equal(oidcConfig?.mode, "vercel_oidc");
+  assert.equal(oidcConfig?.projectId, "pararia-firebase");
 } finally {
   for (const key of Object.keys(process.env)) delete process.env[key];
   Object.assign(process.env, previousEnv);
