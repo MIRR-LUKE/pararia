@@ -46,7 +46,34 @@ function envPresent(name: string) {
   return (process.env[name] ?? "").trim().length > 0;
 }
 
-function commandAvailable(command: string, args: string[]) {
+function commandCandidates(command: string) {
+  const candidates = [command];
+  const localAppData = process.env.LOCALAPPDATA;
+  const androidHome = process.env.ANDROID_HOME || process.env.ANDROID_SDK_ROOT;
+  const javaHome = process.env.JAVA_HOME;
+
+  if (command === "adb") {
+    if (androidHome) {
+      candidates.push(join(androidHome, "platform-tools", "adb.exe"));
+      candidates.push(join(androidHome, "platform-tools", "adb"));
+    }
+    if (localAppData) {
+      candidates.push(join(localAppData, "Android", "Sdk", "platform-tools", "adb.exe"));
+    }
+  }
+
+  if (command === "keytool") {
+    if (javaHome) {
+      candidates.push(join(javaHome, "bin", "keytool.exe"));
+      candidates.push(join(javaHome, "bin", "keytool"));
+    }
+    candidates.push(join("C:", "Program Files", "Android", "Android Studio", "jbr", "bin", "keytool.exe"));
+  }
+
+  return [...new Set(candidates)];
+}
+
+function runCommand(command: string, args: string[]) {
   const result = spawnSync(command, args, {
     encoding: "utf8",
     timeout: 10_000,
@@ -64,6 +91,49 @@ function commandAvailable(command: string, args: string[]) {
     ok: result.status === 0,
     reason: result.status === 0 ? "available" : `exit ${result.status}`,
   };
+}
+
+function commandAvailable(command: string, args: string[]) {
+  const failures: string[] = [];
+
+  for (const candidate of commandCandidates(command)) {
+    if (candidate !== command && !fileExists(candidate)) {
+      continue;
+    }
+
+    const result = runCommand(candidate, args);
+    if (result.ok) {
+      return {
+        ok: true,
+        reason: candidate === command ? "available" : `available at ${candidate}`,
+      };
+    }
+    failures.push(`${candidate}: ${result.reason}`);
+  }
+
+  return {
+    ok: false,
+    reason: failures.length > 0 ? failures.join("; ") : "not found",
+  };
+}
+
+function githubRegisteredNames(kind: "secret" | "variable") {
+  const result = spawnSync("gh", [kind, "list"], {
+    encoding: "utf8",
+    timeout: 10_000,
+    windowsHide: true,
+  });
+
+  if (result.error || result.status !== 0) {
+    return null;
+  }
+
+  return new Set(
+    result.stdout
+      .split(/\r?\n/)
+      .map((line) => line.trim().split(/\s+/)[0])
+      .filter(Boolean)
+  );
 }
 
 function checkWorkflow() {
@@ -103,14 +173,18 @@ function checkSigningEnvironment() {
     "ANDROID_UPLOAD_KEY_ALIAS",
     "ANDROID_UPLOAD_KEY_PASSWORD",
   ];
-  const missing = requiredSecrets.filter((name) => !envPresent(name));
+  const githubSecrets = githubRegisteredNames("secret");
+  const missingLocal = requiredSecrets.filter((name) => !envPresent(name));
+  const missingEverywhere = requiredSecrets.filter((name) => !envPresent(name) && !githubSecrets?.has(name));
 
   add(
     "Android signing secrets",
-    missing.length === 0 ? "pass" : "fail",
-    missing.length === 0
+    missingEverywhere.length === 0 ? "pass" : "fail",
+    missingLocal.length === 0
       ? "必要な signing secret 環境変数は存在します。値は出力していません。"
-      : `未設定の signing secret 環境変数: ${missing.join(", ")}`
+      : missingEverywhere.length === 0
+        ? "GitHub Actions の signing secrets は登録済みです。値は出力していません。"
+        : `未設定の signing secret: ${missingEverywhere.join(", ")}`
   );
 
   const base64 = process.env.ANDROID_UPLOAD_KEYSTORE_BASE64?.trim();
@@ -130,7 +204,13 @@ function checkSigningEnvironment() {
       add("Keystore base64 shape", "fail", "ANDROID_UPLOAD_KEYSTORE_BASE64 は base64 として復元できません。");
     }
   } else {
-    add("Keystore base64 shape", "warn", "secret 未設定のため base64 形式チェックは未実行です。");
+    add(
+      "Keystore base64 shape",
+      "warn",
+      githubSecrets?.has("ANDROID_UPLOAD_KEYSTORE_BASE64")
+        ? "GitHub Secret 登録済みですが、値は読み出せないためローカル base64 形式チェックは未実行です。"
+        : "secret 未設定のため base64 形式チェックは未実行です。"
+    );
   }
 }
 
@@ -139,14 +219,14 @@ function checkTools() {
   add(
     "keytool",
     keytool.ok ? "pass" : "fail",
-    keytool.ok ? "keytool を実行できます。" : `keytool を実行できません: ${keytool.reason}`
+    keytool.ok ? `keytool を実行できます: ${keytool.reason}` : `keytool を実行できません: ${keytool.reason}`
   );
 
   const adb = commandAvailable("adb", ["version"]);
   add(
     "adb",
     adb.ok ? "pass" : "fail",
-    adb.ok ? "adb を実行できます。" : `adb を実行できません: ${adb.reason}`
+    adb.ok ? `adb を実行できます: ${adb.reason}` : `adb を実行できません: ${adb.reason}`
   );
 
   const gradlew = fileExists(join(androidRoot, "gradlew"));

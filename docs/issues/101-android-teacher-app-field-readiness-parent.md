@@ -38,6 +38,12 @@ Teacher 録音 app は当面 Android-only で現場投入まで進める。iOS /
 - local pending upload は 0 件に戻ることを確認
 - production env から `RUNPOD_API_KEY` を一時 pull し、Runpod pod `scel1ckkaq7882` が `desiredStatus=EXITED` に戻っていることを確認
 
+## 2026-04-26 進捗
+
+- signed APK handoff 用の GitHub Actions Secrets / Variable を登録済み
+- `test:android-release-handoff-preflight` は repo / workflow / signing secret 名 / Windows tool detection / docs を確認し、失敗ゼロ
+- 残りは `Android Device Handoff` の実行、signed release artifact 取得、Android 実機 install / launch / QA evidence
+
 ## close 条件
 
 - Android release APK を校舎端末へ渡せる
