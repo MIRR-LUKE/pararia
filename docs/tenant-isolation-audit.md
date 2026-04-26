@@ -25,6 +25,7 @@
 | TeacherRecordingSession | `organizationId`, `deviceId`, `selectedStudentId` | Teacher App recordings | 組織と端末 scope で読み書きし、確定時に生徒組織を再確認 |
 | ProperNounGlossaryEntry/Suggestion | `organizationId`, `studentId` | transcript/glossary flows | 組織と生徒の整合性を DB 検査対象にする |
 | AuditLog | `organizationId`, `userId` | `writeAuditLog` | 操作主体・対象の追跡。境界統制ではなく証跡統制 |
+| PlatformOperator | platform admin 専用 role | `/admin`, `app/api/admin/**` | 校舎内 `ADMIN` とは別に、PARARIA 運営者だけが校舎横断情報へ入る |
 
 ## 現状チェック
 
@@ -40,6 +41,7 @@
 - Teacher App の Cookie session は `loadActiveTeacherAppDevice({ deviceId, organizationId })`、Bearer session は `loadActiveTeacherAppNativeAuthContext({ authSessionId, organizationId })` で ACTIVE 状態と組織を照合する。
 - Teacher App 録音確定時は `selectedStudentId` が同一 `organizationId` かつ `archivedAt: null` であることを確認してから Session へ昇格する。
 - 保守 route は `requireMaintenanceAccess` により管理者セッションまたは保守鍵に限定される。
+- `/admin` と `app/api/admin/**` は校舎内 `ADMIN` だけでは入れず、`PlatformOperator` / `PlatformRole` または移行用 allowlist で運営者を分離する。
 
 ### 継続監査対象
 

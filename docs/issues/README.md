@@ -262,3 +262,20 @@ Platform Admin 仕様と新規 issue docs:
 - `#216` [113-admin-aggregation-index-performance.md](./113-admin-aggregation-index-performance.md) - Done
 - `#217` [114-admin-docs-runbook-platform-admin.md](./114-admin-docs-runbook-platform-admin.md) - Done
 - `#218` [115-admin-usability-simplification-check.md](./115-admin-usability-simplification-check.md) - Done
+
+世界水準SaaS品質 証跡インデックス:
+
+- 正本: [enterprise-readiness-evidence.md](../enterprise-readiness-evidence.md)
+- 検査: `npm run test:enterprise-readiness-evidence`
+- `#193` SaaSセキュリティ基準: Repo-side Done
+- `#194` マルチテナント分離監査: Repo-side Done
+- `#195` 本番監視・SLO・アラート・インシデント手順: Repo-side Done
+- `#197` プライバシー / コンプライアンスパック: 実務草案 Done
+- `#198` データライフサイクル: Repo-side Done
+- `#199` バックアップと災害復旧: Repo-side Done
+- `#200` 負荷・スケール・コスト検証: 静的計画 gate Done
+- `#201` STT/LLM AIガバナンス: Repo-side Done
+- `#202` エンタープライズ契約・請求書払い運用: 運用設計 Done
+- `#203` データ所在地・委託先・越境移転説明: 実務草案 Done
+- `#204` リリース統制と変更管理: Repo-side Done
+- `#192` は親ロードマップとして残す。`#188` と `#191` は signed APK / 実機 / 初回校舎 QA の現場証跡が揃うまで open にする

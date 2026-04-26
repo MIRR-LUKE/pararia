@@ -34,6 +34,14 @@ PARARIA SaaS の AI 機能は、講師の面談音声を文字起こしし、面
 - provider 変更、model 変更、prompt 変更、STT parameter 変更は release 変更として扱う。
 - 個人情報や学習記録を eval report に残す場合は、社内限定の保管場所に置き、公開 artifact に含めない。
 
+### 3.1 参照基準
+
+AI governance の説明軸は NIST AI RMF と OWASP Top 10 for LLM Applications を使う。PARARIA では高リスクな自動意思決定ではなく、教育面談ログ生成の補助として使うが、事実性、privacy、model 変更、prompt injection、過剰依存、provider 障害は本番事故として扱う。
+
+- NIST AI RMF: govern / map / measure / manage の考え方を、評価、承認、監視、incident に落とす。
+- OWASP Top 10 for LLM: prompt injection、sensitive information disclosure、supply chain、overreliance を中心に、生成 route と review gate のリスクとして扱う。
+- model 変更、prompt 変更、STT runtime 変更は `docs/release-governance.md` の high-risk release として rollback plan を必須にする。
+
 ## 4. 評価軸
 
 ### 4.1 STT

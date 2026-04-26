@@ -28,6 +28,18 @@
 | 入力検証 | 不正 JSON と型不一致を受け付けない | 部分実装 | `parseJsonWithSchema`, 各 route の normalize 処理 | route 別バリデーション一覧 |
 | データ保持 | 生文字起こし・削除要求・バックアップを運用で管理する | 部分実装 | `rawTextExpiresAt`, `transcriptExpiresAt`, `docs/data-retention-policy.md` | 保持期間、削除 SLA、バックアップ証跡 |
 
+## 参照基準と対応範囲
+
+本書は、次の外部基準を「審査時の説明軸」として使う。認証取得を宣言するものではなく、現行コードと運用証跡がどの統制要求を満たすかを説明できる状態にする。
+
+| 基準 | 本書で見る領域 | 主な証跡 |
+| --- | --- | --- |
+| OWASP ASVS | 認証、セッション、アクセス制御、入力検証、監査ログ、ヘッダー | `AUTH-*`, `RBAC-*`, `TENANT-*`, `MUT-*`, `AUDIT-*`, `WEB-*` |
+| OWASP API Security Top 10 2023 | object level authorization、broken authentication、unrestricted resource consumption、security misconfiguration | `TENANT-*`, `RBAC-*`, `MUT-*`, `WEB-*`, `API_THROTTLE_RULES` |
+| NIST SSDF | secure development、review、secret scan、release gate、rollback、証跡 | `scan:secrets`, `check:code-shape`, `test:migration-safety`, `docs/release-governance.md` |
+
+実装回帰は `npm run test:security-headers`、`npm run test:tenant-isolation-boundaries`、`npm run test:maintenance-route-guards`、`npm run scan:secrets`、`npm run check:code-shape` を最低 gate とする。エンタープライズ基盤全体の証跡連結は `docs/enterprise-readiness-evidence.md` と `npm run test:enterprise-readiness-evidence` で検査する。
+
 ## 詳細統制
 
 ### 1. 認証・セッション管理

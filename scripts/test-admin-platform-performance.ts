@@ -89,6 +89,9 @@ function assertNoIncludes(source: string, forbidden: string, message: string) {
 }
 
 const snapshot = read("lib/admin/platform-admin-snapshot.ts");
+const metrics = read("lib/admin/platform-admin-campus-metrics.ts");
+const jobs = read("lib/admin/platform-admin-jobs.ts");
+const adminSnapshotSources = [snapshot, metrics, jobs].join("\n");
 const adminApi = read("app/api/admin/platform/route.ts");
 const adminPage = read("app/admin/page.tsx");
 const campusApi = read("app/api/admin/campuses/[organizationId]/route.ts");
@@ -122,7 +125,7 @@ assertIncludes(adminApi, "parseNumber(searchParams.get(\"take\"))", "admin API m
 assertIncludes(adminPage, "getPlatformAdminSnapshot({ operator, take: 100 })", "/admin initial render must request a bounded page");
 assertIncludes(campusApi, "getPlatformCampusDetail", "campus detail route must stay separate from the cross-campus list payload");
 
-const findManyBlocks = findPrismaCallBlocks(snapshot, "findMany");
+const findManyBlocks = findPrismaCallBlocks(adminSnapshotSources, "findMany");
 const intentionallyBoundedByPreviousTake = (model: string, block: string) =>
   model === "organization" && block.includes("id: { in: storageOrganizationIds }");
 const scopedToCurrentPageCampuses = (block: string) => block.includes("organizationId: { in: organizationIds }");
@@ -139,7 +142,7 @@ for (const { model, block } of findManyBlocks) {
   }
 }
 
-const attentionBody = findFunctionBody(snapshot, "listAdminAttentionItems");
+const attentionBody = findFunctionBody(jobs, "listAdminAttentionItems");
 for (const model of [
   "conversationJob",
   "sessionPartJob",
@@ -155,11 +158,11 @@ for (const model of [
   }
 }
 
-const metricsBody = findFunctionBody(snapshot, "getCampusMetrics");
+const metricsBody = findFunctionBody(metrics, "getCampusMetrics");
 assertIncludes(metricsBody, "organizationId: { in: organizationIds }", "campus metrics must be scoped to the current page ids");
 assertNoIncludes(metricsBody, "Promise.all(", "admin metrics should avoid unbounded fan-out Promise.all over campus data");
-assertNoIncludes(snapshot, "forEach(async", "admin snapshot must not use async forEach fan-out");
-assertNoIncludes(snapshot, ".map(async", "admin snapshot must not create per-row async fan-out");
+assertNoIncludes(adminSnapshotSources, "forEach(async", "admin snapshot must not use async forEach fan-out");
+assertNoIncludes(adminSnapshotSources, ".map(async", "admin snapshot must not create per-row async fan-out");
 
 for (const body of [listBody, metricsBody, attentionBody, snapshotBody]) {
   assertNoIncludes(body, "lastError", "admin performance payload must not select raw job errors");

@@ -95,6 +95,7 @@ npm run test:student-room-route
 
 - コード品質と性能の基準は [docs/engineering-rules.md](./docs/engineering-rules.md)
 - DB / Blob の保全・復旧手順は [docs/db-backup-recovery.md](./docs/db-backup-recovery.md)
+- 世界水準SaaS品質の証跡インデックスは [docs/enterprise-readiness-evidence.md](./docs/enterprise-readiness-evidence.md)、回帰 gate は `npm run test:enterprise-readiness-evidence`
 - 生成保全の主経路は `ConversationLog.artifactJson -> 選択済みログ -> 保護者レポート` として扱い、契約の回帰確認は `npm run test:generation-preservation`
 - route の protected critical path は `録音ロック -> session part ingest -> session progress -> student room -> next meeting memo` として扱い、route smoke は `npm run test:critical-path-smoke`
 - `app/api/ai/generate-report` と保存済みレポート取得の E2E は `npm run test:report-generation-route` で見る
