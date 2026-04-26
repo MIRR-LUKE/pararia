@@ -42,7 +42,10 @@ Teacher 録音 app は当面 Android-only で現場投入まで進める。iOS /
 
 - signed APK handoff 用の GitHub Actions Secrets / Variable を登録済み
 - `test:android-release-handoff-preflight` は repo / workflow / signing secret 名 / Windows tool detection / docs を確認し、失敗ゼロ
-- 残りは `Android Device Handoff` の実行、signed release artifact 取得、Android 実機 install / launch / QA evidence
+- `Android Device Handoff` run `24949663628` で signed release APK artifact を生成済み
+- CI と local の `apksigner verify` は pass
+- APK SHA-256: `105a2399c3459b0f5d06d2c064131809bf0a1cf3abe10be602e5a428b79a412b`
+- 残りは Android 実機 install / launch / QA evidence
 
 ## close 条件
 
