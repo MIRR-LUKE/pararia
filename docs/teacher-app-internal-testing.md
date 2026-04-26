@@ -61,6 +61,7 @@ npm run test:android-release-handoff-preflight
   - local Gradle 側では `PARARIA_BASE_URL`
 - `keytool` / `adb` / `native/android` Gradle wrapper 一式
 - workflow 内の `keytool -list`、`apksigner verify`、`sha256sum`、artifact upload
+- Linux runner で `gradlew` を実行できるようにする `chmod +x ./gradlew`
 - `docs/teacher-app-internal-testing.md` の checksum / QA evidence 記録欄
 - `.gitignore` が `.tmp/`、`native/android/local.properties`、Android build outputs を無視していること
 

@@ -69,6 +69,9 @@ jobs:
             platforms;android-35
             build-tools;34.0.0
 
+      - name: Ensure Gradle wrapper is executable
+        run: chmod +x ./gradlew
+
       - name: Validate signing and Play secrets
         env:
           ANDROID_UPLOAD_KEYSTORE_BASE64: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_BASE64 }}

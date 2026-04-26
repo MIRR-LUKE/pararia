@@ -150,6 +150,7 @@ function checkWorkflow() {
     "ANDROID_UPLOAD_KEY_ALIAS",
     "ANDROID_UPLOAD_KEY_PASSWORD",
     "PARARIA_ANDROID_BASE_URL",
+    "chmod +x ./gradlew",
     "keytool -list",
     "apksigner",
     "sha256sum",

@@ -29,6 +29,8 @@
 - secret 値と `.jks` 本体は Git に入れず、生成時のローカル一時ファイルは削除済み
 - keystore SHA-256: `173ac2c10fd84370d59d7f4c666bf60dff3c0d9145e3bba8d89d86eb16e6ddd8`
 - `npm run test:android-release-handoff-preflight` は `9 passed, 1 warned, 0 failed`
+- `Android Device Handoff` run `24949634631` は signing secret / keystore decode まで通り、Linux runner の `gradlew` 実行権限で停止した
+- workflow に `chmod +x ./gradlew` を追加し、preflight の必須チェックにも入れた
 
 ## 残り
 
