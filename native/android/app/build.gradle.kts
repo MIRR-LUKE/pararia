@@ -16,6 +16,10 @@ fun ProviderFactory.gradleOrEnvValue(name: String): String? =
 val androidVersionCode = providers.gradleOrEnv("PARARIA_ANDROID_VERSION_CODE").orElse("1")
 val androidVersionName = providers.gradleOrEnv("PARARIA_ANDROID_VERSION_NAME").orElse("1.0.0")
 val parariaBaseUrl = providers.gradleOrEnv("PARARIA_BASE_URL").orElse("https://pararia.vercel.app")
+val firebaseApplicationId = providers.gradleOrEnv("PARARIA_FIREBASE_APPLICATION_ID").orElse("")
+val firebaseApiKey = providers.gradleOrEnv("PARARIA_FIREBASE_API_KEY").orElse("")
+val firebaseProjectId = providers.gradleOrEnv("PARARIA_FIREBASE_PROJECT_ID").orElse("")
+val firebaseSenderId = providers.gradleOrEnv("PARARIA_FIREBASE_SENDER_ID").orElse("")
 
 val uploadStoreFile = providers.gradleOrEnvValue("ANDROID_UPLOAD_STORE_FILE")
 val uploadStorePassword = providers.gradleOrEnvValue("ANDROID_UPLOAD_STORE_PASSWORD")
@@ -25,6 +29,9 @@ val uploadKeyPassword = providers.gradleOrEnvValue("ANDROID_UPLOAD_KEY_PASSWORD"
 val hasReleaseSigning =
     listOf(uploadStoreFile, uploadStorePassword, uploadKeyAlias, uploadKeyPassword)
         .all { !it.isNullOrBlank() }
+
+fun quoteBuildConfigString(value: String): String =
+    "\"${value.replace("\\", "\\\\").replace("\"", "\\\"")}\""
 
 android {
     namespace = "jp.pararia.teacherapp"
@@ -39,8 +46,12 @@ android {
         buildConfigField(
             "String",
             "PARARIA_BASE_URL",
-            "\"${parariaBaseUrl.get()}\""
+            quoteBuildConfigString(parariaBaseUrl.get())
         )
+        buildConfigField("String", "PARARIA_FIREBASE_APPLICATION_ID", quoteBuildConfigString(firebaseApplicationId.get()))
+        buildConfigField("String", "PARARIA_FIREBASE_API_KEY", quoteBuildConfigString(firebaseApiKey.get()))
+        buildConfigField("String", "PARARIA_FIREBASE_PROJECT_ID", quoteBuildConfigString(firebaseProjectId.get()))
+        buildConfigField("String", "PARARIA_FIREBASE_SENDER_ID", quoteBuildConfigString(firebaseSenderId.get()))
     }
 
     signingConfigs {
@@ -105,6 +116,7 @@ tasks.configureEach {
 
 dependencies {
     val composeBom = platform("androidx.compose:compose-bom:2024.10.01")
+    val firebaseBom = platform("com.google.firebase:firebase-bom:33.7.0")
 
     implementation("androidx.core:core-ktx:1.15.0")
     implementation("androidx.activity:activity-compose:1.9.3")
@@ -114,6 +126,9 @@ dependencies {
     implementation("androidx.datastore:datastore:1.1.1")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
+    implementation(firebaseBom)
+    implementation("com.google.firebase:firebase-common-ktx")
+    implementation("com.google.firebase:firebase-messaging-ktx")
 
     implementation(composeBom)
     androidTestImplementation(composeBom)

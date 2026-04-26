@@ -1,6 +1,6 @@
 # Teacher App lifecycle policy
 
-更新日: `2026-04-25`
+更新日: `2026-04-26`
 
 Teacher 録音 app の lifecycle は、実機 QA の前から方針を固定しておきます。  
 ここでは「何を続行し、何を中断扱いにするか」を先に決めます。
@@ -35,7 +35,14 @@ Sources:
 - retry は 1 件失敗しても残りを続ける
 - pending queue は「録音し直し」ではなく「再送」の導線として残す
 
-### 5. 中断された live recording は「再送」ではなく「やり直し」に寄せる
+### 5. upload 成功後の STT は server / Runpod 側で続行する
+
+- app が閉じていても、録音ファイルが upload 済みなら STT は server queue と Runpod worker が続行する
+- STT 完了後、Firebase 設定済みの Android 端末には push 通知を送り、app を開いたら active recording を復元して生徒確認へ戻す
+- 最終失敗時も push 通知を送り、端末側 polling だけに依存しない
+- Firebase 未設定 build / server env 未設定では通知だけ no-op とし、録音・upload・polling は壊さない
+
+### 6. 中断された live recording は「再送」ではなく「やり直し」に寄せる
 
 - live microphone capture 中に app / OS 側で中断されたケースは、partial file の正確な rescue より main flow の明快さを優先する
 - つまり、recover 不能な live recording は pending queue へ無理に混ぜず、standby から録音し直す

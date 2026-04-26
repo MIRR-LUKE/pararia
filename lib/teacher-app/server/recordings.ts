@@ -22,6 +22,7 @@ import {
   upsertTeacherRecordingJob,
   upsertTeacherRecordingSessionPart,
 } from "@/lib/teacher-app/server/recording-session-ops";
+import { notifyTeacherRecordingReady } from "@/lib/teacher-app/server/recording-notifications";
 import { buildTeacherStudentCandidates } from "@/lib/teacher-app/student-candidates";
 import type {
   TeacherAppDeviceSession,
@@ -711,6 +712,16 @@ export async function applyTeacherRecordingTranscriptionResult(input: {
       analyzedAt: new Date(),
       errorMessage: null,
     },
+  });
+
+  await notifyTeacherRecordingReady({
+    recordingId: input.recordingId,
+    organizationId: input.organizationId,
+  }).catch((error) => {
+    console.warn("[teacher-recording-notifications] ready notification failed", {
+      recordingId: input.recordingId,
+      error: error instanceof Error ? error.message : String(error),
+    });
   });
 }
 

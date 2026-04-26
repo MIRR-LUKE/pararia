@@ -19,6 +19,7 @@ import {
   applyTeacherRecordingTranscriptionResult,
   releaseTeacherRecordingLease,
 } from "@/lib/teacher-app/server/recordings";
+import { notifyTeacherRecordingError } from "@/lib/teacher-app/server/recording-notifications";
 import { toPrismaJson } from "@/lib/prisma-json";
 
 const STALE_SESSION_PART_TRANSCRIPTION_MS = 45 * 60 * 1000;
@@ -358,6 +359,24 @@ async function completeTeacherRecordingFailure(jobId: string, failure: RunpodRem
       finishedAt: shouldRetry ? null : new Date(),
     },
   });
+  if (!shouldRetry) {
+    const recording = await prisma.teacherRecordingSession.findUnique({
+      where: { id: job.recordingSessionId },
+      select: { organizationId: true },
+    });
+    if (recording) {
+      await notifyTeacherRecordingError({
+        recordingId: job.recordingSessionId,
+        organizationId: recording.organizationId,
+        errorMessage: failure.errorMessage,
+      }).catch((notifyError) => {
+        console.warn("[remote-stt] failed to notify teacher recording error", {
+          recordingId: job.recordingSessionId,
+          error: notifyError instanceof Error ? notifyError.message : String(notifyError),
+        });
+      });
+    }
+  }
   if (job.executionId) {
     await releaseTeacherRecordingLease(job.recordingSessionId, job.executionId).catch(() => {});
   }

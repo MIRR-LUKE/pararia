@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireTeacherAppSessionForRequest } from "@/lib/server/teacher-app-session";
+import { clearTeacherAppDevicePushRegistration } from "@/lib/teacher-app/device-registry";
 import { revokeTeacherAppNativeAuthSession } from "@/lib/teacher-app/server/native-auth-sessions";
 
 export async function POST(request: Request) {
@@ -14,6 +15,11 @@ export async function POST(request: Request) {
 
     await revokeTeacherAppNativeAuthSession({
       authSessionId: authResult.authSessionId,
+      organizationId: authResult.session.organizationId,
+      reason: "logged_out",
+    });
+    await clearTeacherAppDevicePushRegistration({
+      deviceId: authResult.session.deviceId,
       organizationId: authResult.session.organizationId,
       reason: "logged_out",
     });

@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.Context
 import android.media.MediaMetadataRetriever
 import android.net.Uri
+import android.os.Build
 import android.provider.OpenableColumns
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -189,6 +190,10 @@ fun TeacherAppRoot(
         contract = ActivityResultContracts.RequestPermission(),
         onResult = viewModel::onMicrophonePermissionResult,
     )
+    val notificationLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission(),
+        onResult = viewModel::onNotificationPermissionResult,
+    )
     val audioPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument(),
     ) { uri ->
@@ -209,6 +214,17 @@ fun TeacherAppRoot(
         if (uiState.requestMicrophonePermission) {
             viewModel.onPermissionRequestHandled()
             microphoneLauncher.launch(Manifest.permission.RECORD_AUDIO)
+        }
+    }
+
+    LaunchedEffect(uiState.requestNotificationPermission) {
+        if (uiState.requestNotificationPermission) {
+            viewModel.onNotificationPermissionRequestHandled()
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                notificationLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            } else {
+                viewModel.onNotificationPermissionResult(true)
+            }
         }
     }
 

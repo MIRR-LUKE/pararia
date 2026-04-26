@@ -42,6 +42,12 @@ function sessionTone(count: number) {
   return styles.toneMuted;
 }
 
+function pushTone(tone: "good" | "warning" | "muted") {
+  if (tone === "good") return styles.toneGood;
+  if (tone === "warning") return styles.toneWarning;
+  return styles.toneMuted;
+}
+
 function KeyValueRow({ label, value }: { label: string; value: string | number }) {
   return (
     <div className={styles.keyValueRow}>
@@ -179,6 +185,7 @@ export default async function AdminCampusDevicesPage({ params }: PageProps) {
                       <th scope="col">端末</th>
                       <th scope="col">状態</th>
                       <th scope="col">最終確認</th>
+                      <th scope="col">通知</th>
                       <th scope="col">認証</th>
                       <th scope="col">登録者</th>
                       <th scope="col">停止状態</th>
@@ -199,6 +206,17 @@ export default async function AdminCampusDevicesPage({ params }: PageProps) {
                         <td>
                           <span className={styles.tableTitle}>{formatDateTime(device.lastSeenAt)}</span>
                           <span className={styles.tableHint}>最終認証: {formatDateTime(device.lastAuthenticatedAt)}</span>
+                        </td>
+                        <td>
+                          <span className={`${styles.statusPill} ${pushTone(device.pushNotificationTone)}`}>
+                            {device.pushNotificationLabel}
+                          </span>
+                          <span className={styles.tableHint}>
+                            最終送信: {formatDateTime(device.lastPushSentAt)}
+                          </span>
+                          {device.lastPushError ? (
+                            <span className={styles.tableHint}>エラー: {device.lastPushError}</span>
+                          ) : null}
                         </td>
                         <td>
                           <span className={`${styles.statusPill} ${sessionTone(device.activeAuthSessionCount)}`}>

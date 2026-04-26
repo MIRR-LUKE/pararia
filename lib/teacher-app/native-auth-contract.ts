@@ -32,6 +32,12 @@ export const teacherNativeRefreshBodySchema = z.object({
   client: teacherAppClientInfoSchema.optional(),
 });
 
+export const teacherNativeNotificationRegistrationBodySchema = z.object({
+  provider: z.enum(["FCM"]).default("FCM"),
+  token: z.string().trim().min(32).max(4096),
+  permissionStatus: z.enum(["granted", "denied", "unknown"]).default("unknown"),
+});
+
 export function normalizeTeacherAppClientInfo(value: TeacherAppClientInfo): TeacherAppClientInfo {
   return {
     platform: value.platform,

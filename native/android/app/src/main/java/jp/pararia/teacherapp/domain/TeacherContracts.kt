@@ -20,6 +20,11 @@ interface TeacherAuthRepository {
     suspend fun logout()
 }
 
+interface TeacherNotificationRepository {
+    fun shouldRequestNotificationPermission(): Boolean
+    suspend fun syncPushToken()
+}
+
 interface TeacherRecordingRepository {
     suspend fun loadActiveRecording(): TeacherRecordingSummary?
     suspend fun loadRecording(recordingId: String): TeacherRecordingSummary?

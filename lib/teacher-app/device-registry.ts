@@ -123,6 +123,57 @@ export async function touchTeacherAppDeviceNativeClientState(input: {
   });
 }
 
+export async function updateTeacherAppDevicePushRegistration(input: {
+  deviceId: string;
+  organizationId: string;
+  provider: "FCM";
+  token: string;
+  permissionStatus: "granted" | "denied" | "unknown";
+}) {
+  const token = input.token.trim();
+  if (!token) {
+    throw new Error("push token is required");
+  }
+
+  await prisma.teacherAppDevice.updateMany({
+    where: {
+      id: input.deviceId,
+      organizationId: input.organizationId,
+      status: TeacherAppDeviceStatus.ACTIVE,
+    },
+    data: {
+      pushToken: token,
+      pushTokenProvider: input.provider,
+      pushNotificationPermission: input.permissionStatus,
+      pushTokenUpdatedAt: new Date(),
+      lastSeenAt: new Date(),
+      lastPushError: null,
+      lastPushErrorAt: null,
+    },
+  });
+}
+
+export async function clearTeacherAppDevicePushRegistration(input: {
+  deviceId: string;
+  organizationId: string;
+  reason: string;
+}) {
+  await prisma.teacherAppDevice.updateMany({
+    where: {
+      id: input.deviceId,
+      organizationId: input.organizationId,
+    },
+    data: {
+      pushToken: null,
+      pushTokenProvider: null,
+      pushNotificationPermission: "denied",
+      pushTokenUpdatedAt: new Date(),
+      lastPushError: input.reason.slice(0, 500),
+      lastPushErrorAt: new Date(),
+    },
+  });
+}
+
 export async function revokeTeacherAppDevice(input: {
   deviceId: string;
   organizationId: string;

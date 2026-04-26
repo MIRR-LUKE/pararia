@@ -1,6 +1,6 @@
 # Teacher App Native Auth Contract
 
-更新日: `2026-04-19`
+更新日: `2026-04-26`
 
 ## 目的
 
@@ -128,6 +128,42 @@ response:
 }
 ```
 
+logout は bearer auth session を revoke し、端末に紐づく FCM push token も server 側で消す。端末設定解除後に、過去の録音完了通知が同じスマホへ飛ばないようにする。
+
+## native notification endpoints
+
+### `POST /api/teacher/native/notifications/register`
+
+ログイン済み native app が FCM token と通知許可状態を server へ登録する。Android は Firebase 設定が入っている build のみログイン後・session restore 後・token 更新時に呼ぶ。
+
+header:
+
+```txt
+Authorization: Bearer <accessToken>
+```
+
+request:
+
+```json
+{
+  "provider": "FCM",
+  "token": "fcm_registration_token",
+  "permissionStatus": "granted"
+}
+```
+
+`permissionStatus` は `granted`, `denied`, `unknown` のいずれか。`denied` の端末には server から通知を送らない。
+
+response:
+
+```json
+{
+  "ok": true
+}
+```
+
+server は STT 完了で recording が `AWAITING_STUDENT_CONFIRMATION` になった時点で「生徒確認」通知を送る。最終失敗時はエラー通知を送る。Firebase server env が未設定の場合は通知送信だけ no-op にして、録音・upload・polling は止めない。
+
 ## recording endpoints
 
 native app は既存 Teacher recording endpoints を bearer token で使う。
@@ -160,3 +196,9 @@ native app は既存 Teacher recording endpoints を bearer token で使う。
 - `TeacherAppDeviceAuthSession.lastRefreshedAt`
 - `TeacherAppDeviceAuthSession.revokedAt`
 - `TeacherAppDeviceAuthSession.revokeReason`
+- `TeacherAppDevice.pushTokenProvider`
+- `TeacherAppDevice.pushNotificationPermission`
+- `TeacherAppDevice.pushTokenUpdatedAt`
+- `TeacherAppDevice.lastPushSentAt`
+- `TeacherAppDevice.lastPushError`
+- `TeacherAppDevice.lastPushErrorAt`

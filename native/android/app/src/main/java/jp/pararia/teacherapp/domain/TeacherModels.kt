@@ -186,6 +186,7 @@ data class TeacherUiState(
     val errorMessage: String? = null,
     val diagnosticReportText: String = "",
     val requestMicrophonePermission: Boolean = false,
+    val requestNotificationPermission: Boolean = false,
 )
 
 data class CompletedRecording(

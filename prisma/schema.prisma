@@ -357,6 +357,13 @@ model TeacherAppDevice {
   lastBuildNumber     String?
   lastAuthenticatedAt DateTime?
   lastSeenAt          DateTime?
+  pushToken           String?
+  pushTokenProvider   String?
+  pushNotificationPermission String?
+  pushTokenUpdatedAt  DateTime?
+  lastPushSentAt      DateTime?
+  lastPushError       String?
+  lastPushErrorAt     DateTime?
   createdAt           DateTime               @default(now())
   updatedAt           DateTime               @updatedAt
 
@@ -367,6 +374,7 @@ model TeacherAppDevice {
 
   @@unique([organizationId, label])
   @@index([organizationId, status, updatedAt])
+  @@index([organizationId, status, pushTokenUpdatedAt])
 }
 
 model TeacherAppDeviceAuthSession {

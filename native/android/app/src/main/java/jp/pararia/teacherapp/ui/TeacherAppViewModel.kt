@@ -14,6 +14,7 @@ import jp.pararia.teacherapp.domain.PendingUploadStore
 import jp.pararia.teacherapp.domain.RecorderPermissionStatus
 import jp.pararia.teacherapp.domain.RecorderStartAvailability
 import jp.pararia.teacherapp.domain.TeacherAuthRepository
+import jp.pararia.teacherapp.domain.TeacherNotificationRepository
 import jp.pararia.teacherapp.domain.TeacherRecordingRepository
 import jp.pararia.teacherapp.domain.TeacherRecordingSummary
 import jp.pararia.teacherapp.domain.TeacherRecordingStatus
@@ -31,6 +32,7 @@ import kotlinx.coroutines.launch
 class TeacherAppViewModel(
     private val authRepository: TeacherAuthRepository,
     private val recordingRepository: TeacherRecordingRepository,
+    private val notificationRepository: TeacherNotificationRepository,
     private val audioRecorderClient: AudioRecorderClient,
     private val pendingUploadStore: PendingUploadStore,
 ) : ViewModel() {
@@ -72,6 +74,20 @@ class TeacherAppViewModel(
         _uiState.update { it.copy(requestMicrophonePermission = false) }
     }
 
+    fun onNotificationPermissionRequestHandled() {
+        trackEvent("notification_permission_request_handled")
+        _uiState.update { it.copy(requestNotificationPermission = false) }
+    }
+
+    fun onNotificationPermissionResult(granted: Boolean) {
+        trackEvent(
+            name = "notification_permission_result",
+            level = if (granted) TeacherDiagnosticLevel.INFO else TeacherDiagnosticLevel.WARNING,
+            details = mapOf("granted" to granted.toString()),
+        )
+        syncPushTokenSilently("notification_permission_result")
+    }
+
     fun login(email: String, password: String, deviceLabel: String) {
         trackEvent(
             name = "login_start",
@@ -100,6 +116,7 @@ class TeacherAppViewModel(
                     name = "login_success",
                     deviceLabel = session.deviceLabel,
                 )
+                preparePushNotifications("login_success")
             }
         }
     }
@@ -549,7 +566,34 @@ class TeacherAppViewModel(
                 "activeStatus" to routeRecording?.status?.name,
             ),
         )
+        preparePushNotifications("bootstrap_session_restored")
         followActiveRecording(routeRecording)
+    }
+
+    private fun preparePushNotifications(reason: String) {
+        if (notificationRepository.shouldRequestNotificationPermission()) {
+            trackEvent("notification_permission_needed", details = mapOf("reason" to reason))
+            _uiState.update { it.copy(requestNotificationPermission = true) }
+            return
+        }
+        syncPushTokenSilently(reason)
+    }
+
+    private fun syncPushTokenSilently(reason: String) {
+        viewModelScope.launch {
+            runCatching { notificationRepository.syncPushToken() }
+                .onSuccess {
+                    trackEvent("push_token_sync_finished", details = mapOf("reason" to reason))
+                }
+                .onFailure { error ->
+                    trackEvent(
+                        name = "push_token_sync_failed",
+                        level = TeacherDiagnosticLevel.WARNING,
+                        error = error,
+                        details = mapOf("reason" to reason),
+                    )
+                }
+        }
     }
 
     private fun startTimer() {
@@ -864,6 +908,7 @@ class TeacherAppViewModel(
                     return TeacherAppViewModel(
                         authRepository = dependencies.authRepository,
                         recordingRepository = dependencies.recordingRepository,
+                        notificationRepository = dependencies.notificationRepository,
                         audioRecorderClient = dependencies.audioRecorderClient,
                         pendingUploadStore = dependencies.pendingUploadStore,
                     ) as T

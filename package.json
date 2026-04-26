@@ -99,6 +99,7 @@
     "test:teacher-recording-upload-quota": "tsx scripts/test-teacher-recording-upload-quota.ts",
     "test:teacher-app-device-revoke": "tsx scripts/test-teacher-app-device-revoke.ts",
     "test:teacher-recording-progress-dispatch": "tsx scripts/test-teacher-recording-progress-dispatch.ts",
+    "test:teacher-app-notifications": "tsx scripts/test-teacher-app-notifications.ts",
     "test:teacher-recording-smoke": "tsx scripts/test-teacher-recording-smoke.ts",
     "test:android-release-handoff-preflight": "tsx scripts/test-android-release-handoff-preflight.ts",
     "test:runpod-measure-worker-env": "tsx scripts/test-runpod-measure-worker-env.ts",

@@ -45,6 +45,14 @@ export type AdminTeacherAppDeviceSupportRow = {
   lastSeenAt: string | null;
   lastAppVersion: string | null;
   lastBuildNumber: string | null;
+  pushNotificationPermission: string | null;
+  pushNotificationLabel: string;
+  pushNotificationTone: "good" | "warning" | "muted";
+  pushTokenProvider: string | null;
+  pushTokenUpdatedAt: string | null;
+  lastPushSentAt: string | null;
+  lastPushError: string | null;
+  lastPushErrorAt: string | null;
   registeredBy: {
     name: string;
     role: UserRole;
@@ -107,6 +115,22 @@ function clientLabel(platform: TeacherAppClientPlatform | null, version: string 
   return [platformLabel, versionLabel, buildLabel].filter(Boolean).join(" / ");
 }
 
+function pushNotificationState(input: {
+  provider: string | null;
+  permission: string | null;
+}) {
+  if (input.provider === "FCM" && input.permission === "granted") {
+    return { label: "通知可", tone: "good" as const };
+  }
+  if (input.permission === "denied") {
+    return { label: "通知拒否", tone: "warning" as const };
+  }
+  if (input.provider === "FCM") {
+    return { label: "通知未確認", tone: "warning" as const };
+  }
+  return { label: "未登録", tone: "muted" as const };
+}
+
 export async function getAdminTeacherAppDeviceSupportSnapshot(
   options: GetAdminTeacherAppDeviceSupportOptions
 ): Promise<AdminTeacherAppDeviceSupportSnapshot | null> {
@@ -154,6 +178,12 @@ export async function getAdminTeacherAppDeviceSupportSnapshot(
         lastBuildNumber: true,
         lastAuthenticatedAt: true,
         lastSeenAt: true,
+        pushTokenProvider: true,
+        pushNotificationPermission: true,
+        pushTokenUpdatedAt: true,
+        lastPushSentAt: true,
+        lastPushError: true,
+        lastPushErrorAt: true,
         createdAt: true,
         updatedAt: true,
         configuredBy: {
@@ -193,6 +223,10 @@ export async function getAdminTeacherAppDeviceSupportSnapshot(
   const rows = devices.map((device) => {
     const activeAuthSessionCount = device._count.authSessions;
     const revokedAuthSessionCount = revokedSessionCountByDeviceId.get(device.id) ?? 0;
+    const pushState = pushNotificationState({
+      provider: device.pushTokenProvider ?? null,
+      permission: device.pushNotificationPermission ?? null,
+    });
     return {
       id: device.id,
       label: device.label,
@@ -213,6 +247,14 @@ export async function getAdminTeacherAppDeviceSupportSnapshot(
       lastSeenAt: toIsoString(device.lastSeenAt),
       lastAppVersion: device.lastAppVersion ?? null,
       lastBuildNumber: device.lastBuildNumber ?? null,
+      pushNotificationPermission: device.pushNotificationPermission ?? null,
+      pushNotificationLabel: pushState.label,
+      pushNotificationTone: pushState.tone,
+      pushTokenProvider: device.pushTokenProvider ?? null,
+      pushTokenUpdatedAt: toIsoString(device.pushTokenUpdatedAt),
+      lastPushSentAt: toIsoString(device.lastPushSentAt),
+      lastPushError: device.lastPushError ?? null,
+      lastPushErrorAt: toIsoString(device.lastPushErrorAt),
       registeredBy: {
         name: device.configuredBy.name,
         role: device.configuredBy.role,
