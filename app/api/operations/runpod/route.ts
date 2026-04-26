@@ -65,7 +65,7 @@ export async function GET() {
   const authResult = await requireAuthorizedSession();
   if (authResult.response) return authResult.response;
 
-  if (!canOperateProductionJobs(authResult.session.user.role)) {
+  if (!canOperateProductionJobs(authResult.session.user.role, authResult.session.user.email)) {
     return NextResponse.json({ error: "この操作は管理者のみ可能です。" }, { status: 403 });
   }
 
@@ -77,7 +77,7 @@ export async function POST(request: Request) {
   const authResult = await requireAuthorizedMutationSession(request);
   if (authResult.response) return authResult.response;
 
-  if (!canOperateProductionJobs(authResult.session.user.role)) {
+  if (!canOperateProductionJobs(authResult.session.user.role, authResult.session.user.email)) {
     await writeAuditLog({
       organizationId: authResult.session.user.organizationId,
       userId: authResult.session.user.id,

@@ -1,5 +1,4 @@
-import { NextResponse } from "next/server";
-import type { NextRequest } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
 import { isMaintenanceRoutePath, readBearerToken } from "@/lib/server/route-guards";
 
 const USER = process.env.BASIC_AUTH_USER;
@@ -24,14 +23,43 @@ function hasMaintenanceAuthorization(request: NextRequest) {
   return MAINTENANCE_SECRETS.some((secret) => bearerToken === secret);
 }
 
+function normalizeHost(value: string | null) {
+  return value?.split(":")[0]?.trim().toLowerCase() ?? "";
+}
+
+function readAdminHosts() {
+  return new Set(
+    (process.env.PARARIA_ADMIN_HOSTS ?? "")
+      .split(",")
+      .map((host) => host.trim().toLowerCase())
+      .filter(Boolean)
+  );
+}
+
 export function proxy(request: NextRequest) {
-  const { pathname } = request.nextUrl;
+  const pathname = request.nextUrl.pathname;
   if (pathname.startsWith("/_next") || pathname.startsWith("/favicon") || pathname.startsWith("/robots.txt")) {
     return NextResponse.next();
   }
 
   if (hasMaintenanceAuthorization(request)) {
     return NextResponse.next();
+  }
+
+  const adminHosts = readAdminHosts();
+  const adminBaseUrl = process.env.PARARIA_ADMIN_BASE_URL?.trim();
+  const requestHost = normalizeHost(request.headers.get("host"));
+  const isAdminHost = adminHosts.size > 0 && adminHosts.has(requestHost);
+
+  if (isAdminHost && pathname === "/") {
+    const url = request.nextUrl.clone();
+    url.pathname = "/admin";
+    return NextResponse.redirect(url);
+  }
+
+  if (!isAdminHost && adminBaseUrl && pathname.startsWith("/admin")) {
+    const url = new URL(`${pathname}${request.nextUrl.search}`, adminBaseUrl);
+    return NextResponse.redirect(url);
   }
 
   if (!USER || !PASS) {

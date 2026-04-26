@@ -208,7 +208,7 @@ export async function requireMaintenanceAccess(request: Request): Promise<Mainte
   }
 
   const normalizedRole = normalizeUserRole(sessionResult.session.user.role);
-  if (!canRunMaintenanceRoutes(normalizedRole)) {
+  if (!canRunMaintenanceRoutes(normalizedRole, sessionResult.session.user.email)) {
     return {
       session: null,
       actor: null,

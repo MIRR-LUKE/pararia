@@ -43,7 +43,7 @@ export async function POST(request: Request, { params }: { params: RouteParams<P
     return NextResponse.json({ error: "action は retry または cancel を指定してください。" }, { status: 400 });
   }
 
-  if (!canOperateProductionJobs(authResult.session.user.role)) {
+  if (!canOperateProductionJobs(authResult.session.user.role, authResult.session.user.email)) {
     await writeAuditLog({
       organizationId: authResult.session.user.organizationId,
       userId: authResult.session.user.id,

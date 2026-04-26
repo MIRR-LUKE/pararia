@@ -63,6 +63,49 @@ model User {
   teacherAppAuthSessions       TeacherAppDeviceAuthSession[]
 }
 
+model PlatformOperator {
+  id             String       @id @default(cuid())
+  email          String       @unique
+  displayName    String?
+  role           PlatformRole @default(CUSTOMER_SUCCESS)
+  disabledAt     DateTime?
+  lastSignedInAt DateTime?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  auditLogs PlatformAuditLog[] @relation("PlatformAuditActor")
+
+  @@index([role, disabledAt])
+  @@index([disabledAt, updatedAt])
+}
+
+model PlatformAuditLog {
+  id                   String   @id @default(cuid())
+  actorOperatorId      String?
+  action               String
+  status               String   @default("SUCCESS")
+  reason               String?
+  riskLevel            String   @default("LOW")
+  targetType           String?
+  targetId             String?
+  targetOrganizationId String?
+  requestId            String?
+  requestIpHash        String?
+  userAgentHash        String?
+  beforeJson           Json?
+  afterJson            Json?
+  metadataJson         Json?
+  createdAt            DateTime @default(now())
+
+  actorOperator PlatformOperator? @relation("PlatformAuditActor", fields: [actorOperatorId], references: [id], onDelete: SetNull)
+
+  @@index([actorOperatorId, createdAt])
+  @@index([targetOrganizationId, createdAt])
+  @@index([targetType, targetId, createdAt])
+  @@index([action, createdAt])
+  @@index([status, createdAt])
+}
+
 model Student {
   id             String    @id @default(cuid())
   organizationId String
@@ -710,6 +753,15 @@ enum UserRole {
   MANAGER
   TEACHER
   INSTRUCTOR
+}
+
+enum PlatformRole {
+  PLATFORM_OWNER
+  OPS_ADMIN
+  SUPPORT_LEAD
+  CUSTOMER_SUCCESS
+  READONLY_AUDITOR
+  ENGINEER_ONCALL
 }
 
 enum RecordingLockMode {

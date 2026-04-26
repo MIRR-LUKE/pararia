@@ -4,7 +4,7 @@
 
 ## 目的と前提
 
-本書は、Pararia SaaS を上場企業の情報システム・セキュリティ審査へ提出できる粒度で説明するためのセキュリティ統制表である。対象は現行リポジトリの Web アプリ、API route、Teacher App、DB 境界、保守 route、監査ログ、レート制限、セキュリティヘッダーである。
+本書は、Pararia SaaS を上場企業の情報システム・セキュリティ審査へ提出できる粒度で説明するためのセキュリティ統制表である。対象は現行リポジトリの Web アプリ、API route、Teacher App、DB 境界、保守 route、platform admin、監査ログ、レート制限、セキュリティヘッダーである。
 
 本書はコードレビュー時点の実装証跡に基づく。運用証跡、インフラ設定、外部サービスの管理画面証跡は別途提出が必要である。
 
@@ -47,7 +47,8 @@
 | RBAC-01 | 管理者・室長・講師のロールを定義する | 実装済み | `UserRole`, `lib/permissions.ts` | 顧客別カスタムロールは未実装 |
 | RBAC-02 | 設定変更は管理者または室長に限定する | 実装済み | `canManageSettings`, `app/api/settings/route.ts` | 設定変更は AuditLog へ記録される |
 | RBAC-03 | 招待作成・一覧は管理者または室長に限定する | 実装済み | `canManageInvitations`, `app/api/invitations/route.ts` | 室長は管理者・室長の招待を作成できない |
-| RBAC-04 | 保守 route は管理者セッションまたは保守鍵に限定する | 実装済み | `requireMaintenanceAccess` | 保守鍵の保管・ローテーション証跡が必要 |
+| RBAC-04 | 保守 route は管理者セッションまたは保守鍵に限定する | 実装済み | `requireMaintenanceAccess`, `isMaintenanceRoutePath`, `proxy.ts` | 保守鍵の保管・ローテーション証跡が必要。保守鍵実行は userId が残らないため、鍵の保有者・実行者台帳で補完する |
+| RBAC-06 | `/admin` と `app/api/admin/**` は校舎内ロールから分離し、platform operator のみに限定する | 実装済み | `app/admin/page.tsx`, `app/api/admin/platform/route.ts`, `app/api/admin/campuses/[organizationId]/route.ts`, `PlatformOperator`, `PlatformRole`, `PlatformAuditLog`, `PARARIA_ADMIN_HOSTS`, `PARARIA_ADMIN_BASE_URL` | 本番は admin サブドメインを正式入口にする。`PARARIA_ADMIN_OPERATOR_EMAILS` は移行・緊急用 allowlist に限定し、DB ロールを正とする。校舎内 `ADMIN` だけで入れないことを regression test に含める |
 | RBAC-05 | Teacher App 端末設定は管理者または室長に限定する | 実装済み | `canConfigureTeacherAppDevice` | 端末登録時の本人確認運用を提出する |
 
 ### 3. マルチテナント分離
@@ -57,7 +58,7 @@
 | TENANT-01 | 主要テーブルに `organizationId` を保持する | 実装済み | Prisma schema の User/Student/Session/ConversationLog/Report など | DB レベル RLS は未確認。アプリケーション層分離が主 |
 | TENANT-02 | API は認証済みセッションの `organizationId` を検索条件へ含める | 実装済み | student/conversation/report/settings routes | 新規 route 追加時の静的検査が必要 |
 | TENANT-03 | 生徒一覧は所属組織と未アーカイブ条件に限定する | 実装済み | `listStudentRows`, `withActiveStudentWhere` | include 先の relation も親スコープに依存 |
-| TENANT-04 | ログ・レポートは論理削除済みを通常表示から除外する | 実装済み | `withVisibleConversationWhere`, `withVisibleReportWhere` | 管理者向け復元画面は権限確認が必要 |
+| TENANT-04 | ログ・レポートは論理削除済みを通常表示から除外する | 実装済み | `withVisibleConversationWhere`, `withVisibleReportWhere`, `/admin` | 運営側復元画面は管理者ロールと組織スコープで制限する |
 | TENANT-05 | Teacher App は端末・組織・状態 ACTIVE を照合する | 実装済み | `loadActiveTeacherAppDevice`, `loadActiveTeacherAppNativeAuthContext` | Bearer token 漏えい時の失効手順が必要 |
 | TENANT-06 | DB 上の親子テーブルが異なる `organizationId` を持たないか確認する | 検査追加 | `scripts/test-tenant-isolation-boundaries.ts` | 本番前とリリース前に読み取り専用で実行 |
 
@@ -80,6 +81,7 @@
 | AUDIT-04 | 設定変更を監査記録する | 実装済み | `app/api/settings/route.ts` | 設定差分の詳細化は改善余地 |
 | AUDIT-05 | 保守ジョブ・cleanup を監査記録する | 実装済み | `app/api/jobs/run/route.ts`, `app/api/maintenance/cleanup/route.ts` | 保守鍵実行時は userId が null |
 | AUDIT-06 | 監査ログの抽出・保管期間を定義する | 運用要件 | `AuditLog` model | SIEM 連携や定期エクスポートは別途整備 |
+| AUDIT-07 | platform admin の write 操作は理由、対象、影響範囲、変更前後、request metadata を `PlatformAuditLog` に記録する | 土台実装済み | `lib/admin/platform-audit.ts`, `PlatformAuditLog`, `docs/issues/108-admin-action-audit-framework.md` | 初期 `/admin` は read-only。ジョブ再実行、端末 revoke、ユーザー停止、PII 表示、export を追加する場合は監査なしで実行不可にする。理由入力のない write API はレビューで差し戻す |
 
 ### 6. ブラウザ・ネットワーク保護
 
@@ -108,6 +110,8 @@
 - 監査ログは重要操作へ実装済みだが、全 route の操作網羅性は継続監査対象である。
 - CSP は本番で enforce されるが、開発環境および rollback flag では report-only となる。
 - 保守鍵実行は userId が残らないため、鍵の保有者・実行者台帳を運用で管理する必要がある。
+- platform admin はクライアント校舎の `/app/settings` と別の運営側バックオフィスである。`/app/settings` に横断保守、ジョブ復旧、PII 代理閲覧、監査 export を置かない。
+- platform admin 初期表示では PII、面談本文、音声、内部 error code を出さない。必要時は理由入力と `PlatformAuditLog` を通す。
 - 外部サービス、Vercel/Supabase/Blob/Runpod/OpenAI の管理画面設定とアクセス権限は別紙の運用証跡で補完する。
 
 ## 推奨する定期確認
@@ -118,5 +122,6 @@
 | リリース前 | 認証 throttle regression | `npm run test:auth-throttle` |
 | リリース前 | 保守 route guard regression | `npm run test:maintenance-route-guards` |
 | リリース前 | テナント境界の静的・DB 読み取り検査 | `npx tsx scripts/test-tenant-isolation-boundaries.ts` |
+| リリース前 | platform admin UX / 権限境界の静的補助チェック | `npx tsx scripts/check-admin-console-simplification.ts` |
 | 月次 | AuditLog 抽出と重要操作の突合 | DB 読み取りクエリまたは管理者用抽出 |
-| 月次 | 退職者・端末・保守鍵の棚卸し | ユーザー台帳、Teacher App device、環境変数台帳 |
+| 月次 | 退職者・端末・保守鍵・platform operator の棚卸し | ユーザー台帳、Teacher App device、環境変数台帳、PlatformOperator 台帳 |

@@ -26,6 +26,7 @@ export async function GET() {
     const snapshot = await getSettingsSnapshot({
       organizationId: session.user.organizationId,
       viewerRole: session.user.role,
+      viewerEmail: session.user.email,
     });
 
     if (!snapshot) {

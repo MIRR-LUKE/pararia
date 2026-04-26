@@ -259,18 +259,33 @@ npm run test:student-room-route
 
 ### 4.6 `/app/settings`
 
-- 運用設定
+- クライアント側の組織設定
 - guardian 情報の補完確認
 - 保存方針の確認
 - 組織名、プラン、人数上限、表示言語、タイムゾーン、同意バージョンの更新
-- 招待の詰まり、権限人数、最近の操作履歴の確認
-- 管理者向けの保守コンソールから `jobs/run` と `maintenance/cleanup` を実行
-- 止まった会話処理 / 音声処理を見て、その会話やセッションだけ再開
-- 削除した会話ログ / 保護者レポートを設定画面から復元
-- 保守 API は管理者セッション、または `x-maintenance-secret` / `Authorization: Bearer` で通す
+- 招待の詰まり、権限人数、Teacher App 端末、送信設定の確認
+- `jobs/run`、`maintenance/cleanup`、Runpod 起動停止、ジョブ再実行はここに置かない
+
+### 4.7 `/admin`
+
+- PARARIA 運営側の管理コンソール
+- 何百校舎を横断して、要対応、校舎検索、校舎詳細、ジョブ状況、監査を確認する
+- 校舎内 `ADMIN` とは別の `PlatformOperator` / `PlatformRole` で入場を制御する
+- 本番SaaSでは `admin.<domain>` のような管理者サブドメインを割り当て、このルートを管理者サブドメイン配下で開く構成を推奨する
+- `PARARIA_ADMIN_HOSTS=admin.example.com` を設定すると、そのホストの `/` は `/admin` に寄せる
+- `PARARIA_ADMIN_BASE_URL=https://admin.example.com` を設定すると、通常ホストの `/admin` は管理者サブドメインへリダイレクトする
+- `PARARIA_ADMIN_OPERATOR_EMAILS=ops@example.com,owner@example.com` は移行・緊急用の allowlist。正は DB の `PlatformOperator` に置く
+- allowlist 未設定の環境でも、校舎内 `ADMIN` だけでは `/admin` と `app/api/admin/**` に入れない
+- 初期ホームは `校舎数`, `要対応`, `処理中`, `正常` の 4 指標に絞る
+- `今日見るところ` に失敗または詰まり疑いを優先表示する
+- 校舎検索は校舎名、契約名、プラン、ID で探せる
+- 校舎詳細では概要、利用状況、ユーザー、ジョブ、端末、監査を read-only で確認する
+- 初期表示では面談本文、音声、保護者連絡先、内部エラーコード、処理基盤の詳細を出さない
+- ジョブ再実行、端末停止、ユーザー停止、代理閲覧、export などの write 操作は理由・影響範囲・監査を通す
+- 保守 API は運営者セッション、または `x-maintenance-secret` / `Authorization: Bearer` で通す
 - 実行した人、実行方法、対象は監査ログに残す
 
-### 4.7 設定画面でできること
+### 4.8 設定画面でできること
 
 - 組織の土台を持つ
   - 組織名
@@ -288,16 +303,14 @@ npm run test:student-room-route
   - 受け入れ済み
 - 権限の考え方の確認
   - 日常操作
-  - 設定変更と復元
-  - 保守 API と強い管理操作
-- 保守コンソール
-  - 会話ジョブ / 音声ジョブの待ち数
-  - 詰まり疑い件数
-  - 会話処理 / 音声処理の明細
-  - 削除した会話ログ / 保護者レポートの復元
-  - 最近の監査ログ
-  - `ジョブを回す`
-  - `保存期限切れを掃除`
+  - 設定変更、招待、端末停止
+  - 運営管理コンソールは `/admin`
+- Teacher App 端末
+  - 登録端末の状態確認
+  - 紛失・入れ替え時の端末停止
+- 送信設定と保存ルール
+  - メール / LINE / 手動共有の状態
+  - 文字起こしと共有履歴の保存期間
 
 ## 5. モード別仕様
 
@@ -976,8 +989,8 @@ GPU ごとの最初の目安:
 
 補足:
 
-- `jobs/run` と `maintenance/cleanup` は、ふつうの画面操作ではなく保守操作として扱う
-- route 側でも止める。通るのは管理者セッションか `x-maintenance-secret` / `Authorization: Bearer` だけ
+- `jobs/run` と `maintenance/cleanup` は、ふつうのクライアント画面操作ではなく `/admin` の運営操作として扱う
+- route 側でも止める。通るのは運営者 allowlist 付き管理者セッションか `x-maintenance-secret` / `Authorization: Bearer` だけ
 - 実行した人や対象は監査ログに残す
 - 定期実行は `.github/workflows/maintenance-schedule.yml` から `POST` で呼ぶ。日次は cleanup、`jobs/run` は必要なときだけ手動実行にする
 - 生徒画面やログ画面の再実行は、それぞれ `POST /api/sessions/[id]/progress` と `POST /api/conversations/[id]` だけを使う

@@ -1,6 +1,7 @@
 import { UserRole } from "@prisma/client";
 
 export type RoleInput = string | null | undefined;
+export type EmailInput = string | null | undefined;
 
 const KNOWN_ROLES = new Set<string>(Object.values(UserRole));
 
@@ -41,12 +42,33 @@ export function canForceReleaseRecordingLock(role: RoleInput) {
   return canManageStaff(role);
 }
 
-export function canRunMaintenanceRoutes(role: RoleInput) {
-  return isAdminRole(role);
+function normalizeEmail(email: EmailInput) {
+  return typeof email === "string" ? email.trim().toLowerCase() : "";
 }
 
-export function canOperateProductionJobs(role: RoleInput) {
-  return isAdminRole(role);
+function readAdminOperatorEmailSet() {
+  const raw = process.env.PARARIA_ADMIN_OPERATOR_EMAILS?.trim();
+  if (!raw) return null;
+  return new Set(
+    raw
+      .split(",")
+      .map((email) => normalizeEmail(email))
+      .filter(Boolean)
+  );
+}
+
+export function isAdminOperator(role: RoleInput, email?: EmailInput) {
+  if (!isAdminRole(role)) return false;
+  const allowlist = readAdminOperatorEmailSet();
+  return Boolean(allowlist?.has(normalizeEmail(email)));
+}
+
+export function canRunMaintenanceRoutes(role: RoleInput, email?: EmailInput) {
+  return isAdminOperator(role, email);
+}
+
+export function canOperateProductionJobs(role: RoleInput, email?: EmailInput) {
+  return isAdminOperator(role, email);
 }
 
 export function roleLabelJa(role: RoleInput) {

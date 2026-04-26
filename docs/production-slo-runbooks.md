@@ -13,6 +13,8 @@
 - `docs/db-backup-recovery.md`
 - `docs/disaster-recovery-evidence.md`
 - `docs/release-governance.md`
+- `docs/admin-console-platform-spec.md`
+- `docs/admin-console-review-checklist.md`
 
 ## 2. サービス階層
 
@@ -21,6 +23,7 @@
 | Tier 0 | 認証、DB、Blob、録音投入、面談ログ生成の正本保存 | NextAuth、Supabase Postgres、Vercel Blob、conversation artifact | 最優先 |
 | Tier 1 | 講師の録音、STT、ログ生成、保護者帳票生成 | web -> queue -> Runpod worker -> web-side LLM finalize | 高 |
 | Tier 2 | 一覧、検索、配信履歴、管理画面 | dashboard、students、logs、reports | 中 |
+| Tier 2 | PARARIA 運営側 platform admin | `/admin`, admin audit, admin operations, campus directory | 中。ただし危険操作・監査欠落は SEV-2 へ引き上げ |
 | Tier 3 | 内部診断、計測、ベンチマーク | RUM、Runpod UX summary、eval report | 低。ただし証跡として保全 |
 
 ## 3. SLO
@@ -104,6 +107,22 @@ npm run backup:all
 npm run test:backup-restore-drill
 ```
 
+### 5.5 Platform Admin
+
+`/admin` はクライアント校舎向け設定ではなく、PARARIA 運営側の横断バックオフィスとする。仕様は `docs/admin-console-platform-spec.md`、実装後レビューは `docs/admin-console-review-checklist.md` を正本にする。
+
+- 校舎内 `ADMIN` だけで `/admin` または `app/api/admin/**` に入れる: SEV-2。即時 rollback または admin route disable を検討する。
+- admin write 操作が `PlatformAuditLog` に残っていない: SEV-2。対象操作を停止し、影響範囲と実行者を復元する。
+- admin 初期表示に面談本文、音声、保護者連絡先などの PII が出ている: SEV-2。該当表示を停止し、閲覧可能だった operator と時刻を監査する。
+- admin 初期表示に内部 error code / worker 名が大量露出し、CS が要対応判断できない: SEV-3。UI 改修 issue を切る。
+- admin サブドメイン redirect / host guard の設定漏れ: SEV-3。本番公開前なら release stop。
+
+確認コマンド:
+
+```bash
+npx tsx scripts/check-admin-console-simplification.ts
+```
+
 ## 6. 日次・週次・月次運用
 
 ### 日次
@@ -165,6 +184,15 @@ npm run test:backup-restore-drill
 3. 事実性、固有名詞、禁止表現、安全性のいずれかが悪化した場合は model/prompt/env の変更を rollback する。
 4. 生成済み artifact の扱いは「破棄せず last good を保持」を原則とし、再生成は review gate を通す。
 
+### 7.6 Platform Admin 権限・監査事故
+
+1. `/admin` と `app/api/admin/**` の入口を特定し、admin サブドメイン、通常ホスト redirect、route guard のどこが失敗したかを切り分ける。
+2. 校舎内 user session だけで入れていた場合は、該当 deploy を rollback するか admin route を一時停止する。
+3. `PlatformOperator`、移行用 allowlist、関連 env 名の変更履歴を確認する。secret value は incident report に書かず、変数名と変更時刻だけ残す。
+4. write 操作が絡む場合は `PlatformAuditLog` と既存 `AuditLog` を突合し、理由、対象校舎、対象リソース、変更前後、IP、User-Agent を確認する。
+5. PII や面談本文の露出が疑われる場合は、対象画面、閲覧可能だった operator、時刻、対象校舎を記録し、該当 UI を停止する。
+6. 復旧後に `npx tsx scripts/check-admin-console-simplification.ts` と非エンジニア向け 5 タスク確認を実施し、結果を incident report に添付する。
+
 ## 8. Incident 記録テンプレート
 
 ```markdown
@@ -201,3 +229,4 @@ npm run test:backup-restore-drill
 - GitHub Actions: `Production Integrity Audit`、`Production Recording Smoke`、`Critical Path Smoke`、`Generation Route Smoke`、`Backup Runtime And DB`、`Backup Restore Drill`。
 - npm scripts: `verify`、`test:critical-path-smoke`、`test:generation-preservation`、`test:conversation-eval`、`test:route-performance`、`backup:all`、`test:backup-restore-drill`。
 - runtime 証跡: Runpod heartbeat、`runpodWorkerImage`、`runpodWorkerGitSha`、`runpodWorkerRuntimeRevision`、RUM route timing、conversation eval report。
+- platform admin 証跡: `PlatformOperator` 棚卸し、`PlatformAuditLog` 抽出、admin host guard 設定、`docs/admin-console-review-checklist.md` のレビュー結果。

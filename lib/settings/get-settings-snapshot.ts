@@ -186,11 +186,13 @@ function pickDeletedByLabel(input: { name?: string | null; email?: string | null
 type GetSettingsSnapshotOptions = {
   organizationId: string;
   viewerRole?: string;
+  viewerEmail?: string | null;
 };
 
 export async function getSettingsSnapshot({
   organizationId,
   viewerRole,
+  viewerEmail,
 }: GetSettingsSnapshotOptions): Promise<SettingsSnapshot | null> {
   const now = new Date();
   const staleJobCutoff = new Date(now.getTime() - 15 * 60 * 1000);
@@ -618,7 +620,7 @@ export async function getSettingsSnapshot({
     permissions: {
       viewerRole,
       canManage: canManageSettings(viewerRole),
-      canRunOperations: canOperateProductionJobs(viewerRole),
+      canRunOperations: canOperateProductionJobs(viewerRole, viewerEmail),
       roleCounts,
       policyRows: [
         {
@@ -627,14 +629,14 @@ export async function getSettingsSnapshot({
           note: "教室運営で必要な日常操作です。",
         },
         {
-          label: "設定変更・招待・復元",
+          label: "設定変更・招待・端末停止",
           roles: "Admin / Manager",
           note: "組織を壊しやすい操作は管理側だけに寄せます。",
         },
         {
-          label: "保守 API・強い管理操作",
+          label: "運営管理コンソール",
           roles: "Admin",
-          note: "サービス全体を守る操作は最小人数に絞ります。",
+          note: "ジョブ再実行やRunpod操作は /admin に分離しています。",
         },
       ],
     },

@@ -16,6 +16,7 @@ export default async function SettingsPage() {
   const initialSettings = await getSettingsSnapshot({
     organizationId,
     viewerRole: (session.user as { role?: string | null }).role ?? undefined,
+    viewerEmail: session.user.email ?? null,
   });
 
   if (!initialSettings) {
