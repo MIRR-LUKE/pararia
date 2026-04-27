@@ -20,6 +20,7 @@ import jp.pararia.teacherapp.domain.TeacherRecordingSummary
 import jp.pararia.teacherapp.domain.TeacherRecordingStatus
 import jp.pararia.teacherapp.domain.TeacherRoute
 import jp.pararia.teacherapp.domain.TeacherUiState
+import jp.pararia.teacherapp.domain.removeMissingFilePendingUploads
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
@@ -28,6 +29,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.io.File
 
 class TeacherAppViewModel(
     private val authRepository: TeacherAuthRepository,
@@ -123,7 +125,7 @@ class TeacherAppViewModel(
 
     fun openPendingUploads() {
         viewModelScope.launch {
-            val items = pendingUploadStore.loadItems()
+            val items = loadDisplayPendingUploads("pending_open")
             trackEvent(
                 name = "pending_open",
                 details = mapOf("pendingCount" to items.size.toString()),
@@ -470,7 +472,7 @@ class TeacherAppViewModel(
 
     fun retryPendingUploads() {
         viewModelScope.launch {
-            val beforeRetry = pendingUploadStore.loadItems()
+            val beforeRetry = loadDisplayPendingUploads("retry_pending_before")
             trackEvent(
                 name = "retry_request",
                 details = mapOf("pendingCount" to beforeRetry.size.toString()),
@@ -480,7 +482,7 @@ class TeacherAppViewModel(
                 val activeRecording = runCatching { recordingRepository.loadActiveRecording() }.getOrNull()
                 val pendingUploads = reconcilePendingUploads(
                     activeRecording = activeRecording,
-                    pendingUploads = pendingUploadStore.loadItems(),
+                    pendingUploads = loadDisplayPendingUploads("retry_pending_after"),
                 )
                 syncRouteWithActiveRecording(
                     pendingUploads = pendingUploads,
@@ -517,7 +519,7 @@ class TeacherAppViewModel(
     private suspend fun bootstrap() {
         trackEvent("bootstrap_start", route = "bootstrap")
         val session = authRepository.currentSession()
-        var pendingUploads = pendingUploadStore.loadItems()
+        var pendingUploads = loadDisplayPendingUploads("bootstrap")
         if (session == null) {
             trackEvent(
                 name = "bootstrap_no_session",
@@ -761,7 +763,7 @@ class TeacherAppViewModel(
     }
 
     private suspend fun clearPendingUploads(recordingId: String): List<PendingUpload> {
-        val items = pendingUploadStore.loadItems()
+        val items = loadDisplayPendingUploads("clear_pending_by_recording")
         return clearPendingUploads(recordingId, items)
     }
 
@@ -774,7 +776,24 @@ class TeacherAppViewModel(
             return items
         }
         staleItems.forEach { pendingUploadStore.remove(it.id) }
-        return pendingUploadStore.loadItems()
+        return loadDisplayPendingUploads("clear_pending_by_recording")
+    }
+
+    private suspend fun loadDisplayPendingUploads(reason: String): List<PendingUpload> {
+        val cleanup = pendingUploadStore.removeMissingFilePendingUploads()
+        cleanup.removedItems.forEach { item ->
+            trackEvent(
+                name = "pending_stale_removed",
+                recordingId = item.recordingId,
+                attemptCount = item.attemptCount,
+                level = TeacherDiagnosticLevel.WARNING,
+                details = mapOf(
+                    "reason" to reason,
+                    "fileName" to File(item.filePath).name,
+                ),
+            )
+        }
+        return cleanup.pendingUploads
     }
 
     private suspend fun reconcilePendingUploadsWithServer(
@@ -811,7 +830,8 @@ class TeacherAppViewModel(
     ) {
         try {
             block()
-            _uiState.update { it.copy(pendingUploads = pendingUploadStore.loadItems()) }
+            val pendingUploads = loadDisplayPendingUploads("${operation}_success")
+            _uiState.update { it.copy(pendingUploads = pendingUploads) }
         } catch (error: Exception) {
             trackEvent(
                 name = "${operation}_failure",
@@ -824,7 +844,9 @@ class TeacherAppViewModel(
             recordingPaused = false
             recordingSeconds = 0
             studentSearchJob?.cancel()
-            var pendingUploads = runCatching { pendingUploadStore.loadItems() }.getOrDefault(_uiState.value.pendingUploads)
+            var pendingUploads = runCatching {
+                loadDisplayPendingUploads("${operation}_failure")
+            }.getOrDefault(_uiState.value.pendingUploads)
             val activeRecording = runCatching { recordingRepository.loadActiveRecording() }.getOrNull()
             if (activeRecording != null) {
                 pendingUploads = reconcilePendingUploads(activeRecording, pendingUploads)

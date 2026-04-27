@@ -24,6 +24,7 @@ import jp.pararia.teacherapp.domain.TeacherTokenStore
 import jp.pararia.teacherapp.domain.TeacherActiveRecordingEnvelope
 import jp.pararia.teacherapp.domain.TeacherConfirmRecordingResponse
 import jp.pararia.teacherapp.domain.TeacherLogoutResponse
+import jp.pararia.teacherapp.domain.removeMissingFilePendingUploads
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -408,10 +409,26 @@ class DefaultTeacherRecordingRepository(
 
     override suspend fun retryPendingUploads() {
         var firstError: Exception? = null
-        val items = pendingUploadStore.loadItems()
+        val cleanup = pendingUploadStore.removeMissingFilePendingUploads()
+        cleanup.removedItems.forEach { item ->
+            TeacherDiagnostics.track(
+                name = "pending_stale_removed",
+                recordingId = item.recordingId,
+                attemptCount = item.attemptCount,
+                level = TeacherDiagnosticLevel.WARNING,
+                details = mapOf(
+                    "fileName" to File(item.filePath).name,
+                    "reason" to "missing_local_file",
+                ),
+            )
+        }
+        val items = cleanup.pendingUploads
         TeacherDiagnostics.track(
             name = "retry_start",
-            details = mapOf("pendingCount" to items.size.toString()),
+            details = mapOf(
+                "pendingCount" to items.size.toString(),
+                "staleRemoved" to cleanup.removedItems.size.toString(),
+            ),
         )
         items.forEach { item ->
             try {
@@ -450,6 +467,7 @@ class DefaultTeacherRecordingRepository(
             level = if (firstError == null) TeacherDiagnosticLevel.INFO else TeacherDiagnosticLevel.WARNING,
             details = mapOf(
                 "attempted" to items.size.toString(),
+                "staleRemoved" to cleanup.removedItems.size.toString(),
                 "remaining" to pendingUploadStore.loadItems().size.toString(),
             ),
         )

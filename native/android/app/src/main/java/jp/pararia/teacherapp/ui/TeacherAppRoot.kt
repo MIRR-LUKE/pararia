@@ -1,6 +1,7 @@
 package jp.pararia.teacherapp.ui
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.content.Context
 import android.media.MediaMetadataRetriever
 import android.net.Uri
@@ -180,6 +181,7 @@ private val TeacherShapes = Shapes(
     large = RoundedCornerShape(32.dp),
 )
 
+@SuppressLint("UnusedCrossfadeTargetStateParameter")
 @Composable
 fun TeacherAppRoot(
     viewModel: TeacherAppViewModel
@@ -816,7 +818,7 @@ private fun TeacherPendingUploadsScreen(
                     text = if (items.isEmpty()) {
                         "端末内に未送信はありません。"
                     } else {
-                        "収録済みの音声をまとめて再送できます。"
+                        "収録済みの音声をまとめて再送できます。端末内の音声ファイルが消えている古い未送信は自動で掃除します。"
                     },
                     style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
