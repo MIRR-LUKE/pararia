@@ -19,11 +19,17 @@ import {
   applyTeacherRecordingTranscriptionResult,
   releaseTeacherRecordingLease,
 } from "@/lib/teacher-app/server/recordings";
+import {
+  TeacherRecordingStatusTransitionError,
+  updateTeacherRecordingStatus,
+} from "@/lib/teacher-app/server/recording-status";
 import { notifyTeacherRecordingError } from "@/lib/teacher-app/server/recording-notifications";
 import { toPrismaJson } from "@/lib/prisma-json";
 
 const STALE_SESSION_PART_TRANSCRIPTION_MS = 45 * 60 * 1000;
 const STALE_TEACHER_RECORDING_LEASE_GRACE_MS = 2 * 60 * 1000;
+const TEACHER_RECORDING_STALE_COMPLETION_ERROR =
+  "teacher recording completion could not be applied because the recording state changed";
 
 function readSessionPartQualityMeta(value: unknown) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -338,15 +344,28 @@ async function completeTeacherRecordingFailure(jobId: string, failure: RunpodRem
   }
 
   const shouldRetry = (job.attempts ?? 0) < (job.maxAttempts ?? 3);
-  await prisma.teacherRecordingSession.update({
-    where: { id: job.recordingSessionId },
-    data: {
-      status: shouldRetry
-        ? TeacherRecordingSessionStatus.TRANSCRIBING
-        : TeacherRecordingSessionStatus.ERROR,
-      errorMessage: failure.errorMessage,
-    },
-  }).catch(() => {});
+  if (shouldRetry) {
+    await prisma.teacherRecordingSession.updateMany({
+      where: {
+        id: job.recordingSessionId,
+        status: TeacherRecordingSessionStatus.TRANSCRIBING,
+      },
+      data: {
+        errorMessage: failure.errorMessage,
+      },
+    }).catch(() => {});
+  } else {
+    await prisma.$transaction((tx) =>
+      updateTeacherRecordingStatus(tx, {
+        recordingId: job.recordingSessionId,
+        from: TeacherRecordingSessionStatus.TRANSCRIBING,
+        to: TeacherRecordingSessionStatus.ERROR,
+        data: {
+          errorMessage: failure.errorMessage,
+        },
+      })
+    ).catch(() => {});
+  }
   await prisma.teacherRecordingJob.update({
     where: { id: job.id },
     data: {
@@ -383,42 +402,113 @@ async function completeTeacherRecordingFailure(jobId: string, failure: RunpodRem
   await maybeStopRunpodWorkerWhenGpuQueuesIdle().catch(() => {});
 }
 
-async function completeTeacherRecordingSuccess(jobId: string, result: TeacherRecordingTranscriptionResult) {
-  const job = await prisma.teacherRecordingJob.findUnique({
-    where: { id: jobId },
-    select: {
-      id: true,
-      executionId: true,
-      recordingSessionId: true,
-      recordingSession: {
+type CompleteTeacherRecordingSuccessDeps = {
+  findJob?: (jobId: string) => Promise<{
+    id: string;
+    executionId: string | null;
+    recordingSessionId: string;
+    recordingSession: {
+      organizationId: string;
+    } | null;
+  } | null>;
+  markJobDone?: (input: {
+    jobId: string;
+    result: TeacherRecordingTranscriptionResult;
+  }) => Promise<unknown>;
+  markJobError?: (input: {
+    jobId: string;
+    executionId: string | null;
+    lastError: string;
+  }) => Promise<unknown>;
+  applyResult?: typeof applyTeacherRecordingTranscriptionResult;
+  releaseLease?: typeof releaseTeacherRecordingLease;
+  maybeStopGpuQueuesIdle?: () => Promise<unknown>;
+};
+
+async function completeTeacherRecordingSuccess(
+  jobId: string,
+  result: TeacherRecordingTranscriptionResult,
+  deps: CompleteTeacherRecordingSuccessDeps = {}
+) {
+  const findJob =
+    deps.findJob ??
+    ((id: string) =>
+      prisma.teacherRecordingJob.findUnique({
+        where: { id },
         select: {
-          organizationId: true,
+          id: true,
+          executionId: true,
+          recordingSessionId: true,
+          recordingSession: {
+            select: {
+              organizationId: true,
+            },
+          },
         },
-      },
-    },
-  });
+      }));
+  const markJobDone =
+    deps.markJobDone ??
+    ((input: { jobId: string; result: TeacherRecordingTranscriptionResult }) =>
+      prisma.teacherRecordingJob.update({
+        where: { id: input.jobId },
+        data: {
+          status: JobStatus.DONE,
+          outputJson: toPrismaJson(input.result.outputJson),
+          costMetaJson: toPrismaJson(input.result.costMetaJson),
+          finishedAt: new Date(),
+        },
+      }));
+  const markJobError =
+    deps.markJobError ??
+    ((input: { jobId: string; executionId: string | null; lastError: string }) =>
+      prisma.teacherRecordingJob.updateMany({
+        where: {
+          id: input.jobId,
+          status: JobStatus.RUNNING,
+          ...(input.executionId ? { executionId: input.executionId } : {}),
+        },
+        data: {
+          status: JobStatus.ERROR,
+          lastError: input.lastError,
+          finishedAt: new Date(),
+        },
+      }));
+  const applyResult = deps.applyResult ?? applyTeacherRecordingTranscriptionResult;
+  const releaseLease = deps.releaseLease ?? releaseTeacherRecordingLease;
+  const maybeStopGpuQueuesIdle = deps.maybeStopGpuQueuesIdle ?? maybeStopRunpodWorkerWhenGpuQueuesIdle;
+
+  const job = await findJob(jobId);
   if (!job?.recordingSession) {
     return;
   }
 
-  await applyTeacherRecordingTranscriptionResult({
-    recordingId: job.recordingSessionId,
-    organizationId: job.recordingSession.organizationId,
-    result,
-  });
-  await prisma.teacherRecordingJob.update({
-    where: { id: job.id },
-    data: {
-      status: JobStatus.DONE,
-      outputJson: toPrismaJson(result.outputJson),
-      costMetaJson: toPrismaJson(result.costMetaJson),
-      finishedAt: new Date(),
-    },
-  });
-  if (job.executionId) {
-    await releaseTeacherRecordingLease(job.recordingSessionId, job.executionId).catch(() => {});
+  try {
+    try {
+      await applyResult({
+        recordingId: job.recordingSessionId,
+        organizationId: job.recordingSession.organizationId,
+        result,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      await markJobError({
+        jobId: job.id,
+        executionId: job.executionId,
+        lastError: `${TEACHER_RECORDING_STALE_COMPLETION_ERROR}: ${message}`,
+      }).catch(() => {});
+      if (error instanceof TeacherRecordingStatusTransitionError) {
+        return;
+      }
+      throw error;
+    }
+
+    await markJobDone({ jobId: job.id, result });
+  } finally {
+    if (job.executionId) {
+      await releaseLease(job.recordingSessionId, job.executionId).catch(() => {});
+    }
+    await maybeStopGpuQueuesIdle().catch(() => {});
   }
-  await maybeStopRunpodWorkerWhenGpuQueuesIdle().catch(() => {});
 }
 
 async function completeSessionPartFailure(jobId: string, failure: RunpodRemoteTaskFailure) {
@@ -510,6 +600,7 @@ type CompleteRunpodRemoteSttTaskInput =
 type CompleteRunpodRemoteSttTaskDeps = {
   completeTeacherRecordingFailure?: typeof completeTeacherRecordingFailure;
   completeTeacherRecordingSuccess?: typeof completeTeacherRecordingSuccess;
+  teacherRecordingSuccessDeps?: CompleteTeacherRecordingSuccessDeps;
   completeSessionPartFailure?: typeof completeSessionPartFailure;
   completeSessionPartSuccess?: typeof completeSessionPartSuccess;
 };
@@ -530,7 +621,7 @@ export async function completeRunpodRemoteSttTask(
       await completeTeacherFailure(input.jobId, input.result);
       return;
     }
-    await completeTeacherSuccess(input.jobId, input.result);
+    await completeTeacherSuccess(input.jobId, input.result, deps.teacherRecordingSuccessDeps);
     return;
   }
 

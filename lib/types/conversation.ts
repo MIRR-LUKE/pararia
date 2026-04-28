@@ -1,3 +1,5 @@
+import type { ConversationLogQualityError, ConversationLogQualityMeta } from "@/lib/conversation-log-quality";
+
 export type ConversationQualityMeta = {
   modelFinalize?: string;
   summaryCharCount?: number;
@@ -42,6 +44,8 @@ export type ConversationQualityMeta = {
     suggestionCount?: number;
     updatedAt?: string;
   };
+  logQuality?: ConversationLogQualityMeta | null;
+  logQualityError?: ConversationLogQualityError | null;
   errors?: string[];
   finalizeJob?: Record<string, unknown>;
   formatJob?: Record<string, unknown>;

@@ -1,6 +1,6 @@
 # Teacher App internal testing guide
 
-更新日: `2026-04-26`
+更新日: `2026-04-28`
 
 Teacher 録音 app は公開ストア前に、校舎共通端末での内部 QA を回します。  
 いまは **Play Console を使わず、signed APK を手元 Android に直入れして main flow を確認する** のを最短ルートにします。
@@ -26,13 +26,14 @@ Teacher 録音 app は公開ストア前に、校舎共通端末での内部 QA 
 
 ## いまのおすすめ最短ルート
 
-0. `npm run test:android-release-handoff-preflight` で、この repo / CI / 端末が signed APK QA の前提を満たしているか確認する
-1. upload 用ではなくてもよいので、**internal build 専用 keystore** を 1 つ作る
-2. GitHub Secrets / Variable を 5 個入れる
-3. Actions の `Android Device Handoff` を `upload_to_play=false` で実行する
-4. artifact から `app-release.apk` と `app-release.apk.sha256` を落とす
-5. 手元 Android に `adb install -r` で入れる
-6. 実機で `録音 -> 解析 -> 生徒確認 -> 完了 -> 未送信再送` を確認する
+0. `npm run verify:teacher` で、Teacher App / 録音 backend の配布前チェックをまとめて確認する
+1. `npm run test:android-release-handoff-preflight` で、この repo / CI / 端末が signed APK QA の前提を満たしているか確認する
+2. upload 用ではなくてもよいので、**internal build 専用 keystore** を 1 つ作る
+3. GitHub Secrets / Variable を 5 個入れる
+4. Actions の `Android Device Handoff` を `upload_to_play=false` で実行する
+5. artifact から `app-release.apk` と `app-release.apk.sha256` を落とす
+6. 手元 Android に `adb install -r` で入れる
+7. 実機で `録音 -> 解析 -> 生徒確認 -> 完了 -> 未送信再送` を確認する
 
 このルートでは **Play Console 登録は不要** です。
 
@@ -40,7 +41,43 @@ Teacher 録音 app は公開ストア前に、校舎共通端末での内部 QA 
 
 ## あなた側でやってほしいこと
 
-### 0. release handoff preflight を実行する
+### 0. Teacher backend verification を実行する
+
+Android Teacher App の配布前は、まず以下の 1 コマンドを回します。
+
+```bash
+npm run verify:teacher
+```
+
+この command は Teacher App / 録音 backend の配布前チェックをまとめて実行します。
+
+- native auth / device auth の基本契約
+- 録音 audio dispatch / upload quota / progress recovery / progress dispatch
+- 録音 status rules / confirm idempotency
+- Teacher App notifications
+- Teacher 録音 analytics route
+- DB-backed Teacher 録音 smoke
+
+個別に切り分けたいときは、これまで通り `test:teacher-*` / `test:teacher-recording-*` の各 npm script も使えます。
+
+`verify:teacher` の最後に走る `test:teacher-recording-smoke` は、実際に fixture の device / student / recording / promoted session を作って cleanup します。そのため safety guard は **app URL と Prisma datasource の両方が local** でない限り止めます。これは production / shared DB に検証 fixture を書かないための正常な停止です。
+
+local DB と local app で full smoke まで通す例:
+
+```bash
+npm run dev
+TEACHER_RECORDING_SMOKE_BASE_URL=http://localhost:3000 npm run verify:teacher
+```
+
+意図して隔離した非 production 環境で full smoke を実行する場合だけ、対象 DB / app URL / 認証情報を確認してから override を付けます。
+
+```bash
+PARARIA_ALLOW_REMOTE_FIXTURES=1 TEACHER_RECORDING_SMOKE_BASE_URL=https://your-isolated-preview.example.com npm run test:teacher-recording-smoke
+```
+
+この override は production や shared staging には使わないでください。`verify:teacher` が smoke の safety guard で止まった場合でも、そこまでに実行済みの non-mutating checks と analytics check の結果は有効です。full DB-backed smoke の evidence が必要なときだけ、上の local または隔離環境の導線で再実行してください。
+
+### 1. release handoff preflight を実行する
 
 実秘密値を出さずに、signed APK QA 前提だけを確認します。
 

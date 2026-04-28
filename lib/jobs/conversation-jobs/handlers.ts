@@ -6,6 +6,7 @@ import {
 } from "@/lib/ai/next-meeting-memo";
 import { formatTranscriptFromSegments, formatTranscriptFromText } from "@/lib/ai/llm";
 import { renderConversationArtifactMarkdown } from "@/lib/conversation-artifact";
+import { buildConversationLogQualityMetaPatch } from "@/lib/conversation-log-quality";
 import { syncSessionAfterConversation } from "@/lib/session-service";
 import { toPrismaJson } from "@/lib/prisma-json";
 import { sanitizeFormattedTranscript } from "@/lib/user-facing-japanese";
@@ -218,6 +219,19 @@ async function executeFinalizeJob(job: JobPayload, convo: ConversationPayload) {
   await touchJobLease(job);
 
   const finishedAt = new Date();
+  const logQualityPatch = buildConversationLogQualityMetaPatch({
+    artifactJson: artifact,
+    summaryMarkdown: renderedSummary,
+    generatedAt: qualityMeta.generatedAt,
+    evaluatedAt: finishedAt,
+  });
+  if (logQualityPatch.logQualityError) {
+    console.warn("[conversation-jobs] failed to evaluate conversation log quality", {
+      conversationId: convo.id,
+      message: logQualityPatch.logQualityError.message,
+    });
+  }
+
   await prisma.conversationLog.update({
     where: { id: convo.id },
     data: {
@@ -226,6 +240,7 @@ async function executeFinalizeJob(job: JobPayload, convo: ConversationPayload) {
       summaryMarkdown: renderedSummary,
       qualityMetaJson: toPrismaJson({
         ...qualityMeta,
+        ...logQualityPatch,
         finalizeJob: {
           ...(qualityMeta.finalizeJob ?? {}),
           finalizeCompletedAt: finishedAt.toISOString(),

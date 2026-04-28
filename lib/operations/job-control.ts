@@ -86,6 +86,42 @@ function resetTeacherRecordingJobData(): Prisma.TeacherRecordingJobUpdateInput {
   };
 }
 
+const TEACHER_RECORDING_OPERATION_RETRYABLE_STATUSES = new Set<TeacherRecordingSessionStatus>([
+  TeacherRecordingSessionStatus.TRANSCRIBING,
+  TeacherRecordingSessionStatus.ERROR,
+]);
+
+const TEACHER_RECORDING_OPERATION_CANCELABLE_STATUSES = new Set<TeacherRecordingSessionStatus>([
+  TeacherRecordingSessionStatus.RECORDING,
+  TeacherRecordingSessionStatus.TRANSCRIBING,
+  TeacherRecordingSessionStatus.AWAITING_STUDENT_CONFIRMATION,
+  TeacherRecordingSessionStatus.ERROR,
+]);
+
+export function canOperateTeacherRecordingStatus(
+  status: TeacherRecordingSessionStatus,
+  action: OperationJobAction
+) {
+  if (action === "retry") {
+    return TEACHER_RECORDING_OPERATION_RETRYABLE_STATUSES.has(status);
+  }
+  return TEACHER_RECORDING_OPERATION_CANCELABLE_STATUSES.has(status);
+}
+
+export function assertTeacherRecordingOperationStatus(
+  status: TeacherRecordingSessionStatus,
+  action: OperationJobAction
+) {
+  if (!canOperateTeacherRecordingStatus(status, action)) {
+    throw new OperationJobControlError(
+      action === "retry"
+        ? "この状態のTeacher App録音ジョブは再実行できません。"
+        : "この状態のTeacher App録音ジョブはキャンセルできません。",
+      409
+    );
+  }
+}
+
 async function operateConversationJob(input: {
   organizationId: string;
   jobId: string;
@@ -289,9 +325,7 @@ async function operateTeacherRecordingJob(input: {
     if (!job) {
       throw new OperationJobControlError("対象のTeacher App録音ジョブが見つかりません。", 404);
     }
-    if (job.recordingSession.status === TeacherRecordingSessionStatus.STUDENT_CONFIRMED) {
-      throw new OperationJobControlError("確定済みの録音ジョブは運用画面から変更できません。", 409);
-    }
+    assertTeacherRecordingOperationStatus(job.recordingSession.status, input.action);
 
     if (input.action === "retry") {
       if (!job.recordingSession.audioStorageUrl) {
@@ -301,8 +335,11 @@ async function operateTeacherRecordingJob(input: {
         where: { id: job.id },
         data: resetTeacherRecordingJobData(),
       });
-      await tx.teacherRecordingSession.update({
-        where: { id: job.recordingSessionId },
+      const updated = await tx.teacherRecordingSession.updateMany({
+        where: {
+          id: job.recordingSessionId,
+          status: job.recordingSession.status,
+        },
         data: {
           status: TeacherRecordingSessionStatus.TRANSCRIBING,
           errorMessage: null,
@@ -312,6 +349,9 @@ async function operateTeacherRecordingJob(input: {
           processingLeaseExpiresAt: null,
         },
       });
+      if (updated.count === 0) {
+        throw new OperationJobControlError("Teacher App録音の状態が更新されています。再読み込みしてください。", 409);
+      }
     } else {
       const message = buildOperatorMessage(input.action, input.reason);
       await tx.teacherRecordingJob.update({
@@ -323,8 +363,11 @@ async function operateTeacherRecordingJob(input: {
           finishedAt: new Date(),
         },
       });
-      await tx.teacherRecordingSession.update({
-        where: { id: job.recordingSessionId },
+      const updated = await tx.teacherRecordingSession.updateMany({
+        where: {
+          id: job.recordingSessionId,
+          status: job.recordingSession.status,
+        },
         data: {
           status: TeacherRecordingSessionStatus.CANCELLED,
           errorMessage: message,
@@ -334,6 +377,9 @@ async function operateTeacherRecordingJob(input: {
           processingLeaseExpiresAt: null,
         },
       });
+      if (updated.count === 0) {
+        throw new OperationJobControlError("Teacher App録音の状態が更新されています。再読み込みしてください。", 409);
+      }
     }
 
     return {

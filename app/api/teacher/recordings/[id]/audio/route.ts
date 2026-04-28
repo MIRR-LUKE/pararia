@@ -12,6 +12,7 @@ import { maybeEnsureRunpodWorkerReady } from "@/lib/runpod/worker-ready";
 import { applyLightMutationThrottle } from "@/lib/server/request-throttle";
 import { resolveRouteId, type RouteParams } from "@/lib/server/route-params";
 import { requireNativeTeacherAppMutationSession } from "@/lib/server/teacher-app-session";
+import { TeacherRecordingStatusTransitionError } from "@/lib/teacher-app/server/recording-status";
 import { loadTeacherRecordingSummary, uploadTeacherRecordingAudio } from "@/lib/teacher-app/server/recordings";
 
 export const dynamic = "force-dynamic";
@@ -234,6 +235,15 @@ export async function POST(request: Request, { params }: { params: RouteParams }
     return NextResponse.json(responseBody);
   } catch (error: any) {
     if (error instanceof IdempotencyConflictError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
+    if (error instanceof TeacherRecordingStatusTransitionError) {
+      if (idempotencyStarted && idempotencyKey) {
+        await failIdempotency({
+          scope: "teacher_recording_upload",
+          idempotencyKey,
+        }).catch(() => {});
+      }
       return NextResponse.json({ error: error.message }, { status: error.status });
     }
     if (idempotencyStarted && idempotencyKey) {

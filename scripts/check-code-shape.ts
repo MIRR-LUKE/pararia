@@ -78,10 +78,6 @@ const EXCEPTIONS: Record<string, Exception> = {
     hardLines: 1100,
     note: "session part pipeline を分割予定",
   },
-  "lib/teacher-app/server/recordings.ts": {
-    hardLines: 900,
-    note: "native teacher recording orchestration の分割対象",
-  },
   "lib/ai/conversation/generate.ts": {
     hardLines: 1000,
     note: "prompt / normalization / render の責務分離予定",

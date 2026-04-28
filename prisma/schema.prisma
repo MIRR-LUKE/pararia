@@ -44,6 +44,7 @@ model Organization {
   nextMeetingMemos          NextMeetingMemo[]
   teacherRecordingSessions  TeacherRecordingSession[]
   teacherRecordingJobs      TeacherRecordingJob[]
+  teacherRecordingNotificationAttempts TeacherRecordingNotificationAttempt[]
   teacherAppDevices         TeacherAppDevice[]
   teacherAppAuthSessions    TeacherAppDeviceAuthSession[]
 
@@ -371,6 +372,7 @@ model TeacherAppDevice {
   configuredBy User                         @relation("TeacherAppDeviceConfiguredBy", fields: [configuredByUserId], references: [id], onDelete: Cascade)
   recordings   TeacherRecordingSession[]
   authSessions TeacherAppDeviceAuthSession[]
+  notificationAttempts TeacherRecordingNotificationAttempt[]
 
   @@unique([organizationId, label])
   @@index([organizationId, status, updatedAt])
@@ -442,6 +444,7 @@ model TeacherRecordingSession {
   selectedStudent Student?         @relation("TeacherRecordingSelectedStudent", fields: [selectedStudentId], references: [id], onDelete: SetNull)
   device        TeacherAppDevice?  @relation(fields: [deviceId], references: [id], onDelete: SetNull)
   jobs          TeacherRecordingJob[]
+  notificationAttempts TeacherRecordingNotificationAttempt[]
 
   @@index([organizationId, deviceId, status, createdAt])
   @@index([organizationId, deviceLabel, status, createdAt])
@@ -450,6 +453,32 @@ model TeacherRecordingSession {
   @@index([createdByUserId, status, createdAt])
   @@index([selectedStudentId, createdAt])
   @@index([processingLeaseExpiresAt])
+}
+
+model TeacherRecordingNotificationAttempt {
+  id                String                           @id @default(cuid())
+  organizationId    String
+  recordingId       String
+  deviceId          String?
+  sentAt            DateTime                         @default(now())
+  kind              TeacherRecordingNotificationKind
+  success           Boolean
+  skipped           Boolean                          @default(false)
+  failureReason     String?
+  permissionStatus  String?
+  pushTokenProvider String?
+  fcmMessageName    String?
+  fcmStatus         Int?
+  createdAt         DateTime                         @default(now())
+
+  organization Organization            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  recording    TeacherRecordingSession @relation(fields: [recordingId], references: [id], onDelete: Cascade)
+  device       TeacherAppDevice?       @relation(fields: [deviceId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, recordingId, sentAt])
+  @@index([organizationId, deviceId, sentAt])
+  @@index([recordingId, sentAt])
+  @@index([deviceId, sentAt])
 }
 
 model TeacherRecordingJob {
@@ -822,6 +851,11 @@ enum SessionPartJobType {
 
 enum TeacherRecordingJobType {
   TRANSCRIBE_AND_SUGGEST
+}
+
+enum TeacherRecordingNotificationKind {
+  READY
+  ERROR
 }
 
 enum TeacherAppDeviceStatus {

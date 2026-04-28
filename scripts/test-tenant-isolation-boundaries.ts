@@ -78,7 +78,7 @@ const staticChecks: StaticCheck[] = [
   },
   {
     label: "teacher recordings are org and device scoped",
-    file: "lib/teacher-app/server/recordings.ts",
+    file: "lib/teacher-app/server/recording-confirm-service.ts",
     mustInclude: ["organizationId", "buildTeacherRecordingDeviceWhere", "selectedStudentId", "archivedAt: null"],
   },
   {

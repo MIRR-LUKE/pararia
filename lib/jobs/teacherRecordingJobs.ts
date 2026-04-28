@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { JobStatus, TeacherRecordingJobType, TeacherRecordingSessionStatus } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { runTeacherRecordingAnalysis } from "@/lib/teacher-app/server/recordings";
+import { updateTeacherRecordingStatus } from "@/lib/teacher-app/server/recording-status";
 import { notifyTeacherRecordingError } from "@/lib/teacher-app/server/recording-notifications";
 import { maybeStopRunpodWorkerWhenGpuQueuesIdle } from "@/lib/runpod/idle-stop";
 
@@ -100,15 +101,28 @@ export async function processQueuedTeacherRecordingJobs(
       const lastError = error?.message ?? "teacher recording job failed";
       errors.push(lastError);
       const shouldRetry = (job.attempts ?? 0) + 1 < (job.maxAttempts ?? 3);
-      await prisma.teacherRecordingSession.update({
-        where: { id: job.recordingSessionId },
-        data: {
-          status: shouldRetry
-            ? TeacherRecordingSessionStatus.TRANSCRIBING
-            : TeacherRecordingSessionStatus.ERROR,
-          errorMessage: lastError,
-        },
-      }).catch(() => {});
+      if (shouldRetry) {
+        await prisma.teacherRecordingSession.updateMany({
+          where: {
+            id: job.recordingSessionId,
+            status: TeacherRecordingSessionStatus.TRANSCRIBING,
+          },
+          data: {
+            errorMessage: lastError,
+          },
+        }).catch(() => {});
+      } else {
+        await prisma.$transaction((tx) =>
+          updateTeacherRecordingStatus(tx, {
+            recordingId: job.recordingSessionId,
+            from: TeacherRecordingSessionStatus.TRANSCRIBING,
+            to: TeacherRecordingSessionStatus.ERROR,
+            data: {
+              errorMessage: lastError,
+            },
+          })
+        ).catch(() => {});
+      }
       await prisma.teacherRecordingJob.update({
         where: { id: job.id },
         data: {

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { applyLightMutationThrottle } from "@/lib/server/request-throttle";
 import { resolveRouteId, type RouteParams } from "@/lib/server/route-params";
 import { requireNativeTeacherAppMutationSession } from "@/lib/server/teacher-app-session";
+import { TeacherRecordingStatusTransitionError } from "@/lib/teacher-app/server/recording-status";
 import { cancelTeacherRecordingSession } from "@/lib/teacher-app/server/recordings";
 
 export const dynamic = "force-dynamic";
@@ -35,6 +36,9 @@ export async function POST(request: Request, { params }: { params: RouteParams }
       ok: true,
     });
   } catch (error: any) {
+    if (error instanceof TeacherRecordingStatusTransitionError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     console.error("[POST /api/teacher/recordings/[id]/cancel] Error:", error);
     return NextResponse.json({ error: error?.message ?? "Internal Server Error" }, { status: 500 });
   }
