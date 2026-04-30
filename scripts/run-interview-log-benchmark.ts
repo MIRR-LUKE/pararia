@@ -4,6 +4,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { generateConversationDraftFast } from "@/lib/ai/conversation/generate";
 import { getAudioDurationSeconds } from "@/lib/audio-processing";
 import { transcribeAudioForPipeline, stopFasterWhisperWorkers } from "@/lib/ai/stt";
+import { getOpenAiCostUsdJpyRate } from "@/lib/ai/openai-pricing";
 
 const DEFAULT_AUDIO_PATH =
   "C:/Users/lukew/Desktop/01-30 面談_ 受験戦略とルール運用（時間配分・見直し・難問後回し.mp3";
@@ -62,6 +63,10 @@ function formatSeconds(value: number) {
 
 function formatUsd(value: number) {
   return `$${value.toFixed(4)}`;
+}
+
+function formatJpy(value: number) {
+  return `¥${Math.round(value).toLocaleString("ja-JP")}`;
 }
 
 function formatPercent(value: number) {
@@ -151,6 +156,7 @@ async function main() {
       : 0;
   const stablePrefixChars = draft.promptCacheStablePrefixChars ?? 0;
   const stablePrefixTokensEstimate = draft.promptCacheStablePrefixTokensEstimate ?? 0;
+  const usdJpyRate = getOpenAiCostUsdJpyRate();
 
   const transcriptMd = [
     `# ${baseName} 生文字起こし`,
@@ -191,6 +197,7 @@ async function main() {
         usedFallback: coldRun.draft.usedFallback,
         tokenUsage: coldRun.draft.tokenUsage,
         costUsd: coldRun.draft.llmCostUsd,
+        costJpy: coldRun.draft.llmCostJpy,
         cachedInputRatio: coldCachedRatio,
       },
       warm: {
@@ -199,6 +206,7 @@ async function main() {
         usedFallback: warmRun.draft.usedFallback,
         tokenUsage: warmRun.draft.tokenUsage,
         costUsd: warmRun.draft.llmCostUsd,
+        costJpy: warmRun.draft.llmCostJpy,
         cachedInputRatio: warmCachedRatio,
       },
       metadataVariant: {
@@ -207,13 +215,19 @@ async function main() {
         usedFallback: metadataVariantRun.draft.usedFallback,
         tokenUsage: metadataVariantRun.draft.tokenUsage,
         costUsd: metadataVariantRun.draft.llmCostUsd,
+        costJpy: metadataVariantRun.draft.llmCostJpy,
         cachedInputRatio: metadataVariantCachedRatio,
         meta: BENCHMARK_META_VARIANT,
       },
       externalApiCostUsdCold: coldRun.draft.llmCostUsd,
       externalApiCostUsdWarm: warmRun.draft.llmCostUsd,
       externalApiCostUsdMetadataVariant: metadataVariantRun.draft.llmCostUsd,
+      externalApiCostJpyCold: coldRun.draft.llmCostJpy,
+      externalApiCostJpyWarm: warmRun.draft.llmCostJpy,
+      externalApiCostJpyMetadataVariant: metadataVariantRun.draft.llmCostJpy,
       localSttApiCostUsd: 0,
+      localSttApiCostJpy: 0,
+      usdJpyRate,
     },
     totals: {
       coldElapsedSeconds: totalElapsedSecondsCold,
@@ -222,7 +236,12 @@ async function main() {
       externalApiCostUsdCold: coldRun.draft.llmCostUsd,
       externalApiCostUsdWarm: warmRun.draft.llmCostUsd,
       externalApiCostUsdMetadataVariant: metadataVariantRun.draft.llmCostUsd,
+      externalApiCostJpyCold: coldRun.draft.llmCostJpy,
+      externalApiCostJpyWarm: warmRun.draft.llmCostJpy,
+      externalApiCostJpyMetadataVariant: metadataVariantRun.draft.llmCostJpy,
       sttApiCostUsd: 0,
+      sttApiCostJpy: 0,
+      usdJpyRate,
     },
     generatedAt: new Date().toISOString(),
   };
@@ -261,6 +280,7 @@ async function main() {
     `- 出力トークン: ${coldRun.draft.tokenUsage.outputTokens.toLocaleString()}`,
     `- 合計トークン: ${coldRun.draft.tokenUsage.totalTokens.toLocaleString()}`,
     `- 1回あたりの LLM コスト: ${formatUsd(coldRun.draft.llmCostUsd)}`,
+    `- 1回あたりの LLM コスト（JPY）: ${formatJpy(coldRun.draft.llmCostJpy)}（${usdJpyRate}円/USD）`,
     "",
     "### 2回目（warm）",
     `- 実行時間: ${warmRun.llmElapsedSeconds.toFixed(1)}秒 (${formatSeconds(warmRun.llmElapsedSeconds)})`,
@@ -271,7 +291,8 @@ async function main() {
     `- 出力トークン: ${warmRun.draft.tokenUsage.outputTokens.toLocaleString()}`,
     `- 合計トークン: ${warmRun.draft.tokenUsage.totalTokens.toLocaleString()}`,
     `- 1回あたりの LLM コスト: ${formatUsd(warmRun.draft.llmCostUsd)}`,
-    `- 価格根拠: OpenAI API Pricing（2026-04-05 時点） GPT-5.4 入力 $2.50 / 1M tokens, Cached input $0.25 / 1M tokens, Output $15.00 / 1M tokens`,
+    `- 1回あたりの LLM コスト（JPY）: ${formatJpy(warmRun.draft.llmCostJpy)}（${usdJpyRate}円/USD）`,
+    `- 価格根拠: OpenAI API Pricing（2026-04-30 時点） GPT-5.5 入力 $5.00 / 1M tokens, Cached input $0.50 / 1M tokens, Output $30.00 / 1M tokens`,
     "",
     "### 3回目（warm, metadata variant）",
     `- 変更したメタデータ: 生徒=${BENCHMARK_META_VARIANT.studentName}, 面談日=${BENCHMARK_META_VARIANT.sessionDate}`,
@@ -283,12 +304,17 @@ async function main() {
     `- 出力トークン: ${metadataVariantRun.draft.tokenUsage.outputTokens.toLocaleString()}`,
     `- 合計トークン: ${metadataVariantRun.draft.tokenUsage.totalTokens.toLocaleString()}`,
     `- 1回あたりの LLM コスト: ${formatUsd(metadataVariantRun.draft.llmCostUsd)}`,
+    `- 1回あたりの LLM コスト（JPY）: ${formatJpy(metadataVariantRun.draft.llmCostJpy)}（${usdJpyRate}円/USD）`,
     "",
     "## 合計",
     `- STT の外部 API コスト: ${formatUsd(0)}`,
     `- 初回（cold）の外部 API コスト合計: ${formatUsd(coldRun.draft.llmCostUsd)}`,
     `- 2回目（warm）の外部 API コスト合計: ${formatUsd(warmRun.draft.llmCostUsd)}`,
     `- 3回目（warm, metadata variant）の外部 API コスト合計: ${formatUsd(metadataVariantRun.draft.llmCostUsd)}`,
+    `- STT の外部 API コスト（JPY）: ${formatJpy(0)}`,
+    `- 初回（cold）の外部 API コスト合計（JPY）: ${formatJpy(coldRun.draft.llmCostJpy)}`,
+    `- 2回目（warm）の外部 API コスト合計（JPY）: ${formatJpy(warmRun.draft.llmCostJpy)}`,
+    `- 3回目（warm, metadata variant）の外部 API コスト合計（JPY）: ${formatJpy(metadataVariantRun.draft.llmCostJpy)}`,
     `- STT + LLM 合計時間（cold）: ${totalElapsedSecondsCold.toFixed(1)}秒 (${formatSeconds(totalElapsedSecondsCold)})`,
     `- STT + LLM 合計時間（warm）: ${totalElapsedSecondsWarm.toFixed(1)}秒 (${formatSeconds(totalElapsedSecondsWarm)})`,
     `- STT + LLM 合計時間（warm, metadata variant）: ${totalElapsedSecondsMetadataVariant.toFixed(1)}秒 (${formatSeconds(totalElapsedSecondsMetadataVariant)})`,

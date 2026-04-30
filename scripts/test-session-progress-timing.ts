@@ -28,6 +28,8 @@ const timing = buildSessionProgressTimingSnapshot({
       llmCachedInputTokensActual: 300,
       llmOutputTokensActual: 520,
       llmCostUsd: 0.011,
+      llmCostJpy: 1.76,
+      llmCostUsdJpyRate: 160,
       finalizeJob: {
         durationMs: 12_000,
       },
@@ -77,6 +79,8 @@ assert.equal(timing.llmCachedInputTokens, 300);
 assert.equal(timing.llmCachedInputRatio, 0.25);
 assert.equal(timing.llmOutputTokens, 520);
 assert.equal(timing.llmCostUsd, 0.011);
+assert.equal(timing.llmCostJpy, 1.76);
+assert.equal(timing.llmCostUsdJpyRate, 160);
 
 const fallbackTiming = buildSessionProgressTimingSnapshot({
   sessionId: "session-2",

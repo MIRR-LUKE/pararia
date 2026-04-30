@@ -176,8 +176,8 @@
 }
 
 .deleteButton {
-  color: #ff9f99;
-  border-color: rgba(255, 159, 153, 0.18);
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 24%, var(--border));
 }
 
 .empty,

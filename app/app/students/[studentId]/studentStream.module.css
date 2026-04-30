@@ -8,7 +8,7 @@
   display: grid;
   place-items: center;
   padding: 24px 0 0;
-  border-top: 1px solid rgba(255, 255, 255, 0.09);
+  border-top: 1px solid var(--border);
   color: var(--muted);
   text-align: center;
   line-height: 1.7;
@@ -18,7 +18,7 @@
   width: 100%;
   padding: 12px 0;
   border: none;
-  border-top: 1px solid rgba(255, 255, 255, 0.09);
+  border-top: 1px solid var(--border);
   background: transparent;
   display: flex;
   align-items: center;
@@ -62,7 +62,7 @@
   right: 7px;
   height: 1.5px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.8);
+  background: color-mix(in srgb, var(--text) 74%, transparent);
 }
 
 .iconLine {
@@ -77,7 +77,7 @@
 .rowText {
   font-size: 12px;
   font-weight: 700;
-  color: #ffffff;
+  color: var(--text);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -103,7 +103,7 @@
   height: 30px;
   border-radius: 999px;
   background: var(--avatar);
-  color: #ffffff;
+  color: var(--avatar-contrast);
   display: grid;
   place-items: center;
   font-size: 10px;

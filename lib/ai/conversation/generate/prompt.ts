@@ -8,7 +8,7 @@ import {
 } from "../shared";
 import { formatDurationLabel } from "./normalize";
 
-const PROMPT_VERSION = "v5.4";
+const PROMPT_VERSION = "v5.5";
 
 type UserPromptBundle = {
   userPrompt: string;
@@ -17,14 +17,14 @@ type UserPromptBundle = {
 
 function forceGpt5Family(model: string) {
   const normalized = String(model ?? "").trim();
-  if (!normalized) return "gpt-5.4";
-  return normalized.includes("gpt-5") ? normalized : "gpt-5.4";
+  if (!normalized) return "gpt-5.5";
+  return normalized.includes("gpt-5") ? normalized : "gpt-5.5";
 }
 
 export function getFastModel() {
-  const requested = forceGpt5Family(process.env.LLM_MODEL_FAST || process.env.LLM_MODEL || "gpt-5.4");
-  if (/gpt-5(?:\.4)?-(mini|nano)/i.test(requested)) {
-    return "gpt-5.4";
+  const requested = forceGpt5Family(process.env.LLM_MODEL_FAST || process.env.LLM_MODEL || "gpt-5.5");
+  if (/gpt-5(?:\.\d+)?-(mini|nano)/i.test(requested)) {
+    return "gpt-5.5";
   }
   return requested;
 }
@@ -68,6 +68,9 @@ export function resolvePromptCacheSettings(model: string, input: DraftGeneration
 function buildStructuredStablePrefixLines(sessionType: SessionMode, draftInputLabel: string) {
   return [
     "固定仕様:",
+    "- 期待成果: 管理者が後から読んで、生徒の現在地・次の指導・進路論点・次回確認をすぐ判断できる面談ログにする。",
+    "- 成功条件: transcript にある事実だけを使い、短く具体的で、保護者レポートの材料にも転用できる密度にする。",
+    "- GPT-5.5 では工程を膨らませず、見えている証拠から最短で出力 contract を満たす。",
     "- 先にこの固定仕様を読み、そのあとに可変メタデータと transcript を読む。",
     "- 可変メタデータは基本情報の補助にだけ使い、本文の論点は transcript の事実から拾う。",
     "- transcript にない事実、感想、補足設定は足さない。",

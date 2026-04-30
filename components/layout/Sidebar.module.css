@@ -294,7 +294,7 @@
   height: 30px;
   border-radius: 999px;
   background: var(--avatar);
-  color: #ffffff;
+  color: var(--avatar-contrast);
   display: grid;
   place-items: center;
   font-size: 10px;

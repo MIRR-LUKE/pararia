@@ -1,6 +1,7 @@
 import type { ChatResult } from "./types";
 
 const DEFAULT_LLM_TIMEOUT_MS = clampInt(Number(process.env.LLM_CALL_TIMEOUT_MS ?? 90000), 10000, 180000);
+type ReasoningEffort = "none" | "low" | "medium" | "high" | "xhigh";
 
 function getLlmApiKey() {
   return process.env.LLM_API_KEY || process.env.OPENAI_API_KEY || "";
@@ -9,6 +10,17 @@ function getLlmApiKey() {
 function clampInt(value: number, min: number, max: number) {
   if (!Number.isFinite(value)) return min;
   return Math.max(min, Math.min(max, Math.floor(value)));
+}
+
+function normalizeReasoningEffort(value: unknown): ReasoningEffort | undefined {
+  if (value === "none" || value === "low" || value === "medium" || value === "high" || value === "xhigh") {
+    return value;
+  }
+  return undefined;
+}
+
+function resolveReasoningEffort(value?: ReasoningEffort) {
+  return normalizeReasoningEffort(value) ?? normalizeReasoningEffort(process.env.LLM_REASONING_EFFORT) ?? "low";
 }
 
 type ChatCompletionResponse = {
@@ -287,6 +299,7 @@ async function callResponsesApi(params: {
   timeoutMs?: number;
   prompt_cache_key?: string;
   prompt_cache_retention?: "in_memory" | "24h";
+  reasoning_effort?: ReasoningEffort;
   verbosity?: "low" | "medium" | "high";
   textFormat?: Record<string, unknown>;
 }): Promise<ChatResult> {
@@ -300,7 +313,7 @@ async function callResponsesApi(params: {
     model: params.model,
     input: params.messages,
     store: false,
-    reasoning: { effort: "none" },
+    reasoning: { effort: resolveReasoningEffort(params.reasoning_effort) },
     text: {
       format: params.textFormat ?? { type: "text" },
       ...(params.verbosity ? { verbosity: params.verbosity } : {}),
@@ -352,6 +365,10 @@ async function callResponsesApi(params: {
           retryBody.text = nextText;
           changed = true;
         }
+        if (/reasoning/i.test(raw)) {
+          delete retryBody.reasoning;
+          changed = true;
+        }
         if (changed) {
           body = retryBody;
           continue;
@@ -386,6 +403,7 @@ export async function callTextGeneration(params: {
   prompt_cache_key?: string;
   prompt_cache_retention?: "in_memory" | "24h";
   verbosity?: "low" | "medium" | "high";
+  reasoning_effort?: ReasoningEffort;
 }) {
   try {
     return await callResponsesApi(params);
@@ -412,6 +430,7 @@ export async function callJsonGeneration(params: {
   timeoutMs?: number;
   prompt_cache_key?: string;
   prompt_cache_retention?: "in_memory" | "24h";
+  reasoning_effort?: ReasoningEffort;
   temperature?: number;
   json_schema?: {
     name: string;
@@ -428,6 +447,7 @@ export async function callJsonGeneration(params: {
       max_output_tokens: params.max_output_tokens,
       prompt_cache_key: params.prompt_cache_key,
       prompt_cache_retention: params.prompt_cache_retention,
+      reasoning_effort: params.reasoning_effort,
       textFormat: params.json_schema
         ? {
             type: "json_schema",

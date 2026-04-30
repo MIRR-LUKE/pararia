@@ -138,6 +138,7 @@ export async function generateJsonObject(params: {
   timeoutMs?: number;
   prompt_cache_key?: string;
   prompt_cache_retention?: "in_memory" | "24h";
+  reasoning_effort?: "none" | "low" | "medium" | "high" | "xhigh";
   temperature?: number;
   json_schema?: {
     name: string;
@@ -152,6 +153,7 @@ export async function generateJsonObject(params: {
     timeoutMs: params.timeoutMs,
     prompt_cache_key: params.prompt_cache_key,
     prompt_cache_retention: params.prompt_cache_retention,
+    reasoning_effort: params.reasoning_effort,
     temperature: params.temperature,
     json_schema: params.json_schema,
   });

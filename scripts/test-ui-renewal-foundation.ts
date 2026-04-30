@@ -16,6 +16,10 @@ function assertNotMatches(source: string, pattern: RegExp, message: string) {
   assert.equal(pattern.test(source), false, message);
 }
 
+function assertMatches(source: string, pattern: RegExp, message: string) {
+  assert.ok(pattern.test(source), message);
+}
+
 const globals = read("app/globals.css");
 const buttonTsx = read("components/ui/Button.tsx");
 const buttonCss = read("components/ui/Button.module.css");
@@ -23,6 +27,9 @@ const sidebarTsx = read("components/layout/Sidebar.tsx");
 const sidebarCss = read("components/layout/Sidebar.module.css");
 const loginForm = read("app/login/LoginForm.tsx");
 const renewalPlan = read("docs/ui-renewal-plan.md");
+const studentDetailCss = read("app/app/students/[studentId]/studentDetail.module.css");
+const studentStreamCss = read("app/app/students/[studentId]/studentStream.module.css");
+const studentsCss = read("app/app/students/students.module.css");
 
 const implementationSources = [
   globals,
@@ -36,6 +43,9 @@ const implementationSources = [
   read("components/ui/PageLoadingState.module.css"),
   sidebarTsx,
   sidebarCss,
+  studentDetailCss,
+  studentStreamCss,
+  studentsCss,
   read("components/layout/AppHeader.module.css"),
   read("app/login/login.module.css"),
   read("app/app/dashboard/dashboard.module.css"),
@@ -47,6 +57,8 @@ assertIncludes(globals, "--font-ja", "Japanese base font token must be defined")
 assertIncludes(globals, "--font-en", "English font token must be defined");
 assertIncludes(globals, "--surface-inverse", "Monochrome inverse surface token must exist for primary actions");
 assertIncludes(globals, "--danger-soft", "Status soft tokens must exist for release states");
+assertIncludes(globals, "--avatar-contrast", "Avatar contrast token must exist for light and dark themes");
+assertIncludes(globals, "--danger-contrast", "Danger contrast token must exist for destructive actions");
 
 assertIncludes(buttonTsx, 'variant?: "primary" | "secondary" | "ghost" | "danger"', "Button must expose a destructive variant");
 assertIncludes(buttonTsx, "loading?: boolean", "Button must expose a loading state");
@@ -74,6 +86,18 @@ assertNotMatches(
   implementationSources,
   /font-size:\s*clamp\(|letter-spacing:\s*-/,
   "Foundation implementation must avoid viewport-scaled type and negative letter spacing"
+);
+
+assertNotMatches(
+  [studentDetailCss, studentStreamCss, studentsCss].join("\n"),
+  /color:\s*#(?:fff(?:fff)?|f[0-9a-f]{5}|ffd[0-9a-f]{3}|ff9f99)/i,
+  "Student and parent-report UI must not use hard-coded light text colors that disappear on light surfaces"
+);
+
+assertMatches(
+  studentDetailCss,
+  /\.parentReportParagraph,\s*\.parentReportFixedGreeting,\s*\.parentReportSignatureLine\s*\{[^}]*color:\s*var\(--text\)/,
+  "Parent report body text must be explicitly covered by visible theme-token styling"
 );
 
 console.log("ui renewal foundation regression checks passed");

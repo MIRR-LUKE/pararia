@@ -107,6 +107,7 @@
     "test:data-retention-dry-run": "tsx scripts/test-data-retention-dry-run.ts",
     "test:teacher-recording-analytics": "tsx scripts/test-teacher-recording-analytics.ts",
     "test:conversation-log-quality": "tsx scripts/test-conversation-log-quality.ts",
+    "test:openai-pricing-jpy": "tsx scripts/test-openai-pricing-jpy.ts",
     "verify:teacher": "npm run test:teacher-app-native-auth && npm run test:teacher-recording-audio-dispatch && npm run test:teacher-recording-upload-quota && npm run test:teacher-recording-progress-recovery && npm run test:teacher-recording-progress-dispatch && npm run test:teacher-recording-status-rules && npm run test:teacher-recording-confirm-idempotency && npm run test:teacher-app-notifications && npm run test:teacher-recording-analytics && npm run test:teacher-recording-smoke",
     "test:android-release-handoff-preflight": "tsx scripts/test-android-release-handoff-preflight.ts",
     "test:runpod-measure-worker-env": "tsx scripts/test-runpod-measure-worker-env.ts",

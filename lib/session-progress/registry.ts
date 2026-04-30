@@ -23,7 +23,7 @@ const SESSION_PROGRESS_READY_COPY: SessionProgressPhaseCopy = {
 const SESSION_PROGRESS_GENERATING_COPY: SessionProgressPhaseCopy = {
   statusLabel: "ログ生成中",
   title: "面談の要点を整理しています",
-  description: "gpt-5.4 で文字起こしを要約し、面談ログ本文を生成しています。",
+  description: "gpt-5.5 で文字起こしを要約し、面談ログ本文を生成しています。",
 };
 
 const SESSION_PROGRESS_RECEIVED_COPY: SessionProgressPhaseCopy = {

@@ -6,9 +6,14 @@ type OpenAiTextPricing = {
   outputPerMillion: number;
 };
 
-// 2026-04-05 時点の OpenAI 公式 API Pricing を元にした計算用定数。
+// 2026-04-30 時点の OpenAI 公式 API Pricing を元にした計算用定数。
 // https://openai.com/api/pricing/
 const TEXT_PRICING: Record<string, OpenAiTextPricing> = {
+  "gpt-5.5": {
+    inputPerMillion: 5,
+    cachedInputPerMillion: 0.5,
+    outputPerMillion: 30,
+  },
   "gpt-5.4": {
     inputPerMillion: 2.5,
     cachedInputPerMillion: 0.25,
@@ -28,11 +33,18 @@ const TEXT_PRICING: Record<string, OpenAiTextPricing> = {
 
 function normalizeModelName(model: string) {
   const normalized = String(model ?? "").trim().toLowerCase();
-  if (!normalized) return "gpt-5.4";
+  if (!normalized) return "gpt-5.5";
+  if (normalized.includes("gpt-5.5")) return "gpt-5.5";
   if (normalized.includes("gpt-5.4-mini")) return "gpt-5.4-mini";
   if (normalized.includes("gpt-5.4-nano")) return "gpt-5.4-nano";
   if (normalized.includes("gpt-5.4")) return "gpt-5.4";
   return normalized;
+}
+
+export function getOpenAiCostUsdJpyRate() {
+  const value = Number(process.env.OPENAI_COST_USD_JPY_RATE ?? process.env.USD_JPY_RATE ?? 160);
+  if (!Number.isFinite(value) || value <= 0) return 160;
+  return value;
 }
 
 export function resolveOpenAiTextPricing(model: string) {
@@ -53,4 +65,12 @@ export function calculateOpenAiTextCostUsd(model: string, usage?: Partial<LlmTok
     (cachedInputTokens / 1_000_000) * pricing.cachedInputPerMillion +
     (outputTokens / 1_000_000) * pricing.outputPerMillion
   );
+}
+
+export function calculateOpenAiTextCostJpy(
+  model: string,
+  usage?: Partial<LlmTokenUsage> | null,
+  usdJpyRate = getOpenAiCostUsdJpyRate()
+) {
+  return calculateOpenAiTextCostUsd(model, usage) * usdJpyRate;
 }

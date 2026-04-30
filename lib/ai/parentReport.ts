@@ -28,13 +28,14 @@ import { generateSmokeParentReport, isSmokeParentReportEnabled } from "./parentR
 const REPORT_PRIMARY_MODEL =
   process.env.LLM_MODEL_REPORT ||
   process.env.LLM_MODEL_REPORT_PRIMARY ||
-  "gpt-4o-mini";
+  process.env.LLM_MODEL ||
+  "gpt-5.5";
 
 const REPORT_REPAIR_MODEL =
   process.env.LLM_MODEL_REPORT_REPAIR ||
   process.env.LLM_MODEL_FINAL ||
   process.env.LLM_MODEL ||
-  "gpt-5.4";
+  "gpt-5.5";
 
 const REPORT_PRIMARY_TIMEOUT_MS = Number(process.env.LLM_REPORT_TIMEOUT_MS ?? 20000);
 const REPORT_REPAIR_TIMEOUT_MS = Number(process.env.LLM_REPORT_REPAIR_TIMEOUT_MS ?? 30000);
@@ -104,6 +105,7 @@ async function callReportModel(params: {
   userPrompt: string;
   timeoutMs: number;
   maxOutputTokens: number;
+  reasoningEffort: "low" | "medium";
 }) {
   return generateJsonObject({
     model: params.model,
@@ -114,6 +116,7 @@ async function callReportModel(params: {
     temperature: 0.3,
     timeoutMs: params.timeoutMs,
     max_output_tokens: params.maxOutputTokens,
+    reasoning_effort: params.reasoningEffort,
     json_schema: {
       name: "parent_report_letter_body",
       strict: true,
@@ -252,6 +255,7 @@ ${evidencePrompt}
     userPrompt,
     timeoutMs: REPORT_PRIMARY_TIMEOUT_MS,
     maxOutputTokens: REPORT_PRIMARY_MAX_OUTPUT_TOKENS,
+    reasoningEffort: "low",
   });
   const fallbackDraft = defaultReportDraft(createdAt);
   const fallbackReport = sanitizeParentReportJson(fallbackDraft, fallbackDraft, context);
@@ -273,6 +277,7 @@ ${evidencePrompt}
       }),
       timeoutMs: REPORT_REPAIR_TIMEOUT_MS,
       maxOutputTokens: REPORT_REPAIR_MAX_OUTPUT_TOKENS,
+      reasoningEffort: "medium",
     });
     const retryReportJson = sanitizeParentReportJson(readGeneratedJson<ParentReportDraftJson>(retryCall), fallbackDraft, context);
     const retryIssues = evaluateParentReportQuality(retryReportJson, fallbackReport);

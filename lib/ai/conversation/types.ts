@@ -42,6 +42,8 @@ export type DraftGenerationResult = {
   inputTokensEstimate: number;
   tokenUsage: LlmTokenUsage;
   llmCostUsd: number;
+  llmCostJpy: number;
+  llmCostUsdJpyRate: number;
   promptCacheKey?: string;
   promptCacheRetention?: PromptCacheRetention;
   promptCacheStablePrefixChars?: number;

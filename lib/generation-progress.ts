@@ -193,7 +193,7 @@ export function buildParentReportGenerationProgress(input: {
   const descriptionByStage: Record<ParentReportStage, string> = {
     validating: `${input.selectedCount}件のログが生成対象として使えるか確認しています。`,
     gathering: "選択したログの要点と共有材料を整理しています。",
-    drafting: "gpt-5.4 で保護者レポート本文を生成しています。",
+    drafting: "gpt-5.5 で保護者レポート本文を生成しています。",
     saving: "生成した下書きを保存して一覧へ反映しています。",
     done: `${Math.max(input.selectedCount, 1)}件のログから下書きを保存しました。`,
     error: input.lastError?.trim() || "もう一度お試しください。",

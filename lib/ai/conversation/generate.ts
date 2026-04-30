@@ -1,4 +1,8 @@
-import { calculateOpenAiTextCostUsd } from "@/lib/ai/openai-pricing";
+import {
+  calculateOpenAiTextCostJpy,
+  calculateOpenAiTextCostUsd,
+  getOpenAiCostUsdJpyRate,
+} from "@/lib/ai/openai-pricing";
 import {
   buildInterviewMarkdownSystemPrompt,
 } from "./spec";
@@ -73,6 +77,7 @@ export async function generateConversationDraftFast(input: DraftGenerationInput)
       max_output_tokens: 2200,
       prompt_cache_key: promptCacheKey,
       prompt_cache_retention: promptCacheRetention ?? undefined,
+      reasoning_effort: "low",
       verbosity: "low",
     });
     tokenUsage = mergeTokenUsage(tokenUsage, result.usage);
@@ -110,6 +115,7 @@ export async function generateConversationDraftFast(input: DraftGenerationInput)
       max_output_tokens: 2600,
       prompt_cache_key: promptCacheKey,
       prompt_cache_retention: promptCacheRetention ?? undefined,
+      reasoning_effort: "medium",
       verbosity: "medium",
     });
     tokenUsage = mergeTokenUsage(tokenUsage, retryResult.usage);
@@ -152,6 +158,8 @@ export async function generateConversationDraftFast(input: DraftGenerationInput)
     inputTokensEstimate: promptInputTokensEstimate,
     tokenUsage,
     llmCostUsd: calculateOpenAiTextCostUsd(model, tokenUsage),
+    llmCostJpy: calculateOpenAiTextCostJpy(model, tokenUsage),
+    llmCostUsdJpyRate: getOpenAiCostUsdJpyRate(),
     ...promptCacheDiagnostics,
   };
 }

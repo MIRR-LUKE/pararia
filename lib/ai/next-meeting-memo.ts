@@ -1,4 +1,8 @@
-import { calculateOpenAiTextCostUsd } from "@/lib/ai/openai-pricing";
+import {
+  calculateOpenAiTextCostJpy,
+  calculateOpenAiTextCostUsd,
+  getOpenAiCostUsdJpyRate,
+} from "@/lib/ai/openai-pricing";
 import {
   buildConversationArtifactFromMarkdown,
   parseConversationArtifact,
@@ -20,8 +24,8 @@ import {
 const NEXT_MEETING_MEMO_MODEL =
   process.env.LLM_MODEL_FAST ||
   process.env.LLM_MODEL ||
-  "gpt-5.4";
-const PROMPT_VERSION = "next-meeting-memo/v3";
+  "gpt-5.5";
+const PROMPT_VERSION = "next-meeting-memo/v4-gpt-5.5";
 
 type NextMeetingMemoTokenUsage = LlmTokenUsage;
 
@@ -35,6 +39,8 @@ export type NextMeetingMemoResult = {
   sourceSections: Array<{ title: string; lines: string[] }>;
   promptCacheKey?: string;
   promptCacheRetention?: "in_memory" | "24h";
+  llmCostJpy: number;
+  llmCostUsdJpyRate: number;
 };
 
 type NextMeetingMemoInput = {
@@ -447,6 +453,7 @@ export async function generateNextMeetingMemo(input: NextMeetingMemoInput): Prom
       max_output_tokens: 500,
       prompt_cache_key: promptCacheKey,
       prompt_cache_retention: promptCacheRetention,
+      reasoning_effort: "low",
       temperature: 0.1,
       json_schema: {
         name: "next_meeting_memo",
@@ -476,6 +483,8 @@ export async function generateNextMeetingMemo(input: NextMeetingMemoInput): Prom
       apiCalls,
       tokenUsage,
       llmCostUsd: calculateOpenAiTextCostUsd(model, tokenUsage),
+      llmCostJpy: calculateOpenAiTextCostJpy(model, tokenUsage),
+      llmCostUsdJpyRate: getOpenAiCostUsdJpyRate(),
       sourceSections: source.sections,
       promptCacheKey,
       promptCacheRetention,

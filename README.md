@@ -378,7 +378,7 @@ npm run test:student-room-route
 そのための実装:
 
 - ログ生成は `FINALIZE` の 1 call に寄せる
-- 会話ログ生成のモデルは `gpt-5.4` を使い、mini / nano へ自動で落とさない
+- 会話ログ生成のモデルは `gpt-5.5` を使い、mini / nano へ自動で落とさない
 - 1 回の生成で structured artifact を作り、表示用 markdown はそこから派生させる
 - hidden な polish を走らせない
 - transcript 表示整形は `FORMAT` に分離し、常時実行しない
@@ -638,7 +638,7 @@ GPU ごとの最初の目安:
   - `finalize p50`: `14.6秒`
   - `post-STT unknown p50/p95`: `0ms / 0ms`
   - `sttPrepareMs / sttTranscribeWorkerMs / sttFinalizeMs / sttVadParameters`: すべて non-null
-  - `promptCacheKey`: `conversation-pipeline:v5.4:conversation-draft:INTERVIEW`
+  - `promptCacheKey`: `conversation-pipeline:v5.5:conversation-draft:INTERVIEW`
   - `llmCachedInputTokens`: `1792` を production 相当 run で確認し、0 固定から復帰
   - worker runtime revision: `git-853fba84c3fb673645f348dac594d96b8d303040`
   - 計測 JSON: `.tmp/runpod-ux-close-157-159-v54/run-*.json`
@@ -646,7 +646,7 @@ GPU ごとの最初の目安:
 ### 7.5 prompt cache と実コストの見方
 
 - OpenAI への会話ログ生成は、リクエストとしては毎回全文を送る
-- ただし `gpt-5.4` では prompt cache が効くので、同じ先頭部分は初回より安くなる
+- ただし `gpt-5.5` では prompt cache が効くので、同じ先頭部分は初回より安くなる
 - Pararia では:
   - system prompt の固定ルール
   - 構造化 JSON schema に関する固定指示
@@ -674,7 +674,7 @@ GPU ごとの最初の目安:
 - 重要:
   - 圧縮はあくまで `長尺入力を安全に扱うための evidence pick`
   - 生成物が弱い / 根拠が薄い場合は repair または deterministic recovery に進む
-  - repair でもモデルは落とさず、同じ `gpt-5.4` で再試行する
+  - repair でもモデルは落とさず、同じ `gpt-5.5` で再試行する
 
 ### 7.6 速度を落とすものとして明示的にやめたこと
 
@@ -810,7 +810,7 @@ GPU ごとの最初の目安:
 - 未選択ログは入れない
 - 前回レポートは入れない
 - profile snapshot は入れない
-- 初回生成が弱すぎるときだけ、同じ `gpt-5.4` で 1 回だけ再生成する
+- 初回生成が弱すぎるときだけ、同じ `gpt-5.5` で 1 回だけ再生成する
 - 生成時の `model / apiCalls / tokenUsage / retried` は `Report.qualityChecksJson.generationMeta` に残す
 
 ### 10.2 UI ルール

@@ -1,4 +1,8 @@
-import { calculateOpenAiTextCostUsd } from "@/lib/ai/openai-pricing";
+import {
+  calculateOpenAiTextCostJpy,
+  calculateOpenAiTextCostUsd,
+  getOpenAiCostUsdJpyRate,
+} from "@/lib/ai/openai-pricing";
 import {
   buildConversationArtifactFromMarkdown,
   renderConversationArtifactMarkdown,
@@ -273,6 +277,8 @@ export function buildMarkdownDraftResult(params: {
     inputTokensEstimate: params.promptInputTokensEstimate,
     tokenUsage: params.tokenUsage,
     llmCostUsd: calculateOpenAiTextCostUsd(params.model, params.tokenUsage),
+    llmCostJpy: calculateOpenAiTextCostJpy(params.model, params.tokenUsage),
+    llmCostUsdJpyRate: getOpenAiCostUsdJpyRate(),
   } satisfies DraftGenerationResult;
 }
 

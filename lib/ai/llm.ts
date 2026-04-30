@@ -6,7 +6,7 @@ import {
 } from "@/lib/user-facing-japanese";
 
 const LLM_API_KEY = process.env.LLM_API_KEY || process.env.OPENAI_API_KEY || "";
-const MODEL_FAST = process.env.LLM_MODEL_FAST || process.env.LLM_MODEL || "gpt-5.4";
+const MODEL_FAST = process.env.LLM_MODEL_FAST || process.env.LLM_MODEL || "gpt-5.5";
 
 type ChatCompletionResponse = {
   choices?: Array<{

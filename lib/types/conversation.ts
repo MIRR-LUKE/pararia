@@ -29,6 +29,8 @@ export type ConversationQualityMeta = {
   llmCachedInputTokensActual?: number;
   llmOutputTokensActual?: number;
   llmCostUsd?: number;
+  llmCostJpy?: number;
+  llmCostUsdJpyRate?: number;
   promptCacheKey?: string | null;
   promptCacheRetention?: "in_memory" | "24h" | null;
   promptCacheStablePrefixChars?: number;

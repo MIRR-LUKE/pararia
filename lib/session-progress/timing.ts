@@ -48,6 +48,8 @@ export type SessionProgressTimingSnapshot = {
   llmCachedInputRatio: number | null;
   llmOutputTokens: number | null;
   llmCostUsd: number | null;
+  llmCostJpy: number | null;
+  llmCostUsdJpyRate: number | null;
 };
 
 type BuildSessionProgressTimingInput = {
@@ -208,6 +210,8 @@ export function buildSessionProgressTimingSnapshot(
   const llmOutputTokens = readPositiveNumber(conversationMeta.llmOutputTokensActual);
   const llmApiCalls = readPositiveNumber(conversationMeta.llmApiCallsFinalize);
   const llmCostUsd = readNonNegativeNumber(conversationMeta.llmCostUsd);
+  const llmCostJpy = readNonNegativeNumber(conversationMeta.llmCostJpy);
+  const llmCostUsdJpyRate = readNonNegativeNumber(conversationMeta.llmCostUsdJpyRate);
   const finalizeQueueLagSeconds = toRoundedSecondsOrNull(readNonNegativeNumber(finalizeJob?.lastQueueLagMs ?? null));
   const llmCachedInputRatio =
     llmInputTokens && llmCachedInputTokens !== null && llmInputTokens > 0
@@ -245,5 +249,7 @@ export function buildSessionProgressTimingSnapshot(
     llmCachedInputRatio,
     llmOutputTokens,
     llmCostUsd,
+    llmCostJpy,
+    llmCostUsdJpyRate,
   };
 }
